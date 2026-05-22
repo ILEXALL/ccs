@@ -8,9 +8,11 @@ import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_map/flutter_map.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import 'firebase_options.dart';
 
@@ -1003,10 +1005,12 @@ const demoSpots = [
 ];
 
 List<CarSpot> approvedPublicSpots() {
-  return [
-    ...demoSpots.where((spot) => spot.status == SpotStatus.approved),
-    ...reviewSpots.value.where((spot) => spot.status == SpotStatus.approved),
-  ];
+  // Public Explore/Map must show only real Firebase spots.
+  // Demo spots stay in code as backup data, but they should not reappear
+  // after an admin deletes an approved Firebase spot.
+  return reviewSpots.value
+      .where((spot) => spot.status == SpotStatus.approved)
+      .toList();
 }
 
 List<CarSpot> pendingReviewSpots() {
@@ -2167,6 +2171,153 @@ class EmptyStateCard extends StatelessWidget {
   }
 }
 
+
+Future<void> launchExternalUrl(BuildContext context, String rawUrl) async {
+  final trimmedUrl = rawUrl.trim();
+
+  if (trimmedUrl.isEmpty) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        backgroundColor: Colors.redAccent,
+        content: Text(
+          'No link added for this spot.',
+          style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+        ),
+      ),
+    );
+    return;
+  }
+
+  final uri = Uri.tryParse(trimmedUrl);
+
+  if (uri == null || !uri.hasScheme) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        backgroundColor: Colors.redAccent,
+        content: Text(
+          'This link is not valid yet.',
+          style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+        ),
+      ),
+    );
+    return;
+  }
+
+  final opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
+
+  if (!opened && context.mounted) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        backgroundColor: Colors.redAccent,
+        content: Text(
+          'Could not open this link.',
+          style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+        ),
+      ),
+    );
+  }
+}
+
+Future<void> openWazeRoute(BuildContext context, CarSpot spot) async {
+  final lat = spot.coordinates.latitude;
+  final lng = spot.coordinates.longitude;
+  final wazeUri = Uri.parse('waze://?ll=$lat,$lng&navigate=yes');
+  final webUri = Uri.parse('https://waze.com/ul?ll=$lat,$lng&navigate=yes');
+
+  try {
+    final openedWaze = await launchUrl(
+      wazeUri,
+      mode: LaunchMode.externalApplication,
+    );
+
+    if (openedWaze) {
+      return;
+    }
+
+    await launchUrl(webUri, mode: LaunchMode.externalApplication);
+  } catch (_) {
+    await launchUrl(webUri, mode: LaunchMode.externalApplication);
+  }
+}
+
+Future<Position?> getCurrentPhoneLocation(BuildContext context) async {
+  final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+
+  if (!serviceEnabled) {
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          backgroundColor: Colors.redAccent,
+          content: Text(
+            'Turn on phone location to show distance.',
+            style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+          ),
+        ),
+      );
+    }
+    return null;
+  }
+
+  var permission = await Geolocator.checkPermission();
+
+  if (permission == LocationPermission.denied) {
+    permission = await Geolocator.requestPermission();
+  }
+
+  if (permission == LocationPermission.denied ||
+      permission == LocationPermission.deniedForever) {
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          backgroundColor: Colors.redAccent,
+          content: Text(
+            'Location permission is needed for distance.',
+            style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+          ),
+        ),
+      );
+    }
+    return null;
+  }
+
+  return Geolocator.getCurrentPosition(
+    locationSettings: const LocationSettings(
+      accuracy: LocationAccuracy.medium,
+    ),
+  );
+}
+
+double distanceToSpotInKm(Position position, CarSpot spot) {
+  const distance = Distance();
+
+  return distance.as(
+    LengthUnit.Kilometer,
+    LatLng(position.latitude, position.longitude),
+    spot.coordinates,
+  );
+}
+
+String formatDistanceKm(double value) {
+  if (value < 1) {
+    return '${(value * 1000).round()} m';
+  }
+
+  return '${value.toStringAsFixed(1)} km';
+}
+
+String estimateDriveTime(double distanceKm) {
+  final minutes = (distanceKm / 35 * 60).clamp(2, 180).round();
+
+  if (minutes < 60) {
+    return '~$minutes min';
+  }
+
+  final hours = minutes ~/ 60;
+  final rest = minutes % 60;
+
+  return rest == 0 ? '~$hours h' : '~$hours h $rest min';
+}
+
 class SpotDetailScreen extends StatefulWidget {
   final CarSpot spot;
 
@@ -2298,6 +2449,8 @@ class _SpotDetailScreenState extends State<SpotDetailScreen> {
                 ),
                 const SizedBox(height: 22),
                 SaveSpotButton(spot: spot),
+                const SizedBox(height: 12),
+                SpotRouteActions(spot: spot),
                 const SizedBox(height: 24),
                 const Text(
                   'Reel link',
@@ -2308,17 +2461,31 @@ class _SpotDetailScreenState extends State<SpotDetailScreen> {
                   ),
                 ),
                 const SizedBox(height: 10),
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(14),
-                  decoration: BoxDecoration(
-                    color: panel,
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(color: Colors.white12),
-                  ),
-                  child: Text(
-                    spot.reelLink,
-                    style: const TextStyle(color: Colors.white70),
+                InkWell(
+                  onTap: () => launchExternalUrl(context, spot.reelLink),
+                  borderRadius: BorderRadius.circular(16),
+                  child: Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: panel,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: Colors.white12),
+                    ),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            spot.reelLink.isEmpty ? 'No reel link added' : spot.reelLink,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(color: Colors.white70),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        const Icon(Icons.open_in_new, color: blue, size: 18),
+                      ],
+                    ),
                   ),
                 ),
                 const SizedBox(height: 24),
@@ -2327,6 +2494,117 @@ class _SpotDetailScreenState extends State<SpotDetailScreen> {
                   onRatingChanged: updateVisibleRating,
                 ),
               ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+
+class SpotRouteActions extends StatefulWidget {
+  final CarSpot spot;
+
+  const SpotRouteActions({super.key, required this.spot});
+
+  @override
+  State<SpotRouteActions> createState() => _SpotRouteActionsState();
+}
+
+class _SpotRouteActionsState extends State<SpotRouteActions> {
+  bool isLoadingDistance = false;
+  double? distanceKm;
+
+  @override
+  void initState() {
+    super.initState();
+    loadDistance();
+  }
+
+  Future<void> loadDistance() async {
+    if (isLoadingDistance) {
+      return;
+    }
+
+    setState(() => isLoadingDistance = true);
+
+    final position = await getCurrentPhoneLocation(context);
+
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      distanceKm = position == null
+          ? null
+          : distanceToSpotInKm(position, widget.spot);
+      isLoadingDistance = false;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final distanceText = distanceKm == null
+        ? (isLoadingDistance ? 'Checking distance...' : 'Distance unavailable')
+        : '${formatDistanceKm(distanceKm!)} away';
+    final timeText = distanceKm == null ? 'Open route' : estimateDriveTime(distanceKm!);
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: panel,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.white12),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 42,
+            height: 42,
+            decoration: BoxDecoration(
+              color: blue.withValues(alpha: 0.16),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: const Icon(Icons.route, color: blue),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  distanceText,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  timeText,
+                  style: const TextStyle(color: Colors.white54),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 10),
+          SizedBox(
+            height: 42,
+            child: ElevatedButton.icon(
+              onPressed: () => openWazeRoute(context, widget.spot),
+              icon: const Icon(Icons.navigation, size: 17),
+              label: const Text('Waze'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: blue,
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
+                ),
+              ),
             ),
           ),
         ],
@@ -2473,8 +2751,6 @@ class _SpotReviewsSectionState extends State<SpotReviewsSection> {
                   ),
                 ),
                 const Spacer(),
-                const Icon(Icons.star, color: blue, size: 18),
-                const SizedBox(width: 5),
                 Text(
                   reviews.isEmpty
                       ? 'No reviews yet'

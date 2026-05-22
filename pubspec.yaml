@@ -1,4 +1,4 @@
-name: ccs_app
+﻿name: ccs_app
 description: "A new Flutter project."
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
@@ -41,6 +41,8 @@ dependencies:
   latlong2: ^0.9.1
   google_sign_in: ^7.2.0
   shared_preferences: ^2.5.5
+  url_launcher: ^6.3.2
+  geolocator: ^14.0.2
 
 dev_dependencies:
   flutter_test:
