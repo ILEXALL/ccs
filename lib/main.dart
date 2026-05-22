@@ -1,4 +1,4 @@
-import 'dart:async';
+﻿import 'dart:async';
 import 'dart:io';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -71,20 +71,8 @@ const photoPickerChannel = MethodChannel('ccs/photo_picker');
 final submittedSpots = ValueNotifier<List<CarSpot>>([]);
 final savedSpots = ValueNotifier<List<CarSpot>>([]);
 final reviewSpots = ValueNotifier<List<CarSpot>>([]);
-final userSettings = ValueNotifier<UserSettingsData>(
-  const UserSettingsData(
-    instagram: 'https://instagram.com/ccs.lv',
-    tiktok: 'https://tiktok.com/@ccs',
-    telegram: 'https://t.me/ccs_lv',
-    reviewNotifications: true,
-    likeNotifications: true,
-    commentNotifications: false,
-    newSpotNotifications: true,
-    publicProfile: true,
-    showSavedSpots: false,
-    showGarage: true,
-  ),
-);
+final userSettings = ValueNotifier<UserSettingsData>(defaultUserSettings());
+final garageCars = ValueNotifier<List<GarageCar>>(defaultGarageCars());
 
 Future<String?> pickPhotoFromPhone(BuildContext context) async {
   try {
@@ -121,6 +109,8 @@ class AppUser {
   final String username;
   final String email;
   final String? photoUrl;
+  final String bio;
+  final String? avatarPath;
   final UserRole role;
   final String city;
   final String country;
@@ -131,6 +121,8 @@ class AppUser {
     required this.username,
     required this.email,
     this.photoUrl,
+    this.bio = 'Find. Drive. Shoot.',
+    this.avatarPath,
     required this.role,
     required this.city,
     required this.country,
@@ -188,6 +180,8 @@ Future<void> signOutCurrentAccount() async {
   reviewSpots.value = [];
   submittedSpots.value = [];
   savedSpots.value = [];
+  userSettings.value = defaultUserSettings();
+  garageCars.value = defaultGarageCars();
 }
 
 String spotStatusName(SpotStatus status) {
@@ -283,16 +277,35 @@ Future<AppUser> saveFirebaseUser(
   final country = (data?['country'] as String?)?.trim().isNotEmpty == true
       ? data!['country'] as String
       : 'Latvia';
+  final photoUrl = (data?['photoUrl'] as String?)?.trim().isNotEmpty == true
+      ? data!['photoUrl'] as String
+      : firebaseUser.photoURL;
+  final bio = (data?['bio'] as String?)?.trim().isNotEmpty == true
+      ? data!['bio'] as String
+      : 'Night drive setup, Riga spots, clean reels, and low car routes.';
+  final avatarPath =
+      (data?['avatarPath'] as String?)?.trim().isNotEmpty == true
+      ? data!['avatarPath'] as String
+      : null;
+  final settings = UserSettingsData.fromFirebase(data?['settings']);
+  final garage = garageCarsFromFirebase(data?['garage']);
+
+  userSettings.value = settings;
+  garageCars.value = garage;
 
   final firebaseData = <String, Object?>{
     'uid': firebaseUser.uid,
     'name': name,
     'username': username,
     'email': firebaseUser.email ?? '',
-    'photoUrl': firebaseUser.photoURL,
+    'photoUrl': photoUrl,
+    'bio': bio,
+    'avatarPath': avatarPath,
     'role': roleName(role),
     'city': city,
     'country': country,
+    'settings': settings.toFirebase(),
+    'garage': garage.map((car) => car.toFirebase()).toList(),
     'provider': provider,
     'updatedAt': FieldValue.serverTimestamp(),
   };
@@ -308,7 +321,9 @@ Future<AppUser> saveFirebaseUser(
     name: name,
     username: username,
     email: firebaseUser.email ?? '',
-    photoUrl: firebaseUser.photoURL,
+    photoUrl: photoUrl,
+    bio: bio,
+    avatarPath: avatarPath,
     role: role,
     city: city,
     country: country,
@@ -371,6 +386,72 @@ class UserSettingsData {
     required this.showSavedSpots,
     required this.showGarage,
   });
+
+  factory UserSettingsData.fromFirebase(Object? value) {
+    final data = mapFromFirebase(value);
+    final defaults = defaultUserSettings();
+
+    return UserSettingsData(
+      instagram: stringFromFirebase(data['instagram'], defaults.instagram),
+      tiktok: stringFromFirebase(data['tiktok'], defaults.tiktok),
+      telegram: stringFromFirebase(data['telegram'], defaults.telegram),
+      reviewNotifications: boolFromFirebase(
+        data['reviewNotifications'],
+        defaults.reviewNotifications,
+      ),
+      likeNotifications: boolFromFirebase(
+        data['likeNotifications'],
+        defaults.likeNotifications,
+      ),
+      commentNotifications: boolFromFirebase(
+        data['commentNotifications'],
+        defaults.commentNotifications,
+      ),
+      newSpotNotifications: boolFromFirebase(
+        data['newSpotNotifications'],
+        defaults.newSpotNotifications,
+      ),
+      publicProfile: boolFromFirebase(
+        data['publicProfile'],
+        defaults.publicProfile,
+      ),
+      showSavedSpots: boolFromFirebase(
+        data['showSavedSpots'],
+        defaults.showSavedSpots,
+      ),
+      showGarage: boolFromFirebase(data['showGarage'], defaults.showGarage),
+    );
+  }
+
+  Map<String, Object?> toFirebase() {
+    return {
+      'instagram': instagram,
+      'tiktok': tiktok,
+      'telegram': telegram,
+      'reviewNotifications': reviewNotifications,
+      'likeNotifications': likeNotifications,
+      'commentNotifications': commentNotifications,
+      'newSpotNotifications': newSpotNotifications,
+      'publicProfile': publicProfile,
+      'showSavedSpots': showSavedSpots,
+      'showGarage': showGarage,
+    };
+  }
+}
+
+UserSettingsData defaultUserSettings() {
+  return const UserSettingsData(
+    instagram: 'https://instagram.com/ccs.lv',
+    tiktok: 'https://tiktok.com/@ccs',
+    telegram: 'https://t.me/ccs_lv',
+    reviewNotifications: true,
+    likeNotifications: true,
+    commentNotifications: false,
+    newSpotNotifications: true,
+    publicProfile: true,
+    showSavedSpots: false,
+    showGarage: true,
+  );
 }
 
 class CarSpot {
@@ -537,6 +618,39 @@ List<String> stringListFromFirebase(Object? value, List<String> fallback) {
   return fallback;
 }
 
+bool boolFromFirebase(Object? value, bool fallback) {
+  return value is bool ? value : fallback;
+}
+
+Map<String, dynamic> mapFromFirebase(Object? value) {
+  if (value is Map<String, dynamic>) {
+    return value;
+  }
+
+  if (value is Map) {
+    return value.map((key, item) => MapEntry(key.toString(), item));
+  }
+
+  return <String, dynamic>{};
+}
+
+CollectionReference<Map<String, dynamic>> usersCollection() {
+  return FirebaseFirestore.instance.collection('users');
+}
+
+Future<void> saveCurrentUserFields(Map<String, Object?> data) async {
+  final firebaseUser = FirebaseAuth.instance.currentUser;
+
+  if (firebaseUser == null) {
+    return;
+  }
+
+  await usersCollection().doc(firebaseUser.uid).set({
+    ...data,
+    'updatedAt': FieldValue.serverTimestamp(),
+  }, SetOptions(merge: true));
+}
+
 CollectionReference<Map<String, dynamic>> spotsCollection() {
   return FirebaseFirestore.instance.collection('spots');
 }
@@ -647,6 +761,154 @@ Future<void> refreshFirebaseSpotsFromServer() async {
         (spot) => spot.addedByUid == FirebaseAuth.instance.currentUser?.uid,
       )
       .toList();
+}
+
+class SpotReviewData {
+  final String id;
+  final String spotId;
+  final String userId;
+  final String username;
+  final int rating;
+  final String comment;
+  final DateTime createdAt;
+
+  const SpotReviewData({
+    required this.id,
+    required this.spotId,
+    required this.userId,
+    required this.username,
+    required this.rating,
+    required this.comment,
+    required this.createdAt,
+  });
+
+  factory SpotReviewData.fromFirestore(
+    DocumentSnapshot<Map<String, dynamic>> doc,
+  ) {
+    final data = doc.data() ?? {};
+    final timestamp = data['createdAt'];
+
+    return SpotReviewData(
+      id: doc.id,
+      spotId: stringFromFirebase(data['spotId'], ''),
+      userId: stringFromFirebase(data['userId'], ''),
+      username: stringFromFirebase(data['username'], '@ccs.driver'),
+      rating: doubleFromFirebase(data['rating'], 5).round().clamp(1, 5).toInt(),
+      comment: stringFromFirebase(data['comment'], ''),
+      createdAt: timestamp is Timestamp
+          ? timestamp.toDate()
+          : DateTime.fromMillisecondsSinceEpoch(0),
+    );
+  }
+}
+
+CollectionReference<Map<String, dynamic>> spotReviewsCollection() {
+  return FirebaseFirestore.instance.collection('spot_reviews');
+}
+
+String spotReviewKey(CarSpot spot) {
+  if (spot.id.trim().isNotEmpty) {
+    return spot.id.trim();
+  }
+
+  final safeName = spot.name
+      .toLowerCase()
+      .replaceAll(RegExp(r'[^a-z0-9]+'), '_')
+      .replaceAll(RegExp(r'_+'), '_')
+      .replaceAll(RegExp(r'^_|_$'), '');
+
+  return safeName.isEmpty ? 'demo_spot' : 'demo_$safeName';
+}
+
+Stream<List<SpotReviewData>> watchSpotReviews(CarSpot spot) {
+  return spotReviewsCollection()
+      .where('spotId', isEqualTo: spotReviewKey(spot))
+      .snapshots()
+      .map((snapshot) {
+        final reviews = snapshot.docs
+            .map((doc) => SpotReviewData.fromFirestore(doc))
+            .where((review) => review.comment.isNotEmpty)
+            .toList();
+
+        reviews.sort((first, second) => second.createdAt.compareTo(first.createdAt));
+        return reviews;
+      });
+}
+
+Future<void> saveSpotReview({
+  required CarSpot spot,
+  required int rating,
+  required String comment,
+}) async {
+  final firebaseUser = FirebaseAuth.instance.currentUser;
+
+  if (firebaseUser == null) {
+    throw FirebaseException(
+      plugin: 'cloud_firestore',
+      code: 'not-logged-in',
+      message: 'Log in before leaving a review.',
+    );
+  }
+
+  final spotId = spotReviewKey(spot);
+
+  await spotReviewsCollection().doc('${spotId}_${firebaseUser.uid}').set({
+    'spotId': spotId,
+    'spotName': spot.name,
+    'userId': firebaseUser.uid,
+    'username': currentUser.username,
+    'rating': rating.clamp(1, 5),
+    'comment': comment.trim(),
+    'createdAt': FieldValue.serverTimestamp(),
+    'updatedAt': FieldValue.serverTimestamp(),
+  }, SetOptions(merge: true));
+
+  await updateSpotRatingFromReviews(spot);
+}
+
+Future<double?> updateSpotRatingFromReviews(CarSpot spot) async {
+  if (spot.id.trim().isEmpty) {
+    return null;
+  }
+
+  final snapshot = await spotReviewsCollection()
+      .where('spotId', isEqualTo: spotReviewKey(spot))
+      .get();
+
+  final ratings = snapshot.docs
+      .map((doc) => doubleFromFirebase(doc.data()['rating'], 0))
+      .where((rating) => rating >= 1 && rating <= 5)
+      .toList();
+
+  if (ratings.isEmpty) {
+    return null;
+  }
+
+  final averageRating =
+      ratings.fold<double>(0, (total, rating) => total + rating) /
+      ratings.length;
+  final roundedRating = double.parse(averageRating.toStringAsFixed(1));
+
+  await spotsCollection().doc(spot.id).update({
+    'rating': roundedRating,
+    'reviewCount': ratings.length,
+    'reviewUpdatedAt': FieldValue.serverTimestamp(),
+    'updatedAt': FieldValue.serverTimestamp(),
+  });
+
+  final updatedSpot = spot.copyWith(rating: roundedRating);
+
+  reviewSpots.value = reviewSpots.value
+      .map((item) => isSameSpot(item, spot) ? updatedSpot : item)
+      .toList();
+  submittedSpots.value = submittedSpots.value
+      .map((item) => isSameSpot(item, spot) ? updatedSpot : item)
+      .toList();
+  savedSpots.value = savedSpots.value
+      .map((item) => isSameSpot(item, spot) ? updatedSpot : item)
+      .toList();
+
+  return roundedRating;
 }
 
 const demoSpots = [
@@ -789,6 +1051,22 @@ Future<void> updateSpotStatus(CarSpot spot, SpotStatus status) async {
       .toList();
   savedSpots.value = savedSpots.value
       .map((item) => isSameSpot(item, spot) ? updatedSpot : item)
+      .toList();
+}
+
+Future<void> deleteSpotFromFirebase(CarSpot spot) async {
+  if (spot.id.isNotEmpty) {
+    await spotsCollection().doc(spot.id).delete();
+  }
+
+  reviewSpots.value = reviewSpots.value
+      .where((item) => !isSameSpot(item, spot))
+      .toList();
+  submittedSpots.value = submittedSpots.value
+      .where((item) => !isSameSpot(item, spot))
+      .toList();
+  savedSpots.value = savedSpots.value
+      .where((item) => !isSameSpot(item, spot))
       .toList();
 }
 
@@ -1889,10 +2167,31 @@ class EmptyStateCard extends StatelessWidget {
   }
 }
 
-class SpotDetailScreen extends StatelessWidget {
+class SpotDetailScreen extends StatefulWidget {
   final CarSpot spot;
 
   const SpotDetailScreen({super.key, required this.spot});
+
+  @override
+  State<SpotDetailScreen> createState() => _SpotDetailScreenState();
+}
+
+class _SpotDetailScreenState extends State<SpotDetailScreen> {
+  late CarSpot spot;
+
+  @override
+  void initState() {
+    super.initState();
+    spot = widget.spot;
+  }
+
+  void updateVisibleRating(double rating) {
+    if ((spot.rating - rating).abs() < 0.01) {
+      return;
+    }
+
+    setState(() => spot = spot.copyWith(rating: rating));
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -1969,9 +2268,13 @@ class SpotDetailScreen extends StatelessWidget {
                       ),
                     ),
                     const Spacer(),
-                    Text(
-                      'Added by ${spot.addedBy}',
-                      style: const TextStyle(color: Colors.white54),
+                    Flexible(
+                      child: Text(
+                        'Added by ${spot.addedBy}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(color: Colors.white54),
+                      ),
                     ),
                   ],
                 ),
@@ -2018,8 +2321,311 @@ class SpotDetailScreen extends StatelessWidget {
                     style: const TextStyle(color: Colors.white70),
                   ),
                 ),
+                const SizedBox(height: 24),
+                SpotReviewsSection(
+                  spot: spot,
+                  onRatingChanged: updateVisibleRating,
+                ),
               ],
             ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class SpotReviewsSection extends StatefulWidget {
+  final CarSpot spot;
+  final ValueChanged<double>? onRatingChanged;
+
+  const SpotReviewsSection({
+    super.key,
+    required this.spot,
+    this.onRatingChanged,
+  });
+
+  @override
+  State<SpotReviewsSection> createState() => _SpotReviewsSectionState();
+}
+
+class _SpotReviewsSectionState extends State<SpotReviewsSection> {
+  final commentController = TextEditingController();
+  int selectedRating = 5;
+  bool isSaving = false;
+
+  @override
+  void dispose() {
+    commentController.dispose();
+    super.dispose();
+  }
+
+  Future<void> submitReview() async {
+    final comment = commentController.text.trim();
+
+    if (comment.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          backgroundColor: Colors.redAccent,
+          content: Text(
+            'Write a comment first.',
+            style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+          ),
+        ),
+      );
+      return;
+    }
+
+    setState(() => isSaving = true);
+
+    try {
+      await saveSpotReview(
+        spot: widget.spot,
+        rating: selectedRating,
+        comment: comment,
+      );
+
+      if (!mounted) {
+        return;
+      }
+
+      commentController.clear();
+      setState(() => selectedRating = 5);
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          backgroundColor: blue,
+          content: Text(
+            'Review saved.',
+            style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+          ),
+        ),
+      );
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      final code = error is FirebaseException ? error.code : error.toString();
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: Colors.redAccent,
+          content: Text(
+            'Could not save review: $code',
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => isSaving = false);
+      }
+    }
+  }
+
+  Widget starButton(int value) {
+    final selected = value <= selectedRating;
+
+    return IconButton(
+      onPressed: isSaving ? null : () => setState(() => selectedRating = value),
+      icon: Icon(
+        selected ? Icons.star : Icons.star_border,
+        color: selected ? blue : Colors.white38,
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<List<SpotReviewData>>(
+      stream: watchSpotReviews(widget.spot),
+      builder: (context, snapshot) {
+        final reviews = snapshot.data ?? const <SpotReviewData>[];
+        final averageRating = reviews.isEmpty
+            ? widget.spot.rating
+            : reviews.fold<double>(
+                    0,
+                    (total, review) => total + review.rating,
+                  ) /
+                  reviews.length;
+
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) {
+            widget.onRatingChanged?.call(averageRating);
+          }
+        });
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Text(
+                  'Reviews',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 20,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const Spacer(),
+                const Icon(Icons.star, color: blue, size: 18),
+                const SizedBox(width: 5),
+                Text(
+                  reviews.isEmpty
+                      ? 'No reviews yet'
+                      : '${averageRating.toStringAsFixed(1)} (${reviews.length})',
+                  style: const TextStyle(
+                    color: Colors.white70,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: panel,
+                borderRadius: BorderRadius.circular(18),
+                border: Border.all(color: Colors.white12),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Your rating',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  Row(
+                    children: [for (var i = 1; i <= 5; i++) starButton(i)],
+                  ),
+                  TextField(
+                    controller: commentController,
+                    minLines: 2,
+                    maxLines: 4,
+                    style: const TextStyle(color: Colors.white),
+                    decoration: InputDecoration(
+                      hintText: 'Write a comment about this spot',
+                      hintStyle: const TextStyle(color: Colors.white38),
+                      filled: true,
+                      fillColor: Colors.white.withValues(alpha: 0.06),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(14),
+                        borderSide: const BorderSide(color: Colors.white12),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(14),
+                        borderSide: const BorderSide(color: Colors.white12),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(14),
+                        borderSide: const BorderSide(color: blue),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    width: double.infinity,
+                    height: 46,
+                    child: ElevatedButton.icon(
+                      onPressed: isSaving ? null : submitReview,
+                      icon: Icon(isSaving ? Icons.hourglass_bottom : Icons.send),
+                      label: Text(isSaving ? 'Saving...' : 'Post Review'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: blue,
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(15),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 14),
+            if (reviews.isEmpty)
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: panel,
+                  borderRadius: BorderRadius.circular(18),
+                  border: Border.all(color: Colors.white12),
+                ),
+                child: const Text(
+                  'No comments yet. Be the first to rate this spot.',
+                  style: TextStyle(color: Colors.white54),
+                ),
+              )
+            else
+              for (final review in reviews) ...[
+                SpotReviewCard(review: review),
+                const SizedBox(height: 10),
+              ],
+          ],
+        );
+      },
+    );
+  }
+}
+
+class SpotReviewCard extends StatelessWidget {
+  final SpotReviewData review;
+
+  const SpotReviewCard({super.key, required this.review});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: panel,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: Colors.white12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  review.username,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+              Row(
+                children: [
+                  for (var i = 1; i <= 5; i++)
+                    Icon(
+                      i <= review.rating ? Icons.star : Icons.star_border,
+                      color: blue,
+                      size: 15,
+                    ),
+                ],
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            review.comment,
+            style: const TextStyle(color: Colors.white70, height: 1.35),
           ),
         ],
       ),
@@ -3194,6 +3800,15 @@ class UserProfileData {
     required this.bio,
     this.avatarPath,
   });
+
+  factory UserProfileData.fromCurrentUser() {
+    return UserProfileData(
+      username: currentUser.username,
+      cityCountry: '${currentUser.city}, ${currentUser.country}',
+      bio: currentUser.bio,
+      avatarPath: currentUser.avatarPath,
+    );
+  }
 }
 
 class GarageCar {
@@ -3212,6 +3827,114 @@ class GarageCar {
     required this.tags,
     this.photoPath,
   });
+
+  factory GarageCar.fromFirebase(Object? value) {
+    final data = mapFromFirebase(value);
+    final photoPath = data['photoPath'];
+
+    return GarageCar(
+      name: stringFromFirebase(data['name'], 'BMW E46 Coupe'),
+      description: stringFromFirebase(
+        data['description'],
+        'Night drive setup for city shoots and clean street parking spots.',
+      ),
+      buildType: stringFromFirebase(data['buildType'], 'Static'),
+      useType: stringFromFirebase(data['useType'], 'Street'),
+      tags: stringListFromFirebase(
+        data['tags'],
+        const ['BMW', 'Night shots', 'Riga spots', 'Low car friendly'],
+      ),
+      photoPath: photoPath is String && photoPath.trim().isNotEmpty
+          ? photoPath.trim()
+          : null,
+    );
+  }
+
+  Map<String, Object?> toFirebase() {
+    return {
+      'name': name,
+      'description': description,
+      'buildType': buildType,
+      'useType': useType,
+      'tags': tags,
+      'photoPath': photoPath,
+    };
+  }
+}
+
+List<GarageCar> defaultGarageCars() {
+  return const [
+    GarageCar(
+      name: 'BMW E46 Coupe',
+      description:
+          'Night drive setup for city shoots and clean street parking spots.',
+      buildType: 'Static',
+      useType: 'Street',
+      tags: ['BMW', 'Night shots', 'Riga spots', 'Low car friendly'],
+    ),
+  ];
+}
+
+List<GarageCar> garageCarsFromFirebase(Object? value) {
+  if (value is List) {
+    final cars = value.map(GarageCar.fromFirebase).toList();
+
+    if (cars.isNotEmpty) {
+      return cars;
+    }
+  }
+
+  return defaultGarageCars();
+}
+
+List<String> splitCityCountry(String value) {
+  final parts = value.split(',');
+  final city = parts.isNotEmpty && parts.first.trim().isNotEmpty
+      ? parts.first.trim()
+      : 'Riga';
+  final countryText = parts.length > 1 ? parts.sublist(1).join(',').trim() : '';
+  final country = countryText.isNotEmpty ? countryText : 'Latvia';
+
+  return [city, country];
+}
+
+Future<void> saveProfileToFirebase(UserProfileData profile) async {
+  final cityCountry = splitCityCountry(profile.cityCountry);
+
+  currentUser = AppUser(
+    uid: currentUser.uid,
+    name: currentUser.name,
+    username: profile.username,
+    email: currentUser.email,
+    photoUrl: currentUser.photoUrl,
+    bio: profile.bio,
+    avatarPath: profile.avatarPath,
+    role: currentUser.role,
+    city: cityCountry[0],
+    country: cityCountry[1],
+  );
+
+  await saveCurrentUserFields({
+    'username': profile.username,
+    'bio': profile.bio,
+    'avatarPath': profile.avatarPath,
+    'city': cityCountry[0],
+    'country': cityCountry[1],
+  });
+}
+
+Future<void> saveGarageToFirebase(List<GarageCar> cars) async {
+  garageCars.value = cars;
+
+  await saveCurrentUserFields({
+    'garage': cars.map((car) => car.toFirebase()).toList(),
+  });
+}
+
+Future<void> saveSettingsToFirebase(UserSettingsData settings) async {
+  userSettings.value = settings;
+
+  await saveCurrentUserFields({'settings': settings.toFirebase()});
 }
 
 class ProfileScreen extends StatefulWidget {
@@ -3224,22 +3947,8 @@ class ProfileScreen extends StatefulWidget {
 class _ProfileScreenState extends State<ProfileScreen> {
   bool isSigningOut = false;
 
-  UserProfileData profile = UserProfileData(
-    username: currentUser.username,
-    cityCountry: '${currentUser.city}, ${currentUser.country}',
-    bio: 'Night drive setup, Riga spots, clean reels, and low car routes.',
-  );
-
-  List<GarageCar> cars = const [
-    GarageCar(
-      name: 'BMW E46 Coupe',
-      description:
-          'Night drive setup for city shoots and clean street parking spots.',
-      buildType: 'Static',
-      useType: 'Street',
-      tags: ['BMW', 'Night shots', 'Riga spots', 'Low car friendly'],
-    ),
-  ];
+  UserProfileData profile = UserProfileData.fromCurrentUser();
+  List<GarageCar> cars = garageCars.value;
 
   Future<void> editProfile() async {
     final updatedProfile = await Navigator.push<UserProfileData>(
@@ -3252,6 +3961,41 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
 
     setState(() => profile = updatedProfile);
+
+    try {
+      await saveProfileToFirebase(updatedProfile);
+
+      if (!mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          backgroundColor: blue,
+          content: Text(
+            'Profile saved to your account.',
+            style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+          ),
+        ),
+      );
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: Colors.redAccent,
+          content: Text(
+            'Could not save profile: $error',
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+      );
+    }
   }
 
   Future<void> editGarage(int index) async {
@@ -3264,11 +4008,44 @@ class _ProfileScreenState extends State<ProfileScreen> {
       return;
     }
 
-    setState(() {
-      final nextCars = [...cars];
-      nextCars[index] = updatedCar;
-      cars = nextCars;
-    });
+    final nextCars = [...cars];
+    nextCars[index] = updatedCar;
+    setState(() => cars = nextCars);
+
+    try {
+      await saveGarageToFirebase(nextCars);
+
+      if (!mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          backgroundColor: blue,
+          content: Text(
+            'Garage saved to your account.',
+            style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+          ),
+        ),
+      );
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: Colors.redAccent,
+          content: Text(
+            'Could not save garage: $error',
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+      );
+    }
   }
 
   Future<void> addCar() async {
@@ -3281,7 +4058,43 @@ class _ProfileScreenState extends State<ProfileScreen> {
       return;
     }
 
-    setState(() => cars = [...cars, newCar]);
+    final nextCars = [...cars, newCar];
+    setState(() => cars = nextCars);
+
+    try {
+      await saveGarageToFirebase(nextCars);
+
+      if (!mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          backgroundColor: blue,
+          content: Text(
+            'Car added to your account.',
+            style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+          ),
+        ),
+      );
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: Colors.redAccent,
+          content: Text(
+            'Could not save car: $error',
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+      );
+    }
   }
 
   void openSettings() {
@@ -4617,8 +5430,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     super.dispose();
   }
 
-  void saveSettings() {
-    userSettings.value = UserSettingsData(
+  Future<void> saveSettings() async {
+    final settings = UserSettingsData(
       instagram: instagramController.text.trim(),
       tiktok: tiktokController.text.trim(),
       telegram: telegramController.text.trim(),
@@ -4631,15 +5444,40 @@ class _SettingsScreenState extends State<SettingsScreen> {
       showGarage: showGarage,
     );
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        backgroundColor: blue,
-        content: Text(
-          'Settings saved locally for this prototype.',
-          style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+    try {
+      await saveSettingsToFirebase(settings);
+
+      if (!mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          backgroundColor: blue,
+          content: Text(
+            'Settings saved to your account.',
+            style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+          ),
         ),
-      ),
-    );
+      );
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: Colors.redAccent,
+          content: Text(
+            'Could not save settings: $error',
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+      );
+    }
   }
 
   @override
@@ -4807,28 +5645,214 @@ class _SettingsSwitchTile extends StatelessWidget {
   }
 }
 
-class AdminReviewScreen extends StatelessWidget {
+enum AdminSpotFilter { pending, approved, rejected, all }
+
+String adminSpotFilterLabel(AdminSpotFilter filter) {
+  switch (filter) {
+    case AdminSpotFilter.pending:
+      return 'Pending';
+    case AdminSpotFilter.approved:
+      return 'Approved';
+    case AdminSpotFilter.rejected:
+      return 'Rejected';
+    case AdminSpotFilter.all:
+      return 'All';
+  }
+}
+
+List<CarSpot> adminSpotsForFilter(AdminSpotFilter filter) {
+  final spots = reviewSpots.value;
+
+  switch (filter) {
+    case AdminSpotFilter.pending:
+      return spots.where((spot) => spot.status == SpotStatus.pending).toList();
+    case AdminSpotFilter.approved:
+      return spots.where((spot) => spot.status == SpotStatus.approved).toList();
+    case AdminSpotFilter.rejected:
+      return spots.where((spot) => spot.status == SpotStatus.rejected).toList();
+    case AdminSpotFilter.all:
+      return spots;
+  }
+}
+
+int adminSpotCount(AdminSpotFilter filter) {
+  return adminSpotsForFilter(filter).length;
+}
+
+String adminEmptyTitle(AdminSpotFilter filter) {
+  switch (filter) {
+    case AdminSpotFilter.pending:
+      return 'No pending spots';
+    case AdminSpotFilter.approved:
+      return 'No approved spots';
+    case AdminSpotFilter.rejected:
+      return 'No rejected spots';
+    case AdminSpotFilter.all:
+      return 'No community spots yet';
+  }
+}
+
+String adminEmptyText(AdminSpotFilter filter) {
+  switch (filter) {
+    case AdminSpotFilter.pending:
+      return 'New user submitted spots will appear here first.';
+    case AdminSpotFilter.approved:
+      return 'Approved spots will appear here after moderation.';
+    case AdminSpotFilter.rejected:
+      return 'Rejected spots will appear here after moderation.';
+    case AdminSpotFilter.all:
+      return 'When users submit spots, they will appear in this admin panel.';
+  }
+}
+
+Future<bool> confirmDeleteSpot(BuildContext context, CarSpot spot) async {
+  final confirmed = await showDialog<bool>(
+    context: context,
+    builder: (dialogContext) {
+      return AlertDialog(
+        backgroundColor: panel,
+        title: const Text('Delete spot?'),
+        content: Text(
+          'This will remove "${spot.name}" from Firebase.',
+          style: const TextStyle(color: Colors.white70),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text(
+              'Delete',
+              style: TextStyle(color: Colors.redAccent),
+            ),
+          ),
+        ],
+      );
+    },
+  );
+
+  return confirmed == true;
+}
+
+void showAdminActionError(
+  BuildContext context, {
+  required String message,
+  required Object error,
+}) {
+  if (!context.mounted) {
+    return;
+  }
+
+  final code = error is FirebaseException ? error.code : error.toString();
+
+  ScaffoldMessenger.of(context).showSnackBar(
+    SnackBar(
+      backgroundColor: Colors.redAccent,
+      content: Text(
+        '$message: $code',
+        style: const TextStyle(
+          color: Colors.white,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    ),
+  );
+}
+
+Future<void> deleteAdminSpot(
+  BuildContext context,
+  CarSpot spot, {
+  bool popAfterDelete = false,
+}) async {
+  final confirmed = await confirmDeleteSpot(context, spot);
+
+  if (!confirmed) {
+    return;
+  }
+
+  try {
+    await deleteSpotFromFirebase(spot);
+
+    if (!context.mounted) {
+      return;
+    }
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        backgroundColor: Colors.redAccent,
+        content: Text(
+          'Spot deleted.',
+          style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+        ),
+      ),
+    );
+
+    if (popAfterDelete) {
+      Navigator.pop(context);
+    }
+  } catch (error) {
+    showAdminActionError(
+      context,
+      message: 'Could not delete spot',
+      error: error,
+    );
+  }
+}
+
+class AdminReviewScreen extends StatefulWidget {
   const AdminReviewScreen({super.key});
+
+  @override
+  State<AdminReviewScreen> createState() => _AdminReviewScreenState();
+}
+
+class _AdminReviewScreenState extends State<AdminReviewScreen> {
+  AdminSpotFilter selectedFilter = AdminSpotFilter.pending;
+
+  Widget filterChip(AdminSpotFilter filter) {
+    final selected = selectedFilter == filter;
+    final count = adminSpotCount(filter);
+
+    return Padding(
+      padding: const EdgeInsets.only(right: 8),
+      child: ChoiceChip(
+        label: Text('${adminSpotFilterLabel(filter)} $count'),
+        selected: selected,
+        showCheckmark: false,
+        onSelected: (_) => setState(() => selectedFilter = filter),
+        selectedColor: blue,
+        backgroundColor: Colors.white.withValues(alpha: 0.07),
+        side: BorderSide(color: selected ? blue : Colors.white12),
+        labelStyle: TextStyle(
+          color: selected ? Colors.white : Colors.white70,
+          fontWeight: FontWeight.w800,
+        ),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.black,
       appBar: AppBar(
-        title: const Text('Admin Review'),
+        title: const Text('Admin Panel'),
         backgroundColor: Colors.black,
         foregroundColor: blue,
       ),
       body: ValueListenableBuilder<List<CarSpot>>(
         valueListenable: reviewSpots,
         builder: (context, _, _) {
-          final pendingSpots = pendingReviewSpots();
+          final filteredSpots = adminSpotsForFilter(selectedFilter);
+          final label = adminSpotFilterLabel(selectedFilter).toLowerCase();
 
           return ListView(
             padding: const EdgeInsets.fromLTRB(20, 18, 20, 28),
             children: [
               const Text(
-                'Pending Spots',
+                'Admin Review',
                 style: TextStyle(
                   color: Colors.white,
                   fontSize: 34,
@@ -4837,21 +5861,33 @@ class AdminReviewScreen extends StatelessWidget {
               ),
               const SizedBox(height: 6),
               Text(
-                pendingSpots.isEmpty
-                    ? 'No spots waiting for moderation.'
-                    : '${pendingSpots.length} spot waiting for review.',
+                filteredSpots.isEmpty
+                    ? 'No $label spots right now.'
+                    : '${filteredSpots.length} $label spot${filteredSpots.length == 1 ? '' : 's'} in Firebase.',
                 style: const TextStyle(color: Colors.white54, height: 1.35),
               ),
+              const SizedBox(height: 16),
+              SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  children: [
+                    filterChip(AdminSpotFilter.pending),
+                    filterChip(AdminSpotFilter.approved),
+                    filterChip(AdminSpotFilter.rejected),
+                    filterChip(AdminSpotFilter.all),
+                  ],
+                ),
+              ),
               const SizedBox(height: 18),
-              if (pendingSpots.isEmpty)
-                const EmptyStateCard(
+              if (filteredSpots.isEmpty)
+                EmptyStateCard(
                   icon: Icons.admin_panel_settings,
-                  title: 'Review queue is clear',
-                  text: 'New user submitted spots will appear here as pending.',
+                  title: adminEmptyTitle(selectedFilter),
+                  text: adminEmptyText(selectedFilter),
                 )
               else
-                for (final spot in pendingSpots) ...[
-                  AdminPendingSpotTile(spot: spot),
+                for (final spot in filteredSpots) ...[
+                  AdminSpotTile(spot: spot),
                   const SizedBox(height: 12),
                 ],
             ],
@@ -4862,10 +5898,10 @@ class AdminReviewScreen extends StatelessWidget {
   }
 }
 
-class AdminPendingSpotTile extends StatelessWidget {
+class AdminSpotTile extends StatelessWidget {
   final CarSpot spot;
 
-  const AdminPendingSpotTile({super.key, required this.spot});
+  const AdminSpotTile({super.key, required this.spot});
 
   @override
   Widget build(BuildContext context) {
@@ -4917,7 +5953,7 @@ class AdminPendingSpotTile extends StatelessWidget {
                   const SizedBox(height: 8),
                   Row(
                     children: [
-                      const _PendingBadge(),
+                      _AdminStatusBadge(status: spot.status),
                       const SizedBox(width: 8),
                       Expanded(
                         child: Text(
@@ -4932,9 +5968,69 @@ class AdminPendingSpotTile extends StatelessWidget {
                 ],
               ),
             ),
+            IconButton(
+              tooltip: 'Delete spot',
+              onPressed: () => deleteAdminSpot(context, spot),
+              icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
+            ),
             const Icon(Icons.chevron_right, color: Colors.white38),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _AdminStatusBadge extends StatelessWidget {
+  final SpotStatus status;
+
+  const _AdminStatusBadge({required this.status});
+
+  Color get color {
+    switch (status) {
+      case SpotStatus.pending:
+        return blue;
+      case SpotStatus.approved:
+        return Colors.greenAccent;
+      case SpotStatus.rejected:
+        return Colors.redAccent;
+    }
+  }
+
+  IconData get icon {
+    switch (status) {
+      case SpotStatus.pending:
+        return Icons.hourglass_bottom;
+      case SpotStatus.approved:
+        return Icons.check_circle;
+      case SpotStatus.rejected:
+        return Icons.cancel;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.16),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: color.withValues(alpha: 0.45)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, color: color, size: 13),
+          const SizedBox(width: 5),
+          Text(
+            spotStatusName(status),
+            style: TextStyle(
+              color: color,
+              fontSize: 11,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -4963,8 +6059,12 @@ class AdminSpotReviewScreen extends StatelessWidget {
         ),
       );
       Navigator.pop(context);
-    } on FirebaseException catch (error) {
-      showAdminUpdateError(context, error.code);
+    } catch (error) {
+      showAdminActionError(
+        context,
+        message: 'Could not approve spot',
+        error: error,
+      );
     }
   }
 
@@ -4986,28 +6086,17 @@ class AdminSpotReviewScreen extends StatelessWidget {
         ),
       );
       Navigator.pop(context);
-    } on FirebaseException catch (error) {
-      showAdminUpdateError(context, error.code);
+    } catch (error) {
+      showAdminActionError(
+        context,
+        message: 'Could not reject spot',
+        error: error,
+      );
     }
   }
 
-  void showAdminUpdateError(BuildContext context, String code) {
-    if (!context.mounted) {
-      return;
-    }
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        backgroundColor: Colors.redAccent,
-        content: Text(
-          'Could not update spot status: $code',
-          style: const TextStyle(
-            color: Colors.white,
-            fontWeight: FontWeight.w700,
-          ),
-        ),
-      ),
-    );
+  Future<void> deleteSpot(BuildContext context) async {
+    await deleteAdminSpot(context, spot, popAfterDelete: true);
   }
 
   @override
@@ -5015,7 +6104,7 @@ class AdminSpotReviewScreen extends StatelessWidget {
     return Scaffold(
       backgroundColor: Colors.black,
       appBar: AppBar(
-        title: const Text('Review Spot'),
+        title: const Text('Manage Spot'),
         backgroundColor: Colors.black,
         foregroundColor: blue,
       ),
@@ -5031,11 +6120,15 @@ class AdminSpotReviewScreen extends StatelessWidget {
           const SizedBox(height: 18),
           Row(
             children: [
-              const _PendingBadge(),
+              _AdminStatusBadge(status: spot.status),
               const Spacer(),
-              Text(
-                'Added by ${spot.addedBy}',
-                style: const TextStyle(color: Colors.white54),
+              Flexible(
+                child: Text(
+                  'Added by ${spot.addedBy}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(color: Colors.white54),
+                ),
               ),
             ],
           ),
@@ -5108,12 +6201,30 @@ class AdminSpotReviewScreen extends StatelessWidget {
               ),
             ],
           ),
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: () {
+                deleteSpot(context);
+              },
+              icon: const Icon(Icons.delete_outline),
+              label: const Text('Delete Spot'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: Colors.redAccent,
+                side: const BorderSide(color: Colors.redAccent),
+                minimumSize: const Size.fromHeight(52),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                ),
+              ),
+            ),
+          ),
         ],
       ),
     );
   }
 }
-
 class AppPage extends StatelessWidget {
   final String title;
   final String text;
