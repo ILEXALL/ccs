@@ -285,8 +285,7 @@ Future<AppUser> saveFirebaseUser(
   final bio = (data?['bio'] as String?)?.trim().isNotEmpty == true
       ? data!['bio'] as String
       : 'Night drive setup, Riga spots, clean reels, and low car routes.';
-  final avatarPath =
-      (data?['avatarPath'] as String?)?.trim().isNotEmpty == true
+  final avatarPath = (data?['avatarPath'] as String?)?.trim().isNotEmpty == true
       ? data!['avatarPath'] as String
       : null;
   final settings = UserSettingsData.fromFirebase(data?['settings']);
@@ -478,6 +477,7 @@ class CarSpot {
   final String addedBy;
   final String addedByUid;
   final SpotStatus status;
+  final int createdAtMillis;
 
   const CarSpot({
     this.id = '',
@@ -501,6 +501,7 @@ class CarSpot {
     required this.addedBy,
     this.addedByUid = '',
     required this.status,
+    this.createdAtMillis = 0,
   });
 
   CarSpot copyWith({
@@ -525,6 +526,7 @@ class CarSpot {
     String? addedBy,
     String? addedByUid,
     SpotStatus? status,
+    int? createdAtMillis,
   }) {
     return CarSpot(
       id: id ?? this.id,
@@ -548,6 +550,7 @@ class CarSpot {
       addedBy: addedBy ?? this.addedBy,
       addedByUid: addedByUid ?? this.addedByUid,
       status: status ?? this.status,
+      createdAtMillis: createdAtMillis ?? this.createdAtMillis,
     );
   }
 
@@ -585,6 +588,7 @@ class CarSpot {
       addedBy: stringFromFirebase(data['addedBy'], '@ccs.driver'),
       addedByUid: stringFromFirebase(data['addedByUid'], ''),
       status: spotStatusFromFirebase(data['status']),
+      createdAtMillis: timestampMillisFromFirebase(data['createdAt']),
     );
   }
 }
@@ -603,6 +607,18 @@ double doubleFromFirebase(Object? value, double fallback) {
   }
 
   return fallback;
+}
+
+int timestampMillisFromFirebase(Object? value) {
+  if (value is Timestamp) {
+    return value.millisecondsSinceEpoch;
+  }
+
+  if (value is num) {
+    return value.toInt();
+  }
+
+  return 0;
 }
 
 List<String> stringListFromFirebase(Object? value, List<String> fallback) {
@@ -808,6 +824,10 @@ CollectionReference<Map<String, dynamic>> spotReviewsCollection() {
   return FirebaseFirestore.instance.collection('spot_reviews');
 }
 
+CollectionReference<Map<String, dynamic>> spotLikesCollection() {
+  return FirebaseFirestore.instance.collection('spot_likes');
+}
+
 String spotReviewKey(CarSpot spot) {
   if (spot.id.trim().isNotEmpty) {
     return spot.id.trim();
@@ -832,9 +852,72 @@ Stream<List<SpotReviewData>> watchSpotReviews(CarSpot spot) {
             .where((review) => review.comment.isNotEmpty)
             .toList();
 
-        reviews.sort((first, second) => second.createdAt.compareTo(first.createdAt));
+        reviews.sort(
+          (first, second) => second.createdAt.compareTo(first.createdAt),
+        );
         return reviews;
       });
+}
+
+Stream<int> watchSpotCommentCount(CarSpot spot) {
+  return watchSpotReviews(spot).map((reviews) => reviews.length);
+}
+
+Stream<int> watchSpotLikeCount(CarSpot spot) {
+  return spotLikesCollection()
+      .where('spotId', isEqualTo: spotReviewKey(spot))
+      .snapshots()
+      .map((snapshot) => snapshot.docs.length);
+}
+
+Stream<bool> watchCurrentUserLikedSpot(CarSpot spot) {
+  final firebaseUser = FirebaseAuth.instance.currentUser;
+
+  if (firebaseUser == null) {
+    return Stream.value(false);
+  }
+
+  return spotLikesCollection()
+      .doc('${spotReviewKey(spot)}_${firebaseUser.uid}')
+      .snapshots()
+      .map((snapshot) => snapshot.exists);
+}
+
+Future<void> toggleSpotLike(
+  BuildContext context,
+  CarSpot spot,
+  bool currentlyLiked,
+) async {
+  final firebaseUser = FirebaseAuth.instance.currentUser;
+
+  if (firebaseUser == null) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        backgroundColor: Colors.redAccent,
+        content: Text(
+          'Log in before liking spots.',
+          style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+        ),
+      ),
+    );
+    return;
+  }
+
+  final likeRef = spotLikesCollection().doc(
+    '${spotReviewKey(spot)}_${firebaseUser.uid}',
+  );
+
+  if (currentlyLiked) {
+    await likeRef.delete();
+  } else {
+    await likeRef.set({
+      'spotId': spotReviewKey(spot),
+      'spotName': spot.name,
+      'userId': firebaseUser.uid,
+      'username': currentUser.username,
+      'createdAt': FieldValue.serverTimestamp(),
+    });
+  }
 }
 
 Future<void> saveSpotReview({
@@ -1395,15 +1478,94 @@ class _MainScreenState extends State<MainScreen> {
   }
 }
 
-class ExploreScreen extends StatelessWidget {
+enum ExploreSortMode { trending, old, newest, popular, meet }
+
+String exploreSortLabel(ExploreSortMode mode) {
+  switch (mode) {
+    case ExploreSortMode.trending:
+      return 'Trending';
+    case ExploreSortMode.old:
+      return 'Old';
+    case ExploreSortMode.newest:
+      return 'New';
+    case ExploreSortMode.popular:
+      return 'Popular';
+    case ExploreSortMode.meet:
+      return 'Meet';
+  }
+}
+
+class ExploreScreen extends StatefulWidget {
   const ExploreScreen({super.key});
+
+  @override
+  State<ExploreScreen> createState() => _ExploreScreenState();
+}
+
+class _ExploreScreenState extends State<ExploreScreen> {
+  ExploreSortMode selectedMode = ExploreSortMode.trending;
+
+  List<CarSpot> sortedSpots(List<CarSpot> spots) {
+    final list = [...spots];
+
+    if (selectedMode == ExploreSortMode.meet) {
+      list.removeWhere((spot) => !spot.categories.contains('Meet'));
+    }
+
+    switch (selectedMode) {
+      case ExploreSortMode.trending:
+        list.sort((a, b) {
+          final ratingCompare = b.rating.compareTo(a.rating);
+          if (ratingCompare != 0) {
+            return ratingCompare;
+          }
+          return b.createdAtMillis.compareTo(a.createdAtMillis);
+        });
+        break;
+      case ExploreSortMode.old:
+        list.sort((a, b) => a.createdAtMillis.compareTo(b.createdAtMillis));
+        break;
+      case ExploreSortMode.newest:
+        list.sort((a, b) => b.createdAtMillis.compareTo(a.createdAtMillis));
+        break;
+      case ExploreSortMode.popular:
+        list.sort((a, b) => b.rating.compareTo(a.rating));
+        break;
+      case ExploreSortMode.meet:
+        list.sort((a, b) => b.createdAtMillis.compareTo(a.createdAtMillis));
+        break;
+    }
+
+    return list;
+  }
+
+  Widget sortChip(ExploreSortMode mode) {
+    final selected = selectedMode == mode;
+
+    return Padding(
+      padding: const EdgeInsets.only(right: 8),
+      child: ChoiceChip(
+        label: Text(exploreSortLabel(mode)),
+        selected: selected,
+        showCheckmark: false,
+        onSelected: (_) => setState(() => selectedMode = mode),
+        selectedColor: blue,
+        backgroundColor: Colors.white.withValues(alpha: 0.07),
+        side: BorderSide(color: selected ? blue : Colors.white12),
+        labelStyle: TextStyle(
+          color: selected ? Colors.white : Colors.white70,
+          fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
+        ),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
     return ValueListenableBuilder<List<CarSpot>>(
       valueListenable: reviewSpots,
       builder: (context, _, _) {
-        final approvedSpots = approvedPublicSpots();
+        final approvedSpots = sortedSpots(approvedPublicSpots());
 
         return Scaffold(
           backgroundColor: Colors.black,
@@ -1429,26 +1591,30 @@ class ExploreScreen extends StatelessWidget {
                 style: TextStyle(color: Colors.white54, height: 1.35),
               ),
               const SizedBox(height: 18),
-              SizedBox(
-                height: 42,
-                child: ListView(
-                  scrollDirection: Axis.horizontal,
-                  children: const [
-                    _BuildChip(label: 'Trending'),
-                    SizedBox(width: 8),
-                    _BuildChip(label: 'Photo'),
-                    SizedBox(width: 8),
-                    _BuildChip(label: 'Reels'),
-                    SizedBox(width: 8),
-                    _BuildChip(label: 'Meet'),
+              SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  children: [
+                    sortChip(ExploreSortMode.trending),
+                    sortChip(ExploreSortMode.old),
+                    sortChip(ExploreSortMode.newest),
+                    sortChip(ExploreSortMode.popular),
+                    sortChip(ExploreSortMode.meet),
                   ],
                 ),
               ),
               const SizedBox(height: 18),
-              for (final spot in approvedSpots) ...[
-                ExploreSpotCard(spot: spot),
-                const SizedBox(height: 14),
-              ],
+              if (approvedSpots.isEmpty)
+                const EmptyStateCard(
+                  icon: Icons.explore,
+                  title: 'No spots here yet',
+                  text: 'Approved spots will appear here after moderation.',
+                )
+              else
+                for (final spot in approvedSpots) ...[
+                  ExploreSpotCard(spot: spot),
+                  const SizedBox(height: 14),
+                ],
             ],
           ),
         );
@@ -1549,12 +1715,100 @@ class ExploreSpotCard extends StatelessWidget {
                         _SmallTag(label: category, icon: Icons.local_offer),
                     ],
                   ),
+                  const SizedBox(height: 12),
+                  ExploreSpotStatsRow(spot: spot),
                 ],
               ),
             ),
           ],
         ),
       ),
+    );
+  }
+}
+
+class ExploreSpotStatsRow extends StatelessWidget {
+  final CarSpot spot;
+
+  const ExploreSpotStatsRow({super.key, required this.spot});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        StreamBuilder<bool>(
+          stream: watchCurrentUserLikedSpot(spot),
+          builder: (context, likedSnapshot) {
+            final liked = likedSnapshot.data ?? false;
+
+            return StreamBuilder<int>(
+              stream: watchSpotLikeCount(spot),
+              builder: (context, countSnapshot) {
+                final likeCount = countSnapshot.data ?? 0;
+
+                return SizedBox(
+                  height: 36,
+                  child: OutlinedButton.icon(
+                    onPressed: () => toggleSpotLike(context, spot, liked),
+                    icon: Icon(
+                      liked ? Icons.favorite : Icons.favorite_border,
+                      size: 16,
+                    ),
+                    label: Text('$likeCount'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: liked
+                          ? Colors.redAccent
+                          : Colors.white70,
+                      side: BorderSide(
+                        color: liked ? Colors.redAccent : Colors.white12,
+                      ),
+                      padding: const EdgeInsets.symmetric(horizontal: 11),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                    ),
+                  ),
+                );
+              },
+            );
+          },
+        ),
+        const SizedBox(width: 8),
+        StreamBuilder<int>(
+          stream: watchSpotCommentCount(spot),
+          builder: (context, snapshot) {
+            final commentCount = snapshot.data ?? 0;
+
+            return Container(
+              height: 36,
+              padding: const EdgeInsets.symmetric(horizontal: 11),
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.06),
+                borderRadius: BorderRadius.circular(999),
+                border: Border.all(color: Colors.white12),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(
+                    Icons.chat_bubble_outline,
+                    color: Colors.white70,
+                    size: 15,
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    '$commentCount',
+                    style: const TextStyle(
+                      color: Colors.white70,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        ),
+      ],
     );
   }
 }
@@ -2171,7 +2425,6 @@ class EmptyStateCard extends StatelessWidget {
   }
 }
 
-
 Future<void> launchExternalUrl(BuildContext context, String rawUrl) async {
   final trimmedUrl = rawUrl.trim();
 
@@ -2281,9 +2534,7 @@ Future<Position?> getCurrentPhoneLocation(BuildContext context) async {
   }
 
   return Geolocator.getCurrentPosition(
-    locationSettings: const LocationSettings(
-      accuracy: LocationAccuracy.medium,
-    ),
+    locationSettings: const LocationSettings(accuracy: LocationAccuracy.medium),
   );
 }
 
@@ -2476,7 +2727,9 @@ class _SpotDetailScreenState extends State<SpotDetailScreen> {
                       children: [
                         Expanded(
                           child: Text(
-                            spot.reelLink.isEmpty ? 'No reel link added' : spot.reelLink,
+                            spot.reelLink.isEmpty
+                                ? 'No reel link added'
+                                : spot.reelLink,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: const TextStyle(color: Colors.white70),
@@ -2501,7 +2754,6 @@ class _SpotDetailScreenState extends State<SpotDetailScreen> {
     );
   }
 }
-
 
 class SpotRouteActions extends StatefulWidget {
   final CarSpot spot;
@@ -2548,7 +2800,9 @@ class _SpotRouteActionsState extends State<SpotRouteActions> {
     final distanceText = distanceKm == null
         ? (isLoadingDistance ? 'Checking distance...' : 'Distance unavailable')
         : '${formatDistanceKm(distanceKm!)} away';
-    final timeText = distanceKm == null ? 'Open route' : estimateDriveTime(distanceKm!);
+    final timeText = distanceKm == null
+        ? 'Open route'
+        : estimateDriveTime(distanceKm!);
 
     return Container(
       width: double.infinity,
@@ -2584,10 +2838,7 @@ class _SpotRouteActionsState extends State<SpotRouteActions> {
                   ),
                 ),
                 const SizedBox(height: 3),
-                Text(
-                  timeText,
-                  style: const TextStyle(color: Colors.white54),
-                ),
+                Text(timeText, style: const TextStyle(color: Colors.white54)),
               ],
             ),
           ),
@@ -2753,8 +3004,8 @@ class _SpotReviewsSectionState extends State<SpotReviewsSection> {
                 const Spacer(),
                 Text(
                   reviews.isEmpty
-                      ? 'No reviews yet'
-                      : '${averageRating.toStringAsFixed(1)} (${reviews.length})',
+                      ? '0 comments'
+                      : '${reviews.length} ${reviews.length == 1 ? 'comment' : 'comments'}',
                   style: const TextStyle(
                     color: Colors.white70,
                     fontWeight: FontWeight.w800,
@@ -2781,9 +3032,7 @@ class _SpotReviewsSectionState extends State<SpotReviewsSection> {
                       fontWeight: FontWeight.w800,
                     ),
                   ),
-                  Row(
-                    children: [for (var i = 1; i <= 5; i++) starButton(i)],
-                  ),
+                  Row(children: [for (var i = 1; i <= 5; i++) starButton(i)]),
                   TextField(
                     controller: commentController,
                     minLines: 2,
@@ -2814,7 +3063,9 @@ class _SpotReviewsSectionState extends State<SpotReviewsSection> {
                     height: 46,
                     child: ElevatedButton.icon(
                       onPressed: isSaving ? null : submitReview,
-                      icon: Icon(isSaving ? Icons.hourglass_bottom : Icons.send),
+                      icon: Icon(
+                        isSaving ? Icons.hourglass_bottom : Icons.send,
+                      ),
                       label: Text(isSaving ? 'Saving...' : 'Post Review'),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: blue,
@@ -4116,10 +4367,12 @@ class GarageCar {
       ),
       buildType: stringFromFirebase(data['buildType'], 'Static'),
       useType: stringFromFirebase(data['useType'], 'Street'),
-      tags: stringListFromFirebase(
-        data['tags'],
-        const ['BMW', 'Night shots', 'Riga spots', 'Low car friendly'],
-      ),
+      tags: stringListFromFirebase(data['tags'], const [
+        'BMW',
+        'Night shots',
+        'Riga spots',
+        'Low car friendly',
+      ]),
       photoPath: photoPath is String && photoPath.trim().isNotEmpty
           ? photoPath.trim()
           : null,
@@ -6501,6 +6754,7 @@ class AdminSpotReviewScreen extends StatelessWidget {
     );
   }
 }
+
 class AppPage extends StatelessWidget {
   final String title;
   final String text;
