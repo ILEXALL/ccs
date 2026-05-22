@@ -1,0 +1,5158 @@
+import 'dart:async';
+import 'dart:io';
+
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_storage/firebase_storage.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_map/flutter_map.dart';
+import 'package:google_sign_in/google_sign_in.dart';
+import 'package:latlong2/latlong.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+import 'firebase_options.dart';
+
+// Paste the OAuth 2.0 Web Client ID from Firebase/Google Cloud here.
+// It usually looks like: 325709324670-xxxxx.apps.googleusercontent.com
+const googleServerClientId =
+    '325709324670-cep9b3r2j2mmapmmuougmqai7umvlod6.apps.googleusercontent.com';
+
+String? googleSignInSetupError;
+bool rememberMeEnabled = false;
+const rememberMeKey = 'remember_me';
+
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+
+  // Google Sign-In needs one setup call before we use the login button.
+  try {
+    await GoogleSignIn.instance.initialize(
+      serverClientId: googleServerClientId,
+    );
+  } catch (error) {
+    googleSignInSetupError = error.toString();
+  }
+
+  rememberMeEnabled = await loadRememberMePreference();
+
+  final appUser = await loadCurrentFirebaseUser();
+  if (appUser != null) {
+    startFirebaseSpotSync();
+  }
+
+  runApp(const CCSApp());
+}
+
+class CCSApp extends StatelessWidget {
+  const CCSApp({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      debugShowCheckedModeBanner: false,
+      title: 'CCS',
+      theme: ThemeData.dark(),
+      home: rememberMeEnabled && FirebaseAuth.instance.currentUser != null
+          ? const MainScreen()
+          : const SplashScreen(),
+    );
+  }
+}
+
+const blue = Color(0xFF1565FF);
+const night = Color(0xFF050507);
+const panel = Color(0xFF101014);
+const photoPickerChannel = MethodChannel('ccs/photo_picker');
+
+final submittedSpots = ValueNotifier<List<CarSpot>>([]);
+final savedSpots = ValueNotifier<List<CarSpot>>([]);
+final reviewSpots = ValueNotifier<List<CarSpot>>([]);
+final userSettings = ValueNotifier<UserSettingsData>(
+  const UserSettingsData(
+    instagram: 'https://instagram.com/ccs.lv',
+    tiktok: 'https://tiktok.com/@ccs',
+    telegram: 'https://t.me/ccs_lv',
+    reviewNotifications: true,
+    likeNotifications: true,
+    commentNotifications: false,
+    newSpotNotifications: true,
+    publicProfile: true,
+    showSavedSpots: false,
+    showGarage: true,
+  ),
+);
+
+Future<String?> pickPhotoFromPhone(BuildContext context) async {
+  try {
+    return await photoPickerChannel.invokeMethod<String>('pickPhoto');
+  } on PlatformException catch (error) {
+    if (!context.mounted) {
+      return null;
+    }
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        backgroundColor: Colors.redAccent,
+        content: Text(
+          error.message ?? 'Could not open photo picker.',
+          style: const TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      ),
+    );
+
+    return null;
+  }
+}
+
+enum UserRole { admin, user }
+
+enum SpotStatus { pending, approved, rejected }
+
+class AppUser {
+  final String uid;
+  final String name;
+  final String username;
+  final String email;
+  final String? photoUrl;
+  final UserRole role;
+  final String city;
+  final String country;
+
+  const AppUser({
+    required this.uid,
+    required this.name,
+    required this.username,
+    required this.email,
+    this.photoUrl,
+    required this.role,
+    required this.city,
+    required this.country,
+  });
+}
+
+// Fallback user for preview/testing before a Firebase login happens.
+AppUser currentUser = const AppUser(
+  uid: 'mock_user',
+  name: 'Aleksej',
+  username: '@pasegorov8',
+  email: '',
+  role: UserRole.admin,
+  city: 'Riga',
+  country: 'Latvia',
+);
+
+String roleName(UserRole role) {
+  return role == UserRole.admin ? 'admin' : 'user';
+}
+
+UserRole roleFromFirebase(Object? value) {
+  return value == 'admin' ? UserRole.admin : UserRole.user;
+}
+
+Future<bool> loadRememberMePreference() async {
+  final prefs = await SharedPreferences.getInstance();
+  return prefs.getBool(rememberMeKey) ?? true;
+}
+
+Future<void> saveRememberMePreference(bool value) async {
+  final prefs = await SharedPreferences.getInstance();
+  await prefs.setBool(rememberMeKey, value);
+  rememberMeEnabled = value;
+}
+
+Future<void> signOutCurrentAccount() async {
+  await saveRememberMePreference(false);
+  await spotSyncSubscription?.cancel();
+  spotSyncSubscription = null;
+
+  await FirebaseAuth.instance.signOut();
+  await GoogleSignIn.instance.signOut();
+
+  currentUser = const AppUser(
+    uid: 'mock_user',
+    name: 'Aleksej',
+    username: '@pasegorov8',
+    email: '',
+    role: UserRole.admin,
+    city: 'Riga',
+    country: 'Latvia',
+  );
+
+  reviewSpots.value = [];
+  submittedSpots.value = [];
+  savedSpots.value = [];
+}
+
+String spotStatusName(SpotStatus status) {
+  switch (status) {
+    case SpotStatus.pending:
+      return 'pending';
+    case SpotStatus.approved:
+      return 'approved';
+    case SpotStatus.rejected:
+      return 'rejected';
+  }
+}
+
+SpotStatus spotStatusFromFirebase(Object? value) {
+  switch (value) {
+    case 'approved':
+      return SpotStatus.approved;
+    case 'rejected':
+      return SpotStatus.rejected;
+    default:
+      return SpotStatus.pending;
+  }
+}
+
+String makeUsernameFromFirebaseUser(User user) {
+  final emailName = user.email?.split('@').first.trim();
+  final displayName = user.displayName?.trim();
+  final rawName = (emailName != null && emailName.isNotEmpty)
+      ? emailName
+      : (displayName != null && displayName.isNotEmpty)
+      ? displayName
+      : 'ccs_driver';
+  final cleanName = rawName
+      .toLowerCase()
+      .replaceAll(RegExp(r'[^a-z0-9_]+'), '_')
+      .replaceAll(RegExp(r'_+'), '_')
+      .replaceAll(RegExp(r'^_|_$'), '');
+
+  return '@${cleanName.isEmpty ? 'ccs_driver' : cleanName}';
+}
+
+Future<UserRole> defaultRoleForNewFirebaseUser() async {
+  try {
+    final existingUsers = await FirebaseFirestore.instance
+        .collection('users')
+        .limit(1)
+        .get();
+
+    // First account in a fresh Firebase project becomes admin for the prototype.
+    return existingUsers.docs.isEmpty ? UserRole.admin : UserRole.user;
+  } catch (_) {
+    return UserRole.user;
+  }
+}
+
+Future<AppUser?> loadCurrentFirebaseUser() async {
+  final firebaseUser = FirebaseAuth.instance.currentUser;
+
+  if (firebaseUser == null) {
+    return null;
+  }
+
+  try {
+    currentUser = await saveFirebaseUser(firebaseUser, provider: 'google');
+    return currentUser;
+  } catch (_) {
+    return null;
+  }
+}
+
+Future<AppUser> saveFirebaseUser(
+  User firebaseUser, {
+  required String provider,
+}) async {
+  final userRef = FirebaseFirestore.instance
+      .collection('users')
+      .doc(firebaseUser.uid);
+  final snapshot = await userRef.get();
+  final data = snapshot.data();
+  final isNewUser = !snapshot.exists;
+  final role = isNewUser
+      ? await defaultRoleForNewFirebaseUser()
+      : roleFromFirebase(data?['role']);
+  final name = (data?['name'] as String?)?.trim().isNotEmpty == true
+      ? data!['name'] as String
+      : firebaseUser.displayName ?? 'CCS Driver';
+  final username = (data?['username'] as String?)?.trim().isNotEmpty == true
+      ? data!['username'] as String
+      : makeUsernameFromFirebaseUser(firebaseUser);
+  final city = (data?['city'] as String?)?.trim().isNotEmpty == true
+      ? data!['city'] as String
+      : 'Riga';
+  final country = (data?['country'] as String?)?.trim().isNotEmpty == true
+      ? data!['country'] as String
+      : 'Latvia';
+
+  final firebaseData = <String, Object?>{
+    'uid': firebaseUser.uid,
+    'name': name,
+    'username': username,
+    'email': firebaseUser.email ?? '',
+    'photoUrl': firebaseUser.photoURL,
+    'role': roleName(role),
+    'city': city,
+    'country': country,
+    'provider': provider,
+    'updatedAt': FieldValue.serverTimestamp(),
+  };
+
+  if (isNewUser) {
+    firebaseData['createdAt'] = FieldValue.serverTimestamp();
+  }
+
+  await userRef.set(firebaseData, SetOptions(merge: true));
+
+  return AppUser(
+    uid: firebaseUser.uid,
+    name: name,
+    username: username,
+    email: firebaseUser.email ?? '',
+    photoUrl: firebaseUser.photoURL,
+    role: role,
+    city: city,
+    country: country,
+  );
+}
+
+Future<AppUser> signInWithGoogleAndSaveUser() async {
+  if (googleSignInSetupError != null) {
+    throw Exception(googleSignInSetupError);
+  }
+
+  if (!GoogleSignIn.instance.supportsAuthenticate()) {
+    throw Exception('Google Sign-In is not supported on this platform.');
+  }
+
+  final googleUser = await GoogleSignIn.instance.authenticate();
+  final googleAuth = googleUser.authentication;
+  final idToken = googleAuth.idToken;
+
+  if (idToken == null) {
+    throw Exception('Google did not return an ID token.');
+  }
+
+  final credential = GoogleAuthProvider.credential(idToken: idToken);
+  final userCredential = await FirebaseAuth.instance.signInWithCredential(
+    credential,
+  );
+  final firebaseUser = userCredential.user;
+
+  if (firebaseUser == null) {
+    throw Exception('Firebase login finished without a user.');
+  }
+
+  currentUser = await saveFirebaseUser(firebaseUser, provider: 'google');
+  startFirebaseSpotSync();
+  return currentUser;
+}
+
+class UserSettingsData {
+  final String instagram;
+  final String tiktok;
+  final String telegram;
+  final bool reviewNotifications;
+  final bool likeNotifications;
+  final bool commentNotifications;
+  final bool newSpotNotifications;
+  final bool publicProfile;
+  final bool showSavedSpots;
+  final bool showGarage;
+
+  const UserSettingsData({
+    required this.instagram,
+    required this.tiktok,
+    required this.telegram,
+    required this.reviewNotifications,
+    required this.likeNotifications,
+    required this.commentNotifications,
+    required this.newSpotNotifications,
+    required this.publicProfile,
+    required this.showSavedSpots,
+    required this.showGarage,
+  });
+}
+
+class CarSpot {
+  final String id;
+  final String name;
+  final String cityCountry;
+  final LatLng coordinates;
+  final String description;
+  final List<String> categories;
+  final double rating;
+  final String photoUrl;
+  final String? localPhotoPath;
+  final String reelLink;
+  final String bestTime;
+  final String parking;
+  final String roadQuality;
+  final bool lowCarFriendly;
+  final String policeRisk;
+  final String traffic;
+  final String lighting;
+  final String crowd;
+  final String addedBy;
+  final String addedByUid;
+  final SpotStatus status;
+
+  const CarSpot({
+    this.id = '',
+    required this.name,
+    required this.cityCountry,
+    required this.coordinates,
+    required this.description,
+    required this.categories,
+    required this.rating,
+    required this.photoUrl,
+    this.localPhotoPath,
+    required this.reelLink,
+    required this.bestTime,
+    required this.parking,
+    required this.roadQuality,
+    required this.lowCarFriendly,
+    required this.policeRisk,
+    required this.traffic,
+    required this.lighting,
+    required this.crowd,
+    required this.addedBy,
+    this.addedByUid = '',
+    required this.status,
+  });
+
+  CarSpot copyWith({
+    String? id,
+    String? name,
+    String? cityCountry,
+    LatLng? coordinates,
+    String? description,
+    List<String>? categories,
+    double? rating,
+    String? photoUrl,
+    String? localPhotoPath,
+    String? reelLink,
+    String? bestTime,
+    String? parking,
+    String? roadQuality,
+    bool? lowCarFriendly,
+    String? policeRisk,
+    String? traffic,
+    String? lighting,
+    String? crowd,
+    String? addedBy,
+    String? addedByUid,
+    SpotStatus? status,
+  }) {
+    return CarSpot(
+      id: id ?? this.id,
+      name: name ?? this.name,
+      cityCountry: cityCountry ?? this.cityCountry,
+      coordinates: coordinates ?? this.coordinates,
+      description: description ?? this.description,
+      categories: categories ?? this.categories,
+      rating: rating ?? this.rating,
+      photoUrl: photoUrl ?? this.photoUrl,
+      localPhotoPath: localPhotoPath ?? this.localPhotoPath,
+      reelLink: reelLink ?? this.reelLink,
+      bestTime: bestTime ?? this.bestTime,
+      parking: parking ?? this.parking,
+      roadQuality: roadQuality ?? this.roadQuality,
+      lowCarFriendly: lowCarFriendly ?? this.lowCarFriendly,
+      policeRisk: policeRisk ?? this.policeRisk,
+      traffic: traffic ?? this.traffic,
+      lighting: lighting ?? this.lighting,
+      crowd: crowd ?? this.crowd,
+      addedBy: addedBy ?? this.addedBy,
+      addedByUid: addedByUid ?? this.addedByUid,
+      status: status ?? this.status,
+    );
+  }
+
+  factory CarSpot.fromFirestore(DocumentSnapshot<Map<String, dynamic>> doc) {
+    final data = doc.data() ?? {};
+    final geoPoint = data['coordinates'];
+    final coordinates = geoPoint is GeoPoint
+        ? LatLng(geoPoint.latitude, geoPoint.longitude)
+        : LatLng(
+            doubleFromFirebase(data['lat'], 56.9496),
+            doubleFromFirebase(data['lng'], 24.1052),
+          );
+
+    return CarSpot(
+      id: doc.id,
+      name: stringFromFirebase(data['name'], 'Untitled spot'),
+      cityCountry: stringFromFirebase(data['cityCountry'], 'Riga, Latvia'),
+      coordinates: coordinates,
+      description: stringFromFirebase(
+        data['description'],
+        'Submitted community car spot.',
+      ),
+      categories: stringListFromFirebase(data['categories'], const ['Photo']),
+      rating: doubleFromFirebase(data['rating'], 0),
+      photoUrl: stringFromFirebase(data['photoUrl'], ''),
+      reelLink: stringFromFirebase(data['reelLink'], ''),
+      bestTime: stringFromFirebase(data['bestTime'], 'Not reviewed'),
+      parking: stringFromFirebase(data['parking'], 'Not reviewed'),
+      roadQuality: stringFromFirebase(data['roadQuality'], 'Not reviewed'),
+      lowCarFriendly: data['lowCarFriendly'] == true,
+      policeRisk: stringFromFirebase(data['policeRisk'], 'Not reviewed'),
+      traffic: stringFromFirebase(data['traffic'], 'Not reviewed'),
+      lighting: stringFromFirebase(data['lighting'], 'Not reviewed'),
+      crowd: stringFromFirebase(data['crowd'], 'Not reviewed'),
+      addedBy: stringFromFirebase(data['addedBy'], '@ccs.driver'),
+      addedByUid: stringFromFirebase(data['addedByUid'], ''),
+      status: spotStatusFromFirebase(data['status']),
+    );
+  }
+}
+
+String stringFromFirebase(Object? value, String fallback) {
+  if (value is String && value.trim().isNotEmpty) {
+    return value.trim();
+  }
+
+  return fallback;
+}
+
+double doubleFromFirebase(Object? value, double fallback) {
+  if (value is num) {
+    return value.toDouble();
+  }
+
+  return fallback;
+}
+
+List<String> stringListFromFirebase(Object? value, List<String> fallback) {
+  if (value is List) {
+    final list = value
+        .map((item) => item.toString().trim())
+        .where((item) => item.isNotEmpty)
+        .toList();
+
+    if (list.isNotEmpty) {
+      return list;
+    }
+  }
+
+  return fallback;
+}
+
+CollectionReference<Map<String, dynamic>> spotsCollection() {
+  return FirebaseFirestore.instance.collection('spots');
+}
+
+Future<String> uploadSpotPhoto({
+  required String spotId,
+  required String localPhotoPath,
+  required String userId,
+}) async {
+  final photoFile = File(localPhotoPath);
+
+  if (!await photoFile.exists()) {
+    throw FirebaseException(
+      plugin: 'firebase_storage',
+      code: 'photo-file-missing',
+      message: 'Selected photo file was not found on this phone.',
+    );
+  }
+
+  final photoRef = FirebaseStorage.instance
+      .ref()
+      .child('spots')
+      .child(spotId)
+      .child('main.jpg');
+
+  final metadata = SettableMetadata(
+    contentType: 'image/jpeg',
+    customMetadata: {'spotId': spotId, 'uploadedByUid': userId},
+  );
+
+  await photoRef.putFile(photoFile, metadata);
+  return photoRef.getDownloadURL();
+}
+
+Map<String, Object?> spotToFirestoreData(
+  CarSpot spot, {
+  bool includeCreatedAt = false,
+}) {
+  final data = <String, Object?>{
+    'name': spot.name,
+    'cityCountry': spot.cityCountry,
+    'lat': spot.coordinates.latitude,
+    'lng': spot.coordinates.longitude,
+    'coordinates': GeoPoint(
+      spot.coordinates.latitude,
+      spot.coordinates.longitude,
+    ),
+    'description': spot.description,
+    'categories': spot.categories,
+    'rating': spot.rating,
+    'photoUrl': spot.photoUrl,
+    'reelLink': spot.reelLink,
+    'bestTime': spot.bestTime,
+    'parking': spot.parking,
+    'roadQuality': spot.roadQuality,
+    'lowCarFriendly': spot.lowCarFriendly,
+    'policeRisk': spot.policeRisk,
+    'traffic': spot.traffic,
+    'lighting': spot.lighting,
+    'crowd': spot.crowd,
+    'addedBy': spot.addedBy,
+    'addedByUid': spot.addedByUid,
+    'status': spotStatusName(spot.status),
+    'updatedAt': FieldValue.serverTimestamp(),
+  };
+
+  if (includeCreatedAt) {
+    data['createdAt'] = FieldValue.serverTimestamp();
+  }
+
+  return data;
+}
+
+StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? spotSyncSubscription;
+
+void startFirebaseSpotSync() {
+  spotSyncSubscription?.cancel();
+  spotSyncSubscription = spotsCollection().snapshots().listen(
+    (snapshot) {
+      final firebaseSpots = snapshot.docs
+          .map((doc) => CarSpot.fromFirestore(doc))
+          .toList();
+
+      reviewSpots.value = firebaseSpots;
+      submittedSpots.value = firebaseSpots
+          .where(
+            (spot) => spot.addedByUid == FirebaseAuth.instance.currentUser?.uid,
+          )
+          .toList();
+    },
+    onError: (_) {
+      // Firestore rules may still be closed while the user is setting up Firebase.
+    },
+  );
+}
+
+Future<void> refreshFirebaseSpotsFromServer() async {
+  final snapshot = await spotsCollection().get(
+    const GetOptions(source: Source.server),
+  );
+  final firebaseSpots = snapshot.docs
+      .map((doc) => CarSpot.fromFirestore(doc))
+      .toList();
+
+  reviewSpots.value = firebaseSpots;
+  submittedSpots.value = firebaseSpots
+      .where(
+        (spot) => spot.addedByUid == FirebaseAuth.instance.currentUser?.uid,
+      )
+      .toList();
+}
+
+const demoSpots = [
+  CarSpot(
+    name: 'Andrejsala Harbor',
+    cityCountry: 'Riga, Latvia',
+    coordinates: LatLng(56.9612, 24.0944),
+    description:
+        'Industrial harbor mood, wide roads, dark water reflections, and a strong night shoot atmosphere.',
+    categories: ['Photo', 'Reels', 'Meet'],
+    rating: 4.8,
+    photoUrl:
+        'https://images.unsplash.com/photo-1492144534655-ae79c964c9d7?q=80&w=1200&auto=format&fit=crop',
+    reelLink: 'https://instagram.com/reel/demo-andrejsala',
+    bestTime: 'Night',
+    parking: 'Easy',
+    roadQuality: 'Good',
+    lowCarFriendly: true,
+    policeRisk: 'Medium',
+    traffic: 'Low',
+    lighting: 'Street lights',
+    crowd: 'Medium',
+    addedBy: '@riga.driver',
+    status: SpotStatus.approved,
+  ),
+  CarSpot(
+    name: 'Spikeri Brick Yard',
+    cityCountry: 'Riga, Latvia',
+    coordinates: LatLng(56.9427, 24.1168),
+    description:
+        'Brick walls, city texture, and clean angles for rollers, portraits, and parked car shots.',
+    categories: ['Photo', 'Reels'],
+    rating: 4.6,
+    photoUrl:
+        'https://images.unsplash.com/photo-1542362567-b07e54358753?q=80&w=1200&auto=format&fit=crop',
+    reelLink: 'https://tiktok.com/@ccs/video/demo-spikeri',
+    bestTime: 'Golden hour',
+    parking: 'Street',
+    roadQuality: 'Mixed',
+    lowCarFriendly: false,
+    policeRisk: 'Low',
+    traffic: 'Medium',
+    lighting: 'Warm city lights',
+    crowd: 'Low',
+    addedBy: '@stance.lv',
+    status: SpotStatus.approved,
+  ),
+  CarSpot(
+    name: 'Bikernieki Forest Road',
+    cityCountry: 'Riga, Latvia',
+    coordinates: LatLng(56.9662, 24.2294),
+    description:
+        'Forest road energy near the track area. Best for clean rolling content and small meets.',
+    categories: ['Drive', 'Meet', 'Reels'],
+    rating: 4.7,
+    photoUrl:
+        'https://images.unsplash.com/photo-1503736334956-4c8f8e92946d?q=80&w=1200&auto=format&fit=crop',
+    reelLink: 'https://instagram.com/reel/demo-bikernieki',
+    bestTime: 'Evening',
+    parking: 'Good',
+    roadQuality: 'Good',
+    lowCarFriendly: true,
+    policeRisk: 'Low',
+    traffic: 'Low',
+    lighting: 'Natural',
+    crowd: 'Low',
+    addedBy: '@jdm.riga',
+    status: SpotStatus.approved,
+  ),
+  CarSpot(
+    name: 'Riga Rooftop Parking',
+    cityCountry: 'Riga, Latvia',
+    coordinates: LatLng(56.9497, 24.1052),
+    description:
+        'Skyline view and clean concrete lines. This spot is waiting for moderator approval.',
+    categories: ['Photo', 'Low car'],
+    rating: 4.4,
+    photoUrl:
+        'https://images.unsplash.com/photo-1511919884226-fd3cad34687c?q=80&w=1200&auto=format&fit=crop',
+    reelLink: 'https://instagram.com/reel/demo-pending',
+    bestTime: 'Sunset',
+    parking: 'Private',
+    roadQuality: 'Good',
+    lowCarFriendly: true,
+    policeRisk: 'High',
+    traffic: 'Medium',
+    lighting: 'Rooftop lights',
+    crowd: 'Unknown',
+    addedBy: '@new.spotter',
+    status: SpotStatus.pending,
+  ),
+];
+
+List<CarSpot> approvedPublicSpots() {
+  return [
+    ...demoSpots.where((spot) => spot.status == SpotStatus.approved),
+    ...reviewSpots.value.where((spot) => spot.status == SpotStatus.approved),
+  ];
+}
+
+List<CarSpot> pendingReviewSpots() {
+  return reviewSpots.value
+      .where((spot) => spot.status == SpotStatus.pending)
+      .toList();
+}
+
+bool isSameSpot(CarSpot first, CarSpot second) {
+  if (first.id.isNotEmpty && second.id.isNotEmpty) {
+    return first.id == second.id;
+  }
+
+  return first.name == second.name && first.addedBy == second.addedBy;
+}
+
+Future<void> updateSpotStatus(CarSpot spot, SpotStatus status) async {
+  final updatedSpot = spot.copyWith(
+    status: status,
+    rating: status == SpotStatus.approved && spot.rating == 0
+        ? 4.5
+        : spot.rating,
+  );
+
+  if (spot.id.isNotEmpty) {
+    await spotsCollection().doc(spot.id).update({
+      'status': spotStatusName(status),
+      'rating': updatedSpot.rating,
+      'reviewedBy': currentUser.username,
+      'reviewedByUid': currentUser.uid,
+      'reviewedAt': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+  }
+
+  // Keep the local UI responsive while Firestore sends the fresh snapshot.
+  reviewSpots.value = reviewSpots.value
+      .map((item) => isSameSpot(item, spot) ? updatedSpot : item)
+      .toList();
+  submittedSpots.value = submittedSpots.value
+      .map((item) => isSameSpot(item, spot) ? updatedSpot : item)
+      .toList();
+  savedSpots.value = savedSpots.value
+      .map((item) => isSameSpot(item, spot) ? updatedSpot : item)
+      .toList();
+}
+
+class SplashScreen extends StatelessWidget {
+  const SplashScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      body: Stack(
+        fit: StackFit.expand,
+        children: [
+          Image.asset('assets/bg.png', fit: BoxFit.cover),
+          Container(color: Colors.black.withValues(alpha: 0.55)),
+          Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Text(
+                'CCS',
+                style: TextStyle(
+                  fontSize: 64,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 4,
+                  color: blue,
+                ),
+              ),
+              const SizedBox(height: 12),
+              const Text(
+                'COMMUNITY CAR SPOTS',
+                style: TextStyle(
+                  fontSize: 16,
+                  letterSpacing: 3,
+                  color: Colors.white70,
+                ),
+              ),
+              const SizedBox(height: 32),
+              const Text(
+                'FIND - DRIVE - SHOOT',
+                style: TextStyle(
+                  fontSize: 13,
+                  letterSpacing: 4,
+                  color: Colors.white54,
+                ),
+              ),
+              const SizedBox(height: 80),
+              ElevatedButton(
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const LoginScreen()),
+                  );
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: blue,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 42,
+                    vertical: 16,
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(18),
+                  ),
+                ),
+                child: const Text(
+                  'ENTER CCS',
+                  style: TextStyle(
+                    fontSize: 16,
+                    letterSpacing: 2,
+                    color: Colors.white,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class LoginScreen extends StatefulWidget {
+  const LoginScreen({super.key});
+
+  @override
+  State<LoginScreen> createState() => _LoginScreenState();
+}
+
+class _LoginScreenState extends State<LoginScreen> {
+  bool isSigningIn = false;
+  bool rememberMe = rememberMeEnabled;
+
+  Widget loginButton(
+    String text,
+    IconData icon,
+    Color color,
+    VoidCallback? onTap,
+  ) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 14),
+      child: ElevatedButton.icon(
+        onPressed: onTap,
+        icon: Icon(icon, color: color),
+        label: Text(text),
+        style: ElevatedButton.styleFrom(
+          backgroundColor: Colors.white,
+          foregroundColor: Colors.black,
+          minimumSize: const Size(double.infinity, 56),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> loginWithGoogle() async {
+    setState(() => isSigningIn = true);
+
+    try {
+      await signInWithGoogleAndSaveUser();
+      await saveRememberMePreference(rememberMe);
+
+      if (!mounted) {
+        return;
+      }
+
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (_) => const MainScreen()),
+      );
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: Colors.redAccent,
+          content: Text(
+            'Google login failed. Check Firebase Google sign-in setup. $error',
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => isSigningIn = false);
+      }
+    }
+  }
+
+  void showTelegramLoginInfo() {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        backgroundColor: panel,
+        content: Text(
+          'Telegram login needs a Telegram bot and backend. Google login is connected now.',
+          style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      body: Stack(
+        fit: StackFit.expand,
+        children: [
+          Image.asset('assets/bg.png', fit: BoxFit.cover),
+          Container(color: Colors.black.withValues(alpha: 0.68)),
+          Padding(
+            padding: const EdgeInsets.all(28),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Text(
+                  'CCS',
+                  style: TextStyle(
+                    fontSize: 58,
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: 4,
+                    color: blue,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                const Text(
+                  'COMMUNITY CAR SPOTS',
+                  style: TextStyle(letterSpacing: 3, color: Colors.white70),
+                ),
+                const SizedBox(height: 60),
+                loginButton(
+                  isSigningIn ? 'Signing in...' : 'Continue with Google',
+                  Icons.g_mobiledata,
+                  Colors.red,
+                  isSigningIn ? null : loginWithGoogle,
+                ),
+                _RememberMeRow(
+                  value: rememberMe,
+                  enabled: !isSigningIn,
+                  onChanged: (value) => setState(() => rememberMe = value),
+                ),
+                const SizedBox(height: 10),
+                loginButton(
+                  'Continue with Telegram',
+                  Icons.send,
+                  blue,
+                  isSigningIn ? null : showTelegramLoginInfo,
+                ),
+                const SizedBox(height: 28),
+                const Text(
+                  'By continuing, you agree to our Terms & Privacy Policy',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: Colors.white38, fontSize: 12),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _RememberMeRow extends StatelessWidget {
+  final bool value;
+  final bool enabled;
+  final ValueChanged<bool> onChanged;
+
+  const _RememberMeRow({
+    required this.value,
+    required this.enabled,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: enabled ? () => onChanged(!value) : null,
+      borderRadius: BorderRadius.circular(14),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 2),
+        child: Row(
+          children: [
+            Checkbox(
+              value: value,
+              onChanged: enabled
+                  ? (checked) => onChanged(checked ?? false)
+                  : null,
+              activeColor: blue,
+              checkColor: Colors.white,
+              side: const BorderSide(color: Colors.white54),
+            ),
+            const SizedBox(width: 4),
+            const Text(
+              'Remember me',
+              style: TextStyle(
+                color: Colors.white70,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const Spacer(),
+            const Icon(Icons.lock_outline, color: Colors.white38, size: 16),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class MainScreen extends StatefulWidget {
+  const MainScreen({super.key});
+
+  @override
+  State<MainScreen> createState() => _MainScreenState();
+}
+
+class _MainScreenState extends State<MainScreen> {
+  int index = 0;
+
+  final screens = const [
+    ExploreScreen(),
+    MapScreen(),
+    AddSpotScreen(),
+    SavedScreen(),
+    ProfileScreen(),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: screens[index],
+      bottomNavigationBar: BottomNavigationBar(
+        currentIndex: index,
+        onTap: (value) => setState(() => index = value),
+        selectedItemColor: blue,
+        unselectedItemColor: Colors.white54,
+        backgroundColor: panel,
+        type: BottomNavigationBarType.fixed,
+        items: const [
+          BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Explore'),
+          BottomNavigationBarItem(icon: Icon(Icons.map), label: 'Map'),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.add_circle_outline),
+            label: 'Add Spot',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.bookmark_border),
+            label: 'Saved',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.person_outline),
+            label: 'Profile',
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class ExploreScreen extends StatelessWidget {
+  const ExploreScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<List<CarSpot>>(
+      valueListenable: reviewSpots,
+      builder: (context, _, _) {
+        final approvedSpots = approvedPublicSpots();
+
+        return Scaffold(
+          backgroundColor: Colors.black,
+          appBar: AppBar(
+            title: const Text('CCS'),
+            backgroundColor: Colors.black,
+            foregroundColor: blue,
+          ),
+          body: ListView(
+            padding: const EdgeInsets.fromLTRB(20, 18, 20, 28),
+            children: [
+              const Text(
+                'Explore',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 34,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              const SizedBox(height: 6),
+              const Text(
+                'Approved car spots for shoots, reels, and night drives.',
+                style: TextStyle(color: Colors.white54, height: 1.35),
+              ),
+              const SizedBox(height: 18),
+              SizedBox(
+                height: 42,
+                child: ListView(
+                  scrollDirection: Axis.horizontal,
+                  children: const [
+                    _BuildChip(label: 'Trending'),
+                    SizedBox(width: 8),
+                    _BuildChip(label: 'Photo'),
+                    SizedBox(width: 8),
+                    _BuildChip(label: 'Reels'),
+                    SizedBox(width: 8),
+                    _BuildChip(label: 'Meet'),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 18),
+              for (final spot in approvedSpots) ...[
+                ExploreSpotCard(spot: spot),
+                const SizedBox(height: 14),
+              ],
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+class ExploreSpotCard extends StatelessWidget {
+  final CarSpot spot;
+
+  const ExploreSpotCard({super.key, required this.spot});
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: () {
+        Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => SpotDetailScreen(spot: spot)),
+        );
+      },
+      borderRadius: BorderRadius.circular(22),
+      child: Container(
+        decoration: BoxDecoration(
+          color: panel,
+          borderRadius: BorderRadius.circular(22),
+          border: Border.all(color: Colors.white12),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Stack(
+              children: [
+                SpotPhoto(
+                  spot: spot,
+                  height: 190,
+                  width: double.infinity,
+                  borderRadius: const BorderRadius.vertical(
+                    top: Radius.circular(22),
+                  ),
+                ),
+                Positioned(
+                  top: 12,
+                  right: 12,
+                  child: SaveSpotButton(spot: spot, compact: true),
+                ),
+              ],
+            ),
+            Padding(
+              padding: const EdgeInsets.all(14),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          spot.name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 20,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                      ),
+                      const Icon(Icons.star, color: blue, size: 17),
+                      const SizedBox(width: 4),
+                      Text(
+                        spot.rating.toStringAsFixed(1),
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 5),
+                  Text(
+                    spot.cityCountry,
+                    style: const TextStyle(color: Colors.white54),
+                  ),
+                  const SizedBox(height: 10),
+                  Text(
+                    spot.description,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(color: Colors.white70, height: 1.35),
+                  ),
+                  const SizedBox(height: 12),
+                  Wrap(
+                    spacing: 7,
+                    runSpacing: 7,
+                    children: [
+                      for (final category in spot.categories.take(3))
+                        _SmallTag(label: category, icon: Icons.local_offer),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class MapScreen extends StatefulWidget {
+  const MapScreen({super.key});
+
+  @override
+  State<MapScreen> createState() => _MapScreenState();
+}
+
+class _MapScreenState extends State<MapScreen> {
+  static const rigaCenter = LatLng(56.9496, 24.1052);
+  static const rigaZoom = 12.2;
+
+  final filters = const ['All', 'Photo', 'Reels', 'Meet', 'Low car'];
+  final mapController = MapController();
+  String selectedFilter = 'All';
+  CarSpot? selectedSpot;
+
+  @override
+  void initState() {
+    super.initState();
+    reviewSpots.addListener(refreshMap);
+  }
+
+  void refreshMap() {
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
+  List<CarSpot> get visibleSpots {
+    return approvedPublicSpots().where((spot) {
+      if (spot.status != SpotStatus.approved) {
+        return false;
+      }
+
+      if (selectedFilter == 'All') {
+        return true;
+      }
+
+      if (selectedFilter == 'Low car') {
+        return spot.lowCarFriendly;
+      }
+
+      return spot.categories.contains(selectedFilter);
+    }).toList();
+  }
+
+  List<Marker> get markers {
+    return visibleSpots.map((spot) {
+      return Marker(
+        point: spot.coordinates,
+        width: 54,
+        height: 54,
+        child: GestureDetector(
+          onTap: () {
+            setState(() => selectedSpot = spot);
+          },
+          child: Container(
+            decoration: BoxDecoration(
+              color: blue,
+              shape: BoxShape.circle,
+              boxShadow: [
+                BoxShadow(
+                  color: blue.withValues(alpha: 0.35),
+                  blurRadius: 18,
+                  spreadRadius: 4,
+                ),
+              ],
+            ),
+            child: const Icon(
+              Icons.directions_car,
+              color: Colors.white,
+              size: 24,
+            ),
+          ),
+        ),
+      );
+    }).toList();
+  }
+
+  @override
+  void dispose() {
+    reviewSpots.removeListener(refreshMap);
+    mapController.dispose();
+    super.dispose();
+  }
+
+  void openSpotDetails(CarSpot spot) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => SpotDetailScreen(spot: spot)),
+    );
+  }
+
+  void moveToRiga() {
+    mapController.move(rigaCenter, rigaZoom);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final spot = selectedSpot;
+
+    return Scaffold(
+      backgroundColor: Colors.black,
+      body: Stack(
+        children: [
+          FlutterMap(
+            mapController: mapController,
+            options: MapOptions(
+              initialCenter: rigaCenter,
+              initialZoom: rigaZoom,
+              minZoom: 4,
+              maxZoom: 18,
+              backgroundColor: night,
+              onTap: (_, _) => setState(() => selectedSpot = null),
+            ),
+            children: [
+              TileLayer(
+                urlTemplate:
+                    'https://basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',
+                userAgentPackageName: 'com.example.ccs_app',
+                maxNativeZoom: 19,
+              ),
+              MarkerLayer(markers: markers),
+              RichAttributionWidget(
+                attributions: [
+                  TextSourceAttribution(
+                    'OpenStreetMap contributors, CARTO',
+                    prependCopyright: false,
+                    textStyle: const TextStyle(
+                      color: Colors.white54,
+                      fontSize: 11,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+          SafeArea(
+            child: Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 10),
+                  child: _MapHeader(approvedCount: visibleSpots.length),
+                ),
+                SizedBox(
+                  height: 42,
+                  child: ListView.separated(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    scrollDirection: Axis.horizontal,
+                    itemCount: filters.length,
+                    separatorBuilder: (_, _) => const SizedBox(width: 10),
+                    itemBuilder: (context, itemIndex) {
+                      final filter = filters[itemIndex];
+                      final selected = filter == selectedFilter;
+
+                      return ChoiceChip(
+                        label: Text(filter),
+                        selected: selected,
+                        showCheckmark: false,
+                        onSelected: (_) {
+                          setState(() {
+                            selectedFilter = filter;
+                            selectedSpot = null;
+                          });
+                        },
+                        labelStyle: TextStyle(
+                          color: selected ? Colors.white : Colors.white70,
+                          fontWeight: selected
+                              ? FontWeight.w700
+                              : FontWeight.w500,
+                        ),
+                        selectedColor: blue,
+                        backgroundColor: panel.withValues(alpha: 0.92),
+                        side: BorderSide(
+                          color: selected ? blue : Colors.white12,
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Positioned(
+            right: 16,
+            bottom: spot == null ? 18 : 196,
+            child: FloatingActionButton.small(
+              onPressed: moveToRiga,
+              backgroundColor: blue,
+              foregroundColor: Colors.white,
+              child: const Icon(Icons.my_location),
+            ),
+          ),
+          if (spot != null)
+            Positioned(
+              left: 16,
+              right: 16,
+              bottom: 16,
+              child: SpotMapCard(
+                spot: spot,
+                onOpen: () => openSpotDetails(spot),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MapHeader extends StatelessWidget {
+  final int approvedCount;
+
+  const _MapHeader({required this.approvedCount});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.78),
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: Colors.white12),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 42,
+            height: 42,
+            decoration: BoxDecoration(
+              color: blue.withValues(alpha: 0.18),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: const Icon(Icons.map, color: blue),
+          ),
+          const SizedBox(width: 12),
+          const Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'CCS Map',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                SizedBox(height: 2),
+                Text(
+                  'Approved Riga car spots',
+                  style: TextStyle(color: Colors.white54, fontSize: 12),
+                ),
+              ],
+            ),
+          ),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+            decoration: BoxDecoration(
+              color: panel,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.white12),
+            ),
+            child: Text(
+              '$approvedCount spots',
+              style: const TextStyle(
+                color: Colors.white70,
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class SpotMapCard extends StatelessWidget {
+  final CarSpot spot;
+  final VoidCallback onOpen;
+
+  const SpotMapCard({super.key, required this.spot, required this.onOpen});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: panel.withValues(alpha: 0.96),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: Colors.white12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.4),
+            blurRadius: 28,
+            offset: const Offset(0, 12),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          ClipRRect(
+            borderRadius: BorderRadius.circular(18),
+            child: SpotPhoto(
+              spot: spot,
+              width: 96,
+              height: 124,
+              fit: BoxFit.cover,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        spot.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 18,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    const Icon(Icons.star, color: blue, size: 16),
+                    const SizedBox(width: 3),
+                    Text(
+                      spot.rating.toStringAsFixed(1),
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  spot.cityCountry,
+                  style: const TextStyle(color: Colors.white54, fontSize: 12),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  spot.description,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(color: Colors.white70, height: 1.3),
+                ),
+                const SizedBox(height: 10),
+                Wrap(
+                  spacing: 7,
+                  runSpacing: 7,
+                  children: [
+                    _SmallTag(label: spot.bestTime, icon: Icons.dark_mode),
+                    _SmallTag(
+                      label: spot.lowCarFriendly ? 'Low car OK' : 'Careful',
+                      icon: Icons.speed,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: SizedBox(
+                        height: 38,
+                        child: ElevatedButton(
+                          onPressed: onOpen,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: blue,
+                            foregroundColor: Colors.white,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(14),
+                            ),
+                          ),
+                          child: const Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.open_in_full, size: 16),
+                              SizedBox(width: 8),
+                              Text('View Spot'),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    SaveSpotButton(spot: spot, compact: true),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class SaveSpotButton extends StatelessWidget {
+  final CarSpot spot;
+  final bool compact;
+
+  const SaveSpotButton({super.key, required this.spot, this.compact = false});
+
+  bool isSaved(List<CarSpot> spots) {
+    return spots.any((savedSpot) => savedSpot.name == spot.name);
+  }
+
+  void toggleSaved(BuildContext context, bool saved) {
+    if (saved) {
+      savedSpots.value = savedSpots.value
+          .where((savedSpot) => savedSpot.name != spot.name)
+          .toList();
+    } else {
+      savedSpots.value = [spot, ...savedSpots.value];
+    }
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        backgroundColor: saved ? panel : blue,
+        content: Text(
+          saved ? 'Spot removed from saved.' : 'Spot saved.',
+          style: const TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<List<CarSpot>>(
+      valueListenable: savedSpots,
+      builder: (context, spots, _) {
+        final saved = isSaved(spots);
+
+        if (compact) {
+          return SizedBox(
+            width: 46,
+            height: 38,
+            child: OutlinedButton(
+              onPressed: () => toggleSaved(context, saved),
+              style: OutlinedButton.styleFrom(
+                padding: EdgeInsets.zero,
+                foregroundColor: saved ? blue : Colors.white,
+                side: BorderSide(color: saved ? blue : Colors.white24),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
+                ),
+              ),
+              child: Icon(saved ? Icons.bookmark : Icons.bookmark_border),
+            ),
+          );
+        }
+
+        return SizedBox(
+          width: double.infinity,
+          height: 48,
+          child: OutlinedButton.icon(
+            onPressed: () => toggleSaved(context, saved),
+            icon: Icon(saved ? Icons.bookmark : Icons.bookmark_border),
+            label: Text(saved ? 'Saved Spot' : 'Save Spot'),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: saved ? blue : Colors.white,
+              side: BorderSide(color: saved ? blue : Colors.white24),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class SavedSpotTile extends StatelessWidget {
+  final CarSpot spot;
+
+  const SavedSpotTile({super.key, required this.spot});
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: () {
+        Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => SpotDetailScreen(spot: spot)),
+        );
+      },
+      borderRadius: BorderRadius.circular(18),
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: panel,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: Colors.white12),
+        ),
+        child: Row(
+          children: [
+            SpotPhoto(
+              spot: spot,
+              width: 84,
+              height: 84,
+              borderRadius: BorderRadius.circular(14),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    spot.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 17,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  const SizedBox(height: 5),
+                  Text(
+                    spot.cityCountry,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(color: Colors.white54),
+                  ),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 6,
+                    children: [
+                      for (final category in spot.categories.take(2))
+                        _SmallTag(label: category, icon: Icons.local_offer),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            const Icon(Icons.chevron_right, color: Colors.white38),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class EmptyStateCard extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String text;
+
+  const EmptyStateCard({
+    super.key,
+    required this.icon,
+    required this.title,
+    required this.text,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: panel,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: Colors.white12),
+      ),
+      child: Column(
+        children: [
+          Container(
+            width: 52,
+            height: 52,
+            decoration: BoxDecoration(
+              color: blue.withValues(alpha: 0.16),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(icon, color: blue),
+          ),
+          const SizedBox(height: 14),
+          Text(
+            title,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 19,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            text,
+            textAlign: TextAlign.center,
+            style: const TextStyle(color: Colors.white54, height: 1.35),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class SpotDetailScreen extends StatelessWidget {
+  final CarSpot spot;
+
+  const SpotDetailScreen({super.key, required this.spot});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        title: const Text('Spot'),
+        backgroundColor: Colors.black,
+        foregroundColor: blue,
+      ),
+      body: ListView(
+        children: [
+          SizedBox(
+            height: 280,
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                SpotPhoto(spot: spot, fit: BoxFit.cover),
+                Container(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [
+                        Colors.transparent,
+                        Colors.black.withValues(alpha: 0.9),
+                      ],
+                    ),
+                  ),
+                ),
+                Positioned(
+                  left: 20,
+                  right: 20,
+                  bottom: 22,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        spot.name,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 32,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        spot.cityCountry,
+                        style: const TextStyle(
+                          color: Colors.white70,
+                          fontSize: 15,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    const Icon(Icons.star, color: blue, size: 20),
+                    const SizedBox(width: 6),
+                    Text(
+                      '${spot.rating.toStringAsFixed(1)} rating',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const Spacer(),
+                    Text(
+                      'Added by ${spot.addedBy}',
+                      style: const TextStyle(color: Colors.white54),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 18),
+                Text(
+                  spot.description,
+                  style: const TextStyle(
+                    color: Colors.white70,
+                    fontSize: 16,
+                    height: 1.45,
+                  ),
+                ),
+                const SizedBox(height: 22),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    for (final category in spot.categories)
+                      _SmallTag(label: category, icon: Icons.local_offer),
+                  ],
+                ),
+                const SizedBox(height: 22),
+                SaveSpotButton(spot: spot),
+                const SizedBox(height: 24),
+                const Text(
+                  'Reel link',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: panel,
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: Colors.white12),
+                  ),
+                  child: Text(
+                    spot.reelLink,
+                    style: const TextStyle(color: Colors.white70),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class SpotPhoto extends StatelessWidget {
+  final CarSpot spot;
+  final double? width;
+  final double? height;
+  final BoxFit fit;
+  final BorderRadius? borderRadius;
+
+  const SpotPhoto({
+    super.key,
+    required this.spot,
+    this.width,
+    this.height,
+    this.fit = BoxFit.cover,
+    this.borderRadius,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    Widget photo;
+
+    if (spot.localPhotoPath != null) {
+      photo = Image.file(
+        File(spot.localPhotoPath!),
+        width: width,
+        height: height,
+        fit: fit,
+        errorBuilder: (_, _, _) =>
+            _SpotPhotoPlaceholder(width: width, height: height),
+      );
+    } else if (spot.photoUrl.isNotEmpty) {
+      photo = Image.network(
+        spot.photoUrl,
+        width: width,
+        height: height,
+        fit: fit,
+        errorBuilder: (_, _, _) =>
+            _SpotPhotoPlaceholder(width: width, height: height),
+      );
+    } else {
+      photo = _SpotPhotoPlaceholder(width: width, height: height);
+    }
+
+    if (borderRadius == null) {
+      return photo;
+    }
+
+    return ClipRRect(borderRadius: borderRadius!, child: photo);
+  }
+}
+
+class _SpotPhotoPlaceholder extends StatelessWidget {
+  final double? width;
+  final double? height;
+
+  const _SpotPhotoPlaceholder({this.width, this.height});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: width,
+      height: height,
+      color: Colors.white10,
+      child: const Icon(Icons.directions_car, color: blue),
+    );
+  }
+}
+
+class _SmallTag extends StatelessWidget {
+  final String label;
+  final IconData icon;
+
+  const _SmallTag({required this.label, required this.icon});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: Colors.white10),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, color: blue, size: 13),
+          const SizedBox(width: 5),
+          Text(
+            label,
+            style: const TextStyle(
+              color: Colors.white70,
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class AddSpotScreen extends StatefulWidget {
+  const AddSpotScreen({super.key});
+
+  @override
+  State<AddSpotScreen> createState() => _AddSpotScreenState();
+}
+
+class _AddSpotScreenState extends State<AddSpotScreen> {
+  final nameController = TextEditingController(text: 'Andrejsala Harbor');
+  final cityController = TextEditingController(text: 'Riga, Latvia');
+  final descriptionController = TextEditingController(
+    text:
+        'Industrial harbor mood, wide roads, dark water reflections, and a strong night shoot atmosphere.',
+  );
+  final reelController = TextEditingController(
+    text: 'https://instagram.com/reel/demo-andrejsala',
+  );
+  final addedByController = TextEditingController(text: '@riga.driver');
+
+  final categoryOptions = const [
+    'Photo',
+    'Reels',
+    'Meet',
+    'Drive',
+    'Low car',
+    'Drift',
+    'Stance',
+    'Night',
+  ];
+
+  final selectedCategories = <String>{'Photo', 'Reels', 'Meet'};
+  LatLng? selectedLocation;
+  String? selectedPhotoPath;
+  bool isSubmitting = false;
+
+  @override
+  void dispose() {
+    nameController.dispose();
+    cityController.dispose();
+    descriptionController.dispose();
+    reelController.dispose();
+    addedByController.dispose();
+    super.dispose();
+  }
+
+  Future<void> chooseLocation() async {
+    FocusScope.of(context).unfocus();
+
+    final location = await Navigator.push<LatLng>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => LocationPickerScreen(initialLocation: selectedLocation),
+      ),
+    );
+
+    if (!mounted || location == null) {
+      return;
+    }
+
+    setState(() => selectedLocation = location);
+  }
+
+  Future<void> choosePhoto() async {
+    FocusScope.of(context).unfocus();
+
+    try {
+      final path = await photoPickerChannel.invokeMethod<String>('pickPhoto');
+
+      if (!mounted || path == null) {
+        return;
+      }
+
+      setState(() => selectedPhotoPath = path);
+    } on PlatformException catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: Colors.redAccent,
+          content: Text(
+            error.message ?? 'Could not open photo picker.',
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+      );
+    }
+  }
+
+  Future<void> submitSpot() async {
+    FocusScope.of(context).unfocus();
+
+    if (isSubmitting) {
+      return;
+    }
+
+    final firebaseUser = FirebaseAuth.instance.currentUser;
+
+    if (firebaseUser == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          backgroundColor: Colors.redAccent,
+          content: Text(
+            'Sign in with Google before submitting a spot.',
+            style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+          ),
+        ),
+      );
+      return;
+    }
+
+    if (selectedLocation == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          backgroundColor: Colors.redAccent,
+          content: Text(
+            'Choose the spot location on the map first.',
+            style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+          ),
+        ),
+      );
+      return;
+    }
+
+    final location = selectedLocation!;
+    final categories = selectedCategories.isEmpty
+        ? const ['Photo']
+        : selectedCategories.toList();
+    final spotRef = spotsCollection().doc();
+
+    var newSpot = CarSpot(
+      id: spotRef.id,
+      name: nameController.text.trim().isEmpty
+          ? 'Untitled spot'
+          : nameController.text.trim(),
+      cityCountry: cityController.text.trim().isEmpty
+          ? 'Riga, Latvia'
+          : cityController.text.trim(),
+      coordinates: location,
+      description: descriptionController.text.trim().isEmpty
+          ? 'Submitted community car spot.'
+          : descriptionController.text.trim(),
+      categories: categories,
+      rating: 0,
+      photoUrl: '',
+      localPhotoPath: selectedPhotoPath,
+      reelLink: reelController.text.trim(),
+      bestTime: 'Not reviewed',
+      parking: 'Not reviewed',
+      roadQuality: 'Not reviewed',
+      lowCarFriendly: false,
+      policeRisk: 'Not reviewed',
+      traffic: 'Not reviewed',
+      lighting: 'Not reviewed',
+      crowd: 'Not reviewed',
+      addedBy: addedByController.text.trim().isEmpty
+          ? currentUser.username
+          : addedByController.text.trim(),
+      addedByUid: firebaseUser.uid,
+      status: SpotStatus.pending,
+    );
+
+    setState(() => isSubmitting = true);
+
+    try {
+      var uploadedPhotoUrl = '';
+
+      if (selectedPhotoPath != null) {
+        uploadedPhotoUrl = await uploadSpotPhoto(
+          spotId: spotRef.id,
+          localPhotoPath: selectedPhotoPath!,
+          userId: firebaseUser.uid,
+        );
+      }
+
+      newSpot = newSpot.copyWith(photoUrl: uploadedPhotoUrl);
+      await spotRef.set(spotToFirestoreData(newSpot, includeCreatedAt: true));
+      final savedSpot = await spotRef.get(
+        const GetOptions(source: Source.server),
+      );
+
+      if (!savedSpot.exists) {
+        throw FirebaseException(
+          plugin: 'cloud_firestore',
+          code: 'spot-not-found-after-save',
+          message: 'Firebase did not return the saved spot.',
+        );
+      }
+
+      await refreshFirebaseSpotsFromServer();
+
+      if (!mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          backgroundColor: blue,
+          content: Text(
+            'Spot submitted for review. Status: pending.',
+            style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+          ),
+        ),
+      );
+    } on FirebaseException catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: Colors.redAccent,
+          content: Text(
+            'Firebase did not save the spot/photo: ${error.code}',
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => isSubmitting = false);
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        title: const Text('CCS'),
+        backgroundColor: Colors.black,
+        foregroundColor: blue,
+      ),
+      body: ListView(
+        padding: const EdgeInsets.fromLTRB(20, 18, 20, 28),
+        children: [
+          Container(
+            padding: const EdgeInsets.all(18),
+            decoration: BoxDecoration(
+              color: panel,
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: Colors.white12),
+            ),
+            child: Row(
+              children: [
+                Container(
+                  width: 48,
+                  height: 48,
+                  decoration: BoxDecoration(
+                    color: blue.withValues(alpha: 0.18),
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: const Icon(Icons.add_location_alt, color: blue),
+                ),
+                const SizedBox(width: 14),
+                const Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Add Spot',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 28,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                      SizedBox(height: 4),
+                      Text(
+                        'New spots stay hidden until CCS approves them.',
+                        style: TextStyle(color: Colors.white54, height: 1.3),
+                      ),
+                    ],
+                  ),
+                ),
+                const _PendingBadge(),
+              ],
+            ),
+          ),
+          const SizedBox(height: 18),
+          _AddSpotSection(
+            title: 'Basic info',
+            children: [
+              _CcsTextField(
+                controller: nameController,
+                label: 'Spot name',
+                hint: 'Andrejsala Harbor',
+                icon: Icons.place,
+              ),
+              _CcsTextField(
+                controller: cityController,
+                label: 'City / country',
+                hint: 'Riga, Latvia',
+                icon: Icons.location_city,
+              ),
+              _LocationPickerField(
+                hasLocation: selectedLocation != null,
+                onTap: chooseLocation,
+              ),
+              _CcsTextField(
+                controller: descriptionController,
+                label: 'Description',
+                hint: 'What makes this spot good for car photos?',
+                icon: Icons.notes,
+                maxLines: 4,
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          _AddSpotSection(
+            title: 'Categories',
+            children: [
+              Wrap(
+                spacing: 9,
+                runSpacing: 9,
+                children: [
+                  for (final category in categoryOptions)
+                    FilterChip(
+                      label: Text(category),
+                      selected: selectedCategories.contains(category),
+                      showCheckmark: false,
+                      onSelected: (selected) {
+                        setState(() {
+                          if (selected) {
+                            selectedCategories.add(category);
+                          } else {
+                            selectedCategories.remove(category);
+                          }
+                        });
+                      },
+                      selectedColor: blue,
+                      backgroundColor: Colors.white.withValues(alpha: 0.07),
+                      side: BorderSide(
+                        color: selectedCategories.contains(category)
+                            ? blue
+                            : Colors.white12,
+                      ),
+                      labelStyle: TextStyle(
+                        color: selectedCategories.contains(category)
+                            ? Colors.white
+                            : Colors.white70,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                ],
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          _AddSpotSection(
+            title: 'Media',
+            children: [
+              _PhotoPickerField(
+                photoPath: selectedPhotoPath,
+                onTap: choosePhoto,
+              ),
+              _CcsTextField(
+                controller: reelController,
+                label: 'Instagram / TikTok reel link',
+                hint: 'https://instagram.com/reel/...',
+                icon: Icons.play_circle,
+                keyboardType: TextInputType.url,
+              ),
+              _CcsTextField(
+                controller: addedByController,
+                label: 'Added by',
+                hint: '@username',
+                icon: Icons.person,
+              ),
+            ],
+          ),
+          const SizedBox(height: 22),
+          SizedBox(
+            height: 56,
+            child: ElevatedButton(
+              onPressed: isSubmitting ? null : submitSpot,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: blue,
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(18),
+                ),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(isSubmitting ? Icons.hourglass_top : Icons.send),
+                  const SizedBox(width: 10),
+                  Text(
+                    isSubmitting
+                        ? 'Saving to Firebase...'
+                        : 'Submit for Review',
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+          const _MySubmissionsSection(),
+        ],
+      ),
+    );
+  }
+}
+
+class LocationPickerScreen extends StatefulWidget {
+  final LatLng? initialLocation;
+
+  const LocationPickerScreen({super.key, this.initialLocation});
+
+  @override
+  State<LocationPickerScreen> createState() => _LocationPickerScreenState();
+}
+
+class _LocationPickerScreenState extends State<LocationPickerScreen> {
+  static const defaultCenter = LatLng(56.9496, 24.1052);
+  static const defaultZoom = 13.0;
+
+  final mapController = MapController();
+  LatLng? pickedLocation;
+
+  @override
+  void initState() {
+    super.initState();
+    pickedLocation = widget.initialLocation;
+  }
+
+  @override
+  void dispose() {
+    mapController.dispose();
+    super.dispose();
+  }
+
+  List<Marker> get markers {
+    final location = pickedLocation;
+
+    if (location == null) {
+      return [];
+    }
+
+    return [
+      Marker(
+        point: location,
+        width: 64,
+        height: 64,
+        child: const Icon(
+          Icons.location_on,
+          color: blue,
+          size: 56,
+          shadows: [
+            Shadow(color: Colors.black87, blurRadius: 12, offset: Offset(0, 3)),
+          ],
+        ),
+      ),
+    ];
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final hasLocation = pickedLocation != null;
+
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        title: const Text('Choose Location'),
+        backgroundColor: Colors.black,
+        foregroundColor: blue,
+      ),
+      body: Stack(
+        children: [
+          FlutterMap(
+            mapController: mapController,
+            options: MapOptions(
+              initialCenter: pickedLocation ?? defaultCenter,
+              initialZoom: defaultZoom,
+              minZoom: 4,
+              maxZoom: 18,
+              backgroundColor: night,
+              onTap: (_, point) => setState(() => pickedLocation = point),
+            ),
+            children: [
+              TileLayer(
+                urlTemplate:
+                    'https://basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',
+                userAgentPackageName: 'com.example.ccs_app',
+                maxNativeZoom: 19,
+              ),
+              MarkerLayer(markers: markers),
+              RichAttributionWidget(
+                attributions: [
+                  TextSourceAttribution(
+                    'OpenStreetMap contributors, CARTO',
+                    prependCopyright: false,
+                    textStyle: const TextStyle(
+                      color: Colors.white54,
+                      fontSize: 11,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+          Positioned(
+            left: 16,
+            right: 16,
+            top: 16,
+            child: Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: 0.78),
+                borderRadius: BorderRadius.circular(18),
+                border: Border.all(color: Colors.white12),
+              ),
+              child: const Row(
+                children: [
+                  Icon(Icons.touch_app, color: blue),
+                  SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      'Tap the map where this car spot should be placed.',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w700,
+                        height: 1.25,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          Positioned(
+            left: 16,
+            right: 16,
+            bottom: 16,
+            child: Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: panel.withValues(alpha: 0.96),
+                borderRadius: BorderRadius.circular(22),
+                border: Border.all(color: Colors.white12),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.36),
+                    blurRadius: 24,
+                    offset: const Offset(0, 10),
+                  ),
+                ],
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(
+                        hasLocation ? Icons.check_circle : Icons.place,
+                        color: hasLocation ? blue : Colors.white54,
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          hasLocation
+                              ? 'Location selected'
+                              : 'No location selected yet',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 17,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    height: 48,
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: hasLocation
+                          ? () => Navigator.pop(context, pickedLocation)
+                          : null,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: blue,
+                        disabledBackgroundColor: Colors.white12,
+                        foregroundColor: Colors.white,
+                        disabledForegroundColor: Colors.white38,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                      ),
+                      child: const Text(
+                        'Use this Location',
+                        style: TextStyle(fontWeight: FontWeight.w800),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _LocationPickerField extends StatelessWidget {
+  final bool hasLocation;
+  final VoidCallback onTap;
+
+  const _LocationPickerField({required this.hasLocation, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: 0.06),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: hasLocation ? blue.withValues(alpha: 0.7) : Colors.white12,
+          ),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                color: blue.withValues(alpha: 0.15),
+                borderRadius: BorderRadius.circular(13),
+              ),
+              child: Icon(
+                hasLocation ? Icons.check_circle : Icons.map,
+                color: blue,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Location',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    hasLocation
+                        ? 'Spot location selected on map'
+                        : 'Choose the spot on map',
+                    style: const TextStyle(color: Colors.white54),
+                  ),
+                ],
+              ),
+            ),
+            const Icon(Icons.chevron_right, color: Colors.white54),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _PhotoPickerField extends StatelessWidget {
+  final String? photoPath;
+  final VoidCallback onTap;
+
+  const _PhotoPickerField({required this.photoPath, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final hasPhoto = photoPath != null;
+
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: 0.06),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: hasPhoto ? blue.withValues(alpha: 0.7) : Colors.white12,
+          ),
+        ),
+        child: Row(
+          children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(14),
+              child: hasPhoto
+                  ? Image.file(
+                      File(photoPath!),
+                      width: 72,
+                      height: 72,
+                      fit: BoxFit.cover,
+                    )
+                  : Container(
+                      width: 72,
+                      height: 72,
+                      color: blue.withValues(alpha: 0.15),
+                      child: const Icon(Icons.add_photo_alternate, color: blue),
+                    ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    hasPhoto ? 'Photo selected' : 'Add photo',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  const Text(
+                    'Choose from phone gallery. Videos stay as links.',
+                    style: TextStyle(color: Colors.white54, height: 1.3),
+                  ),
+                ],
+              ),
+            ),
+            const Icon(Icons.chevron_right, color: Colors.white54),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _MySubmissionsSection extends StatelessWidget {
+  const _MySubmissionsSection();
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<List<CarSpot>>(
+      valueListenable: submittedSpots,
+      builder: (context, spots, _) {
+        return Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: panel,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: Colors.white12),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'My submissions',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              const SizedBox(height: 6),
+              const Text(
+                'Pending spots are saved here, but hidden from the public map.',
+                style: TextStyle(color: Colors.white54, height: 1.3),
+              ),
+              const SizedBox(height: 14),
+              if (spots.isEmpty)
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.06),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: Colors.white12),
+                  ),
+                  child: const Text(
+                    'No submitted spots yet.',
+                    style: TextStyle(color: Colors.white54),
+                  ),
+                )
+              else
+                ...spots.map(
+                  (spot) => Padding(
+                    padding: const EdgeInsets.only(bottom: 10),
+                    child: _SubmittedSpotTile(spot: spot),
+                  ),
+                ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _SubmittedSpotTile extends StatelessWidget {
+  final CarSpot spot;
+
+  const _SubmittedSpotTile({required this.spot});
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: () {
+        Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => SpotDetailScreen(spot: spot)),
+        );
+      },
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: 0.06),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: Colors.white12),
+        ),
+        child: Row(
+          children: [
+            SpotPhoto(
+              spot: spot,
+              width: 72,
+              height: 72,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    spot.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    spot.cityCountry,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(color: Colors.white54),
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      const _PendingBadge(),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          spot.categories.join(', '),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Colors.white38,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            const Icon(Icons.chevron_right, color: Colors.white38),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _PendingBadge extends StatelessWidget {
+  const _PendingBadge();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+      decoration: BoxDecoration(
+        color: blue.withValues(alpha: 0.16),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: blue.withValues(alpha: 0.45)),
+      ),
+      child: const Text(
+        'pending',
+        style: TextStyle(
+          color: blue,
+          fontSize: 12,
+          fontWeight: FontWeight.w900,
+        ),
+      ),
+    );
+  }
+}
+
+class _AddSpotSection extends StatelessWidget {
+  final String title;
+  final List<Widget> children;
+
+  const _AddSpotSection({required this.title, required this.children});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: panel,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: Colors.white12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 18,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          const SizedBox(height: 14),
+          ...children.expand(
+            (child) => [
+              child,
+              if (child != children.last) const SizedBox(height: 12),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CcsTextField extends StatelessWidget {
+  final TextEditingController controller;
+  final String label;
+  final String hint;
+  final IconData icon;
+  final int maxLines;
+  final TextInputType keyboardType;
+
+  const _CcsTextField({
+    required this.controller,
+    required this.label,
+    required this.hint,
+    required this.icon,
+    this.maxLines = 1,
+    this.keyboardType = TextInputType.text,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return TextField(
+      controller: controller,
+      maxLines: maxLines,
+      keyboardType: keyboardType,
+      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+      decoration: InputDecoration(
+        labelText: label,
+        hintText: hint,
+        prefixIcon: Icon(icon, color: blue),
+        labelStyle: const TextStyle(color: Colors.white60),
+        hintStyle: const TextStyle(color: Colors.white24),
+        filled: true,
+        fillColor: Colors.white.withValues(alpha: 0.06),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(16),
+          borderSide: const BorderSide(color: Colors.white12),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(16),
+          borderSide: const BorderSide(color: blue, width: 1.4),
+        ),
+      ),
+    );
+  }
+}
+
+class SavedScreen extends StatelessWidget {
+  const SavedScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        title: const Text('CCS'),
+        backgroundColor: Colors.black,
+        foregroundColor: blue,
+      ),
+      body: ValueListenableBuilder<List<CarSpot>>(
+        valueListenable: savedSpots,
+        builder: (context, spots, _) {
+          return ListView(
+            padding: const EdgeInsets.fromLTRB(20, 18, 20, 28),
+            children: [
+              const Text(
+                'Saved Spots',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 34,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                spots.isEmpty
+                    ? 'Save approved spots from Explore, Map, or Spot pages.'
+                    : '${spots.length} saved car spots.',
+                style: const TextStyle(color: Colors.white54, height: 1.35),
+              ),
+              const SizedBox(height: 18),
+              if (spots.isEmpty)
+                const EmptyStateCard(
+                  icon: Icons.bookmark_border,
+                  title: 'No saved spots yet',
+                  text: 'Tap the bookmark on a spot to keep it here.',
+                )
+              else
+                for (final spot in spots) ...[
+                  SavedSpotTile(spot: spot),
+                  const SizedBox(height: 12),
+                ],
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
+class UserProfileData {
+  final String username;
+  final String cityCountry;
+  final String bio;
+  final String? avatarPath;
+
+  const UserProfileData({
+    required this.username,
+    required this.cityCountry,
+    required this.bio,
+    this.avatarPath,
+  });
+}
+
+class GarageCar {
+  final String name;
+  final String description;
+  final String buildType;
+  final String useType;
+  final List<String> tags;
+  final String? photoPath;
+
+  const GarageCar({
+    required this.name,
+    required this.description,
+    required this.buildType,
+    required this.useType,
+    required this.tags,
+    this.photoPath,
+  });
+}
+
+class ProfileScreen extends StatefulWidget {
+  const ProfileScreen({super.key});
+
+  @override
+  State<ProfileScreen> createState() => _ProfileScreenState();
+}
+
+class _ProfileScreenState extends State<ProfileScreen> {
+  bool isSigningOut = false;
+
+  UserProfileData profile = UserProfileData(
+    username: currentUser.username,
+    cityCountry: '${currentUser.city}, ${currentUser.country}',
+    bio: 'Night drive setup, Riga spots, clean reels, and low car routes.',
+  );
+
+  List<GarageCar> cars = const [
+    GarageCar(
+      name: 'BMW E46 Coupe',
+      description:
+          'Night drive setup for city shoots and clean street parking spots.',
+      buildType: 'Static',
+      useType: 'Street',
+      tags: ['BMW', 'Night shots', 'Riga spots', 'Low car friendly'],
+    ),
+  ];
+
+  Future<void> editProfile() async {
+    final updatedProfile = await Navigator.push<UserProfileData>(
+      context,
+      MaterialPageRoute(builder: (_) => EditProfileScreen(profile: profile)),
+    );
+
+    if (!mounted || updatedProfile == null) {
+      return;
+    }
+
+    setState(() => profile = updatedProfile);
+  }
+
+  Future<void> editGarage(int index) async {
+    final updatedCar = await Navigator.push<GarageCar>(
+      context,
+      MaterialPageRoute(builder: (_) => EditGarageScreen(car: cars[index])),
+    );
+
+    if (!mounted || updatedCar == null) {
+      return;
+    }
+
+    setState(() {
+      final nextCars = [...cars];
+      nextCars[index] = updatedCar;
+      cars = nextCars;
+    });
+  }
+
+  Future<void> addCar() async {
+    final newCar = await Navigator.push<GarageCar>(
+      context,
+      MaterialPageRoute(builder: (_) => const EditGarageScreen()),
+    );
+
+    if (!mounted || newCar == null) {
+      return;
+    }
+
+    setState(() => cars = [...cars, newCar]);
+  }
+
+  void openSettings() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const SettingsScreen()),
+    );
+  }
+
+  void openAdminPanel() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const AdminReviewScreen()),
+    );
+  }
+
+  Future<void> signOut() async {
+    if (isSigningOut) {
+      return;
+    }
+
+    setState(() => isSigningOut = true);
+
+    try {
+      await signOutCurrentAccount();
+
+      if (!mounted) {
+        return;
+      }
+
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(builder: (_) => const SplashScreen()),
+        (route) => false,
+      );
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: Colors.redAccent,
+          content: Text(
+            'Could not sign out: $error',
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => isSigningOut = false);
+      }
+    }
+  }
+
+  String get garageValue {
+    if (cars.length == 1) {
+      return '1 car';
+    }
+
+    return '${cars.length} cars';
+  }
+
+  String get baseValue {
+    final city = profile.cityCountry.split(',').first.trim();
+
+    if (city.isEmpty) {
+      return 'Riga';
+    }
+
+    return city;
+  }
+
+  List<String> get profileTags {
+    final tags = <String>{};
+
+    for (final car in cars) {
+      tags.addAll(car.tags);
+    }
+
+    return tags.take(6).toList();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        title: const Text('CCS'),
+        backgroundColor: Colors.black,
+        foregroundColor: blue,
+      ),
+      body: ValueListenableBuilder<List<CarSpot>>(
+        valueListenable: submittedSpots,
+        builder: (context, spots, _) {
+          final pendingCount = spots
+              .where((spot) => spot.status == SpotStatus.pending)
+              .length;
+
+          return ListView(
+            padding: const EdgeInsets.fromLTRB(20, 18, 20, 28),
+            children: [
+              _ProfileHeader(profile: profile, onEdit: editProfile),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  Expanded(
+                    child: _ProfileStatTile(
+                      icon: Icons.pending_actions,
+                      value: '$pendingCount',
+                      label: 'Pending',
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: _ProfileStatTile(
+                      icon: Icons.directions_car,
+                      value: garageValue,
+                      label: 'Garage',
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: _ProfileStatTile(
+                      icon: Icons.location_on,
+                      value: baseValue,
+                      label: 'Base',
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              const _ProfileSocialLinksSection(),
+              const SizedBox(height: 16),
+              for (var i = 0; i < cars.length; i++) ...[
+                _GarageCard(car: cars[i], onEdit: () => editGarage(i)),
+                const SizedBox(height: 16),
+              ],
+              _ProfileStyleSection(tags: profileTags),
+              const SizedBox(height: 16),
+              _ProfileSubmissionsPreview(spots: spots),
+              const SizedBox(height: 16),
+              if (currentUser.role == UserRole.admin) ...[
+                _ProfileActionTile(
+                  icon: Icons.admin_panel_settings,
+                  title: 'Admin Panel',
+                  subtitle: 'Review pending community spots',
+                  onTap: openAdminPanel,
+                ),
+                const SizedBox(height: 10),
+              ],
+              _ProfileActionTile(
+                icon: Icons.directions_car,
+                title: 'Add another car',
+                subtitle: 'Add a second build to your garage',
+                onTap: addCar,
+              ),
+              const SizedBox(height: 10),
+              _ProfileActionTile(
+                icon: Icons.settings,
+                title: 'Settings',
+                subtitle: 'Account, privacy, notifications',
+                onTap: openSettings,
+              ),
+              const SizedBox(height: 10),
+              _ProfileActionTile(
+                icon: Icons.logout,
+                title: isSigningOut ? 'Signing out...' : 'Sign out',
+                subtitle: 'Log out of this Google account',
+                color: Colors.redAccent,
+                onTap: signOut,
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _ProfileHeader extends StatelessWidget {
+  final UserProfileData profile;
+  final VoidCallback onEdit;
+
+  const _ProfileHeader({required this.profile, required this.onEdit});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: panel,
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: Colors.white12),
+      ),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 74,
+                height: 74,
+                decoration: BoxDecoration(
+                  color: blue.withValues(alpha: 0.18),
+                  shape: BoxShape.circle,
+                  border: Border.all(color: blue.withValues(alpha: 0.5)),
+                ),
+                child: ClipOval(
+                  child: profile.avatarPath == null
+                      ? const Center(
+                          child: Text(
+                            'CCS',
+                            style: TextStyle(
+                              color: blue,
+                              fontSize: 20,
+                              fontWeight: FontWeight.w900,
+                              letterSpacing: 1.5,
+                            ),
+                          ),
+                        )
+                      : Image.file(
+                          File(profile.avatarPath!),
+                          fit: BoxFit.cover,
+                          errorBuilder: (_, _, _) {
+                            return const Center(
+                              child: Text(
+                                'CCS',
+                                style: TextStyle(
+                                  color: blue,
+                                  fontSize: 20,
+                                  fontWeight: FontWeight.w900,
+                                  letterSpacing: 1.5,
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                ),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      profile.username,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 24,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      profile.bio,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(color: Colors.white54),
+                    ),
+                    const SizedBox(height: 10),
+                    Row(
+                      children: [
+                        const Icon(Icons.location_on, color: blue, size: 16),
+                        const SizedBox(width: 4),
+                        Expanded(
+                          child: Text(
+                            profile.cityCountry,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: Colors.white70,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          SizedBox(
+            width: double.infinity,
+            height: 46,
+            child: OutlinedButton.icon(
+              onPressed: onEdit,
+              icon: const Icon(Icons.edit, size: 18),
+              label: const Text('Edit Profile'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: Colors.white,
+                side: const BorderSide(color: Colors.white24),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(15),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ProfileStatTile extends StatelessWidget {
+  final IconData icon;
+  final String value;
+  final String label;
+
+  const _ProfileStatTile({
+    required this.icon,
+    required this.value,
+    required this.label,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 104,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: panel,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: Colors.white12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, color: blue, size: 21),
+          const Spacer(),
+          Text(
+            value,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 18,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(color: Colors.white38, fontSize: 12),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _GarageCard extends StatelessWidget {
+  final GarageCar car;
+  final VoidCallback onEdit;
+
+  const _GarageCard({required this.car, required this.onEdit});
+
+  @override
+  Widget build(BuildContext context) {
+    final tags = [car.buildType, car.useType, ...car.tags];
+
+    return Container(
+      decoration: BoxDecoration(
+        color: panel,
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: Colors.white12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          ClipRRect(
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(22)),
+            child: SizedBox(
+              height: 176,
+              width: double.infinity,
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  GarageCarPhoto(car: car),
+                  Container(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [
+                          Colors.transparent,
+                          Colors.black.withValues(alpha: 0.86),
+                        ],
+                      ),
+                    ),
+                  ),
+                  Positioned(
+                    left: 16,
+                    right: 16,
+                    bottom: 16,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Garage',
+                          style: TextStyle(
+                            color: Colors.white70,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          car.name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 27,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  car.description,
+                  style: const TextStyle(color: Colors.white70, height: 1.35),
+                ),
+                const SizedBox(height: 14),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    for (final tag in tags.take(8)) _BuildChip(label: tag),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                SizedBox(
+                  width: double.infinity,
+                  height: 44,
+                  child: ElevatedButton.icon(
+                    onPressed: onEdit,
+                    icon: const Icon(Icons.build, size: 18),
+                    label: const Text('Edit Garage'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: blue,
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(15),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ProfileSocialLinksSection extends StatelessWidget {
+  const _ProfileSocialLinksSection();
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<UserSettingsData>(
+      valueListenable: userSettings,
+      builder: (context, settings, _) {
+        return Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: panel,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: Colors.white12),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Social links',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              const SizedBox(height: 12),
+              _SocialLinkRow(
+                icon: Icons.camera_alt,
+                label: 'Instagram',
+                value: settings.instagram,
+              ),
+              const SizedBox(height: 10),
+              _SocialLinkRow(
+                icon: Icons.music_note,
+                label: 'TikTok',
+                value: settings.tiktok,
+              ),
+              const SizedBox(height: 10),
+              _SocialLinkRow(
+                icon: Icons.send,
+                label: 'Telegram',
+                value: settings.telegram,
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _SocialLinkRow extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String value;
+
+  const _SocialLinkRow({
+    required this.icon,
+    required this.label,
+    required this.value,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Icon(icon, color: blue, size: 19),
+        const SizedBox(width: 10),
+        SizedBox(
+          width: 82,
+          child: Text(
+            label,
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ),
+        Expanded(
+          child: Text(
+            value.isEmpty ? 'Not added yet' : value,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            textAlign: TextAlign.right,
+            style: const TextStyle(color: Colors.white54),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _BuildChip extends StatelessWidget {
+  final String label;
+
+  const _BuildChip({required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: Colors.white10),
+      ),
+      child: Text(
+        label,
+        style: const TextStyle(
+          color: Colors.white70,
+          fontSize: 12,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    );
+  }
+}
+
+class GarageCarPhoto extends StatelessWidget {
+  final GarageCar car;
+
+  const GarageCarPhoto({super.key, required this.car});
+
+  @override
+  Widget build(BuildContext context) {
+    if (car.photoPath != null) {
+      return Image.file(
+        File(car.photoPath!),
+        fit: BoxFit.cover,
+        errorBuilder: (_, _, _) => const _GaragePhotoFallback(),
+      );
+    }
+
+    return Image.network(
+      'https://images.unsplash.com/photo-1555353540-64580b51c258?q=80&w=1200&auto=format&fit=crop',
+      fit: BoxFit.cover,
+      errorBuilder: (_, _, _) => const _GaragePhotoFallback(),
+    );
+  }
+}
+
+class _GaragePhotoFallback extends StatelessWidget {
+  const _GaragePhotoFallback();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      color: Colors.white10,
+      child: const Icon(Icons.directions_car, color: blue, size: 54),
+    );
+  }
+}
+
+class _ProfileStyleSection extends StatelessWidget {
+  final List<String> tags;
+
+  const _ProfileStyleSection({required this.tags});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: panel,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: Colors.white12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Garage tags',
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 18,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              if (tags.isEmpty)
+                const _SmallTag(label: 'No tags yet', icon: Icons.local_offer)
+              else
+                for (final tag in tags)
+                  _SmallTag(label: tag, icon: Icons.local_offer),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ProfileSubmissionsPreview extends StatelessWidget {
+  final List<CarSpot> spots;
+
+  const _ProfileSubmissionsPreview({required this.spots});
+
+  @override
+  Widget build(BuildContext context) {
+    final latest = spots.isEmpty ? null : spots.first;
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: panel,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: Colors.white12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Submissions',
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 18,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            spots.isEmpty
+                ? 'No pending spots yet.'
+                : '${spots.length} spot waiting for review.',
+            style: const TextStyle(color: Colors.white54),
+          ),
+          if (latest != null) ...[
+            const SizedBox(height: 14),
+            Row(
+              children: [
+                SpotPhoto(
+                  spot: latest,
+                  width: 64,
+                  height: 64,
+                  borderRadius: BorderRadius.circular(13),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        latest.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                      const SizedBox(height: 5),
+                      Text(
+                        latest.cityCountry,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(color: Colors.white54),
+                      ),
+                      const SizedBox(height: 8),
+                      const _PendingBadge(),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _ProfileActionTile extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+  final Color color;
+
+  const _ProfileActionTile({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+    this.color = blue,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(18),
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: panel,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: Colors.white12),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 42,
+              height: 42,
+              decoration: BoxDecoration(
+                color: color.withValues(alpha: 0.16),
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: Icon(icon, color: color),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    subtitle,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(color: Colors.white38),
+                  ),
+                ],
+              ),
+            ),
+            const Icon(Icons.chevron_right, color: Colors.white38),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class EditProfileScreen extends StatefulWidget {
+  final UserProfileData profile;
+
+  const EditProfileScreen({super.key, required this.profile});
+
+  @override
+  State<EditProfileScreen> createState() => _EditProfileScreenState();
+}
+
+class _EditProfileScreenState extends State<EditProfileScreen> {
+  late final TextEditingController usernameController;
+  late final TextEditingController cityController;
+  late final TextEditingController bioController;
+  String? avatarPath;
+
+  @override
+  void initState() {
+    super.initState();
+    usernameController = TextEditingController(text: widget.profile.username);
+    cityController = TextEditingController(text: widget.profile.cityCountry);
+    bioController = TextEditingController(text: widget.profile.bio);
+    avatarPath = widget.profile.avatarPath;
+  }
+
+  @override
+  void dispose() {
+    usernameController.dispose();
+    cityController.dispose();
+    bioController.dispose();
+    super.dispose();
+  }
+
+  Future<void> chooseAvatar() async {
+    final path = await pickPhotoFromPhone(context);
+
+    if (!mounted || path == null) {
+      return;
+    }
+
+    setState(() => avatarPath = path);
+  }
+
+  void saveProfile() {
+    Navigator.pop(
+      context,
+      UserProfileData(
+        username: usernameController.text.trim().isEmpty
+            ? '@ccs.driver'
+            : usernameController.text.trim(),
+        cityCountry: cityController.text.trim().isEmpty
+            ? 'Riga, Latvia'
+            : cityController.text.trim(),
+        bio: bioController.text.trim().isEmpty
+            ? 'Find. Drive. Shoot.'
+            : bioController.text.trim(),
+        avatarPath: avatarPath,
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        title: const Text('Edit Profile'),
+        backgroundColor: Colors.black,
+        foregroundColor: blue,
+      ),
+      body: ListView(
+        padding: const EdgeInsets.fromLTRB(20, 18, 20, 28),
+        children: [
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: panel,
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: Colors.white12),
+            ),
+            child: Column(
+              children: [
+                InkWell(
+                  onTap: chooseAvatar,
+                  borderRadius: BorderRadius.circular(999),
+                  child: Container(
+                    width: 104,
+                    height: 104,
+                    decoration: BoxDecoration(
+                      color: blue.withValues(alpha: 0.16),
+                      shape: BoxShape.circle,
+                      border: Border.all(color: blue.withValues(alpha: 0.5)),
+                    ),
+                    child: ClipOval(
+                      child: avatarPath == null
+                          ? const Icon(Icons.add_a_photo, color: blue, size: 34)
+                          : Image.file(
+                              File(avatarPath!),
+                              fit: BoxFit.cover,
+                              errorBuilder: (_, _, _) {
+                                return const Icon(
+                                  Icons.add_a_photo,
+                                  color: blue,
+                                  size: 34,
+                                );
+                              },
+                            ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                const Text(
+                  'Tap to change avatar',
+                  style: TextStyle(color: Colors.white54),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+          _AddSpotSection(
+            title: 'Profile info',
+            children: [
+              _CcsTextField(
+                controller: usernameController,
+                label: 'Nickname',
+                hint: '@riga.driver',
+                icon: Icons.alternate_email,
+              ),
+              _CcsTextField(
+                controller: cityController,
+                label: 'City / country',
+                hint: 'Riga, Latvia',
+                icon: Icons.location_city,
+              ),
+              _CcsTextField(
+                controller: bioController,
+                label: 'About you',
+                hint: 'Short description',
+                icon: Icons.notes,
+                maxLines: 4,
+              ),
+            ],
+          ),
+          const SizedBox(height: 22),
+          SizedBox(
+            height: 54,
+            child: ElevatedButton.icon(
+              onPressed: saveProfile,
+              icon: const Icon(Icons.check),
+              label: const Text('Save Profile'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: blue,
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(18),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class EditGarageScreen extends StatefulWidget {
+  final GarageCar? car;
+
+  const EditGarageScreen({super.key, this.car});
+
+  @override
+  State<EditGarageScreen> createState() => _EditGarageScreenState();
+}
+
+class _EditGarageScreenState extends State<EditGarageScreen> {
+  late final TextEditingController nameController;
+  late final TextEditingController descriptionController;
+  late String buildType;
+  late String useType;
+  late Set<String> selectedTags;
+  String? photoPath;
+
+  final buildOptions = const ['Static', 'Pneumo', 'Coilovers'];
+  final useOptions = const ['Street', 'Track', 'Show'];
+  final tagOptions = const [
+    'BMW',
+    'JDM',
+    'VAG',
+    'Drift',
+    'Stance',
+    'Night shots',
+    'Riga spots',
+    'Low car friendly',
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    final car = widget.car;
+    nameController = TextEditingController(text: car?.name ?? 'BMW E46 Coupe');
+    descriptionController = TextEditingController(
+      text:
+          car?.description ??
+          'Short description about your car, setup, and what content you shoot.',
+    );
+    buildType = car?.buildType ?? 'Static';
+    useType = car?.useType ?? 'Street';
+    selectedTags = {
+      ...(car?.tags ?? const ['BMW', 'Night shots']),
+    };
+    photoPath = car?.photoPath;
+  }
+
+  @override
+  void dispose() {
+    nameController.dispose();
+    descriptionController.dispose();
+    super.dispose();
+  }
+
+  Future<void> chooseCarPhoto() async {
+    final path = await pickPhotoFromPhone(context);
+
+    if (!mounted || path == null) {
+      return;
+    }
+
+    setState(() => photoPath = path);
+  }
+
+  void saveCar() {
+    Navigator.pop(
+      context,
+      GarageCar(
+        name: nameController.text.trim().isEmpty
+            ? 'Untitled car'
+            : nameController.text.trim(),
+        description: descriptionController.text.trim().isEmpty
+            ? 'Car build profile.'
+            : descriptionController.text.trim(),
+        buildType: buildType,
+        useType: useType,
+        tags: selectedTags.toList(),
+        photoPath: photoPath,
+      ),
+    );
+  }
+
+  Widget choiceGroup({
+    required String title,
+    required List<String> options,
+    required String selectedValue,
+    required ValueChanged<String> onSelected,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          title,
+          style: const TextStyle(
+            color: Colors.white70,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+        const SizedBox(height: 10),
+        Wrap(
+          spacing: 9,
+          runSpacing: 9,
+          children: [
+            for (final option in options)
+              ChoiceChip(
+                label: Text(option),
+                selected: option == selectedValue,
+                showCheckmark: false,
+                onSelected: (_) => setState(() => onSelected(option)),
+                selectedColor: blue,
+                backgroundColor: Colors.white.withValues(alpha: 0.07),
+                side: BorderSide(
+                  color: option == selectedValue ? blue : Colors.white12,
+                ),
+                labelStyle: TextStyle(
+                  color: option == selectedValue
+                      ? Colors.white
+                      : Colors.white70,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isEditing = widget.car != null;
+
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        title: Text(isEditing ? 'Edit Garage' : 'Add Car'),
+        backgroundColor: Colors.black,
+        foregroundColor: blue,
+      ),
+      body: ListView(
+        padding: const EdgeInsets.fromLTRB(20, 18, 20, 28),
+        children: [
+          InkWell(
+            onTap: chooseCarPhoto,
+            borderRadius: BorderRadius.circular(22),
+            child: Container(
+              height: 210,
+              decoration: BoxDecoration(
+                color: panel,
+                borderRadius: BorderRadius.circular(22),
+                border: Border.all(color: Colors.white12),
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(22),
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    if (photoPath == null)
+                      Container(
+                        color: Colors.white.withValues(alpha: 0.06),
+                        child: const Icon(
+                          Icons.add_photo_alternate,
+                          color: blue,
+                          size: 44,
+                        ),
+                      )
+                    else
+                      Image.file(
+                        File(photoPath!),
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, _, _) {
+                          return Container(
+                            color: Colors.white.withValues(alpha: 0.06),
+                            child: const Icon(
+                              Icons.add_photo_alternate,
+                              color: blue,
+                              size: 44,
+                            ),
+                          );
+                        },
+                      ),
+                    Align(
+                      alignment: Alignment.bottomCenter,
+                      child: Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(14),
+                        color: Colors.black.withValues(alpha: 0.68),
+                        child: const Text(
+                          'Tap to choose car photo',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+          _AddSpotSection(
+            title: 'Car info',
+            children: [
+              _CcsTextField(
+                controller: nameController,
+                label: 'Car name',
+                hint: 'BMW E46 Coupe',
+                icon: Icons.directions_car,
+              ),
+              _CcsTextField(
+                controller: descriptionController,
+                label: 'Short description',
+                hint: 'Tell people about your build',
+                icon: Icons.notes,
+                maxLines: 4,
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          _AddSpotSection(
+            title: 'Build',
+            children: [
+              choiceGroup(
+                title: 'Suspension',
+                options: buildOptions,
+                selectedValue: buildType,
+                onSelected: (value) => buildType = value,
+              ),
+              choiceGroup(
+                title: 'Use',
+                options: useOptions,
+                selectedValue: useType,
+                onSelected: (value) => useType = value,
+              ),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Tags',
+                    style: TextStyle(
+                      color: Colors.white70,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Wrap(
+                    spacing: 9,
+                    runSpacing: 9,
+                    children: [
+                      for (final tag in tagOptions)
+                        FilterChip(
+                          label: Text(tag),
+                          selected: selectedTags.contains(tag),
+                          showCheckmark: false,
+                          onSelected: (selected) {
+                            setState(() {
+                              if (selected) {
+                                selectedTags.add(tag);
+                              } else {
+                                selectedTags.remove(tag);
+                              }
+                            });
+                          },
+                          selectedColor: blue,
+                          backgroundColor: Colors.white.withValues(alpha: 0.07),
+                          side: BorderSide(
+                            color: selectedTags.contains(tag)
+                                ? blue
+                                : Colors.white12,
+                          ),
+                          labelStyle: TextStyle(
+                            color: selectedTags.contains(tag)
+                                ? Colors.white
+                                : Colors.white70,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                    ],
+                  ),
+                ],
+              ),
+            ],
+          ),
+          const SizedBox(height: 22),
+          SizedBox(
+            height: 54,
+            child: ElevatedButton.icon(
+              onPressed: saveCar,
+              icon: const Icon(Icons.check),
+              label: Text(isEditing ? 'Save Garage' : 'Add Car'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: blue,
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(18),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class SettingsScreen extends StatefulWidget {
+  const SettingsScreen({super.key});
+
+  @override
+  State<SettingsScreen> createState() => _SettingsScreenState();
+}
+
+class _SettingsScreenState extends State<SettingsScreen> {
+  late final TextEditingController instagramController;
+  late final TextEditingController tiktokController;
+  late final TextEditingController telegramController;
+
+  late bool reviewNotifications;
+  late bool likeNotifications;
+  late bool commentNotifications;
+  late bool newSpotNotifications;
+  late bool publicProfile;
+  late bool showSavedSpots;
+  late bool showGarage;
+
+  @override
+  void initState() {
+    super.initState();
+    final settings = userSettings.value;
+    instagramController = TextEditingController(text: settings.instagram);
+    tiktokController = TextEditingController(text: settings.tiktok);
+    telegramController = TextEditingController(text: settings.telegram);
+    reviewNotifications = settings.reviewNotifications;
+    likeNotifications = settings.likeNotifications;
+    commentNotifications = settings.commentNotifications;
+    newSpotNotifications = settings.newSpotNotifications;
+    publicProfile = settings.publicProfile;
+    showSavedSpots = settings.showSavedSpots;
+    showGarage = settings.showGarage;
+  }
+
+  @override
+  void dispose() {
+    instagramController.dispose();
+    tiktokController.dispose();
+    telegramController.dispose();
+    super.dispose();
+  }
+
+  void saveSettings() {
+    userSettings.value = UserSettingsData(
+      instagram: instagramController.text.trim(),
+      tiktok: tiktokController.text.trim(),
+      telegram: telegramController.text.trim(),
+      reviewNotifications: reviewNotifications,
+      likeNotifications: likeNotifications,
+      commentNotifications: commentNotifications,
+      newSpotNotifications: newSpotNotifications,
+      publicProfile: publicProfile,
+      showSavedSpots: showSavedSpots,
+      showGarage: showGarage,
+    );
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        backgroundColor: blue,
+        content: Text(
+          'Settings saved locally for this prototype.',
+          style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        title: const Text('Settings'),
+        backgroundColor: Colors.black,
+        foregroundColor: blue,
+      ),
+      body: ListView(
+        padding: const EdgeInsets.fromLTRB(20, 18, 20, 28),
+        children: [
+          _AddSpotSection(
+            title: 'Social links',
+            children: [
+              _CcsTextField(
+                controller: instagramController,
+                label: 'Instagram',
+                hint: 'https://instagram.com/...',
+                icon: Icons.camera_alt,
+                keyboardType: TextInputType.url,
+              ),
+              _CcsTextField(
+                controller: tiktokController,
+                label: 'TikTok',
+                hint: 'https://tiktok.com/@...',
+                icon: Icons.music_note,
+                keyboardType: TextInputType.url,
+              ),
+              _CcsTextField(
+                controller: telegramController,
+                label: 'Telegram',
+                hint: 'https://t.me/...',
+                icon: Icons.send,
+                keyboardType: TextInputType.url,
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          _AddSpotSection(
+            title: 'Notifications',
+            children: [
+              _SettingsSwitchTile(
+                icon: Icons.verified,
+                title: 'Spot review updates',
+                subtitle: 'Approved or rejected spot submissions',
+                value: reviewNotifications,
+                onChanged: (value) =>
+                    setState(() => reviewNotifications = value),
+              ),
+              _SettingsSwitchTile(
+                icon: Icons.favorite,
+                title: 'Likes on my spots',
+                subtitle: 'When people like your approved spots',
+                value: likeNotifications,
+                onChanged: (value) => setState(() => likeNotifications = value),
+              ),
+              _SettingsSwitchTile(
+                icon: Icons.chat_bubble,
+                title: 'Comments',
+                subtitle: 'Future comments and community replies',
+                value: commentNotifications,
+                onChanged: (value) =>
+                    setState(() => commentNotifications = value),
+              ),
+              _SettingsSwitchTile(
+                icon: Icons.map,
+                title: 'New spots',
+                subtitle: 'Fresh approved locations nearby',
+                value: newSpotNotifications,
+                onChanged: (value) =>
+                    setState(() => newSpotNotifications = value),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          _AddSpotSection(
+            title: 'Privacy',
+            children: [
+              _SettingsSwitchTile(
+                icon: Icons.public,
+                title: 'Public profile',
+                subtitle: 'Let other drivers see your profile',
+                value: publicProfile,
+                onChanged: (value) => setState(() => publicProfile = value),
+              ),
+              _SettingsSwitchTile(
+                icon: Icons.bookmark,
+                title: 'Show saved spots',
+                subtitle: 'Display saved spots on your public profile later',
+                value: showSavedSpots,
+                onChanged: (value) => setState(() => showSavedSpots = value),
+              ),
+              _SettingsSwitchTile(
+                icon: Icons.directions_car,
+                title: 'Show garage',
+                subtitle: 'Display your car builds on your profile',
+                value: showGarage,
+                onChanged: (value) => setState(() => showGarage = value),
+              ),
+            ],
+          ),
+          const SizedBox(height: 22),
+          SizedBox(
+            height: 54,
+            child: ElevatedButton.icon(
+              onPressed: saveSettings,
+              icon: const Icon(Icons.check),
+              label: const Text('Save Settings'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: blue,
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(18),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SettingsSwitchTile extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final bool value;
+  final ValueChanged<bool> onChanged;
+
+  const _SettingsSwitchTile({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.value,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.06),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.white12),
+      ),
+      child: SwitchListTile(
+        value: value,
+        onChanged: onChanged,
+        activeThumbColor: blue,
+        secondary: Icon(icon, color: blue),
+        title: Text(
+          title,
+          style: const TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+        subtitle: Text(subtitle, style: const TextStyle(color: Colors.white54)),
+      ),
+    );
+  }
+}
+
+class AdminReviewScreen extends StatelessWidget {
+  const AdminReviewScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        title: const Text('Admin Review'),
+        backgroundColor: Colors.black,
+        foregroundColor: blue,
+      ),
+      body: ValueListenableBuilder<List<CarSpot>>(
+        valueListenable: reviewSpots,
+        builder: (context, _, _) {
+          final pendingSpots = pendingReviewSpots();
+
+          return ListView(
+            padding: const EdgeInsets.fromLTRB(20, 18, 20, 28),
+            children: [
+              const Text(
+                'Pending Spots',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 34,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                pendingSpots.isEmpty
+                    ? 'No spots waiting for moderation.'
+                    : '${pendingSpots.length} spot waiting for review.',
+                style: const TextStyle(color: Colors.white54, height: 1.35),
+              ),
+              const SizedBox(height: 18),
+              if (pendingSpots.isEmpty)
+                const EmptyStateCard(
+                  icon: Icons.admin_panel_settings,
+                  title: 'Review queue is clear',
+                  text: 'New user submitted spots will appear here as pending.',
+                )
+              else
+                for (final spot in pendingSpots) ...[
+                  AdminPendingSpotTile(spot: spot),
+                  const SizedBox(height: 12),
+                ],
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
+class AdminPendingSpotTile extends StatelessWidget {
+  final CarSpot spot;
+
+  const AdminPendingSpotTile({super.key, required this.spot});
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: () {
+        Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => AdminSpotReviewScreen(spot: spot)),
+        );
+      },
+      borderRadius: BorderRadius.circular(18),
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: panel,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: Colors.white12),
+        ),
+        child: Row(
+          children: [
+            SpotPhoto(
+              spot: spot,
+              width: 82,
+              height: 82,
+              borderRadius: BorderRadius.circular(14),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    spot.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 17,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  const SizedBox(height: 5),
+                  Text(
+                    spot.cityCountry,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(color: Colors.white54),
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      const _PendingBadge(),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Added by ${spot.addedBy}',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(color: Colors.white38),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            const Icon(Icons.chevron_right, color: Colors.white38),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class AdminSpotReviewScreen extends StatelessWidget {
+  final CarSpot spot;
+
+  const AdminSpotReviewScreen({super.key, required this.spot});
+
+  Future<void> approveSpot(BuildContext context) async {
+    try {
+      await updateSpotStatus(spot, SpotStatus.approved);
+
+      if (!context.mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          backgroundColor: blue,
+          content: Text(
+            'Spot approved. It is now public.',
+            style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+          ),
+        ),
+      );
+      Navigator.pop(context);
+    } on FirebaseException catch (error) {
+      showAdminUpdateError(context, error.code);
+    }
+  }
+
+  Future<void> rejectSpot(BuildContext context) async {
+    try {
+      await updateSpotStatus(spot, SpotStatus.rejected);
+
+      if (!context.mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          backgroundColor: Colors.redAccent,
+          content: Text(
+            'Spot rejected.',
+            style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+          ),
+        ),
+      );
+      Navigator.pop(context);
+    } on FirebaseException catch (error) {
+      showAdminUpdateError(context, error.code);
+    }
+  }
+
+  void showAdminUpdateError(BuildContext context, String code) {
+    if (!context.mounted) {
+      return;
+    }
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        backgroundColor: Colors.redAccent,
+        content: Text(
+          'Could not update spot status: $code',
+          style: const TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        title: const Text('Review Spot'),
+        backgroundColor: Colors.black,
+        foregroundColor: blue,
+      ),
+      body: ListView(
+        padding: const EdgeInsets.fromLTRB(20, 18, 20, 28),
+        children: [
+          SpotPhoto(
+            spot: spot,
+            height: 250,
+            width: double.infinity,
+            borderRadius: BorderRadius.circular(22),
+          ),
+          const SizedBox(height: 18),
+          Row(
+            children: [
+              const _PendingBadge(),
+              const Spacer(),
+              Text(
+                'Added by ${spot.addedBy}',
+                style: const TextStyle(color: Colors.white54),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Text(
+            spot.name,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 30,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(spot.cityCountry, style: const TextStyle(color: Colors.white54)),
+          const SizedBox(height: 16),
+          Text(
+            spot.description,
+            style: const TextStyle(
+              color: Colors.white70,
+              fontSize: 16,
+              height: 1.45,
+            ),
+          ),
+          const SizedBox(height: 16),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (final category in spot.categories)
+                _SmallTag(label: category, icon: Icons.local_offer),
+            ],
+          ),
+          const SizedBox(height: 22),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: () {
+                    rejectSpot(context);
+                  },
+                  icon: const Icon(Icons.close),
+                  label: const Text('Reject'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: Colors.redAccent,
+                    side: const BorderSide(color: Colors.redAccent),
+                    minimumSize: const Size.fromHeight(52),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: ElevatedButton.icon(
+                  onPressed: () {
+                    approveSpot(context);
+                  },
+                  icon: const Icon(Icons.check),
+                  label: const Text('Approve'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: blue,
+                    foregroundColor: Colors.white,
+                    minimumSize: const Size.fromHeight(52),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class AppPage extends StatelessWidget {
+  final String title;
+  final String text;
+
+  const AppPage({super.key, required this.title, required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        title: const Text('CCS'),
+        backgroundColor: Colors.black,
+        foregroundColor: blue,
+      ),
+      body: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(28),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(
+                title,
+                style: const TextStyle(
+                  fontSize: 34,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.white,
+                ),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                text,
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: Colors.white60, fontSize: 18),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
