@@ -135,7 +135,7 @@ class AppUser {
 AppUser currentUser = const AppUser(
   uid: 'mock_user',
   name: 'Aleksej',
-  username: '@pasegorov8',
+  username: 'pasegorov8',
   email: '',
   role: UserRole.admin,
   city: 'Riga',
@@ -172,7 +172,7 @@ Future<void> signOutCurrentAccount() async {
   currentUser = const AppUser(
     uid: 'mock_user',
     name: 'Aleksej',
-    username: '@pasegorov8',
+    username: 'pasegorov8',
     email: '',
     role: UserRole.admin,
     city: 'Riga',
@@ -208,21 +208,127 @@ SpotStatus spotStatusFromFirebase(Object? value) {
   }
 }
 
-String makeUsernameFromFirebaseUser(User user) {
-  final emailName = user.email?.split('@').first.trim();
-  final displayName = user.displayName?.trim();
-  final rawName = (emailName != null && emailName.isNotEmpty)
-      ? emailName
-      : (displayName != null && displayName.isNotEmpty)
-      ? displayName
-      : 'ccs_driver';
-  final cleanName = rawName
-      .toLowerCase()
-      .replaceAll(RegExp(r'[^a-z0-9_]+'), '_')
+String cleanProfileUsername(String value) {
+  return value
+      .trim()
+      .replaceAll('@', '')
+      .replaceAll(RegExp(r'\s+'), '_')
+      .replaceAll(RegExp(r'[^a-zA-Z0-9_]+'), '')
       .replaceAll(RegExp(r'_+'), '_')
       .replaceAll(RegExp(r'^_|_$'), '');
+}
 
-  return '@${cleanName.isEmpty ? 'ccs_driver' : cleanName}';
+String usernameKey(String value) {
+  return cleanProfileUsername(value).toLowerCase();
+}
+
+String makeUsernameFromFirebaseUser(User user) {
+  final displayName = user.displayName?.trim();
+  final emailName = user.email?.split('@').first.trim();
+  final rawName = (displayName != null && displayName.isNotEmpty)
+      ? displayName
+      : (emailName != null && emailName.isNotEmpty)
+      ? emailName
+      : 'ccs_driver';
+  final cleanName = cleanProfileUsername(rawName);
+
+  return cleanName.isEmpty ? 'ccs_driver' : cleanName;
+}
+
+CollectionReference<Map<String, dynamic>> usernamesCollection() {
+  return FirebaseFirestore.instance.collection('usernames');
+}
+
+String fallbackUsernameSuffix(String uid) {
+  return uid.length <= 6 ? uid : uid.substring(0, 6);
+}
+
+Future<String> reserveUsernameForCurrentUser({
+  required String preferredUsername,
+  String? previousUsername,
+  bool allowFallback = false,
+}) async {
+  final firebaseUser = FirebaseAuth.instance.currentUser;
+
+  if (firebaseUser == null) {
+    throw FirebaseException(
+      plugin: 'cloud_firestore',
+      code: 'not-logged-in',
+      message: 'Log in before changing your nickname.',
+    );
+  }
+
+  final cleanPreferred = cleanProfileUsername(preferredUsername);
+
+  if (cleanPreferred.length < 3) {
+    throw FirebaseException(
+      plugin: 'cloud_firestore',
+      code: 'username-too-short',
+      message: 'Nickname must be at least 3 characters.',
+    );
+  }
+
+  final suffix = fallbackUsernameSuffix(firebaseUser.uid);
+
+  for (var attempt = 0; attempt < 20; attempt++) {
+    final candidate = attempt == 0
+        ? cleanPreferred
+        : attempt == 1
+        ? '${cleanPreferred}_$suffix'
+        : '${cleanPreferred}_${suffix}_$attempt';
+    final key = usernameKey(candidate);
+    final usernameRef = usernamesCollection().doc(key);
+    final previousKey = previousUsername == null
+        ? ''
+        : usernameKey(previousUsername);
+    final previousRef = previousKey.isEmpty || previousKey == key
+        ? null
+        : usernamesCollection().doc(previousKey);
+
+    try {
+      await FirebaseFirestore.instance.runTransaction((transaction) async {
+        final snapshot = await transaction.get(usernameRef);
+        final previousSnapshot = previousRef == null
+            ? null
+            : await transaction.get(previousRef);
+        final existingUid = snapshot.data()?['uid'] as String?;
+        final previousUid = previousSnapshot?.data()?['uid'] as String?;
+
+        if (snapshot.exists && existingUid != firebaseUser.uid) {
+          throw FirebaseException(
+            plugin: 'cloud_firestore',
+            code: 'username-taken',
+            message: 'This nickname is already taken.',
+          );
+        }
+
+        transaction.set(usernameRef, {
+          'uid': firebaseUser.uid,
+          'username': candidate,
+          'usernameKey': key,
+          'updatedAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+
+        if (previousSnapshot != null &&
+            previousSnapshot.exists &&
+            previousUid == firebaseUser.uid) {
+          transaction.delete(previousRef!);
+        }
+      });
+
+      return candidate;
+    } on FirebaseException catch (error) {
+      if (!allowFallback || error.code != 'username-taken') {
+        rethrow;
+      }
+    }
+  }
+
+  throw FirebaseException(
+    plugin: 'cloud_firestore',
+    code: 'username-taken',
+    message: 'This nickname is already taken.',
+  );
 }
 
 Future<UserRole> defaultRoleForNewFirebaseUser() async {
@@ -270,9 +376,14 @@ Future<AppUser> saveFirebaseUser(
   final name = (data?['name'] as String?)?.trim().isNotEmpty == true
       ? data!['name'] as String
       : firebaseUser.displayName ?? 'CCS Driver';
-  final username = (data?['username'] as String?)?.trim().isNotEmpty == true
+  final rawUsername = (data?['username'] as String?)?.trim().isNotEmpty == true
       ? data!['username'] as String
       : makeUsernameFromFirebaseUser(firebaseUser);
+  final username = await reserveUsernameForCurrentUser(
+    preferredUsername: rawUsername,
+    previousUsername: data?['username'] as String?,
+    allowFallback: true,
+  );
   final city = (data?['city'] as String?)?.trim().isNotEmpty == true
       ? data!['city'] as String
       : 'Riga';
@@ -298,6 +409,7 @@ Future<AppUser> saveFirebaseUser(
     'uid': firebaseUser.uid,
     'name': name,
     'username': username,
+    'usernameKey': usernameKey(username),
     'email': firebaseUser.email ?? '',
     'photoUrl': photoUrl,
     'bio': bio,
@@ -585,7 +697,7 @@ class CarSpot {
       traffic: stringFromFirebase(data['traffic'], 'Not reviewed'),
       lighting: stringFromFirebase(data['lighting'], 'Not reviewed'),
       crowd: stringFromFirebase(data['crowd'], 'Not reviewed'),
-      addedBy: stringFromFirebase(data['addedBy'], '@ccs.driver'),
+      addedBy: stringFromFirebase(data['addedBy'], 'ccs_driver'),
       addedByUid: stringFromFirebase(data['addedByUid'], ''),
       status: spotStatusFromFirebase(data['status']),
       createdAtMillis: timestampMillisFromFirebase(data['createdAt']),
@@ -810,7 +922,7 @@ class SpotReviewData {
       id: doc.id,
       spotId: stringFromFirebase(data['spotId'], ''),
       userId: stringFromFirebase(data['userId'], ''),
-      username: stringFromFirebase(data['username'], '@ccs.driver'),
+      username: stringFromFirebase(data['username'], 'ccs_driver'),
       rating: doubleFromFirebase(data['rating'], 5).round().clamp(1, 5).toInt(),
       comment: stringFromFirebase(data['comment'], ''),
       createdAt: timestamp is Timestamp
@@ -1016,7 +1128,7 @@ const demoSpots = [
     traffic: 'Low',
     lighting: 'Street lights',
     crowd: 'Medium',
-    addedBy: '@riga.driver',
+    addedBy: 'riga_driver',
     status: SpotStatus.approved,
   ),
   CarSpot(
@@ -1038,7 +1150,7 @@ const demoSpots = [
     traffic: 'Medium',
     lighting: 'Warm city lights',
     crowd: 'Low',
-    addedBy: '@stance.lv',
+    addedBy: 'stance_lv',
     status: SpotStatus.approved,
   ),
   CarSpot(
@@ -1060,7 +1172,7 @@ const demoSpots = [
     traffic: 'Low',
     lighting: 'Natural',
     crowd: 'Low',
-    addedBy: '@jdm.riga',
+    addedBy: 'jdm_riga',
     status: SpotStatus.approved,
   ),
   CarSpot(
@@ -1082,7 +1194,7 @@ const demoSpots = [
     traffic: 'Medium',
     lighting: 'Rooftop lights',
     crowd: 'Unknown',
-    addedBy: '@new.spotter',
+    addedBy: 'new_spotter',
     status: SpotStatus.pending,
   ),
 ];
@@ -3294,6 +3406,12 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
   bool isSubmitting = false;
 
   @override
+  void initState() {
+    super.initState();
+    addedByController.text = currentUser.username;
+  }
+
+  @override
   void dispose() {
     nameController.dispose();
     cityController.dispose();
@@ -3417,9 +3535,7 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
       traffic: 'Not reviewed',
       lighting: 'Not reviewed',
       crowd: 'Not reviewed',
-      addedBy: addedByController.text.trim().isEmpty
-          ? currentUser.username
-          : addedByController.text.trim(),
+      addedBy: currentUser.username,
       addedByUid: firebaseUser.uid,
       status: SpotStatus.pending,
     );
@@ -3632,8 +3748,9 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
               _CcsTextField(
                 controller: addedByController,
                 label: 'Added by',
-                hint: '@username',
+                hint: 'Your profile nickname',
                 icon: Icons.person,
+                readOnly: true,
               ),
             ],
           ),
@@ -4221,6 +4338,7 @@ class _CcsTextField extends StatelessWidget {
   final IconData icon;
   final int maxLines;
   final TextInputType keyboardType;
+  final bool readOnly;
 
   const _CcsTextField({
     required this.controller,
@@ -4229,6 +4347,7 @@ class _CcsTextField extends StatelessWidget {
     required this.icon,
     this.maxLines = 1,
     this.keyboardType = TextInputType.text,
+    this.readOnly = false,
   });
 
   @override
@@ -4237,6 +4356,7 @@ class _CcsTextField extends StatelessWidget {
       controller: controller,
       maxLines: maxLines,
       keyboardType: keyboardType,
+      readOnly: readOnly,
       style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
       decoration: InputDecoration(
         labelText: label,
@@ -4426,11 +4546,16 @@ List<String> splitCityCountry(String value) {
 
 Future<void> saveProfileToFirebase(UserProfileData profile) async {
   final cityCountry = splitCityCountry(profile.cityCountry);
+  final previousUsername = currentUser.username;
+  final cleanUsername = await reserveUsernameForCurrentUser(
+    preferredUsername: profile.username,
+    previousUsername: previousUsername,
+  );
 
   currentUser = AppUser(
     uid: currentUser.uid,
     name: currentUser.name,
-    username: profile.username,
+    username: cleanUsername,
     email: currentUser.email,
     photoUrl: currentUser.photoUrl,
     bio: profile.bio,
@@ -4441,7 +4566,8 @@ Future<void> saveProfileToFirebase(UserProfileData profile) async {
   );
 
   await saveCurrentUserFields({
-    'username': profile.username,
+    'username': cleanUsername,
+    'usernameKey': usernameKey(cleanUsername),
     'bio': profile.bio,
     'avatarPath': profile.avatarPath,
     'city': cityCountry[0],
@@ -4486,14 +4612,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
       return;
     }
 
-    setState(() => profile = updatedProfile);
-
     try {
       await saveProfileToFirebase(updatedProfile);
 
       if (!mounted) {
         return;
       }
+
+      setState(() => profile = UserProfileData.fromCurrentUser());
 
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -5487,8 +5613,8 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       context,
       UserProfileData(
         username: usernameController.text.trim().isEmpty
-            ? '@ccs.driver'
-            : usernameController.text.trim(),
+            ? currentUser.username
+            : cleanProfileUsername(usernameController.text),
         cityCountry: cityController.text.trim().isEmpty
             ? 'Riga, Latvia'
             : cityController.text.trim(),
@@ -5564,7 +5690,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
               _CcsTextField(
                 controller: usernameController,
                 label: 'Nickname',
-                hint: '@riga.driver',
+                hint: 'riga_driver',
                 icon: Icons.alternate_email,
               ),
               _CcsTextField(
@@ -6794,4 +6920,3 @@ class AppPage extends StatelessWidget {
     );
   }
 }
-.
