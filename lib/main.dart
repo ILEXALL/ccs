@@ -22,28 +22,39 @@ const googleServerClientId =
     '325709324670-cep9b3r2j2mmapmmuougmqai7umvlod6.apps.googleusercontent.com';
 
 String? googleSignInSetupError;
+bool firebaseReady = false;
 bool rememberMeEnabled = false;
 const rememberMeKey = 'remember_me';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
-
-  // Google Sign-In needs one setup call before we use the login button.
   try {
-    await GoogleSignIn.instance.initialize(
-      serverClientId: googleServerClientId,
+    await Firebase.initializeApp(
+      options: DefaultFirebaseOptions.currentPlatform,
     );
+    firebaseReady = true;
+
+    // Google Sign-In needs one setup call before we use the login button.
+    try {
+      await GoogleSignIn.instance.initialize(
+        serverClientId: googleServerClientId,
+      );
+    } catch (error) {
+      googleSignInSetupError = error.toString();
+    }
+
+    rememberMeEnabled = await loadRememberMePreference();
+
+    final appUser = await loadCurrentFirebaseUser();
+    if (appUser != null) {
+      startFirebaseSpotSync();
+    }
   } catch (error) {
+    // Do not let a Firebase/Google services problem crash the app on startup.
+    firebaseReady = false;
     googleSignInSetupError = error.toString();
-  }
-
-  rememberMeEnabled = await loadRememberMePreference();
-
-  final appUser = await loadCurrentFirebaseUser();
-  if (appUser != null) {
-    startFirebaseSpotSync();
+    rememberMeEnabled = false;
   }
 
   runApp(const CCSApp());
@@ -58,7 +69,10 @@ class CCSApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       title: 'CCS',
       theme: ThemeData.dark(),
-      home: rememberMeEnabled && FirebaseAuth.instance.currentUser != null
+      home:
+          firebaseReady &&
+              rememberMeEnabled &&
+              FirebaseAuth.instance.currentUser != null
           ? const MainScreen()
           : const SplashScreen(),
     );
@@ -97,6 +111,35 @@ Future<String?> pickPhotoFromPhone(BuildContext context) async {
       ),
     );
 
+    return null;
+  } on MissingPluginException {
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          backgroundColor: Colors.redAccent,
+          content: Text(
+            'Photo picker is not connected in Android native code.',
+            style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+          ),
+        ),
+      );
+    }
+    return null;
+  } catch (error) {
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: Colors.redAccent,
+          content: Text(
+            'Could not open photo picker. $error',
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+      );
+    }
     return null;
   }
 }
@@ -444,6 +487,13 @@ Future<AppUser> saveFirebaseUser(
 }
 
 Future<AppUser> signInWithGoogleAndSaveUser() async {
+  if (!firebaseReady) {
+    throw Exception(
+      googleSignInSetupError ??
+          'Firebase did not initialize on this device. Check google-services.json and Android setup.',
+    );
+  }
+
   if (googleSignInSetupError != null) {
     throw Exception(googleSignInSetupError);
   }
@@ -762,6 +812,18 @@ Map<String, dynamic> mapFromFirebase(Object? value) {
   }
 
   return <String, dynamic>{};
+}
+
+bool localFileExists(String? path) {
+  if (path == null || path.trim().isEmpty) {
+    return false;
+  }
+
+  try {
+    return File(path).existsSync();
+  } catch (_) {
+    return false;
+  }
 }
 
 CollectionReference<Map<String, dynamic>> usersCollection() {
@@ -3292,7 +3354,7 @@ class SpotPhoto extends StatelessWidget {
   Widget build(BuildContext context) {
     Widget photo;
 
-    if (spot.localPhotoPath != null) {
+    if (localFileExists(spot.localPhotoPath)) {
       photo = Image.file(
         File(spot.localPhotoPath!),
         width: width,
@@ -3441,32 +3503,13 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
   Future<void> choosePhoto() async {
     FocusScope.of(context).unfocus();
 
-    try {
-      final path = await photoPickerChannel.invokeMethod<String>('pickPhoto');
+    final path = await pickPhotoFromPhone(context);
 
-      if (!mounted || path == null) {
-        return;
-      }
-
-      setState(() => selectedPhotoPath = path);
-    } on PlatformException catch (error) {
-      if (!mounted) {
-        return;
-      }
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          backgroundColor: Colors.redAccent,
-          content: Text(
-            error.message ?? 'Could not open photo picker.',
-            style: const TextStyle(
-              color: Colors.white,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-        ),
-      );
+    if (!mounted || path == null) {
+      return;
     }
+
+    setState(() => selectedPhotoPath = path);
   }
 
   Future<void> submitSpot() async {
@@ -4958,7 +5001,7 @@ class _ProfileHeader extends StatelessWidget {
                   border: Border.all(color: blue.withValues(alpha: 0.5)),
                 ),
                 child: ClipOval(
-                  child: profile.avatarPath == null
+                  child: !localFileExists(profile.avatarPath)
                       ? const Center(
                           child: Text(
                             'CCS',
@@ -5348,7 +5391,7 @@ class GarageCarPhoto extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (car.photoPath != null) {
+    if (localFileExists(car.photoPath)) {
       return Image.file(
         File(car.photoPath!),
         fit: BoxFit.cover,
@@ -5659,7 +5702,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                       border: Border.all(color: blue.withValues(alpha: 0.5)),
                     ),
                     child: ClipOval(
-                      child: avatarPath == null
+                      child: !localFileExists(avatarPath)
                           ? const Icon(Icons.add_a_photo, color: blue, size: 34)
                           : Image.file(
                               File(avatarPath!),
@@ -5887,7 +5930,7 @@ class _EditGarageScreenState extends State<EditGarageScreen> {
                 child: Stack(
                   fit: StackFit.expand,
                   children: [
-                    if (photoPath == null)
+                    if (!localFileExists(photoPath))
                       Container(
                         color: Colors.white.withValues(alpha: 0.06),
                         child: const Icon(
