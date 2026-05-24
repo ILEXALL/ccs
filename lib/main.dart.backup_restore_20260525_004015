@@ -1,4 +1,4 @@
-import 'dart:async';
+﻿import 'dart:async';
 import 'dart:io';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -626,7 +626,6 @@ class CarSpot {
   final List<String> categories;
   final double rating;
   final String photoUrl;
-  final List<String> photoUrls;
   final String? localPhotoPath;
   final String reelLink;
   final String bestTime;
@@ -651,7 +650,6 @@ class CarSpot {
     required this.categories,
     required this.rating,
     required this.photoUrl,
-    this.photoUrls = const [],
     this.localPhotoPath,
     required this.reelLink,
     required this.bestTime,
@@ -677,7 +675,6 @@ class CarSpot {
     List<String>? categories,
     double? rating,
     String? photoUrl,
-    List<String>? photoUrls,
     String? localPhotoPath,
     String? reelLink,
     String? bestTime,
@@ -702,7 +699,6 @@ class CarSpot {
       categories: categories ?? this.categories,
       rating: rating ?? this.rating,
       photoUrl: photoUrl ?? this.photoUrl,
-      photoUrls: photoUrls ?? this.photoUrls,
       localPhotoPath: localPhotoPath ?? this.localPhotoPath,
       reelLink: reelLink ?? this.reelLink,
       bestTime: bestTime ?? this.bestTime,
@@ -742,7 +738,6 @@ class CarSpot {
       categories: stringListFromFirebase(data['categories'], const ['Photo']),
       rating: doubleFromFirebase(data['rating'], 0),
       photoUrl: stringFromFirebase(data['photoUrl'], ''),
-      photoUrls: stringListFromFirebase(data['photoUrls'], const []),
       reelLink: stringFromFirebase(data['reelLink'], ''),
       bestTime: stringFromFirebase(data['bestTime'], 'Not reviewed'),
       parking: stringFromFirebase(data['parking'], 'Not reviewed'),
@@ -899,7 +894,6 @@ Map<String, Object?> spotToFirestoreData(
     'categories': spot.categories,
     'rating': spot.rating,
     'photoUrl': spot.photoUrl,
-    'photoUrls': spot.photoUrls,
     'reelLink': spot.reelLink,
     'bestTime': spot.bestTime,
     'parking': spot.parking,
@@ -1817,35 +1811,35 @@ class ExploreSpotCard extends StatelessWidget {
           MaterialPageRoute(builder: (_) => SpotDetailScreen(spot: spot)),
         );
       },
-      borderRadius: BorderRadius.circular(18),
+      borderRadius: BorderRadius.circular(22),
       child: Container(
-        padding: const EdgeInsets.all(10),
         decoration: BoxDecoration(
           color: panel,
-          borderRadius: BorderRadius.circular(18),
+          borderRadius: BorderRadius.circular(22),
           border: Border.all(color: Colors.white12),
         ),
-        child: Row(
+        child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Stack(
               children: [
                 SpotPhoto(
                   spot: spot,
-                  width: 108,
-                  height: 118,
-                  fit: BoxFit.cover,
-                  borderRadius: BorderRadius.circular(14),
+                  height: 190,
+                  width: double.infinity,
+                  borderRadius: const BorderRadius.vertical(
+                    top: Radius.circular(22),
+                  ),
                 ),
                 Positioned(
-                  top: 7,
-                  right: 7,
+                  top: 12,
+                  right: 12,
                   child: SaveSpotButton(spot: spot, compact: true),
                 ),
               ],
             ),
-            const SizedBox(width: 12),
-            Expanded(
+            Padding(
+              padding: const EdgeInsets.all(14),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -1858,51 +1852,44 @@ class ExploreSpotCard extends StatelessWidget {
                           overflow: TextOverflow.ellipsis,
                           style: const TextStyle(
                             color: Colors.white,
-                            fontSize: 17,
+                            fontSize: 20,
                             fontWeight: FontWeight.w900,
                           ),
                         ),
                       ),
-                      const Icon(Icons.star, color: blue, size: 15),
-                      const SizedBox(width: 3),
+                      const Icon(Icons.star, color: blue, size: 17),
+                      const SizedBox(width: 4),
                       Text(
                         spot.rating.toStringAsFixed(1),
                         style: const TextStyle(
                           color: Colors.white,
-                          fontSize: 12,
                           fontWeight: FontWeight.w800,
                         ),
                       ),
                     ],
                   ),
-                  const SizedBox(height: 3),
+                  const SizedBox(height: 5),
                   Text(
                     spot.cityCountry,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(color: Colors.white54, fontSize: 12),
+                    style: const TextStyle(color: Colors.white54),
                   ),
-                  const SizedBox(height: 7),
+                  const SizedBox(height: 10),
                   Text(
                     spot.description,
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: Colors.white70,
-                      fontSize: 12,
-                      height: 1.25,
-                    ),
+                    style: const TextStyle(color: Colors.white70, height: 1.35),
                   ),
-                  const SizedBox(height: 8),
+                  const SizedBox(height: 12),
                   Wrap(
-                    spacing: 6,
-                    runSpacing: 6,
+                    spacing: 7,
+                    runSpacing: 7,
                     children: [
-                      for (final category in spot.categories.take(2))
+                      for (final category in spot.categories.take(3))
                         _SmallTag(label: category, icon: Icons.local_offer),
                     ],
                   ),
-                  const SizedBox(height: 8),
+                  const SizedBox(height: 12),
                   ExploreSpotStatsRow(spot: spot),
                 ],
               ),
@@ -2015,14 +2002,11 @@ class _MapScreenState extends State<MapScreen> {
   final mapController = MapController();
   String selectedFilter = 'All';
   CarSpot? selectedSpot;
-  LatLng? currentUserLocation;
-  bool isLocatingUser = false;
 
   @override
   void initState() {
     super.initState();
     reviewSpots.addListener(refreshMap);
-    loadInitialUserLocation();
   }
 
   void refreshMap() {
@@ -2082,56 +2066,6 @@ class _MapScreenState extends State<MapScreen> {
     }).toList();
   }
 
-  List<Marker> get allMapMarkers {
-    final allMarkers = [...markers];
-    final userMarker = currentUserMarker;
-
-    if (userMarker != null) {
-      allMarkers.add(userMarker);
-    }
-
-    return allMarkers;
-  }
-
-  Marker? get currentUserMarker {
-    final location = currentUserLocation;
-
-    if (location == null) {
-      return null;
-    }
-
-    return Marker(
-      point: location,
-      width: 58,
-      height: 58,
-      child: Container(
-        decoration: BoxDecoration(
-          color: blue.withValues(alpha: 0.18),
-          shape: BoxShape.circle,
-          border: Border.all(color: blue.withValues(alpha: 0.45), width: 2),
-        ),
-        child: Center(
-          child: Container(
-            width: 24,
-            height: 24,
-            decoration: BoxDecoration(
-              color: Colors.white,
-              shape: BoxShape.circle,
-              border: Border.all(color: blue, width: 5),
-              boxShadow: [
-                BoxShadow(
-                  color: blue.withValues(alpha: 0.55),
-                  blurRadius: 18,
-                  spreadRadius: 4,
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
   @override
   void dispose() {
     reviewSpots.removeListener(refreshMap);
@@ -2146,94 +2080,8 @@ class _MapScreenState extends State<MapScreen> {
     );
   }
 
-  void loadInitialUserLocation() {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) {
-        moveToCurrentLocation(showErrors: false);
-      }
-    });
-  }
-
-  Future<Position?> getMapUserPosition({required bool showErrors}) async {
-    final serviceEnabled = await Geolocator.isLocationServiceEnabled();
-
-    if (!serviceEnabled) {
-      if (showErrors && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            backgroundColor: Colors.redAccent,
-            content: Text(
-              'Turn on phone location first.',
-              style: TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ),
-        );
-      }
-
-      return null;
-    }
-
-    var permission = await Geolocator.checkPermission();
-
-    if (permission == LocationPermission.denied) {
-      permission = await Geolocator.requestPermission();
-    }
-
-    if (permission == LocationPermission.denied ||
-        permission == LocationPermission.deniedForever) {
-      if (showErrors && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            backgroundColor: Colors.redAccent,
-            content: Text(
-              'Location permission is needed to show you on the map.',
-              style: TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ),
-        );
-      }
-
-      return null;
-    }
-
-    return Geolocator.getCurrentPosition(
-      locationSettings: const LocationSettings(accuracy: LocationAccuracy.high),
-    );
-  }
-
-  Future<void> moveToCurrentLocation({bool showErrors = true}) async {
-    if (isLocatingUser) {
-      return;
-    }
-
-    setState(() => isLocatingUser = true);
-
-    final position = await getMapUserPosition(showErrors: showErrors);
-
-    if (!mounted) {
-      return;
-    }
-
-    if (position == null) {
-      setState(() => isLocatingUser = false);
-      return;
-    }
-
-    final location = LatLng(position.latitude, position.longitude);
-
-    setState(() {
-      currentUserLocation = location;
-      selectedSpot = null;
-      isLocatingUser = false;
-    });
-
-    mapController.move(location, 15.5);
+  void moveToRiga() {
+    mapController.move(rigaCenter, rigaZoom);
   }
 
   @override
@@ -2247,8 +2095,8 @@ class _MapScreenState extends State<MapScreen> {
           FlutterMap(
             mapController: mapController,
             options: MapOptions(
-              initialCenter: currentUserLocation ?? rigaCenter,
-              initialZoom: currentUserLocation == null ? rigaZoom : 15.5,
+              initialCenter: rigaCenter,
+              initialZoom: rigaZoom,
               minZoom: 4,
               maxZoom: 18,
               backgroundColor: night,
@@ -2261,7 +2109,19 @@ class _MapScreenState extends State<MapScreen> {
                 userAgentPackageName: 'com.example.ccs_app',
                 maxNativeZoom: 19,
               ),
-              MarkerLayer(markers: allMapMarkers),
+              MarkerLayer(markers: markers),
+              RichAttributionWidget(
+                attributions: [
+                  TextSourceAttribution(
+                    'OpenStreetMap contributors, CARTO',
+                    prependCopyright: false,
+                    textStyle: const TextStyle(
+                      color: Colors.white54,
+                      fontSize: 11,
+                    ),
+                  ),
+                ],
+              ),
             ],
           ),
           SafeArea(
@@ -2314,19 +2174,10 @@ class _MapScreenState extends State<MapScreen> {
             right: 16,
             bottom: spot == null ? 18 : 196,
             child: FloatingActionButton.small(
-              onPressed: isLocatingUser ? null : () => moveToCurrentLocation(),
+              onPressed: moveToRiga,
               backgroundColor: blue,
               foregroundColor: Colors.white,
-              child: isLocatingUser
-                  ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: Colors.white,
-                      ),
-                    )
-                  : const Icon(Icons.my_location),
+              child: const Icon(Icons.my_location),
             ),
           ),
           if (spot != null)
@@ -2890,277 +2741,6 @@ String estimateDriveTime(double distanceKm) {
   final rest = minutes % 60;
 
   return rest == 0 ? '~$hours h' : '~$hours h $rest min';
-}
-
-List<String> spotPhotoSources(CarSpot spot) {
-  final sources = <String>[];
-
-  void addSource(String value) {
-    final trimmed = value.trim();
-
-    if (trimmed.isNotEmpty && !sources.contains(trimmed)) {
-      sources.add(trimmed);
-    }
-  }
-
-  if (localFileExists(spot.localPhotoPath)) {
-    addSource('local:${spot.localPhotoPath}');
-  }
-
-  for (final photoUrl in spot.photoUrls) {
-    addSource(photoUrl);
-  }
-
-  addSource(spot.photoUrl);
-
-  return sources;
-}
-
-bool isLocalSpotPhotoSource(String source) {
-  return source.startsWith('local:');
-}
-
-String localPhotoPathFromSource(String source) {
-  return source.substring('local:'.length);
-}
-
-Widget spotPhotoImage(
-  String source, {
-  double? width,
-  double? height,
-  BoxFit fit = BoxFit.cover,
-}) {
-  if (isLocalSpotPhotoSource(source)) {
-    return Image.file(
-      File(localPhotoPathFromSource(source)),
-      width: width,
-      height: height,
-      fit: fit,
-      errorBuilder: (_, _, _) =>
-          _SpotPhotoPlaceholder(width: width, height: height),
-    );
-  }
-
-  return Image.network(
-    source,
-    width: width,
-    height: height,
-    fit: fit,
-    errorBuilder: (_, _, _) =>
-        _SpotPhotoPlaceholder(width: width, height: height),
-  );
-}
-
-class SpotPhotoCarousel extends StatefulWidget {
-  final CarSpot spot;
-  final double height;
-
-  const SpotPhotoCarousel({
-    super.key,
-    required this.spot,
-    required this.height,
-  });
-
-  @override
-  State<SpotPhotoCarousel> createState() => _SpotPhotoCarouselState();
-}
-
-class _SpotPhotoCarouselState extends State<SpotPhotoCarousel> {
-  late final PageController controller;
-  int currentIndex = 0;
-
-  @override
-  void initState() {
-    super.initState();
-    controller = PageController();
-  }
-
-  @override
-  void dispose() {
-    controller.dispose();
-    super.dispose();
-  }
-
-  void openGallery(int index) {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) =>
-            SpotPhotoGalleryScreen(spot: widget.spot, initialIndex: index),
-      ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final sources = spotPhotoSources(widget.spot);
-
-    if (sources.isEmpty) {
-      return _SpotPhotoPlaceholder(height: widget.height);
-    }
-
-    return SizedBox(
-      height: widget.height,
-      width: double.infinity,
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          PageView.builder(
-            controller: controller,
-            itemCount: sources.length,
-            onPageChanged: (index) => setState(() => currentIndex = index),
-            itemBuilder: (context, index) {
-              return GestureDetector(
-                onTap: () => openGallery(index),
-                child: spotPhotoImage(
-                  sources[index],
-                  width: double.infinity,
-                  height: widget.height,
-                  fit: BoxFit.cover,
-                ),
-              );
-            },
-          ),
-          if (sources.length > 1)
-            Positioned(
-              top: 14,
-              right: 14,
-              child: Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 6,
-                ),
-                decoration: BoxDecoration(
-                  color: Colors.black.withValues(alpha: 0.62),
-                  borderRadius: BorderRadius.circular(999),
-                  border: Border.all(color: Colors.white24),
-                ),
-                child: Text(
-                  '${currentIndex + 1}/${sources.length}',
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-}
-
-class SpotPhotoGalleryScreen extends StatefulWidget {
-  final CarSpot spot;
-  final int initialIndex;
-
-  const SpotPhotoGalleryScreen({
-    super.key,
-    required this.spot,
-    required this.initialIndex,
-  });
-
-  @override
-  State<SpotPhotoGalleryScreen> createState() => _SpotPhotoGalleryScreenState();
-}
-
-class _SpotPhotoGalleryScreenState extends State<SpotPhotoGalleryScreen> {
-  late final List<String> sources;
-  late final PageController controller;
-  late int currentIndex;
-
-  @override
-  void initState() {
-    super.initState();
-    sources = spotPhotoSources(widget.spot);
-    currentIndex =
-        widget.initialIndex >= 0 && widget.initialIndex < sources.length
-        ? widget.initialIndex
-        : 0;
-    controller = PageController(initialPage: currentIndex);
-  }
-
-  @override
-  void dispose() {
-    controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.black,
-      body: Stack(
-        children: [
-          if (sources.isEmpty)
-            const Center(
-              child: Icon(Icons.directions_car, color: blue, size: 44),
-            )
-          else
-            PageView.builder(
-              controller: controller,
-              itemCount: sources.length,
-              onPageChanged: (index) => setState(() => currentIndex = index),
-              itemBuilder: (context, index) {
-                return InteractiveViewer(
-                  minScale: 1,
-                  maxScale: 4,
-                  child: Center(
-                    child: spotPhotoImage(
-                      sources[index],
-                      width: double.infinity,
-                      height: double.infinity,
-                      fit: BoxFit.contain,
-                    ),
-                  ),
-                );
-              },
-            ),
-          SafeArea(
-            child: Padding(
-              padding: const EdgeInsets.all(14),
-              child: Row(
-                children: [
-                  Container(
-                    decoration: BoxDecoration(
-                      color: Colors.black.withValues(alpha: 0.62),
-                      shape: BoxShape.circle,
-                      border: Border.all(color: Colors.white24),
-                    ),
-                    child: IconButton(
-                      onPressed: () => Navigator.pop(context),
-                      icon: const Icon(Icons.close, color: Colors.white),
-                    ),
-                  ),
-                  const Spacer(),
-                  if (sources.length > 1)
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 8,
-                      ),
-                      decoration: BoxDecoration(
-                        color: Colors.black.withValues(alpha: 0.62),
-                        borderRadius: BorderRadius.circular(999),
-                        border: Border.all(color: Colors.white24),
-                      ),
-                      child: Text(
-                        '${currentIndex + 1}/${sources.length}',
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.w900,
-                        ),
-                      ),
-                    ),
-                ],
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
 }
 
 class SpotDetailScreen extends StatefulWidget {
@@ -3772,10 +3352,29 @@ class SpotPhoto extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final sources = spotPhotoSources(spot);
-    final photo = sources.isEmpty
-        ? _SpotPhotoPlaceholder(width: width, height: height)
-        : spotPhotoImage(sources.first, width: width, height: height, fit: fit);
+    Widget photo;
+
+    if (localFileExists(spot.localPhotoPath)) {
+      photo = Image.file(
+        File(spot.localPhotoPath!),
+        width: width,
+        height: height,
+        fit: fit,
+        errorBuilder: (_, _, _) =>
+            _SpotPhotoPlaceholder(width: width, height: height),
+      );
+    } else if (spot.photoUrl.isNotEmpty) {
+      photo = Image.network(
+        spot.photoUrl,
+        width: width,
+        height: height,
+        fit: fit,
+        errorBuilder: (_, _, _) =>
+            _SpotPhotoPlaceholder(width: width, height: height),
+      );
+    } else {
+      photo = _SpotPhotoPlaceholder(width: width, height: height);
+    }
 
     if (borderRadius == null) {
       return photo;
@@ -3997,10 +3596,7 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
         );
       }
 
-      newSpot = newSpot.copyWith(
-        photoUrl: uploadedPhotoUrl,
-        photoUrls: uploadedPhotoUrl.isEmpty ? const [] : [uploadedPhotoUrl],
-      );
+      newSpot = newSpot.copyWith(photoUrl: uploadedPhotoUrl);
       await spotRef.set(spotToFirestoreData(newSpot, includeCreatedAt: true));
       final savedSpot = await spotRef.get(
         const GetOptions(source: Source.server),
@@ -4322,6 +3918,18 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
                 maxNativeZoom: 19,
               ),
               MarkerLayer(markers: markers),
+              RichAttributionWidget(
+                attributions: [
+                  TextSourceAttribution(
+                    'OpenStreetMap contributors, CARTO',
+                    prependCopyright: false,
+                    textStyle: const TextStyle(
+                      color: Colors.white54,
+                      fontSize: 11,
+                    ),
+                  ),
+                ],
+              ),
             ],
           ),
           Positioned(
