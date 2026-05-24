@@ -282,6 +282,97 @@ CollectionReference<Map<String, dynamic>> usernamesCollection() {
   return FirebaseFirestore.instance.collection('usernames');
 }
 
+enum UsernameAvailability {
+  unchanged,
+  checking,
+  available,
+  taken,
+  invalid,
+  error,
+}
+
+Future<UsernameAvailability> checkUsernameAvailabilityForCurrentUser(
+  String username, {
+  required String currentUsername,
+}) async {
+  final firebaseUser = FirebaseAuth.instance.currentUser;
+  final cleanUsername = cleanProfileUsername(username);
+
+  if (cleanUsername.length < 3) {
+    return UsernameAvailability.invalid;
+  }
+
+  if (usernameKey(cleanUsername) == usernameKey(currentUsername)) {
+    return UsernameAvailability.unchanged;
+  }
+
+  if (firebaseUser == null) {
+    return UsernameAvailability.error;
+  }
+
+  try {
+    final snapshot = await usernamesCollection()
+        .doc(usernameKey(cleanUsername))
+        .get();
+
+    if (!snapshot.exists) {
+      return UsernameAvailability.available;
+    }
+
+    final ownerUid = snapshot.data()?['uid'] as String?;
+    return ownerUid == firebaseUser.uid
+        ? UsernameAvailability.unchanged
+        : UsernameAvailability.taken;
+  } catch (_) {
+    return UsernameAvailability.error;
+  }
+}
+
+String usernameAvailabilityText(UsernameAvailability availability) {
+  switch (availability) {
+    case UsernameAvailability.unchanged:
+      return 'This is your current nickname.';
+    case UsernameAvailability.checking:
+      return 'Checking nickname availability...';
+    case UsernameAvailability.available:
+      return 'Nickname is available.';
+    case UsernameAvailability.taken:
+      return 'This nickname is already taken.';
+    case UsernameAvailability.invalid:
+      return 'Nickname must be at least 3 characters.';
+    case UsernameAvailability.error:
+      return 'Could not check nickname availability.';
+  }
+}
+
+Color usernameAvailabilityColor(UsernameAvailability availability) {
+  switch (availability) {
+    case UsernameAvailability.available:
+    case UsernameAvailability.unchanged:
+      return Colors.greenAccent;
+    case UsernameAvailability.checking:
+      return Colors.white54;
+    case UsernameAvailability.taken:
+    case UsernameAvailability.invalid:
+    case UsernameAvailability.error:
+      return Colors.redAccent;
+  }
+}
+
+IconData usernameAvailabilityIcon(UsernameAvailability availability) {
+  switch (availability) {
+    case UsernameAvailability.available:
+    case UsernameAvailability.unchanged:
+      return Icons.check_circle_outline;
+    case UsernameAvailability.checking:
+      return Icons.hourglass_empty;
+    case UsernameAvailability.taken:
+    case UsernameAvailability.invalid:
+    case UsernameAvailability.error:
+      return Icons.error_outline;
+  }
+}
+
 String fallbackUsernameSuffix(String uid) {
   return uid.length <= 6 ? uid : uid.substring(0, 6);
 }
@@ -6011,6 +6102,13 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   late final TextEditingController cityController;
   late final TextEditingController bioController;
   String? avatarPath;
+  Timer? usernameAvailabilityDebounce;
+  UsernameAvailability usernameAvailability = UsernameAvailability.unchanged;
+
+  bool get canSaveProfile {
+    return usernameAvailability == UsernameAvailability.unchanged ||
+        usernameAvailability == UsernameAvailability.available;
+  }
 
   @override
   void initState() {
@@ -6019,14 +6117,53 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     cityController = TextEditingController(text: widget.profile.cityCountry);
     bioController = TextEditingController(text: widget.profile.bio);
     avatarPath = widget.profile.avatarPath;
+    usernameController.addListener(queueUsernameAvailabilityCheck);
   }
 
   @override
   void dispose() {
+    usernameAvailabilityDebounce?.cancel();
+    usernameController.removeListener(queueUsernameAvailabilityCheck);
     usernameController.dispose();
     cityController.dispose();
     bioController.dispose();
     super.dispose();
+  }
+
+  void queueUsernameAvailabilityCheck() {
+    usernameAvailabilityDebounce?.cancel();
+
+    final cleanUsername = cleanProfileUsername(usernameController.text);
+
+    if (cleanUsername.length < 3) {
+      setState(() => usernameAvailability = UsernameAvailability.invalid);
+      return;
+    }
+
+    if (usernameKey(cleanUsername) == usernameKey(widget.profile.username)) {
+      setState(() => usernameAvailability = UsernameAvailability.unchanged);
+      return;
+    }
+
+    setState(() => usernameAvailability = UsernameAvailability.checking);
+
+    usernameAvailabilityDebounce = Timer(const Duration(milliseconds: 450), () {
+      checkUsernameAvailability(cleanUsername);
+    });
+  }
+
+  Future<void> checkUsernameAvailability(String usernameToCheck) async {
+    final checkedKey = usernameKey(usernameToCheck);
+    final availability = await checkUsernameAvailabilityForCurrentUser(
+      usernameToCheck,
+      currentUsername: widget.profile.username,
+    );
+
+    if (!mounted || usernameKey(usernameController.text) != checkedKey) {
+      return;
+    }
+
+    setState(() => usernameAvailability = availability);
   }
 
   Future<void> chooseAvatar() async {
@@ -6040,6 +6177,22 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   }
 
   void saveProfile() {
+    if (!canSaveProfile) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: Colors.redAccent,
+          content: Text(
+            usernameAvailabilityText(usernameAvailability),
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+      );
+      return;
+    }
+
     Navigator.pop(
       context,
       UserProfileData(
@@ -6124,6 +6277,28 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                 hint: 'riga_driver',
                 icon: Icons.alternate_email,
               ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Icon(
+                    usernameAvailabilityIcon(usernameAvailability),
+                    color: usernameAvailabilityColor(usernameAvailability),
+                    size: 16,
+                  ),
+                  const SizedBox(width: 7),
+                  Expanded(
+                    child: Text(
+                      usernameAvailabilityText(usernameAvailability),
+                      style: TextStyle(
+                        color: usernameAvailabilityColor(usernameAvailability),
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 14),
               _CcsTextField(
                 controller: cityController,
                 label: 'City / country',
@@ -6143,7 +6318,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
           SizedBox(
             height: 54,
             child: ElevatedButton.icon(
-              onPressed: saveProfile,
+              onPressed: canSaveProfile ? saveProfile : null,
               icon: const Icon(Icons.check),
               label: const Text('Save Profile'),
               style: ElevatedButton.styleFrom(
