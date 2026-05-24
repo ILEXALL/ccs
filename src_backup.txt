@@ -22,28 +22,39 @@ const googleServerClientId =
     '325709324670-cep9b3r2j2mmapmmuougmqai7umvlod6.apps.googleusercontent.com';
 
 String? googleSignInSetupError;
+bool firebaseReady = false;
 bool rememberMeEnabled = false;
 const rememberMeKey = 'remember_me';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
-
-  // Google Sign-In needs one setup call before we use the login button.
   try {
-    await GoogleSignIn.instance.initialize(
-      serverClientId: googleServerClientId,
+    await Firebase.initializeApp(
+      options: DefaultFirebaseOptions.currentPlatform,
     );
+    firebaseReady = true;
+
+    // Google Sign-In needs one setup call before we use the login button.
+    try {
+      await GoogleSignIn.instance.initialize(
+        serverClientId: googleServerClientId,
+      );
+    } catch (error) {
+      googleSignInSetupError = error.toString();
+    }
+
+    rememberMeEnabled = await loadRememberMePreference();
+
+    final appUser = await loadCurrentFirebaseUser();
+    if (appUser != null) {
+      startFirebaseSpotSync();
+    }
   } catch (error) {
+    // Do not let a Firebase/Google services problem crash the app on startup.
+    firebaseReady = false;
     googleSignInSetupError = error.toString();
-  }
-
-  rememberMeEnabled = await loadRememberMePreference();
-
-  final appUser = await loadCurrentFirebaseUser();
-  if (appUser != null) {
-    startFirebaseSpotSync();
+    rememberMeEnabled = false;
   }
 
   runApp(const CCSApp());
@@ -58,7 +69,10 @@ class CCSApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       title: 'CCS',
       theme: ThemeData.dark(),
-      home: rememberMeEnabled && FirebaseAuth.instance.currentUser != null
+      home:
+          firebaseReady &&
+              rememberMeEnabled &&
+              FirebaseAuth.instance.currentUser != null
           ? const MainScreen()
           : const SplashScreen(),
     );
@@ -98,6 +112,35 @@ Future<String?> pickPhotoFromPhone(BuildContext context) async {
     );
 
     return null;
+  } on MissingPluginException {
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          backgroundColor: Colors.redAccent,
+          content: Text(
+            'Photo picker is not connected in Android native code.',
+            style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+          ),
+        ),
+      );
+    }
+    return null;
+  } catch (error) {
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: Colors.redAccent,
+          content: Text(
+            'Could not open photo picker. $error',
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+      );
+    }
+    return null;
   }
 }
 
@@ -135,7 +178,7 @@ class AppUser {
 AppUser currentUser = const AppUser(
   uid: 'mock_user',
   name: 'Aleksej',
-  username: '@pasegorov8',
+  username: 'pasegorov8',
   email: '',
   role: UserRole.admin,
   city: 'Riga',
@@ -172,7 +215,7 @@ Future<void> signOutCurrentAccount() async {
   currentUser = const AppUser(
     uid: 'mock_user',
     name: 'Aleksej',
-    username: '@pasegorov8',
+    username: 'pasegorov8',
     email: '',
     role: UserRole.admin,
     city: 'Riga',
@@ -208,21 +251,218 @@ SpotStatus spotStatusFromFirebase(Object? value) {
   }
 }
 
-String makeUsernameFromFirebaseUser(User user) {
-  final emailName = user.email?.split('@').first.trim();
-  final displayName = user.displayName?.trim();
-  final rawName = (emailName != null && emailName.isNotEmpty)
-      ? emailName
-      : (displayName != null && displayName.isNotEmpty)
-      ? displayName
-      : 'ccs_driver';
-  final cleanName = rawName
-      .toLowerCase()
-      .replaceAll(RegExp(r'[^a-z0-9_]+'), '_')
+String cleanProfileUsername(String value) {
+  return value
+      .trim()
+      .replaceAll('@', '')
+      .replaceAll(RegExp(r'\s+'), '_')
+      .replaceAll(RegExp(r'[^a-zA-Z0-9_]+'), '')
       .replaceAll(RegExp(r'_+'), '_')
       .replaceAll(RegExp(r'^_|_$'), '');
+}
 
-  return '@${cleanName.isEmpty ? 'ccs_driver' : cleanName}';
+String usernameKey(String value) {
+  return cleanProfileUsername(value).toLowerCase();
+}
+
+String makeUsernameFromFirebaseUser(User user) {
+  final displayName = user.displayName?.trim();
+  final emailName = user.email?.split('@').first.trim();
+  final rawName = (displayName != null && displayName.isNotEmpty)
+      ? displayName
+      : (emailName != null && emailName.isNotEmpty)
+      ? emailName
+      : 'ccs_driver';
+  final cleanName = cleanProfileUsername(rawName);
+
+  return cleanName.isEmpty ? 'ccs_driver' : cleanName;
+}
+
+CollectionReference<Map<String, dynamic>> usernamesCollection() {
+  return FirebaseFirestore.instance.collection('usernames');
+}
+
+enum UsernameAvailability {
+  unchanged,
+  checking,
+  available,
+  taken,
+  invalid,
+  error,
+}
+
+Future<UsernameAvailability> checkUsernameAvailabilityForCurrentUser(
+  String username, {
+  required String currentUsername,
+}) async {
+  final firebaseUser = FirebaseAuth.instance.currentUser;
+  final cleanUsername = cleanProfileUsername(username);
+
+  if (cleanUsername.length < 3) {
+    return UsernameAvailability.invalid;
+  }
+
+  if (usernameKey(cleanUsername) == usernameKey(currentUsername)) {
+    return UsernameAvailability.unchanged;
+  }
+
+  if (firebaseUser == null) {
+    return UsernameAvailability.error;
+  }
+
+  try {
+    final snapshot = await usernamesCollection()
+        .doc(usernameKey(cleanUsername))
+        .get();
+
+    if (!snapshot.exists) {
+      return UsernameAvailability.available;
+    }
+
+    final ownerUid = snapshot.data()?['uid'] as String?;
+    return ownerUid == firebaseUser.uid
+        ? UsernameAvailability.unchanged
+        : UsernameAvailability.taken;
+  } catch (_) {
+    return UsernameAvailability.error;
+  }
+}
+
+String usernameAvailabilityText(UsernameAvailability availability) {
+  switch (availability) {
+    case UsernameAvailability.unchanged:
+      return 'This is your current nickname.';
+    case UsernameAvailability.checking:
+      return 'Checking nickname availability...';
+    case UsernameAvailability.available:
+      return 'Nickname is available.';
+    case UsernameAvailability.taken:
+      return 'This nickname is already taken.';
+    case UsernameAvailability.invalid:
+      return 'Nickname must be at least 3 characters.';
+    case UsernameAvailability.error:
+      return 'Could not check nickname availability.';
+  }
+}
+
+Color usernameAvailabilityColor(UsernameAvailability availability) {
+  switch (availability) {
+    case UsernameAvailability.available:
+    case UsernameAvailability.unchanged:
+      return Colors.greenAccent;
+    case UsernameAvailability.checking:
+      return Colors.white54;
+    case UsernameAvailability.taken:
+    case UsernameAvailability.invalid:
+    case UsernameAvailability.error:
+      return Colors.redAccent;
+  }
+}
+
+IconData usernameAvailabilityIcon(UsernameAvailability availability) {
+  switch (availability) {
+    case UsernameAvailability.available:
+    case UsernameAvailability.unchanged:
+      return Icons.check_circle_outline;
+    case UsernameAvailability.checking:
+      return Icons.hourglass_empty;
+    case UsernameAvailability.taken:
+    case UsernameAvailability.invalid:
+    case UsernameAvailability.error:
+      return Icons.error_outline;
+  }
+}
+
+String fallbackUsernameSuffix(String uid) {
+  return uid.length <= 6 ? uid : uid.substring(0, 6);
+}
+
+Future<String> reserveUsernameForCurrentUser({
+  required String preferredUsername,
+  String? previousUsername,
+  bool allowFallback = false,
+}) async {
+  final firebaseUser = FirebaseAuth.instance.currentUser;
+
+  if (firebaseUser == null) {
+    throw FirebaseException(
+      plugin: 'cloud_firestore',
+      code: 'not-logged-in',
+      message: 'Log in before changing your nickname.',
+    );
+  }
+
+  final cleanPreferred = cleanProfileUsername(preferredUsername);
+
+  if (cleanPreferred.length < 3) {
+    throw FirebaseException(
+      plugin: 'cloud_firestore',
+      code: 'username-too-short',
+      message: 'Nickname must be at least 3 characters.',
+    );
+  }
+
+  final suffix = fallbackUsernameSuffix(firebaseUser.uid);
+
+  for (var attempt = 0; attempt < 20; attempt++) {
+    final candidate = attempt == 0
+        ? cleanPreferred
+        : attempt == 1
+        ? '${cleanPreferred}_$suffix'
+        : '${cleanPreferred}_${suffix}_$attempt';
+    final key = usernameKey(candidate);
+    final usernameRef = usernamesCollection().doc(key);
+    final previousKey = previousUsername == null
+        ? ''
+        : usernameKey(previousUsername);
+    final previousRef = previousKey.isEmpty || previousKey == key
+        ? null
+        : usernamesCollection().doc(previousKey);
+
+    try {
+      await FirebaseFirestore.instance.runTransaction((transaction) async {
+        final snapshot = await transaction.get(usernameRef);
+        final previousSnapshot = previousRef == null
+            ? null
+            : await transaction.get(previousRef);
+        final existingUid = snapshot.data()?['uid'] as String?;
+        final previousUid = previousSnapshot?.data()?['uid'] as String?;
+
+        if (snapshot.exists && existingUid != firebaseUser.uid) {
+          throw FirebaseException(
+            plugin: 'cloud_firestore',
+            code: 'username-taken',
+            message: 'This nickname is already taken.',
+          );
+        }
+
+        transaction.set(usernameRef, {
+          'uid': firebaseUser.uid,
+          'username': candidate,
+          'usernameKey': key,
+          'updatedAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+
+        if (previousSnapshot != null &&
+            previousSnapshot.exists &&
+            previousUid == firebaseUser.uid) {
+          transaction.delete(previousRef!);
+        }
+      });
+
+      return candidate;
+    } on FirebaseException catch (error) {
+      if (!allowFallback || error.code != 'username-taken') {
+        rethrow;
+      }
+    }
+  }
+
+  throw FirebaseException(
+    plugin: 'cloud_firestore',
+    code: 'username-taken',
+    message: 'This nickname is already taken.',
+  );
 }
 
 Future<UserRole> defaultRoleForNewFirebaseUser() async {
@@ -270,9 +510,14 @@ Future<AppUser> saveFirebaseUser(
   final name = (data?['name'] as String?)?.trim().isNotEmpty == true
       ? data!['name'] as String
       : firebaseUser.displayName ?? 'CCS Driver';
-  final username = (data?['username'] as String?)?.trim().isNotEmpty == true
+  final rawUsername = (data?['username'] as String?)?.trim().isNotEmpty == true
       ? data!['username'] as String
       : makeUsernameFromFirebaseUser(firebaseUser);
+  final username = await reserveUsernameForCurrentUser(
+    preferredUsername: rawUsername,
+    previousUsername: data?['username'] as String?,
+    allowFallback: true,
+  );
   final city = (data?['city'] as String?)?.trim().isNotEmpty == true
       ? data!['city'] as String
       : 'Riga';
@@ -298,6 +543,7 @@ Future<AppUser> saveFirebaseUser(
     'uid': firebaseUser.uid,
     'name': name,
     'username': username,
+    'usernameKey': usernameKey(username),
     'email': firebaseUser.email ?? '',
     'photoUrl': photoUrl,
     'bio': bio,
@@ -332,6 +578,13 @@ Future<AppUser> saveFirebaseUser(
 }
 
 Future<AppUser> signInWithGoogleAndSaveUser() async {
+  if (!firebaseReady) {
+    throw Exception(
+      googleSignInSetupError ??
+          'Firebase did not initialize on this device. Check google-services.json and Android setup.',
+    );
+  }
+
   if (googleSignInSetupError != null) {
     throw Exception(googleSignInSetupError);
   }
@@ -477,6 +730,10 @@ class CarSpot {
   final String addedBy;
   final String addedByUid;
   final SpotStatus status;
+  final int createdAtMillis;
+  final bool isTemporary;
+  final int? startsAtMillis;
+  final int? expiresAtMillis;
 
   const CarSpot({
     this.id = '',
@@ -500,6 +757,10 @@ class CarSpot {
     required this.addedBy,
     this.addedByUid = '',
     required this.status,
+    this.createdAtMillis = 0,
+    this.isTemporary = false,
+    this.startsAtMillis,
+    this.expiresAtMillis,
   });
 
   CarSpot copyWith({
@@ -524,6 +785,10 @@ class CarSpot {
     String? addedBy,
     String? addedByUid,
     SpotStatus? status,
+    int? createdAtMillis,
+    bool? isTemporary,
+    int? startsAtMillis,
+    int? expiresAtMillis,
   }) {
     return CarSpot(
       id: id ?? this.id,
@@ -547,7 +812,47 @@ class CarSpot {
       addedBy: addedBy ?? this.addedBy,
       addedByUid: addedByUid ?? this.addedByUid,
       status: status ?? this.status,
+      createdAtMillis: createdAtMillis ?? this.createdAtMillis,
+      isTemporary: isTemporary ?? this.isTemporary,
+      startsAtMillis: startsAtMillis ?? this.startsAtMillis,
+      expiresAtMillis: expiresAtMillis ?? this.expiresAtMillis,
     );
+  }
+
+  bool get hasTemporaryWindow =>
+      isTemporary && startsAtMillis != null && expiresAtMillis != null;
+
+  bool get isExpired {
+    final expiresAt = expiresAtMillis;
+    return isTemporary &&
+        expiresAt != null &&
+        DateTime.now().millisecondsSinceEpoch >= expiresAt;
+  }
+
+  bool get isVisibleNow {
+    if (!isTemporary) {
+      return true;
+    }
+
+    final startsAt = startsAtMillis;
+    final expiresAt = expiresAtMillis;
+
+    if (startsAt == null || expiresAt == null) {
+      return false;
+    }
+
+    final now = DateTime.now().millisecondsSinceEpoch;
+    return now >= startsAt && now < expiresAt;
+  }
+
+  String get temporaryTimeLabel {
+    if (!hasTemporaryWindow) {
+      return '';
+    }
+
+    final startsAt = DateTime.fromMillisecondsSinceEpoch(startsAtMillis!);
+    final expiresAt = DateTime.fromMillisecondsSinceEpoch(expiresAtMillis!);
+    return '${formatShortDateTime(startsAt)} - ${formatShortDateTime(expiresAt)}';
   }
 
   factory CarSpot.fromFirestore(DocumentSnapshot<Map<String, dynamic>> doc) {
@@ -581,9 +886,13 @@ class CarSpot {
       traffic: stringFromFirebase(data['traffic'], 'Not reviewed'),
       lighting: stringFromFirebase(data['lighting'], 'Not reviewed'),
       crowd: stringFromFirebase(data['crowd'], 'Not reviewed'),
-      addedBy: stringFromFirebase(data['addedBy'], '@ccs.driver'),
+      addedBy: stringFromFirebase(data['addedBy'], 'ccs_driver'),
       addedByUid: stringFromFirebase(data['addedByUid'], ''),
       status: spotStatusFromFirebase(data['status']),
+      createdAtMillis: timestampMillisFromFirebase(data['createdAt']),
+      isTemporary: data['isTemporary'] == true,
+      startsAtMillis: nullableTimestampMillisFromFirebase(data['startsAt']),
+      expiresAtMillis: nullableTimestampMillisFromFirebase(data['expiresAt']),
     );
   }
 }
@@ -602,6 +911,37 @@ double doubleFromFirebase(Object? value, double fallback) {
   }
 
   return fallback;
+}
+
+int timestampMillisFromFirebase(Object? value) {
+  if (value is Timestamp) {
+    return value.millisecondsSinceEpoch;
+  }
+
+  if (value is num) {
+    return value.toInt();
+  }
+
+  return 0;
+}
+
+int? nullableTimestampMillisFromFirebase(Object? value) {
+  if (value is Timestamp) {
+    return value.millisecondsSinceEpoch;
+  }
+
+  if (value is num) {
+    return value.toInt();
+  }
+
+  return null;
+}
+
+String twoDigits(int value) => value.toString().padLeft(2, '0');
+
+String formatShortDateTime(DateTime value) {
+  return '${twoDigits(value.day)}.${twoDigits(value.month)} '
+      '${twoDigits(value.hour)}:${twoDigits(value.minute)}';
 }
 
 List<String> stringListFromFirebase(Object? value, List<String> fallback) {
@@ -633,6 +973,18 @@ Map<String, dynamic> mapFromFirebase(Object? value) {
   }
 
   return <String, dynamic>{};
+}
+
+bool localFileExists(String? path) {
+  if (path == null || path.trim().isEmpty) {
+    return false;
+  }
+
+  try {
+    return File(path).existsSync();
+  } catch (_) {
+    return false;
+  }
 }
 
 CollectionReference<Map<String, dynamic>> usersCollection() {
@@ -718,6 +1070,20 @@ Map<String, Object?> spotToFirestoreData(
     'updatedAt': FieldValue.serverTimestamp(),
   };
 
+  if (spot.isTemporary) {
+    data['isTemporary'] = true;
+    data['startsAt'] = spot.startsAtMillis == null
+        ? null
+        : Timestamp.fromMillisecondsSinceEpoch(spot.startsAtMillis!);
+    data['expiresAt'] = spot.expiresAtMillis == null
+        ? null
+        : Timestamp.fromMillisecondsSinceEpoch(spot.expiresAtMillis!);
+  } else {
+    data['isTemporary'] = false;
+    data['startsAt'] = null;
+    data['expiresAt'] = null;
+  }
+
   if (includeCreatedAt) {
     data['createdAt'] = FieldValue.serverTimestamp();
   }
@@ -793,7 +1159,7 @@ class SpotReviewData {
       id: doc.id,
       spotId: stringFromFirebase(data['spotId'], ''),
       userId: stringFromFirebase(data['userId'], ''),
-      username: stringFromFirebase(data['username'], '@ccs.driver'),
+      username: stringFromFirebase(data['username'], 'ccs_driver'),
       rating: doubleFromFirebase(data['rating'], 5).round().clamp(1, 5).toInt(),
       comment: stringFromFirebase(data['comment'], ''),
       createdAt: timestamp is Timestamp
@@ -805,6 +1171,10 @@ class SpotReviewData {
 
 CollectionReference<Map<String, dynamic>> spotReviewsCollection() {
   return FirebaseFirestore.instance.collection('spot_reviews');
+}
+
+CollectionReference<Map<String, dynamic>> spotLikesCollection() {
+  return FirebaseFirestore.instance.collection('spot_likes');
 }
 
 String spotReviewKey(CarSpot spot) {
@@ -836,6 +1206,67 @@ Stream<List<SpotReviewData>> watchSpotReviews(CarSpot spot) {
         );
         return reviews;
       });
+}
+
+Stream<int> watchSpotCommentCount(CarSpot spot) {
+  return watchSpotReviews(spot).map((reviews) => reviews.length);
+}
+
+Stream<int> watchSpotLikeCount(CarSpot spot) {
+  return spotLikesCollection()
+      .where('spotId', isEqualTo: spotReviewKey(spot))
+      .snapshots()
+      .map((snapshot) => snapshot.docs.length);
+}
+
+Stream<bool> watchCurrentUserLikedSpot(CarSpot spot) {
+  final firebaseUser = FirebaseAuth.instance.currentUser;
+
+  if (firebaseUser == null) {
+    return Stream.value(false);
+  }
+
+  return spotLikesCollection()
+      .doc('${spotReviewKey(spot)}_${firebaseUser.uid}')
+      .snapshots()
+      .map((snapshot) => snapshot.exists);
+}
+
+Future<void> toggleSpotLike(
+  BuildContext context,
+  CarSpot spot,
+  bool currentlyLiked,
+) async {
+  final firebaseUser = FirebaseAuth.instance.currentUser;
+
+  if (firebaseUser == null) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        backgroundColor: Colors.redAccent,
+        content: Text(
+          'Log in before liking spots.',
+          style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+        ),
+      ),
+    );
+    return;
+  }
+
+  final likeRef = spotLikesCollection().doc(
+    '${spotReviewKey(spot)}_${firebaseUser.uid}',
+  );
+
+  if (currentlyLiked) {
+    await likeRef.delete();
+  } else {
+    await likeRef.set({
+      'spotId': spotReviewKey(spot),
+      'spotName': spot.name,
+      'userId': firebaseUser.uid,
+      'username': currentUser.username,
+      'createdAt': FieldValue.serverTimestamp(),
+    });
+  }
 }
 
 Future<void> saveSpotReview({
@@ -934,7 +1365,7 @@ const demoSpots = [
     traffic: 'Low',
     lighting: 'Street lights',
     crowd: 'Medium',
-    addedBy: '@riga.driver',
+    addedBy: 'riga_driver',
     status: SpotStatus.approved,
   ),
   CarSpot(
@@ -956,7 +1387,7 @@ const demoSpots = [
     traffic: 'Medium',
     lighting: 'Warm city lights',
     crowd: 'Low',
-    addedBy: '@stance.lv',
+    addedBy: 'stance_lv',
     status: SpotStatus.approved,
   ),
   CarSpot(
@@ -978,7 +1409,7 @@ const demoSpots = [
     traffic: 'Low',
     lighting: 'Natural',
     crowd: 'Low',
-    addedBy: '@jdm.riga',
+    addedBy: 'jdm_riga',
     status: SpotStatus.approved,
   ),
   CarSpot(
@@ -1000,7 +1431,7 @@ const demoSpots = [
     traffic: 'Medium',
     lighting: 'Rooftop lights',
     crowd: 'Unknown',
-    addedBy: '@new.spotter',
+    addedBy: 'new_spotter',
     status: SpotStatus.pending,
   ),
 ];
@@ -1010,7 +1441,7 @@ List<CarSpot> approvedPublicSpots() {
   // Demo spots stay in code as backup data, but they should not reappear
   // after an admin deletes an approved Firebase spot.
   return reviewSpots.value
-      .where((spot) => spot.status == SpotStatus.approved)
+      .where((spot) => spot.status == SpotStatus.approved && spot.isVisibleNow)
       .toList();
 }
 
@@ -1396,15 +1827,94 @@ class _MainScreenState extends State<MainScreen> {
   }
 }
 
-class ExploreScreen extends StatelessWidget {
+enum ExploreSortMode { trending, old, newest, popular, meet }
+
+String exploreSortLabel(ExploreSortMode mode) {
+  switch (mode) {
+    case ExploreSortMode.trending:
+      return 'Trending';
+    case ExploreSortMode.old:
+      return 'Old';
+    case ExploreSortMode.newest:
+      return 'New';
+    case ExploreSortMode.popular:
+      return 'Popular';
+    case ExploreSortMode.meet:
+      return 'Meet';
+  }
+}
+
+class ExploreScreen extends StatefulWidget {
   const ExploreScreen({super.key});
+
+  @override
+  State<ExploreScreen> createState() => _ExploreScreenState();
+}
+
+class _ExploreScreenState extends State<ExploreScreen> {
+  ExploreSortMode selectedMode = ExploreSortMode.trending;
+
+  List<CarSpot> sortedSpots(List<CarSpot> spots) {
+    final list = [...spots];
+
+    if (selectedMode == ExploreSortMode.meet) {
+      list.removeWhere((spot) => !spot.categories.contains('Meet'));
+    }
+
+    switch (selectedMode) {
+      case ExploreSortMode.trending:
+        list.sort((a, b) {
+          final ratingCompare = b.rating.compareTo(a.rating);
+          if (ratingCompare != 0) {
+            return ratingCompare;
+          }
+          return b.createdAtMillis.compareTo(a.createdAtMillis);
+        });
+        break;
+      case ExploreSortMode.old:
+        list.sort((a, b) => a.createdAtMillis.compareTo(b.createdAtMillis));
+        break;
+      case ExploreSortMode.newest:
+        list.sort((a, b) => b.createdAtMillis.compareTo(a.createdAtMillis));
+        break;
+      case ExploreSortMode.popular:
+        list.sort((a, b) => b.rating.compareTo(a.rating));
+        break;
+      case ExploreSortMode.meet:
+        list.sort((a, b) => b.createdAtMillis.compareTo(a.createdAtMillis));
+        break;
+    }
+
+    return list;
+  }
+
+  Widget sortChip(ExploreSortMode mode) {
+    final selected = selectedMode == mode;
+
+    return Padding(
+      padding: const EdgeInsets.only(right: 8),
+      child: ChoiceChip(
+        label: Text(exploreSortLabel(mode)),
+        selected: selected,
+        showCheckmark: false,
+        onSelected: (_) => setState(() => selectedMode = mode),
+        selectedColor: blue,
+        backgroundColor: Colors.white.withValues(alpha: 0.07),
+        side: BorderSide(color: selected ? blue : Colors.white12),
+        labelStyle: TextStyle(
+          color: selected ? Colors.white : Colors.white70,
+          fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
+        ),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
     return ValueListenableBuilder<List<CarSpot>>(
       valueListenable: reviewSpots,
       builder: (context, _, _) {
-        final approvedSpots = approvedPublicSpots();
+        final approvedSpots = sortedSpots(approvedPublicSpots());
 
         return Scaffold(
           backgroundColor: Colors.black,
@@ -1430,26 +1940,30 @@ class ExploreScreen extends StatelessWidget {
                 style: TextStyle(color: Colors.white54, height: 1.35),
               ),
               const SizedBox(height: 18),
-              SizedBox(
-                height: 42,
-                child: ListView(
-                  scrollDirection: Axis.horizontal,
-                  children: const [
-                    _BuildChip(label: 'Trending'),
-                    SizedBox(width: 8),
-                    _BuildChip(label: 'Photo'),
-                    SizedBox(width: 8),
-                    _BuildChip(label: 'Reels'),
-                    SizedBox(width: 8),
-                    _BuildChip(label: 'Meet'),
+              SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  children: [
+                    sortChip(ExploreSortMode.trending),
+                    sortChip(ExploreSortMode.old),
+                    sortChip(ExploreSortMode.newest),
+                    sortChip(ExploreSortMode.popular),
+                    sortChip(ExploreSortMode.meet),
                   ],
                 ),
               ),
               const SizedBox(height: 18),
-              for (final spot in approvedSpots) ...[
-                ExploreSpotCard(spot: spot),
-                const SizedBox(height: 14),
-              ],
+              if (approvedSpots.isEmpty)
+                const EmptyStateCard(
+                  icon: Icons.explore,
+                  title: 'No spots here yet',
+                  text: 'Approved spots will appear here after moderation.',
+                )
+              else
+                for (final spot in approvedSpots) ...[
+                  ExploreSpotCard(spot: spot),
+                  const SizedBox(height: 14),
+                ],
             ],
           ),
         );
@@ -1546,16 +2060,109 @@ class ExploreSpotCard extends StatelessWidget {
                     spacing: 7,
                     runSpacing: 7,
                     children: [
+                      if (spot.isTemporary)
+                        _SmallTag(
+                          label: spot.temporaryTimeLabel,
+                          icon: Icons.event,
+                        ),
                       for (final category in spot.categories.take(3))
                         _SmallTag(label: category, icon: Icons.local_offer),
                     ],
                   ),
+                  const SizedBox(height: 12),
+                  ExploreSpotStatsRow(spot: spot),
                 ],
               ),
             ),
           ],
         ),
       ),
+    );
+  }
+}
+
+class ExploreSpotStatsRow extends StatelessWidget {
+  final CarSpot spot;
+
+  const ExploreSpotStatsRow({super.key, required this.spot});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        StreamBuilder<bool>(
+          stream: watchCurrentUserLikedSpot(spot),
+          builder: (context, likedSnapshot) {
+            final liked = likedSnapshot.data ?? false;
+
+            return StreamBuilder<int>(
+              stream: watchSpotLikeCount(spot),
+              builder: (context, countSnapshot) {
+                final likeCount = countSnapshot.data ?? 0;
+
+                return SizedBox(
+                  height: 36,
+                  child: OutlinedButton.icon(
+                    onPressed: () => toggleSpotLike(context, spot, liked),
+                    icon: Icon(
+                      liked ? Icons.favorite : Icons.favorite_border,
+                      size: 16,
+                    ),
+                    label: Text('$likeCount'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: liked
+                          ? Colors.redAccent
+                          : Colors.white70,
+                      side: BorderSide(
+                        color: liked ? Colors.redAccent : Colors.white12,
+                      ),
+                      padding: const EdgeInsets.symmetric(horizontal: 11),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                    ),
+                  ),
+                );
+              },
+            );
+          },
+        ),
+        const SizedBox(width: 8),
+        StreamBuilder<int>(
+          stream: watchSpotCommentCount(spot),
+          builder: (context, snapshot) {
+            final commentCount = snapshot.data ?? 0;
+
+            return Container(
+              height: 36,
+              padding: const EdgeInsets.symmetric(horizontal: 11),
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.06),
+                borderRadius: BorderRadius.circular(999),
+                border: Border.all(color: Colors.white12),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(
+                    Icons.chat_bubble_outline,
+                    color: Colors.white70,
+                    size: 15,
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    '$commentCount',
+                    style: const TextStyle(
+                      color: Colors.white70,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        ),
+      ],
     );
   }
 }
@@ -1573,6 +2180,7 @@ class _MapScreenState extends State<MapScreen> {
 
   final filters = const ['All', 'Photo', 'Reels', 'Meet', 'Low car'];
   final mapController = MapController();
+  Timer? temporarySpotRefreshTimer;
   String selectedFilter = 'All';
   CarSpot? selectedSpot;
 
@@ -1580,12 +2188,27 @@ class _MapScreenState extends State<MapScreen> {
   void initState() {
     super.initState();
     reviewSpots.addListener(refreshMap);
+
+    // Temporary spots can become visible or expire just because time passes.
+    // Firestore will not send a new snapshot at the start/end time, so the map
+    // needs a small live refresh while this screen is open.
+    temporarySpotRefreshTimer = Timer.periodic(
+      const Duration(seconds: 10),
+      (_) => refreshMap(),
+    );
   }
 
   void refreshMap() {
-    if (mounted) {
-      setState(() {});
+    if (!mounted) {
+      return;
     }
+
+    setState(() {
+      final spot = selectedSpot;
+      if (spot != null && !spot.isVisibleNow) {
+        selectedSpot = null;
+      }
+    });
   }
 
   List<CarSpot> get visibleSpots {
@@ -1641,6 +2264,7 @@ class _MapScreenState extends State<MapScreen> {
 
   @override
   void dispose() {
+    temporarySpotRefreshTimer?.cancel();
     reviewSpots.removeListener(refreshMap);
     mapController.dispose();
     super.dispose();
@@ -1919,6 +2543,11 @@ class SpotMapCard extends StatelessWidget {
                   spacing: 7,
                   runSpacing: 7,
                   children: [
+                    if (spot.isTemporary)
+                      _SmallTag(
+                        label: spot.temporaryTimeLabel,
+                        icon: Icons.event,
+                      ),
                     _SmallTag(label: spot.bestTime, icon: Icons.dark_mode),
                     _SmallTag(
                       label: spot.lowCarFriendly ? 'Low car OK' : 'Careful',
@@ -2441,6 +3070,11 @@ class _SpotDetailScreenState extends State<SpotDetailScreen> {
                   spacing: 8,
                   runSpacing: 8,
                   children: [
+                    if (spot.isTemporary)
+                      _SmallTag(
+                        label: spot.temporaryTimeLabel,
+                        icon: Icons.event,
+                      ),
                     for (final category in spot.categories)
                       _SmallTag(label: category, icon: Icons.local_offer),
                   ],
@@ -2751,8 +3385,8 @@ class _SpotReviewsSectionState extends State<SpotReviewsSection> {
                 const Spacer(),
                 Text(
                   reviews.isEmpty
-                      ? 'No reviews yet'
-                      : '${averageRating.toStringAsFixed(1)} (${reviews.length})',
+                      ? '0 comments'
+                      : '${reviews.length} ${reviews.length == 1 ? 'comment' : 'comments'}',
                   style: const TextStyle(
                     color: Colors.white70,
                     fontWeight: FontWeight.w800,
@@ -2927,7 +3561,7 @@ class SpotPhoto extends StatelessWidget {
   Widget build(BuildContext context) {
     Widget photo;
 
-    if (spot.localPhotoPath != null) {
+    if (localFileExists(spot.localPhotoPath)) {
       photo = Image.file(
         File(spot.localPhotoPath!),
         width: width,
@@ -3038,7 +3672,16 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
   final selectedCategories = <String>{'Photo', 'Reels', 'Meet'};
   LatLng? selectedLocation;
   String? selectedPhotoPath;
+  bool isTemporarySpot = false;
+  DateTime? temporaryStartsAt;
+  DateTime? temporaryExpiresAt;
   bool isSubmitting = false;
+
+  @override
+  void initState() {
+    super.initState();
+    addedByController.text = currentUser.username;
+  }
 
   @override
   void dispose() {
@@ -3070,32 +3713,72 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
   Future<void> choosePhoto() async {
     FocusScope.of(context).unfocus();
 
-    try {
-      final path = await photoPickerChannel.invokeMethod<String>('pickPhoto');
+    final path = await pickPhotoFromPhone(context);
 
-      if (!mounted || path == null) {
-        return;
-      }
-
-      setState(() => selectedPhotoPath = path);
-    } on PlatformException catch (error) {
-      if (!mounted) {
-        return;
-      }
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          backgroundColor: Colors.redAccent,
-          content: Text(
-            error.message ?? 'Could not open photo picker.',
-            style: const TextStyle(
-              color: Colors.white,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-        ),
-      );
+    if (!mounted || path == null) {
+      return;
     }
+
+    setState(() => selectedPhotoPath = path);
+  }
+
+  Future<DateTime?> pickTemporaryDateTime(DateTime? initialValue) async {
+    final now = DateTime.now();
+    final initial = initialValue ?? now.add(const Duration(hours: 1));
+
+    final date = await showDatePicker(
+      context: context,
+      initialDate: initial,
+      firstDate: DateTime(now.year, now.month, now.day),
+      lastDate: now.add(const Duration(days: 365)),
+      builder: (context, child) {
+        return Theme(data: ThemeData.dark(), child: child!);
+      },
+    );
+
+    if (date == null || !mounted) {
+      return null;
+    }
+
+    final time = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.fromDateTime(initial),
+      builder: (context, child) {
+        return Theme(data: ThemeData.dark(), child: child!);
+      },
+    );
+
+    if (time == null) {
+      return null;
+    }
+
+    return DateTime(date.year, date.month, date.day, time.hour, time.minute);
+  }
+
+  Future<void> chooseTemporaryStart() async {
+    final value = await pickTemporaryDateTime(temporaryStartsAt);
+
+    if (!mounted || value == null) {
+      return;
+    }
+
+    setState(() {
+      temporaryStartsAt = value;
+      if (temporaryExpiresAt == null || !temporaryExpiresAt!.isAfter(value)) {
+        temporaryExpiresAt = value.add(const Duration(hours: 3));
+      }
+    });
+  }
+
+  Future<void> chooseTemporaryEnd() async {
+    final fallback = temporaryStartsAt?.add(const Duration(hours: 3));
+    final value = await pickTemporaryDateTime(temporaryExpiresAt ?? fallback);
+
+    if (!mounted || value == null) {
+      return;
+    }
+
+    setState(() => temporaryExpiresAt = value);
   }
 
   Future<void> submitSpot() async {
@@ -3133,6 +3816,59 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
       return;
     }
 
+    if (isTemporarySpot) {
+      final startsAt = temporaryStartsAt;
+      final expiresAt = temporaryExpiresAt;
+
+      if (startsAt == null || expiresAt == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            backgroundColor: Colors.redAccent,
+            content: Text(
+              'Choose both start and end time for a temporary spot.',
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        );
+        return;
+      }
+
+      if (!expiresAt.isAfter(startsAt)) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            backgroundColor: Colors.redAccent,
+            content: Text(
+              'End time must be after start time.',
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        );
+        return;
+      }
+
+      if (!expiresAt.isAfter(DateTime.now())) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            backgroundColor: Colors.redAccent,
+            content: Text(
+              'End time must be in the future.',
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        );
+        return;
+      }
+    }
+
     final location = selectedLocation!;
     final categories = selectedCategories.isEmpty
         ? const ['Photo']
@@ -3164,11 +3900,16 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
       traffic: 'Not reviewed',
       lighting: 'Not reviewed',
       crowd: 'Not reviewed',
-      addedBy: addedByController.text.trim().isEmpty
-          ? currentUser.username
-          : addedByController.text.trim(),
+      addedBy: currentUser.username,
       addedByUid: firebaseUser.uid,
       status: SpotStatus.pending,
+      isTemporary: isTemporarySpot,
+      startsAtMillis: isTemporarySpot
+          ? temporaryStartsAt!.millisecondsSinceEpoch
+          : null,
+      expiresAtMillis: isTemporarySpot
+          ? temporaryExpiresAt!.millisecondsSinceEpoch
+          : null,
     );
 
     setState(() => isSubmitting = true);
@@ -3323,6 +4064,31 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
           ),
           const SizedBox(height: 16),
           _AddSpotSection(
+            title: 'Temporary schedule',
+            children: [
+              _TemporarySpotScheduleCard(
+                enabled: isTemporarySpot,
+                startsAt: temporaryStartsAt,
+                expiresAt: temporaryExpiresAt,
+                onEnabledChanged: (value) {
+                  setState(() {
+                    isTemporarySpot = value;
+                    if (value && temporaryStartsAt == null) {
+                      final start = DateTime.now().add(
+                        const Duration(hours: 1),
+                      );
+                      temporaryStartsAt = start;
+                      temporaryExpiresAt = start.add(const Duration(hours: 3));
+                    }
+                  });
+                },
+                onPickStart: chooseTemporaryStart,
+                onPickEnd: chooseTemporaryEnd,
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          _AddSpotSection(
             title: 'Categories',
             children: [
               Wrap(
@@ -3379,8 +4145,9 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
               _CcsTextField(
                 controller: addedByController,
                 label: 'Added by',
-                hint: '@username',
+                hint: 'Your profile nickname',
                 icon: Icons.person,
+                readOnly: true,
               ),
             ],
           ),
@@ -3416,6 +4183,122 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
           ),
           const SizedBox(height: 16),
           const _MySubmissionsSection(),
+        ],
+      ),
+    );
+  }
+}
+
+class _TemporarySpotScheduleCard extends StatelessWidget {
+  final bool enabled;
+  final DateTime? startsAt;
+  final DateTime? expiresAt;
+  final ValueChanged<bool> onEnabledChanged;
+  final VoidCallback onPickStart;
+  final VoidCallback onPickEnd;
+
+  const _TemporarySpotScheduleCard({
+    required this.enabled,
+    required this.startsAt,
+    required this.expiresAt,
+    required this.onEnabledChanged,
+    required this.onPickStart,
+    required this.onPickEnd,
+  });
+
+  Widget timeButton({
+    required String label,
+    required DateTime? value,
+    required IconData icon,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: enabled ? onTap : null,
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: enabled ? 0.06 : 0.03),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: Colors.white12),
+        ),
+        child: Row(
+          children: [
+            Icon(icon, color: enabled ? blue : Colors.white30),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    label,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    value == null ? 'Choose time' : formatShortDateTime(value),
+                    style: const TextStyle(color: Colors.white54),
+                  ),
+                ],
+              ),
+            ),
+            const Icon(Icons.chevron_right, color: Colors.white54),
+          ],
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.06),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: enabled ? blue.withValues(alpha: 0.7) : Colors.white12,
+        ),
+      ),
+      child: Column(
+        children: [
+          SwitchListTile(
+            value: enabled,
+            onChanged: onEnabledChanged,
+            activeThumbColor: blue,
+            contentPadding: EdgeInsets.zero,
+            secondary: const Icon(Icons.timer, color: blue),
+            title: const Text(
+              'Temporary spot',
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+            subtitle: const Text(
+              'Use this for meets and events. It disappears after the end time.',
+              style: TextStyle(color: Colors.white54),
+            ),
+          ),
+          if (enabled) ...[
+            const SizedBox(height: 10),
+            timeButton(
+              label: 'Starts at',
+              value: startsAt,
+              icon: Icons.play_arrow,
+              onTap: onPickStart,
+            ),
+            const SizedBox(height: 10),
+            timeButton(
+              label: 'Ends at',
+              value: expiresAt,
+              icon: Icons.stop,
+              onTap: onPickEnd,
+            ),
+          ],
         ],
       ),
     );
@@ -3869,6 +4752,15 @@ class _SubmittedSpotTile extends StatelessWidget {
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(color: Colors.white54),
                   ),
+                  if (spot.isTemporary) ...[
+                    const SizedBox(height: 6),
+                    Text(
+                      spot.temporaryTimeLabel,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(color: blue, fontSize: 12),
+                    ),
+                  ],
                   const SizedBox(height: 8),
                   Row(
                     children: [
@@ -3968,6 +4860,7 @@ class _CcsTextField extends StatelessWidget {
   final IconData icon;
   final int maxLines;
   final TextInputType keyboardType;
+  final bool readOnly;
 
   const _CcsTextField({
     required this.controller,
@@ -3976,6 +4869,7 @@ class _CcsTextField extends StatelessWidget {
     required this.icon,
     this.maxLines = 1,
     this.keyboardType = TextInputType.text,
+    this.readOnly = false,
   });
 
   @override
@@ -3984,6 +4878,7 @@ class _CcsTextField extends StatelessWidget {
       controller: controller,
       maxLines: maxLines,
       keyboardType: keyboardType,
+      readOnly: readOnly,
       style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
       decoration: InputDecoration(
         labelText: label,
@@ -4173,11 +5068,16 @@ List<String> splitCityCountry(String value) {
 
 Future<void> saveProfileToFirebase(UserProfileData profile) async {
   final cityCountry = splitCityCountry(profile.cityCountry);
+  final previousUsername = currentUser.username;
+  final cleanUsername = await reserveUsernameForCurrentUser(
+    preferredUsername: profile.username,
+    previousUsername: previousUsername,
+  );
 
   currentUser = AppUser(
     uid: currentUser.uid,
     name: currentUser.name,
-    username: profile.username,
+    username: cleanUsername,
     email: currentUser.email,
     photoUrl: currentUser.photoUrl,
     bio: profile.bio,
@@ -4188,7 +5088,8 @@ Future<void> saveProfileToFirebase(UserProfileData profile) async {
   );
 
   await saveCurrentUserFields({
-    'username': profile.username,
+    'username': cleanUsername,
+    'usernameKey': usernameKey(cleanUsername),
     'bio': profile.bio,
     'avatarPath': profile.avatarPath,
     'city': cityCountry[0],
@@ -4233,14 +5134,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
       return;
     }
 
-    setState(() => profile = updatedProfile);
-
     try {
       await saveProfileToFirebase(updatedProfile);
 
       if (!mounted) {
         return;
       }
+
+      setState(() => profile = UserProfileData.fromCurrentUser());
 
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -4579,7 +5480,7 @@ class _ProfileHeader extends StatelessWidget {
                   border: Border.all(color: blue.withValues(alpha: 0.5)),
                 ),
                 child: ClipOval(
-                  child: profile.avatarPath == null
+                  child: !localFileExists(profile.avatarPath)
                       ? const Center(
                           child: Text(
                             'CCS',
@@ -4969,7 +5870,7 @@ class GarageCarPhoto extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (car.photoPath != null) {
+    if (localFileExists(car.photoPath)) {
       return Image.file(
         File(car.photoPath!),
         fit: BoxFit.cover,
@@ -5201,6 +6102,13 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   late final TextEditingController cityController;
   late final TextEditingController bioController;
   String? avatarPath;
+  Timer? usernameAvailabilityDebounce;
+  UsernameAvailability usernameAvailability = UsernameAvailability.unchanged;
+
+  bool get canSaveProfile {
+    return usernameAvailability == UsernameAvailability.unchanged ||
+        usernameAvailability == UsernameAvailability.available;
+  }
 
   @override
   void initState() {
@@ -5209,14 +6117,53 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     cityController = TextEditingController(text: widget.profile.cityCountry);
     bioController = TextEditingController(text: widget.profile.bio);
     avatarPath = widget.profile.avatarPath;
+    usernameController.addListener(queueUsernameAvailabilityCheck);
   }
 
   @override
   void dispose() {
+    usernameAvailabilityDebounce?.cancel();
+    usernameController.removeListener(queueUsernameAvailabilityCheck);
     usernameController.dispose();
     cityController.dispose();
     bioController.dispose();
     super.dispose();
+  }
+
+  void queueUsernameAvailabilityCheck() {
+    usernameAvailabilityDebounce?.cancel();
+
+    final cleanUsername = cleanProfileUsername(usernameController.text);
+
+    if (cleanUsername.length < 3) {
+      setState(() => usernameAvailability = UsernameAvailability.invalid);
+      return;
+    }
+
+    if (usernameKey(cleanUsername) == usernameKey(widget.profile.username)) {
+      setState(() => usernameAvailability = UsernameAvailability.unchanged);
+      return;
+    }
+
+    setState(() => usernameAvailability = UsernameAvailability.checking);
+
+    usernameAvailabilityDebounce = Timer(const Duration(milliseconds: 450), () {
+      checkUsernameAvailability(cleanUsername);
+    });
+  }
+
+  Future<void> checkUsernameAvailability(String usernameToCheck) async {
+    final checkedKey = usernameKey(usernameToCheck);
+    final availability = await checkUsernameAvailabilityForCurrentUser(
+      usernameToCheck,
+      currentUsername: widget.profile.username,
+    );
+
+    if (!mounted || usernameKey(usernameController.text) != checkedKey) {
+      return;
+    }
+
+    setState(() => usernameAvailability = availability);
   }
 
   Future<void> chooseAvatar() async {
@@ -5230,12 +6177,28 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   }
 
   void saveProfile() {
+    if (!canSaveProfile) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: Colors.redAccent,
+          content: Text(
+            usernameAvailabilityText(usernameAvailability),
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+      );
+      return;
+    }
+
     Navigator.pop(
       context,
       UserProfileData(
         username: usernameController.text.trim().isEmpty
-            ? '@ccs.driver'
-            : usernameController.text.trim(),
+            ? currentUser.username
+            : cleanProfileUsername(usernameController.text),
         cityCountry: cityController.text.trim().isEmpty
             ? 'Riga, Latvia'
             : cityController.text.trim(),
@@ -5280,7 +6243,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                       border: Border.all(color: blue.withValues(alpha: 0.5)),
                     ),
                     child: ClipOval(
-                      child: avatarPath == null
+                      child: !localFileExists(avatarPath)
                           ? const Icon(Icons.add_a_photo, color: blue, size: 34)
                           : Image.file(
                               File(avatarPath!),
@@ -5311,9 +6274,31 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
               _CcsTextField(
                 controller: usernameController,
                 label: 'Nickname',
-                hint: '@riga.driver',
+                hint: 'riga_driver',
                 icon: Icons.alternate_email,
               ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Icon(
+                    usernameAvailabilityIcon(usernameAvailability),
+                    color: usernameAvailabilityColor(usernameAvailability),
+                    size: 16,
+                  ),
+                  const SizedBox(width: 7),
+                  Expanded(
+                    child: Text(
+                      usernameAvailabilityText(usernameAvailability),
+                      style: TextStyle(
+                        color: usernameAvailabilityColor(usernameAvailability),
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 14),
               _CcsTextField(
                 controller: cityController,
                 label: 'City / country',
@@ -5333,7 +6318,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
           SizedBox(
             height: 54,
             child: ElevatedButton.icon(
-              onPressed: saveProfile,
+              onPressed: canSaveProfile ? saveProfile : null,
               icon: const Icon(Icons.check),
               label: const Text('Save Profile'),
               style: ElevatedButton.styleFrom(
@@ -5508,7 +6493,7 @@ class _EditGarageScreenState extends State<EditGarageScreen> {
                 child: Stack(
                   fit: StackFit.expand,
                   children: [
-                    if (photoPath == null)
+                    if (!localFileExists(photoPath))
                       Container(
                         color: Colors.white.withValues(alpha: 0.06),
                         child: const Icon(
