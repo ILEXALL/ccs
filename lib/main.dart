@@ -640,6 +640,9 @@ class CarSpot {
   final String addedByUid;
   final SpotStatus status;
   final int createdAtMillis;
+  final bool isTemporary;
+  final int? startsAtMillis;
+  final int? expiresAtMillis;
 
   const CarSpot({
     this.id = '',
@@ -664,6 +667,9 @@ class CarSpot {
     this.addedByUid = '',
     required this.status,
     this.createdAtMillis = 0,
+    this.isTemporary = false,
+    this.startsAtMillis,
+    this.expiresAtMillis,
   });
 
   CarSpot copyWith({
@@ -689,6 +695,9 @@ class CarSpot {
     String? addedByUid,
     SpotStatus? status,
     int? createdAtMillis,
+    bool? isTemporary,
+    int? startsAtMillis,
+    int? expiresAtMillis,
   }) {
     return CarSpot(
       id: id ?? this.id,
@@ -713,7 +722,46 @@ class CarSpot {
       addedByUid: addedByUid ?? this.addedByUid,
       status: status ?? this.status,
       createdAtMillis: createdAtMillis ?? this.createdAtMillis,
+      isTemporary: isTemporary ?? this.isTemporary,
+      startsAtMillis: startsAtMillis ?? this.startsAtMillis,
+      expiresAtMillis: expiresAtMillis ?? this.expiresAtMillis,
     );
+  }
+
+  bool get hasTemporaryWindow =>
+      isTemporary && startsAtMillis != null && expiresAtMillis != null;
+
+  bool get isExpired {
+    final expiresAt = expiresAtMillis;
+    return isTemporary &&
+        expiresAt != null &&
+        DateTime.now().millisecondsSinceEpoch >= expiresAt;
+  }
+
+  bool get isVisibleNow {
+    if (!isTemporary) {
+      return true;
+    }
+
+    final startsAt = startsAtMillis;
+    final expiresAt = expiresAtMillis;
+
+    if (startsAt == null || expiresAt == null) {
+      return false;
+    }
+
+    final now = DateTime.now().millisecondsSinceEpoch;
+    return now >= startsAt && now < expiresAt;
+  }
+
+  String get temporaryTimeLabel {
+    if (!hasTemporaryWindow) {
+      return '';
+    }
+
+    final startsAt = DateTime.fromMillisecondsSinceEpoch(startsAtMillis!);
+    final expiresAt = DateTime.fromMillisecondsSinceEpoch(expiresAtMillis!);
+    return '${formatShortDateTime(startsAt)} - ${formatShortDateTime(expiresAt)}';
   }
 
   factory CarSpot.fromFirestore(DocumentSnapshot<Map<String, dynamic>> doc) {
@@ -751,6 +799,9 @@ class CarSpot {
       addedByUid: stringFromFirebase(data['addedByUid'], ''),
       status: spotStatusFromFirebase(data['status']),
       createdAtMillis: timestampMillisFromFirebase(data['createdAt']),
+      isTemporary: data['isTemporary'] == true,
+      startsAtMillis: nullableTimestampMillisFromFirebase(data['startsAt']),
+      expiresAtMillis: nullableTimestampMillisFromFirebase(data['expiresAt']),
     );
   }
 }
@@ -781,6 +832,25 @@ int timestampMillisFromFirebase(Object? value) {
   }
 
   return 0;
+}
+
+int? nullableTimestampMillisFromFirebase(Object? value) {
+  if (value is Timestamp) {
+    return value.millisecondsSinceEpoch;
+  }
+
+  if (value is num) {
+    return value.toInt();
+  }
+
+  return null;
+}
+
+String twoDigits(int value) => value.toString().padLeft(2, '0');
+
+String formatShortDateTime(DateTime value) {
+  return '${twoDigits(value.day)}.${twoDigits(value.month)} '
+      '${twoDigits(value.hour)}:${twoDigits(value.minute)}';
 }
 
 List<String> stringListFromFirebase(Object? value, List<String> fallback) {
@@ -908,6 +978,20 @@ Map<String, Object?> spotToFirestoreData(
     'status': spotStatusName(spot.status),
     'updatedAt': FieldValue.serverTimestamp(),
   };
+
+  if (spot.isTemporary) {
+    data['isTemporary'] = true;
+    data['startsAt'] = spot.startsAtMillis == null
+        ? null
+        : Timestamp.fromMillisecondsSinceEpoch(spot.startsAtMillis!);
+    data['expiresAt'] = spot.expiresAtMillis == null
+        ? null
+        : Timestamp.fromMillisecondsSinceEpoch(spot.expiresAtMillis!);
+  } else {
+    data['isTemporary'] = false;
+    data['startsAt'] = null;
+    data['expiresAt'] = null;
+  }
 
   if (includeCreatedAt) {
     data['createdAt'] = FieldValue.serverTimestamp();
@@ -1266,7 +1350,7 @@ List<CarSpot> approvedPublicSpots() {
   // Demo spots stay in code as backup data, but they should not reappear
   // after an admin deletes an approved Firebase spot.
   return reviewSpots.value
-      .where((spot) => spot.status == SpotStatus.approved)
+      .where((spot) => spot.status == SpotStatus.approved && spot.isVisibleNow)
       .toList();
 }
 
@@ -1885,6 +1969,11 @@ class ExploreSpotCard extends StatelessWidget {
                     spacing: 7,
                     runSpacing: 7,
                     children: [
+                      if (spot.isTemporary)
+                        _SmallTag(
+                          label: spot.temporaryTimeLabel,
+                          icon: Icons.event,
+                        ),
                       for (final category in spot.categories.take(3))
                         _SmallTag(label: category, icon: Icons.local_offer),
                     ],
@@ -2000,6 +2089,7 @@ class _MapScreenState extends State<MapScreen> {
 
   final filters = const ['All', 'Photo', 'Reels', 'Meet', 'Low car'];
   final mapController = MapController();
+  Timer? temporarySpotRefreshTimer;
   String selectedFilter = 'All';
   CarSpot? selectedSpot;
 
@@ -2007,12 +2097,27 @@ class _MapScreenState extends State<MapScreen> {
   void initState() {
     super.initState();
     reviewSpots.addListener(refreshMap);
+
+    // Temporary spots can become visible or expire just because time passes.
+    // Firestore will not send a new snapshot at the start/end time, so the map
+    // needs a small live refresh while this screen is open.
+    temporarySpotRefreshTimer = Timer.periodic(
+      const Duration(seconds: 10),
+      (_) => refreshMap(),
+    );
   }
 
   void refreshMap() {
-    if (mounted) {
-      setState(() {});
+    if (!mounted) {
+      return;
     }
+
+    setState(() {
+      final spot = selectedSpot;
+      if (spot != null && !spot.isVisibleNow) {
+        selectedSpot = null;
+      }
+    });
   }
 
   List<CarSpot> get visibleSpots {
@@ -2068,6 +2173,7 @@ class _MapScreenState extends State<MapScreen> {
 
   @override
   void dispose() {
+    temporarySpotRefreshTimer?.cancel();
     reviewSpots.removeListener(refreshMap);
     mapController.dispose();
     super.dispose();
@@ -2346,6 +2452,11 @@ class SpotMapCard extends StatelessWidget {
                   spacing: 7,
                   runSpacing: 7,
                   children: [
+                    if (spot.isTemporary)
+                      _SmallTag(
+                        label: spot.temporaryTimeLabel,
+                        icon: Icons.event,
+                      ),
                     _SmallTag(label: spot.bestTime, icon: Icons.dark_mode),
                     _SmallTag(
                       label: spot.lowCarFriendly ? 'Low car OK' : 'Careful',
@@ -2868,6 +2979,11 @@ class _SpotDetailScreenState extends State<SpotDetailScreen> {
                   spacing: 8,
                   runSpacing: 8,
                   children: [
+                    if (spot.isTemporary)
+                      _SmallTag(
+                        label: spot.temporaryTimeLabel,
+                        icon: Icons.event,
+                      ),
                     for (final category in spot.categories)
                       _SmallTag(label: category, icon: Icons.local_offer),
                   ],
@@ -3465,6 +3581,9 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
   final selectedCategories = <String>{'Photo', 'Reels', 'Meet'};
   LatLng? selectedLocation;
   String? selectedPhotoPath;
+  bool isTemporarySpot = false;
+  DateTime? temporaryStartsAt;
+  DateTime? temporaryExpiresAt;
   bool isSubmitting = false;
 
   @override
@@ -3512,6 +3631,65 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
     setState(() => selectedPhotoPath = path);
   }
 
+  Future<DateTime?> pickTemporaryDateTime(DateTime? initialValue) async {
+    final now = DateTime.now();
+    final initial = initialValue ?? now.add(const Duration(hours: 1));
+
+    final date = await showDatePicker(
+      context: context,
+      initialDate: initial,
+      firstDate: DateTime(now.year, now.month, now.day),
+      lastDate: now.add(const Duration(days: 365)),
+      builder: (context, child) {
+        return Theme(data: ThemeData.dark(), child: child!);
+      },
+    );
+
+    if (date == null || !mounted) {
+      return null;
+    }
+
+    final time = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.fromDateTime(initial),
+      builder: (context, child) {
+        return Theme(data: ThemeData.dark(), child: child!);
+      },
+    );
+
+    if (time == null) {
+      return null;
+    }
+
+    return DateTime(date.year, date.month, date.day, time.hour, time.minute);
+  }
+
+  Future<void> chooseTemporaryStart() async {
+    final value = await pickTemporaryDateTime(temporaryStartsAt);
+
+    if (!mounted || value == null) {
+      return;
+    }
+
+    setState(() {
+      temporaryStartsAt = value;
+      if (temporaryExpiresAt == null || !temporaryExpiresAt!.isAfter(value)) {
+        temporaryExpiresAt = value.add(const Duration(hours: 3));
+      }
+    });
+  }
+
+  Future<void> chooseTemporaryEnd() async {
+    final fallback = temporaryStartsAt?.add(const Duration(hours: 3));
+    final value = await pickTemporaryDateTime(temporaryExpiresAt ?? fallback);
+
+    if (!mounted || value == null) {
+      return;
+    }
+
+    setState(() => temporaryExpiresAt = value);
+  }
+
   Future<void> submitSpot() async {
     FocusScope.of(context).unfocus();
 
@@ -3545,6 +3723,59 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
         ),
       );
       return;
+    }
+
+    if (isTemporarySpot) {
+      final startsAt = temporaryStartsAt;
+      final expiresAt = temporaryExpiresAt;
+
+      if (startsAt == null || expiresAt == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            backgroundColor: Colors.redAccent,
+            content: Text(
+              'Choose both start and end time for a temporary spot.',
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        );
+        return;
+      }
+
+      if (!expiresAt.isAfter(startsAt)) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            backgroundColor: Colors.redAccent,
+            content: Text(
+              'End time must be after start time.',
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        );
+        return;
+      }
+
+      if (!expiresAt.isAfter(DateTime.now())) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            backgroundColor: Colors.redAccent,
+            content: Text(
+              'End time must be in the future.',
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        );
+        return;
+      }
     }
 
     final location = selectedLocation!;
@@ -3581,6 +3812,13 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
       addedBy: currentUser.username,
       addedByUid: firebaseUser.uid,
       status: SpotStatus.pending,
+      isTemporary: isTemporarySpot,
+      startsAtMillis: isTemporarySpot
+          ? temporaryStartsAt!.millisecondsSinceEpoch
+          : null,
+      expiresAtMillis: isTemporarySpot
+          ? temporaryExpiresAt!.millisecondsSinceEpoch
+          : null,
     );
 
     setState(() => isSubmitting = true);
@@ -3735,6 +3973,31 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
           ),
           const SizedBox(height: 16),
           _AddSpotSection(
+            title: 'Temporary schedule',
+            children: [
+              _TemporarySpotScheduleCard(
+                enabled: isTemporarySpot,
+                startsAt: temporaryStartsAt,
+                expiresAt: temporaryExpiresAt,
+                onEnabledChanged: (value) {
+                  setState(() {
+                    isTemporarySpot = value;
+                    if (value && temporaryStartsAt == null) {
+                      final start = DateTime.now().add(
+                        const Duration(hours: 1),
+                      );
+                      temporaryStartsAt = start;
+                      temporaryExpiresAt = start.add(const Duration(hours: 3));
+                    }
+                  });
+                },
+                onPickStart: chooseTemporaryStart,
+                onPickEnd: chooseTemporaryEnd,
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          _AddSpotSection(
             title: 'Categories',
             children: [
               Wrap(
@@ -3829,6 +4092,122 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
           ),
           const SizedBox(height: 16),
           const _MySubmissionsSection(),
+        ],
+      ),
+    );
+  }
+}
+
+class _TemporarySpotScheduleCard extends StatelessWidget {
+  final bool enabled;
+  final DateTime? startsAt;
+  final DateTime? expiresAt;
+  final ValueChanged<bool> onEnabledChanged;
+  final VoidCallback onPickStart;
+  final VoidCallback onPickEnd;
+
+  const _TemporarySpotScheduleCard({
+    required this.enabled,
+    required this.startsAt,
+    required this.expiresAt,
+    required this.onEnabledChanged,
+    required this.onPickStart,
+    required this.onPickEnd,
+  });
+
+  Widget timeButton({
+    required String label,
+    required DateTime? value,
+    required IconData icon,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: enabled ? onTap : null,
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: enabled ? 0.06 : 0.03),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: Colors.white12),
+        ),
+        child: Row(
+          children: [
+            Icon(icon, color: enabled ? blue : Colors.white30),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    label,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    value == null ? 'Choose time' : formatShortDateTime(value),
+                    style: const TextStyle(color: Colors.white54),
+                  ),
+                ],
+              ),
+            ),
+            const Icon(Icons.chevron_right, color: Colors.white54),
+          ],
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.06),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: enabled ? blue.withValues(alpha: 0.7) : Colors.white12,
+        ),
+      ),
+      child: Column(
+        children: [
+          SwitchListTile(
+            value: enabled,
+            onChanged: onEnabledChanged,
+            activeThumbColor: blue,
+            contentPadding: EdgeInsets.zero,
+            secondary: const Icon(Icons.timer, color: blue),
+            title: const Text(
+              'Temporary spot',
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+            subtitle: const Text(
+              'Use this for meets and events. It disappears after the end time.',
+              style: TextStyle(color: Colors.white54),
+            ),
+          ),
+          if (enabled) ...[
+            const SizedBox(height: 10),
+            timeButton(
+              label: 'Starts at',
+              value: startsAt,
+              icon: Icons.play_arrow,
+              onTap: onPickStart,
+            ),
+            const SizedBox(height: 10),
+            timeButton(
+              label: 'Ends at',
+              value: expiresAt,
+              icon: Icons.stop,
+              onTap: onPickEnd,
+            ),
+          ],
         ],
       ),
     );
@@ -4282,6 +4661,15 @@ class _SubmittedSpotTile extends StatelessWidget {
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(color: Colors.white54),
                   ),
+                  if (spot.isTemporary) ...[
+                    const SizedBox(height: 6),
+                    Text(
+                      spot.temporaryTimeLabel,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(color: blue, fontSize: 12),
+                    ),
+                  ],
                   const SizedBox(height: 8),
                   Row(
                     children: [
