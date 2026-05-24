@@ -1,4 +1,4 @@
-import 'dart:async';
+﻿import 'dart:async';
 import 'dart:io';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -2079,8 +2079,8 @@ class ExploreSpotCard extends StatelessWidget {
                           icon: Icons.event,
                         ),
                       for (final category in spot.categories.take(3))
-                      for (final category in spot.categories.take(2))
-                        _SmallTag(label: category, icon: Icons.local_offer),
+                        for (final category in spot.categories.take(2))
+                          _SmallTag(label: category, icon: Icons.local_offer),
                     ],
                   ),
                   const SizedBox(height: 8),
