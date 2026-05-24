@@ -1,4 +1,4 @@
-import 'dart:async';
+﻿import 'dart:async';
 import 'dart:io';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -280,97 +280,6 @@ String makeUsernameFromFirebaseUser(User user) {
 
 CollectionReference<Map<String, dynamic>> usernamesCollection() {
   return FirebaseFirestore.instance.collection('usernames');
-}
-
-enum UsernameAvailability {
-  unchanged,
-  checking,
-  available,
-  taken,
-  invalid,
-  error,
-}
-
-Future<UsernameAvailability> checkUsernameAvailabilityForCurrentUser(
-  String username, {
-  required String currentUsername,
-}) async {
-  final firebaseUser = FirebaseAuth.instance.currentUser;
-  final cleanUsername = cleanProfileUsername(username);
-
-  if (cleanUsername.length < 3) {
-    return UsernameAvailability.invalid;
-  }
-
-  if (usernameKey(cleanUsername) == usernameKey(currentUsername)) {
-    return UsernameAvailability.unchanged;
-  }
-
-  if (firebaseUser == null) {
-    return UsernameAvailability.error;
-  }
-
-  try {
-    final snapshot = await usernamesCollection()
-        .doc(usernameKey(cleanUsername))
-        .get();
-
-    if (!snapshot.exists) {
-      return UsernameAvailability.available;
-    }
-
-    final ownerUid = snapshot.data()?['uid'] as String?;
-    return ownerUid == firebaseUser.uid
-        ? UsernameAvailability.unchanged
-        : UsernameAvailability.taken;
-  } catch (_) {
-    return UsernameAvailability.error;
-  }
-}
-
-String usernameAvailabilityText(UsernameAvailability availability) {
-  switch (availability) {
-    case UsernameAvailability.unchanged:
-      return 'This is your current nickname.';
-    case UsernameAvailability.checking:
-      return 'Checking nickname availability...';
-    case UsernameAvailability.available:
-      return 'Nickname is available.';
-    case UsernameAvailability.taken:
-      return 'This nickname is already taken.';
-    case UsernameAvailability.invalid:
-      return 'Nickname must be at least 3 characters.';
-    case UsernameAvailability.error:
-      return 'Could not check nickname availability.';
-  }
-}
-
-Color usernameAvailabilityColor(UsernameAvailability availability) {
-  switch (availability) {
-    case UsernameAvailability.available:
-    case UsernameAvailability.unchanged:
-      return Colors.greenAccent;
-    case UsernameAvailability.checking:
-      return Colors.white54;
-    case UsernameAvailability.taken:
-    case UsernameAvailability.invalid:
-    case UsernameAvailability.error:
-      return Colors.redAccent;
-  }
-}
-
-IconData usernameAvailabilityIcon(UsernameAvailability availability) {
-  switch (availability) {
-    case UsernameAvailability.available:
-    case UsernameAvailability.unchanged:
-      return Icons.check_circle_outline;
-    case UsernameAvailability.checking:
-      return Icons.hourglass_empty;
-    case UsernameAvailability.taken:
-    case UsernameAvailability.invalid:
-    case UsernameAvailability.error:
-      return Icons.error_outline;
-  }
 }
 
 String fallbackUsernameSuffix(String uid) {
@@ -717,7 +626,6 @@ class CarSpot {
   final List<String> categories;
   final double rating;
   final String photoUrl;
-  final List<String> photoUrls;
   final String? localPhotoPath;
   final String reelLink;
   final String bestTime;
@@ -732,9 +640,6 @@ class CarSpot {
   final String addedByUid;
   final SpotStatus status;
   final int createdAtMillis;
-  final bool isTemporary;
-  final int? startsAtMillis;
-  final int? expiresAtMillis;
 
   const CarSpot({
     this.id = '',
@@ -745,7 +650,6 @@ class CarSpot {
     required this.categories,
     required this.rating,
     required this.photoUrl,
-    this.photoUrls = const [],
     this.localPhotoPath,
     required this.reelLink,
     required this.bestTime,
@@ -760,9 +664,6 @@ class CarSpot {
     this.addedByUid = '',
     required this.status,
     this.createdAtMillis = 0,
-    this.isTemporary = false,
-    this.startsAtMillis,
-    this.expiresAtMillis,
   });
 
   CarSpot copyWith({
@@ -774,7 +675,6 @@ class CarSpot {
     List<String>? categories,
     double? rating,
     String? photoUrl,
-    List<String>? photoUrls,
     String? localPhotoPath,
     String? reelLink,
     String? bestTime,
@@ -789,9 +689,6 @@ class CarSpot {
     String? addedByUid,
     SpotStatus? status,
     int? createdAtMillis,
-    bool? isTemporary,
-    int? startsAtMillis,
-    int? expiresAtMillis,
   }) {
     return CarSpot(
       id: id ?? this.id,
@@ -802,7 +699,6 @@ class CarSpot {
       categories: categories ?? this.categories,
       rating: rating ?? this.rating,
       photoUrl: photoUrl ?? this.photoUrl,
-      photoUrls: photoUrls ?? this.photoUrls,
       localPhotoPath: localPhotoPath ?? this.localPhotoPath,
       reelLink: reelLink ?? this.reelLink,
       bestTime: bestTime ?? this.bestTime,
@@ -817,46 +713,7 @@ class CarSpot {
       addedByUid: addedByUid ?? this.addedByUid,
       status: status ?? this.status,
       createdAtMillis: createdAtMillis ?? this.createdAtMillis,
-      isTemporary: isTemporary ?? this.isTemporary,
-      startsAtMillis: startsAtMillis ?? this.startsAtMillis,
-      expiresAtMillis: expiresAtMillis ?? this.expiresAtMillis,
     );
-  }
-
-  bool get hasTemporaryWindow =>
-      isTemporary && startsAtMillis != null && expiresAtMillis != null;
-
-  bool get isExpired {
-    final expiresAt = expiresAtMillis;
-    return isTemporary &&
-        expiresAt != null &&
-        DateTime.now().millisecondsSinceEpoch >= expiresAt;
-  }
-
-  bool get isVisibleNow {
-    if (!isTemporary) {
-      return true;
-    }
-
-    final startsAt = startsAtMillis;
-    final expiresAt = expiresAtMillis;
-
-    if (startsAt == null || expiresAt == null) {
-      return false;
-    }
-
-    final now = DateTime.now().millisecondsSinceEpoch;
-    return now >= startsAt && now < expiresAt;
-  }
-
-  String get temporaryTimeLabel {
-    if (!hasTemporaryWindow) {
-      return '';
-    }
-
-    final startsAt = DateTime.fromMillisecondsSinceEpoch(startsAtMillis!);
-    final expiresAt = DateTime.fromMillisecondsSinceEpoch(expiresAtMillis!);
-    return '${formatShortDateTime(startsAt)} - ${formatShortDateTime(expiresAt)}';
   }
 
   factory CarSpot.fromFirestore(DocumentSnapshot<Map<String, dynamic>> doc) {
@@ -881,7 +738,6 @@ class CarSpot {
       categories: stringListFromFirebase(data['categories'], const ['Photo']),
       rating: doubleFromFirebase(data['rating'], 0),
       photoUrl: stringFromFirebase(data['photoUrl'], ''),
-      photoUrls: stringListFromFirebase(data['photoUrls'], const []),
       reelLink: stringFromFirebase(data['reelLink'], ''),
       bestTime: stringFromFirebase(data['bestTime'], 'Not reviewed'),
       parking: stringFromFirebase(data['parking'], 'Not reviewed'),
@@ -895,9 +751,6 @@ class CarSpot {
       addedByUid: stringFromFirebase(data['addedByUid'], ''),
       status: spotStatusFromFirebase(data['status']),
       createdAtMillis: timestampMillisFromFirebase(data['createdAt']),
-      isTemporary: data['isTemporary'] == true,
-      startsAtMillis: nullableTimestampMillisFromFirebase(data['startsAt']),
-      expiresAtMillis: nullableTimestampMillisFromFirebase(data['expiresAt']),
     );
   }
 }
@@ -928,25 +781,6 @@ int timestampMillisFromFirebase(Object? value) {
   }
 
   return 0;
-}
-
-int? nullableTimestampMillisFromFirebase(Object? value) {
-  if (value is Timestamp) {
-    return value.millisecondsSinceEpoch;
-  }
-
-  if (value is num) {
-    return value.toInt();
-  }
-
-  return null;
-}
-
-String twoDigits(int value) => value.toString().padLeft(2, '0');
-
-String formatShortDateTime(DateTime value) {
-  return '${twoDigits(value.day)}.${twoDigits(value.month)} '
-      '${twoDigits(value.hour)}:${twoDigits(value.minute)}';
 }
 
 List<String> stringListFromFirebase(Object? value, List<String> fallback) {
@@ -1060,7 +894,6 @@ Map<String, Object?> spotToFirestoreData(
     'categories': spot.categories,
     'rating': spot.rating,
     'photoUrl': spot.photoUrl,
-    'photoUrls': spot.photoUrls,
     'reelLink': spot.reelLink,
     'bestTime': spot.bestTime,
     'parking': spot.parking,
@@ -1075,20 +908,6 @@ Map<String, Object?> spotToFirestoreData(
     'status': spotStatusName(spot.status),
     'updatedAt': FieldValue.serverTimestamp(),
   };
-
-  if (spot.isTemporary) {
-    data['isTemporary'] = true;
-    data['startsAt'] = spot.startsAtMillis == null
-        ? null
-        : Timestamp.fromMillisecondsSinceEpoch(spot.startsAtMillis!);
-    data['expiresAt'] = spot.expiresAtMillis == null
-        ? null
-        : Timestamp.fromMillisecondsSinceEpoch(spot.expiresAtMillis!);
-  } else {
-    data['isTemporary'] = false;
-    data['startsAt'] = null;
-    data['expiresAt'] = null;
-  }
 
   if (includeCreatedAt) {
     data['createdAt'] = FieldValue.serverTimestamp();
@@ -1447,7 +1266,7 @@ List<CarSpot> approvedPublicSpots() {
   // Demo spots stay in code as backup data, but they should not reappear
   // after an admin deletes an approved Firebase spot.
   return reviewSpots.value
-      .where((spot) => spot.status == SpotStatus.approved && spot.isVisibleNow)
+      .where((spot) => spot.status == SpotStatus.approved)
       .toList();
 }
 
@@ -1992,35 +1811,35 @@ class ExploreSpotCard extends StatelessWidget {
           MaterialPageRoute(builder: (_) => SpotDetailScreen(spot: spot)),
         );
       },
-      borderRadius: BorderRadius.circular(18),
+      borderRadius: BorderRadius.circular(22),
       child: Container(
-        padding: const EdgeInsets.all(10),
         decoration: BoxDecoration(
           color: panel,
-          borderRadius: BorderRadius.circular(18),
+          borderRadius: BorderRadius.circular(22),
           border: Border.all(color: Colors.white12),
         ),
-        child: Row(
+        child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Stack(
               children: [
                 SpotPhoto(
                   spot: spot,
-                  width: 108,
-                  height: 118,
-                  fit: BoxFit.cover,
-                  borderRadius: BorderRadius.circular(14),
+                  height: 190,
+                  width: double.infinity,
+                  borderRadius: const BorderRadius.vertical(
+                    top: Radius.circular(22),
+                  ),
                 ),
                 Positioned(
-                  top: 7,
-                  right: 7,
+                  top: 12,
+                  right: 12,
                   child: SaveSpotButton(spot: spot, compact: true),
                 ),
               ],
             ),
-            const SizedBox(width: 12),
-            Expanded(
+            Padding(
+              padding: const EdgeInsets.all(14),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -2033,57 +1852,44 @@ class ExploreSpotCard extends StatelessWidget {
                           overflow: TextOverflow.ellipsis,
                           style: const TextStyle(
                             color: Colors.white,
-                            fontSize: 17,
+                            fontSize: 20,
                             fontWeight: FontWeight.w900,
                           ),
                         ),
                       ),
-                      const Icon(Icons.star, color: blue, size: 15),
-                      const SizedBox(width: 3),
+                      const Icon(Icons.star, color: blue, size: 17),
+                      const SizedBox(width: 4),
                       Text(
                         spot.rating.toStringAsFixed(1),
                         style: const TextStyle(
                           color: Colors.white,
-                          fontSize: 12,
                           fontWeight: FontWeight.w800,
                         ),
                       ),
                     ],
                   ),
-                  const SizedBox(height: 3),
+                  const SizedBox(height: 5),
                   Text(
                     spot.cityCountry,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(color: Colors.white54, fontSize: 12),
+                    style: const TextStyle(color: Colors.white54),
                   ),
-                  const SizedBox(height: 7),
+                  const SizedBox(height: 10),
                   Text(
                     spot.description,
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: Colors.white70,
-                      fontSize: 12,
-                      height: 1.25,
-                    ),
+                    style: const TextStyle(color: Colors.white70, height: 1.35),
                   ),
-                  const SizedBox(height: 8),
+                  const SizedBox(height: 12),
                   Wrap(
-                    spacing: 6,
-                    runSpacing: 6,
+                    spacing: 7,
+                    runSpacing: 7,
                     children: [
-                      if (spot.isTemporary)
-                        _SmallTag(
-                          label: spot.temporaryTimeLabel,
-                          icon: Icons.event,
-                        ),
                       for (final category in spot.categories.take(3))
-                      for (final category in spot.categories.take(2))
                         _SmallTag(label: category, icon: Icons.local_offer),
                     ],
                   ),
-                  const SizedBox(height: 8),
+                  const SizedBox(height: 12),
                   ExploreSpotStatsRow(spot: spot),
                 ],
               ),
@@ -2194,38 +2000,19 @@ class _MapScreenState extends State<MapScreen> {
 
   final filters = const ['All', 'Photo', 'Reels', 'Meet', 'Low car'];
   final mapController = MapController();
-  Timer? temporarySpotRefreshTimer;
   String selectedFilter = 'All';
   CarSpot? selectedSpot;
-  LatLng? currentUserLocation;
-  bool isLocatingUser = false;
 
   @override
   void initState() {
     super.initState();
     reviewSpots.addListener(refreshMap);
-
-    // Temporary spots can become visible or expire just because time passes.
-    // Firestore will not send a new snapshot at the start/end time, so the map
-    // needs a small live refresh while this screen is open.
-    temporarySpotRefreshTimer = Timer.periodic(
-      const Duration(seconds: 10),
-      (_) => refreshMap(),
-    );
-    loadInitialUserLocation();
   }
 
   void refreshMap() {
-    if (!mounted) {
-      return;
+    if (mounted) {
+      setState(() {});
     }
-
-    setState(() {
-      final spot = selectedSpot;
-      if (spot != null && !spot.isVisibleNow) {
-        selectedSpot = null;
-      }
-    });
   }
 
   List<CarSpot> get visibleSpots {
@@ -2279,59 +2066,8 @@ class _MapScreenState extends State<MapScreen> {
     }).toList();
   }
 
-  List<Marker> get allMapMarkers {
-    final allMarkers = [...markers];
-    final userMarker = currentUserMarker;
-
-    if (userMarker != null) {
-      allMarkers.add(userMarker);
-    }
-
-    return allMarkers;
-  }
-
-  Marker? get currentUserMarker {
-    final location = currentUserLocation;
-
-    if (location == null) {
-      return null;
-    }
-
-    return Marker(
-      point: location,
-      width: 58,
-      height: 58,
-      child: Container(
-        decoration: BoxDecoration(
-          color: blue.withValues(alpha: 0.18),
-          shape: BoxShape.circle,
-          border: Border.all(color: blue.withValues(alpha: 0.45), width: 2),
-        ),
-        child: Center(
-          child: Container(
-            width: 24,
-            height: 24,
-            decoration: BoxDecoration(
-              color: Colors.white,
-              shape: BoxShape.circle,
-              border: Border.all(color: blue, width: 5),
-              boxShadow: [
-                BoxShadow(
-                  color: blue.withValues(alpha: 0.55),
-                  blurRadius: 18,
-                  spreadRadius: 4,
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
   @override
   void dispose() {
-    temporarySpotRefreshTimer?.cancel();
     reviewSpots.removeListener(refreshMap);
     mapController.dispose();
     super.dispose();
@@ -2344,94 +2080,8 @@ class _MapScreenState extends State<MapScreen> {
     );
   }
 
-  void loadInitialUserLocation() {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) {
-        moveToCurrentLocation(showErrors: false);
-      }
-    });
-  }
-
-  Future<Position?> getMapUserPosition({required bool showErrors}) async {
-    final serviceEnabled = await Geolocator.isLocationServiceEnabled();
-
-    if (!serviceEnabled) {
-      if (showErrors && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            backgroundColor: Colors.redAccent,
-            content: Text(
-              'Turn on phone location first.',
-              style: TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ),
-        );
-      }
-
-      return null;
-    }
-
-    var permission = await Geolocator.checkPermission();
-
-    if (permission == LocationPermission.denied) {
-      permission = await Geolocator.requestPermission();
-    }
-
-    if (permission == LocationPermission.denied ||
-        permission == LocationPermission.deniedForever) {
-      if (showErrors && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            backgroundColor: Colors.redAccent,
-            content: Text(
-              'Location permission is needed to show you on the map.',
-              style: TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ),
-        );
-      }
-
-      return null;
-    }
-
-    return Geolocator.getCurrentPosition(
-      locationSettings: const LocationSettings(accuracy: LocationAccuracy.high),
-    );
-  }
-
-  Future<void> moveToCurrentLocation({bool showErrors = true}) async {
-    if (isLocatingUser) {
-      return;
-    }
-
-    setState(() => isLocatingUser = true);
-
-    final position = await getMapUserPosition(showErrors: showErrors);
-
-    if (!mounted) {
-      return;
-    }
-
-    if (position == null) {
-      setState(() => isLocatingUser = false);
-      return;
-    }
-
-    final location = LatLng(position.latitude, position.longitude);
-
-    setState(() {
-      currentUserLocation = location;
-      selectedSpot = null;
-      isLocatingUser = false;
-    });
-
-    mapController.move(location, 15.5);
+  void moveToRiga() {
+    mapController.move(rigaCenter, rigaZoom);
   }
 
   @override
@@ -2445,8 +2095,8 @@ class _MapScreenState extends State<MapScreen> {
           FlutterMap(
             mapController: mapController,
             options: MapOptions(
-              initialCenter: currentUserLocation ?? rigaCenter,
-              initialZoom: currentUserLocation == null ? rigaZoom : 15.5,
+              initialCenter: rigaCenter,
+              initialZoom: rigaZoom,
               minZoom: 4,
               maxZoom: 18,
               backgroundColor: night,
@@ -2459,7 +2109,19 @@ class _MapScreenState extends State<MapScreen> {
                 userAgentPackageName: 'com.example.ccs_app',
                 maxNativeZoom: 19,
               ),
-              MarkerLayer(markers: allMapMarkers),
+              MarkerLayer(markers: markers),
+              RichAttributionWidget(
+                attributions: [
+                  TextSourceAttribution(
+                    'OpenStreetMap contributors, CARTO',
+                    prependCopyright: false,
+                    textStyle: const TextStyle(
+                      color: Colors.white54,
+                      fontSize: 11,
+                    ),
+                  ),
+                ],
+              ),
             ],
           ),
           SafeArea(
@@ -2512,19 +2174,10 @@ class _MapScreenState extends State<MapScreen> {
             right: 16,
             bottom: spot == null ? 18 : 196,
             child: FloatingActionButton.small(
-              onPressed: isLocatingUser ? null : () => moveToCurrentLocation(),
+              onPressed: moveToRiga,
               backgroundColor: blue,
               foregroundColor: Colors.white,
-              child: isLocatingUser
-                  ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: Colors.white,
-                      ),
-                    )
-                  : const Icon(Icons.my_location),
+              child: const Icon(Icons.my_location),
             ),
           ),
           if (spot != null)
@@ -2693,11 +2346,6 @@ class SpotMapCard extends StatelessWidget {
                   spacing: 7,
                   runSpacing: 7,
                   children: [
-                    if (spot.isTemporary)
-                      _SmallTag(
-                        label: spot.temporaryTimeLabel,
-                        icon: Icons.event,
-                      ),
                     _SmallTag(label: spot.bestTime, icon: Icons.dark_mode),
                     _SmallTag(
                       label: spot.lowCarFriendly ? 'Low car OK' : 'Careful',
@@ -3095,277 +2743,6 @@ String estimateDriveTime(double distanceKm) {
   return rest == 0 ? '~$hours h' : '~$hours h $rest min';
 }
 
-List<String> spotPhotoSources(CarSpot spot) {
-  final sources = <String>[];
-
-  void addSource(String value) {
-    final trimmed = value.trim();
-
-    if (trimmed.isNotEmpty && !sources.contains(trimmed)) {
-      sources.add(trimmed);
-    }
-  }
-
-  if (localFileExists(spot.localPhotoPath)) {
-    addSource('local:${spot.localPhotoPath}');
-  }
-
-  for (final photoUrl in spot.photoUrls) {
-    addSource(photoUrl);
-  }
-
-  addSource(spot.photoUrl);
-
-  return sources;
-}
-
-bool isLocalSpotPhotoSource(String source) {
-  return source.startsWith('local:');
-}
-
-String localPhotoPathFromSource(String source) {
-  return source.substring('local:'.length);
-}
-
-Widget spotPhotoImage(
-  String source, {
-  double? width,
-  double? height,
-  BoxFit fit = BoxFit.cover,
-}) {
-  if (isLocalSpotPhotoSource(source)) {
-    return Image.file(
-      File(localPhotoPathFromSource(source)),
-      width: width,
-      height: height,
-      fit: fit,
-      errorBuilder: (_, _, _) =>
-          _SpotPhotoPlaceholder(width: width, height: height),
-    );
-  }
-
-  return Image.network(
-    source,
-    width: width,
-    height: height,
-    fit: fit,
-    errorBuilder: (_, _, _) =>
-        _SpotPhotoPlaceholder(width: width, height: height),
-  );
-}
-
-class SpotPhotoCarousel extends StatefulWidget {
-  final CarSpot spot;
-  final double height;
-
-  const SpotPhotoCarousel({
-    super.key,
-    required this.spot,
-    required this.height,
-  });
-
-  @override
-  State<SpotPhotoCarousel> createState() => _SpotPhotoCarouselState();
-}
-
-class _SpotPhotoCarouselState extends State<SpotPhotoCarousel> {
-  late final PageController controller;
-  int currentIndex = 0;
-
-  @override
-  void initState() {
-    super.initState();
-    controller = PageController();
-  }
-
-  @override
-  void dispose() {
-    controller.dispose();
-    super.dispose();
-  }
-
-  void openGallery(int index) {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) =>
-            SpotPhotoGalleryScreen(spot: widget.spot, initialIndex: index),
-      ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final sources = spotPhotoSources(widget.spot);
-
-    if (sources.isEmpty) {
-      return _SpotPhotoPlaceholder(height: widget.height);
-    }
-
-    return SizedBox(
-      height: widget.height,
-      width: double.infinity,
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          PageView.builder(
-            controller: controller,
-            itemCount: sources.length,
-            onPageChanged: (index) => setState(() => currentIndex = index),
-            itemBuilder: (context, index) {
-              return GestureDetector(
-                onTap: () => openGallery(index),
-                child: spotPhotoImage(
-                  sources[index],
-                  width: double.infinity,
-                  height: widget.height,
-                  fit: BoxFit.cover,
-                ),
-              );
-            },
-          ),
-          if (sources.length > 1)
-            Positioned(
-              top: 14,
-              right: 14,
-              child: Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 6,
-                ),
-                decoration: BoxDecoration(
-                  color: Colors.black.withValues(alpha: 0.62),
-                  borderRadius: BorderRadius.circular(999),
-                  border: Border.all(color: Colors.white24),
-                ),
-                child: Text(
-                  '${currentIndex + 1}/${sources.length}',
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-}
-
-class SpotPhotoGalleryScreen extends StatefulWidget {
-  final CarSpot spot;
-  final int initialIndex;
-
-  const SpotPhotoGalleryScreen({
-    super.key,
-    required this.spot,
-    required this.initialIndex,
-  });
-
-  @override
-  State<SpotPhotoGalleryScreen> createState() => _SpotPhotoGalleryScreenState();
-}
-
-class _SpotPhotoGalleryScreenState extends State<SpotPhotoGalleryScreen> {
-  late final List<String> sources;
-  late final PageController controller;
-  late int currentIndex;
-
-  @override
-  void initState() {
-    super.initState();
-    sources = spotPhotoSources(widget.spot);
-    currentIndex =
-        widget.initialIndex >= 0 && widget.initialIndex < sources.length
-        ? widget.initialIndex
-        : 0;
-    controller = PageController(initialPage: currentIndex);
-  }
-
-  @override
-  void dispose() {
-    controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.black,
-      body: Stack(
-        children: [
-          if (sources.isEmpty)
-            const Center(
-              child: Icon(Icons.directions_car, color: blue, size: 44),
-            )
-          else
-            PageView.builder(
-              controller: controller,
-              itemCount: sources.length,
-              onPageChanged: (index) => setState(() => currentIndex = index),
-              itemBuilder: (context, index) {
-                return InteractiveViewer(
-                  minScale: 1,
-                  maxScale: 4,
-                  child: Center(
-                    child: spotPhotoImage(
-                      sources[index],
-                      width: double.infinity,
-                      height: double.infinity,
-                      fit: BoxFit.contain,
-                    ),
-                  ),
-                );
-              },
-            ),
-          SafeArea(
-            child: Padding(
-              padding: const EdgeInsets.all(14),
-              child: Row(
-                children: [
-                  Container(
-                    decoration: BoxDecoration(
-                      color: Colors.black.withValues(alpha: 0.62),
-                      shape: BoxShape.circle,
-                      border: Border.all(color: Colors.white24),
-                    ),
-                    child: IconButton(
-                      onPressed: () => Navigator.pop(context),
-                      icon: const Icon(Icons.close, color: Colors.white),
-                    ),
-                  ),
-                  const Spacer(),
-                  if (sources.length > 1)
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 8,
-                      ),
-                      decoration: BoxDecoration(
-                        color: Colors.black.withValues(alpha: 0.62),
-                        borderRadius: BorderRadius.circular(999),
-                        border: Border.all(color: Colors.white24),
-                      ),
-                      child: Text(
-                        '${currentIndex + 1}/${sources.length}',
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.w900,
-                        ),
-                      ),
-                    ),
-                ],
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 class SpotDetailScreen extends StatefulWidget {
   final CarSpot spot;
 
@@ -3491,11 +2868,6 @@ class _SpotDetailScreenState extends State<SpotDetailScreen> {
                   spacing: 8,
                   runSpacing: 8,
                   children: [
-                    if (spot.isTemporary)
-                      _SmallTag(
-                        label: spot.temporaryTimeLabel,
-                        icon: Icons.event,
-                      ),
                     for (final category in spot.categories)
                       _SmallTag(label: category, icon: Icons.local_offer),
                   ],
@@ -3980,10 +3352,29 @@ class SpotPhoto extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final sources = spotPhotoSources(spot);
-    final photo = sources.isEmpty
-        ? _SpotPhotoPlaceholder(width: width, height: height)
-        : spotPhotoImage(sources.first, width: width, height: height, fit: fit);
+    Widget photo;
+
+    if (localFileExists(spot.localPhotoPath)) {
+      photo = Image.file(
+        File(spot.localPhotoPath!),
+        width: width,
+        height: height,
+        fit: fit,
+        errorBuilder: (_, _, _) =>
+            _SpotPhotoPlaceholder(width: width, height: height),
+      );
+    } else if (spot.photoUrl.isNotEmpty) {
+      photo = Image.network(
+        spot.photoUrl,
+        width: width,
+        height: height,
+        fit: fit,
+        errorBuilder: (_, _, _) =>
+            _SpotPhotoPlaceholder(width: width, height: height),
+      );
+    } else {
+      photo = _SpotPhotoPlaceholder(width: width, height: height);
+    }
 
     if (borderRadius == null) {
       return photo;
@@ -4074,9 +3465,6 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
   final selectedCategories = <String>{'Photo', 'Reels', 'Meet'};
   LatLng? selectedLocation;
   String? selectedPhotoPath;
-  bool isTemporarySpot = false;
-  DateTime? temporaryStartsAt;
-  DateTime? temporaryExpiresAt;
   bool isSubmitting = false;
 
   @override
@@ -4124,65 +3512,6 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
     setState(() => selectedPhotoPath = path);
   }
 
-  Future<DateTime?> pickTemporaryDateTime(DateTime? initialValue) async {
-    final now = DateTime.now();
-    final initial = initialValue ?? now.add(const Duration(hours: 1));
-
-    final date = await showDatePicker(
-      context: context,
-      initialDate: initial,
-      firstDate: DateTime(now.year, now.month, now.day),
-      lastDate: now.add(const Duration(days: 365)),
-      builder: (context, child) {
-        return Theme(data: ThemeData.dark(), child: child!);
-      },
-    );
-
-    if (date == null || !mounted) {
-      return null;
-    }
-
-    final time = await showTimePicker(
-      context: context,
-      initialTime: TimeOfDay.fromDateTime(initial),
-      builder: (context, child) {
-        return Theme(data: ThemeData.dark(), child: child!);
-      },
-    );
-
-    if (time == null) {
-      return null;
-    }
-
-    return DateTime(date.year, date.month, date.day, time.hour, time.minute);
-  }
-
-  Future<void> chooseTemporaryStart() async {
-    final value = await pickTemporaryDateTime(temporaryStartsAt);
-
-    if (!mounted || value == null) {
-      return;
-    }
-
-    setState(() {
-      temporaryStartsAt = value;
-      if (temporaryExpiresAt == null || !temporaryExpiresAt!.isAfter(value)) {
-        temporaryExpiresAt = value.add(const Duration(hours: 3));
-      }
-    });
-  }
-
-  Future<void> chooseTemporaryEnd() async {
-    final fallback = temporaryStartsAt?.add(const Duration(hours: 3));
-    final value = await pickTemporaryDateTime(temporaryExpiresAt ?? fallback);
-
-    if (!mounted || value == null) {
-      return;
-    }
-
-    setState(() => temporaryExpiresAt = value);
-  }
-
   Future<void> submitSpot() async {
     FocusScope.of(context).unfocus();
 
@@ -4216,59 +3545,6 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
         ),
       );
       return;
-    }
-
-    if (isTemporarySpot) {
-      final startsAt = temporaryStartsAt;
-      final expiresAt = temporaryExpiresAt;
-
-      if (startsAt == null || expiresAt == null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            backgroundColor: Colors.redAccent,
-            content: Text(
-              'Choose both start and end time for a temporary spot.',
-              style: TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ),
-        );
-        return;
-      }
-
-      if (!expiresAt.isAfter(startsAt)) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            backgroundColor: Colors.redAccent,
-            content: Text(
-              'End time must be after start time.',
-              style: TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ),
-        );
-        return;
-      }
-
-      if (!expiresAt.isAfter(DateTime.now())) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            backgroundColor: Colors.redAccent,
-            content: Text(
-              'End time must be in the future.',
-              style: TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ),
-        );
-        return;
-      }
     }
 
     final location = selectedLocation!;
@@ -4305,13 +3581,6 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
       addedBy: currentUser.username,
       addedByUid: firebaseUser.uid,
       status: SpotStatus.pending,
-      isTemporary: isTemporarySpot,
-      startsAtMillis: isTemporarySpot
-          ? temporaryStartsAt!.millisecondsSinceEpoch
-          : null,
-      expiresAtMillis: isTemporarySpot
-          ? temporaryExpiresAt!.millisecondsSinceEpoch
-          : null,
     );
 
     setState(() => isSubmitting = true);
@@ -4327,10 +3596,7 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
         );
       }
 
-      newSpot = newSpot.copyWith(
-        photoUrl: uploadedPhotoUrl,
-        photoUrls: uploadedPhotoUrl.isEmpty ? const [] : [uploadedPhotoUrl],
-      );
+      newSpot = newSpot.copyWith(photoUrl: uploadedPhotoUrl);
       await spotRef.set(spotToFirestoreData(newSpot, includeCreatedAt: true));
       final savedSpot = await spotRef.get(
         const GetOptions(source: Source.server),
@@ -4469,31 +3735,6 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
           ),
           const SizedBox(height: 16),
           _AddSpotSection(
-            title: 'Temporary schedule',
-            children: [
-              _TemporarySpotScheduleCard(
-                enabled: isTemporarySpot,
-                startsAt: temporaryStartsAt,
-                expiresAt: temporaryExpiresAt,
-                onEnabledChanged: (value) {
-                  setState(() {
-                    isTemporarySpot = value;
-                    if (value && temporaryStartsAt == null) {
-                      final start = DateTime.now().add(
-                        const Duration(hours: 1),
-                      );
-                      temporaryStartsAt = start;
-                      temporaryExpiresAt = start.add(const Duration(hours: 3));
-                    }
-                  });
-                },
-                onPickStart: chooseTemporaryStart,
-                onPickEnd: chooseTemporaryEnd,
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          _AddSpotSection(
             title: 'Categories',
             children: [
               Wrap(
@@ -4594,122 +3835,6 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
   }
 }
 
-class _TemporarySpotScheduleCard extends StatelessWidget {
-  final bool enabled;
-  final DateTime? startsAt;
-  final DateTime? expiresAt;
-  final ValueChanged<bool> onEnabledChanged;
-  final VoidCallback onPickStart;
-  final VoidCallback onPickEnd;
-
-  const _TemporarySpotScheduleCard({
-    required this.enabled,
-    required this.startsAt,
-    required this.expiresAt,
-    required this.onEnabledChanged,
-    required this.onPickStart,
-    required this.onPickEnd,
-  });
-
-  Widget timeButton({
-    required String label,
-    required DateTime? value,
-    required IconData icon,
-    required VoidCallback onTap,
-  }) {
-    return InkWell(
-      onTap: enabled ? onTap : null,
-      borderRadius: BorderRadius.circular(16),
-      child: Container(
-        padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(
-          color: Colors.white.withValues(alpha: enabled ? 0.06 : 0.03),
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: Colors.white12),
-        ),
-        child: Row(
-          children: [
-            Icon(icon, color: enabled ? blue : Colors.white30),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    label,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                  const SizedBox(height: 3),
-                  Text(
-                    value == null ? 'Choose time' : formatShortDateTime(value),
-                    style: const TextStyle(color: Colors.white54),
-                  ),
-                ],
-              ),
-            ),
-            const Icon(Icons.chevron_right, color: Colors.white54),
-          ],
-        ),
-      ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.06),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: enabled ? blue.withValues(alpha: 0.7) : Colors.white12,
-        ),
-      ),
-      child: Column(
-        children: [
-          SwitchListTile(
-            value: enabled,
-            onChanged: onEnabledChanged,
-            activeThumbColor: blue,
-            contentPadding: EdgeInsets.zero,
-            secondary: const Icon(Icons.timer, color: blue),
-            title: const Text(
-              'Temporary spot',
-              style: TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.w900,
-              ),
-            ),
-            subtitle: const Text(
-              'Use this for meets and events. It disappears after the end time.',
-              style: TextStyle(color: Colors.white54),
-            ),
-          ),
-          if (enabled) ...[
-            const SizedBox(height: 10),
-            timeButton(
-              label: 'Starts at',
-              value: startsAt,
-              icon: Icons.play_arrow,
-              onTap: onPickStart,
-            ),
-            const SizedBox(height: 10),
-            timeButton(
-              label: 'Ends at',
-              value: expiresAt,
-              icon: Icons.stop,
-              onTap: onPickEnd,
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-}
-
 class LocationPickerScreen extends StatefulWidget {
   final LatLng? initialLocation;
 
@@ -4793,6 +3918,18 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
                 maxNativeZoom: 19,
               ),
               MarkerLayer(markers: markers),
+              RichAttributionWidget(
+                attributions: [
+                  TextSourceAttribution(
+                    'OpenStreetMap contributors, CARTO',
+                    prependCopyright: false,
+                    textStyle: const TextStyle(
+                      color: Colors.white54,
+                      fontSize: 11,
+                    ),
+                  ),
+                ],
+              ),
             ],
           ),
           Positioned(
@@ -5145,15 +4282,6 @@ class _SubmittedSpotTile extends StatelessWidget {
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(color: Colors.white54),
                   ),
-                  if (spot.isTemporary) ...[
-                    const SizedBox(height: 6),
-                    Text(
-                      spot.temporaryTimeLabel,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(color: blue, fontSize: 12),
-                    ),
-                  ],
                   const SizedBox(height: 8),
                   Row(
                     children: [
@@ -6495,13 +5623,6 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   late final TextEditingController cityController;
   late final TextEditingController bioController;
   String? avatarPath;
-  Timer? usernameAvailabilityDebounce;
-  UsernameAvailability usernameAvailability = UsernameAvailability.unchanged;
-
-  bool get canSaveProfile {
-    return usernameAvailability == UsernameAvailability.unchanged ||
-        usernameAvailability == UsernameAvailability.available;
-  }
 
   @override
   void initState() {
@@ -6510,53 +5631,14 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     cityController = TextEditingController(text: widget.profile.cityCountry);
     bioController = TextEditingController(text: widget.profile.bio);
     avatarPath = widget.profile.avatarPath;
-    usernameController.addListener(queueUsernameAvailabilityCheck);
   }
 
   @override
   void dispose() {
-    usernameAvailabilityDebounce?.cancel();
-    usernameController.removeListener(queueUsernameAvailabilityCheck);
     usernameController.dispose();
     cityController.dispose();
     bioController.dispose();
     super.dispose();
-  }
-
-  void queueUsernameAvailabilityCheck() {
-    usernameAvailabilityDebounce?.cancel();
-
-    final cleanUsername = cleanProfileUsername(usernameController.text);
-
-    if (cleanUsername.length < 3) {
-      setState(() => usernameAvailability = UsernameAvailability.invalid);
-      return;
-    }
-
-    if (usernameKey(cleanUsername) == usernameKey(widget.profile.username)) {
-      setState(() => usernameAvailability = UsernameAvailability.unchanged);
-      return;
-    }
-
-    setState(() => usernameAvailability = UsernameAvailability.checking);
-
-    usernameAvailabilityDebounce = Timer(const Duration(milliseconds: 450), () {
-      checkUsernameAvailability(cleanUsername);
-    });
-  }
-
-  Future<void> checkUsernameAvailability(String usernameToCheck) async {
-    final checkedKey = usernameKey(usernameToCheck);
-    final availability = await checkUsernameAvailabilityForCurrentUser(
-      usernameToCheck,
-      currentUsername: widget.profile.username,
-    );
-
-    if (!mounted || usernameKey(usernameController.text) != checkedKey) {
-      return;
-    }
-
-    setState(() => usernameAvailability = availability);
   }
 
   Future<void> chooseAvatar() async {
@@ -6570,22 +5652,6 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   }
 
   void saveProfile() {
-    if (!canSaveProfile) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          backgroundColor: Colors.redAccent,
-          content: Text(
-            usernameAvailabilityText(usernameAvailability),
-            style: const TextStyle(
-              color: Colors.white,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-        ),
-      );
-      return;
-    }
-
     Navigator.pop(
       context,
       UserProfileData(
@@ -6670,28 +5736,6 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                 hint: 'riga_driver',
                 icon: Icons.alternate_email,
               ),
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  Icon(
-                    usernameAvailabilityIcon(usernameAvailability),
-                    color: usernameAvailabilityColor(usernameAvailability),
-                    size: 16,
-                  ),
-                  const SizedBox(width: 7),
-                  Expanded(
-                    child: Text(
-                      usernameAvailabilityText(usernameAvailability),
-                      style: TextStyle(
-                        color: usernameAvailabilityColor(usernameAvailability),
-                        fontSize: 12,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 14),
               _CcsTextField(
                 controller: cityController,
                 label: 'City / country',
@@ -6711,7 +5755,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
           SizedBox(
             height: 54,
             child: ElevatedButton.icon(
-              onPressed: canSaveProfile ? saveProfile : null,
+              onPressed: saveProfile,
               icon: const Icon(Icons.check),
               label: const Text('Save Profile'),
               style: ElevatedButton.styleFrom(
