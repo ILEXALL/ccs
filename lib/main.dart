@@ -8,6 +8,7 @@ import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_map/flutter_map.dart';
+import 'package:geocoding/geocoding.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:latlong2/latlong.dart';
@@ -157,6 +158,7 @@ class AppUser {
   final String bio;
   final String? avatarPath;
   final UserRole role;
+  final bool verified;
   final String city;
   final String country;
 
@@ -169,6 +171,7 @@ class AppUser {
     this.bio = 'Find. Drive. Shoot.',
     this.avatarPath,
     required this.role,
+    this.verified = false,
     required this.city,
     required this.country,
   });
@@ -181,6 +184,7 @@ AppUser currentUser = const AppUser(
   username: 'pasegorov8',
   email: '',
   role: UserRole.admin,
+  verified: true,
   city: 'Riga',
   country: 'Latvia',
 );
@@ -218,6 +222,7 @@ Future<void> signOutCurrentAccount() async {
     username: 'pasegorov8',
     email: '',
     role: UserRole.admin,
+    verified: true,
     city: 'Riga',
     country: 'Latvia',
   );
@@ -533,6 +538,7 @@ Future<AppUser> saveFirebaseUser(
   final avatarPath = (data?['avatarPath'] as String?)?.trim().isNotEmpty == true
       ? data!['avatarPath'] as String
       : null;
+  final verified = role == UserRole.admin || data?['verified'] == true;
   final settings = UserSettingsData.fromFirebase(data?['settings']);
   final garage = garageCarsFromFirebase(data?['garage']);
 
@@ -549,6 +555,7 @@ Future<AppUser> saveFirebaseUser(
     'bio': bio,
     'avatarPath': avatarPath,
     'role': roleName(role),
+    'verified': verified,
     'city': city,
     'country': country,
     'settings': settings.toFirebase(),
@@ -572,6 +579,7 @@ Future<AppUser> saveFirebaseUser(
     bio: bio,
     avatarPath: avatarPath,
     role: role,
+    verified: verified,
     city: city,
     country: country,
   );
@@ -735,6 +743,7 @@ class CarSpot {
   final bool isTemporary;
   final int? startsAtMillis;
   final int? expiresAtMillis;
+  final bool verifiedOnly;
 
   const CarSpot({
     this.id = '',
@@ -763,6 +772,7 @@ class CarSpot {
     this.isTemporary = false,
     this.startsAtMillis,
     this.expiresAtMillis,
+    this.verifiedOnly = false,
   });
 
   CarSpot copyWith({
@@ -792,6 +802,7 @@ class CarSpot {
     bool? isTemporary,
     int? startsAtMillis,
     int? expiresAtMillis,
+    bool? verifiedOnly,
   }) {
     return CarSpot(
       id: id ?? this.id,
@@ -820,6 +831,7 @@ class CarSpot {
       isTemporary: isTemporary ?? this.isTemporary,
       startsAtMillis: startsAtMillis ?? this.startsAtMillis,
       expiresAtMillis: expiresAtMillis ?? this.expiresAtMillis,
+      verifiedOnly: verifiedOnly ?? this.verifiedOnly,
     );
   }
 
@@ -898,6 +910,7 @@ class CarSpot {
       isTemporary: data['isTemporary'] == true,
       startsAtMillis: nullableTimestampMillisFromFirebase(data['startsAt']),
       expiresAtMillis: nullableTimestampMillisFromFirebase(data['expiresAt']),
+      verifiedOnly: data['verifiedOnly'] == true,
     );
   }
 }
@@ -996,6 +1009,221 @@ CollectionReference<Map<String, dynamic>> usersCollection() {
   return FirebaseFirestore.instance.collection('users');
 }
 
+CollectionReference<Map<String, dynamic>> liveLocationsCollection() {
+  return FirebaseFirestore.instance.collection('live_locations');
+}
+
+class LiveLocationData {
+  final String uid;
+  final String username;
+  final String name;
+  final String? photoUrl;
+  final LatLng coordinates;
+  final int promptAtMillis;
+  final int expiresAtMillis;
+  final int updatedAtMillis;
+
+  const LiveLocationData({
+    required this.uid,
+    required this.username,
+    required this.name,
+    this.photoUrl,
+    required this.coordinates,
+    required this.promptAtMillis,
+    required this.expiresAtMillis,
+    required this.updatedAtMillis,
+  });
+
+  bool get isExpired =>
+      DateTime.now().millisecondsSinceEpoch >= expiresAtMillis;
+
+  factory LiveLocationData.fromFirestore(
+    DocumentSnapshot<Map<String, dynamic>> doc,
+  ) {
+    final data = doc.data() ?? {};
+    final geoPoint = data['coordinates'];
+    final coordinates = geoPoint is GeoPoint
+        ? LatLng(geoPoint.latitude, geoPoint.longitude)
+        : LatLng(
+            doubleFromFirebase(data['lat'], 56.9496),
+            doubleFromFirebase(data['lng'], 24.1052),
+          );
+
+    return LiveLocationData(
+      uid: stringFromFirebase(data['uid'], doc.id),
+      username: stringFromFirebase(data['username'], 'ccs_driver'),
+      name: stringFromFirebase(data['name'], 'CCS Driver'),
+      photoUrl: data['photoUrl'] is String ? data['photoUrl'] as String : null,
+      coordinates: coordinates,
+      promptAtMillis: timestampMillisFromFirebase(data['promptAt']),
+      expiresAtMillis: timestampMillisFromFirebase(data['expiresAt']),
+      updatedAtMillis: timestampMillisFromFirebase(data['updatedAt']),
+    );
+  }
+}
+
+CollectionReference<Map<String, dynamic>> policeReportsCollection() {
+  return FirebaseFirestore.instance.collection('police_reports');
+}
+
+CollectionReference<Map<String, dynamic>> meetNotificationsCollection() {
+  return FirebaseFirestore.instance.collection('meet_notifications');
+}
+
+bool get currentUserCanUseVerifiedOnlySpots {
+  return currentUser.role == UserRole.admin || currentUser.verified;
+}
+
+Future<String> detectCityCountryForCoordinates(LatLng coordinates) async {
+  try {
+    final placemarks = await placemarkFromCoordinates(
+      coordinates.latitude,
+      coordinates.longitude,
+    );
+
+    if (placemarks.isEmpty) {
+      return 'Unknown location';
+    }
+
+    final place = placemarks.first;
+    final city =
+        [place.locality, place.subAdministrativeArea, place.administrativeArea]
+            .whereType<String>()
+            .map((value) => value.trim())
+            .firstWhere(
+              (value) => value.isNotEmpty,
+              orElse: () => 'Unknown city',
+            );
+    final country = (place.country ?? '').trim();
+
+    return country.isEmpty ? city : '$city, $country';
+  } catch (_) {
+    return 'Unknown location';
+  }
+}
+
+double distanceBetweenLatLngMeters(LatLng first, LatLng second) {
+  return const Distance().as(LengthUnit.Meter, first, second);
+}
+
+Future<void> createMeetSpotNotificationsForNearbyUsers(CarSpot spot) async {
+  if (spot.id.trim().isEmpty || !spot.categories.contains('Meet')) {
+    return;
+  }
+
+  final activeLocations = await liveLocationsCollection()
+      .where('expiresAt', isGreaterThan: Timestamp.now())
+      .get();
+  final batch = FirebaseFirestore.instance.batch();
+  var writes = 0;
+
+  for (final doc in activeLocations.docs) {
+    final liveLocation = LiveLocationData.fromFirestore(doc);
+
+    if (liveLocation.uid == spot.addedByUid || liveLocation.isExpired) {
+      continue;
+    }
+
+    final distanceMeters = distanceBetweenLatLngMeters(
+      spot.coordinates,
+      liveLocation.coordinates,
+    );
+
+    if (distanceMeters > 50000) {
+      continue;
+    }
+
+    final notificationId = '${spot.id}_${liveLocation.uid}';
+    final notificationRef = meetNotificationsCollection().doc(notificationId);
+    batch.set(notificationRef, {
+      'userId': liveLocation.uid,
+      'spotId': spot.id,
+      'spotName': spot.name,
+      'cityCountry': spot.cityCountry,
+      'lat': spot.coordinates.latitude,
+      'lng': spot.coordinates.longitude,
+      'coordinates': GeoPoint(
+        spot.coordinates.latitude,
+        spot.coordinates.longitude,
+      ),
+      'distanceMeters': distanceMeters.round(),
+      'read': false,
+      'createdAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+    writes++;
+  }
+
+  if (writes > 0) {
+    await batch.commit();
+  }
+}
+
+class PoliceReportData {
+  final String id;
+  final String uid;
+  final String username;
+  final LatLng coordinates;
+  final int createdAtMillis;
+  final int expiresAtMillis;
+  final int updatedAtMillis;
+  final String status;
+  final List<String> stillThereBy;
+  final List<String> notThereBy;
+
+  const PoliceReportData({
+    required this.id,
+    required this.uid,
+    required this.username,
+    required this.coordinates,
+    required this.createdAtMillis,
+    required this.expiresAtMillis,
+    required this.updatedAtMillis,
+    this.status = 'active',
+    this.stillThereBy = const [],
+    this.notThereBy = const [],
+  });
+
+  bool get isExpired =>
+      DateTime.now().millisecondsSinceEpoch >= expiresAtMillis;
+  bool get isActive => status != 'removed' && !isExpired;
+  int get stillThereCount => stillThereBy.length;
+  int get notThereCount => notThereBy.length;
+
+  bool userPressedStillThere(String? uid) {
+    return uid != null && stillThereBy.contains(uid);
+  }
+
+  bool userPressedNotThere(String? uid) {
+    return uid != null && notThereBy.contains(uid);
+  }
+
+  factory PoliceReportData.fromFirestore(
+    DocumentSnapshot<Map<String, dynamic>> doc,
+  ) {
+    final data = doc.data() ?? {};
+    final geoPoint = data['coordinates'];
+    final coordinates = geoPoint is GeoPoint
+        ? LatLng(geoPoint.latitude, geoPoint.longitude)
+        : LatLng(
+            doubleFromFirebase(data['lat'], 56.9496),
+            doubleFromFirebase(data['lng'], 24.1052),
+          );
+
+    return PoliceReportData(
+      id: doc.id,
+      uid: stringFromFirebase(data['uid'], ''),
+      username: stringFromFirebase(data['username'], 'ccs_driver'),
+      coordinates: coordinates,
+      createdAtMillis: timestampMillisFromFirebase(data['createdAt']),
+      expiresAtMillis: timestampMillisFromFirebase(data['expiresAt']),
+      updatedAtMillis: timestampMillisFromFirebase(data['updatedAt']),
+      status: stringFromFirebase(data['status'], 'active'),
+      stillThereBy: stringListFromFirebase(data['stillThereBy'], const []),
+      notThereBy: stringListFromFirebase(data['notThereBy'], const []),
+    );
+  }
+}
+
 Future<void> saveCurrentUserFields(Map<String, Object?> data) async {
   final firebaseUser = FirebaseAuth.instance.currentUser;
 
@@ -1073,6 +1301,7 @@ Map<String, Object?> spotToFirestoreData(
     'addedBy': spot.addedBy,
     'addedByUid': spot.addedByUid,
     'status': spotStatusName(spot.status),
+    'verifiedOnly': spot.verifiedOnly,
     'updatedAt': FieldValue.serverTimestamp(),
   };
 
@@ -1447,7 +1676,12 @@ List<CarSpot> approvedPublicSpots() {
   // Demo spots stay in code as backup data, but they should not reappear
   // after an admin deletes an approved Firebase spot.
   return reviewSpots.value
-      .where((spot) => spot.status == SpotStatus.approved && spot.isVisibleNow)
+      .where(
+        (spot) =>
+            spot.status == SpotStatus.approved &&
+            spot.isVisibleNow &&
+            (!spot.verifiedOnly || currentUserCanUseVerifiedOnlySpots),
+      )
       .toList();
 }
 
@@ -1466,6 +1700,11 @@ bool isSameSpot(CarSpot first, CarSpot second) {
 }
 
 Future<void> updateSpotStatus(CarSpot spot, SpotStatus status) async {
+  final shouldNotifyNearbyMeetUsers =
+      status == SpotStatus.approved &&
+      spot.status != SpotStatus.approved &&
+      spot.categories.contains('Meet');
+
   final updatedSpot = spot.copyWith(
     status: status,
     rating: status == SpotStatus.approved && spot.rating == 0
@@ -1494,6 +1733,10 @@ Future<void> updateSpotStatus(CarSpot spot, SpotStatus status) async {
   savedSpots.value = savedSpots.value
       .map((item) => isSameSpot(item, spot) ? updatedSpot : item)
       .toList();
+
+  if (shouldNotifyNearbyMeetUsers) {
+    await createMeetSpotNotificationsForNearbyUsers(updatedSpot);
+  }
 }
 
 Future<void> deleteSpotFromFirebase(CarSpot spot) async {
@@ -1792,6 +2035,8 @@ class MainScreen extends StatefulWidget {
 
 class _MainScreenState extends State<MainScreen> {
   int index = 0;
+  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>?
+  meetNotificationSubscription;
 
   final screens = const [
     ExploreScreen(),
@@ -1800,6 +2045,75 @@ class _MainScreenState extends State<MainScreen> {
     SavedScreen(),
     ProfileScreen(),
   ];
+
+  @override
+  void initState() {
+    super.initState();
+    startMeetNotificationListener();
+  }
+
+  void startMeetNotificationListener() {
+    final firebaseUser = FirebaseAuth.instance.currentUser;
+
+    if (firebaseUser == null) {
+      return;
+    }
+
+    meetNotificationSubscription = meetNotificationsCollection()
+        .where('userId', isEqualTo: firebaseUser.uid)
+        .snapshots()
+        .listen((snapshot) async {
+          for (final change in snapshot.docChanges) {
+            if (change.type != DocumentChangeType.added) {
+              continue;
+            }
+
+            final data = change.doc.data() ?? {};
+
+            if (data['read'] == true) {
+              continue;
+            }
+
+            final spotName = stringFromFirebase(
+              data['spotName'],
+              'New meet spot',
+            );
+            final distanceMeters = doubleFromFirebase(
+              data['distanceMeters'],
+              0,
+            );
+            final distanceKm = distanceMeters <= 0
+                ? ''
+                : ' • ${(distanceMeters / 1000).toStringAsFixed(1)} km away';
+
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  backgroundColor: blue,
+                  content: Text(
+                    'New meet nearby: $spotName$distanceKm',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              );
+            }
+
+            await change.doc.reference.set({
+              'read': true,
+              'readAt': FieldValue.serverTimestamp(),
+            }, SetOptions(merge: true));
+          }
+        });
+  }
+
+  @override
+  void dispose() {
+    meetNotificationSubscription?.cancel();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -2195,10 +2509,29 @@ class _MapScreenState extends State<MapScreen> {
   final filters = const ['All', 'Photo', 'Reels', 'Meet', 'Low car'];
   final mapController = MapController();
   Timer? temporarySpotRefreshTimer;
+  Timer? liveLocationUploadTimer;
+  Timer? liveLocationPromptTimer;
+  Timer? liveLocationAutoStopTimer;
+  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>?
+  liveLocationSubscription;
+  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>?
+  policeReportSubscription;
   String selectedFilter = 'All';
   CarSpot? selectedSpot;
+  PoliceReportData? selectedPoliceReport;
   LatLng? currentUserLocation;
   bool isLocatingUser = false;
+  bool isAddingPoliceReport = false;
+  bool isVotingPoliceReport = false;
+  bool isSharingLiveLocation = false;
+  static const double policeReportVoteRadiusMeters = 300;
+  static const Duration policeReportCreatorVoteCooldown = Duration(minutes: 15);
+  bool isTogglingLiveLocation = false;
+  bool liveLocationPromptOpen = false;
+  DateTime? liveLocationPromptAt;
+  DateTime? liveLocationExpiresAt;
+  List<LiveLocationData> liveLocations = [];
+  List<PoliceReportData> policeReports = [];
 
   @override
   void initState() {
@@ -2212,6 +2545,8 @@ class _MapScreenState extends State<MapScreen> {
       const Duration(seconds: 10),
       (_) => refreshMap(),
     );
+    startLiveLocationSync();
+    startPoliceReportSync();
     loadInitialUserLocation();
   }
 
@@ -2222,8 +2557,14 @@ class _MapScreenState extends State<MapScreen> {
 
     setState(() {
       final spot = selectedSpot;
+      final policeReport = selectedPoliceReport;
+
       if (spot != null && !spot.isVisibleNow) {
         selectedSpot = null;
+      }
+
+      if (policeReport != null && !policeReport.isActive) {
+        selectedPoliceReport = null;
       }
     });
   }
@@ -2280,7 +2621,11 @@ class _MapScreenState extends State<MapScreen> {
   }
 
   List<Marker> get allMapMarkers {
-    final allMarkers = [...markers];
+    final allMarkers = [
+      ...markers,
+      ...policeReportMarkers,
+      ...liveLocationMarkers,
+    ];
     final userMarker = currentUserMarker;
 
     if (userMarker != null) {
@@ -2288,6 +2633,116 @@ class _MapScreenState extends State<MapScreen> {
     }
 
     return allMarkers;
+  }
+
+  List<PoliceReportData> get visiblePoliceReports {
+    return policeReports.where((report) => report.isActive).toList();
+  }
+
+  List<Marker> get policeReportMarkers {
+    return visiblePoliceReports.map((report) {
+      return Marker(
+        point: report.coordinates,
+        width: 62,
+        height: 62,
+        child: GestureDetector(
+          onTap: () {
+            setState(() {
+              selectedPoliceReport = report;
+              selectedSpot = null;
+            });
+          },
+          child: Tooltip(
+            message: 'Police marked by @${report.username}',
+            child: Container(
+              decoration: BoxDecoration(
+                color: Colors.redAccent.withValues(alpha: 0.18),
+                shape: BoxShape.circle,
+                border: Border.all(
+                  color: Colors.redAccent.withValues(alpha: 0.62),
+                  width: 2,
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.redAccent.withValues(alpha: 0.32),
+                    blurRadius: 18,
+                    spreadRadius: 4,
+                  ),
+                ],
+              ),
+              child: Center(
+                child: Container(
+                  width: 34,
+                  height: 34,
+                  decoration: BoxDecoration(
+                    color: panel,
+                    shape: BoxShape.circle,
+                    border: Border.all(color: Colors.redAccent, width: 2),
+                  ),
+                  child: const Icon(
+                    Icons.local_police,
+                    color: Colors.redAccent,
+                    size: 21,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+    }).toList();
+  }
+
+  List<Marker> get liveLocationMarkers {
+    final firebaseUser = FirebaseAuth.instance.currentUser;
+
+    return liveLocations
+        .where((location) => !location.isExpired)
+        .where((location) => location.uid != firebaseUser?.uid)
+        .map((location) {
+          return Marker(
+            point: location.coordinates,
+            width: 66,
+            height: 66,
+            child: Tooltip(
+              message: '@${location.username} is sharing live location',
+              child: Container(
+                decoration: BoxDecoration(
+                  color: Colors.greenAccent.withValues(alpha: 0.16),
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: Colors.greenAccent.withValues(alpha: 0.55),
+                    width: 2,
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.greenAccent.withValues(alpha: 0.25),
+                      blurRadius: 18,
+                      spreadRadius: 4,
+                    ),
+                  ],
+                ),
+                child: Center(
+                  child: Container(
+                    width: 34,
+                    height: 34,
+                    decoration: BoxDecoration(
+                      color: panel,
+                      shape: BoxShape.circle,
+                      border: Border.all(color: Colors.greenAccent, width: 2),
+                    ),
+                    child: const Icon(
+                      Icons.person_pin_circle,
+                      color: Colors.greenAccent,
+                      size: 22,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          );
+        })
+        .toList();
   }
 
   Marker? get currentUserMarker {
@@ -2329,9 +2784,763 @@ class _MapScreenState extends State<MapScreen> {
     );
   }
 
+  void startPoliceReportSync() {
+    policeReportSubscription?.cancel();
+    policeReportSubscription = policeReportsCollection()
+        .where('expiresAt', isGreaterThan: Timestamp.now())
+        .snapshots()
+        .listen(
+          (snapshot) {
+            if (!mounted) {
+              return;
+            }
+
+            final reports = snapshot.docs
+                .map((doc) => PoliceReportData.fromFirestore(doc))
+                .where((report) => report.isActive)
+                .toList();
+
+            setState(() {
+              policeReports = reports;
+
+              final selected = selectedPoliceReport;
+              if (selected != null) {
+                final stillVisible = reports.any(
+                  (report) => report.id == selected.id,
+                );
+                if (!stillVisible) {
+                  selectedPoliceReport = null;
+                }
+              }
+            });
+          },
+          onError: (_) {
+            // Firestore rules may still be closed while this feature is being set up.
+          },
+        );
+  }
+
+  Future<void> showAddMapReportSheet() async {
+    final selected = await showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: panel,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (context) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(18, 14, 18, 22),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Add map alert',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 20,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                ListTile(
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 6),
+                  leading: Container(
+                    width: 44,
+                    height: 44,
+                    decoration: BoxDecoration(
+                      color: Colors.redAccent.withValues(alpha: 0.18),
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: const Icon(
+                      Icons.local_police,
+                      color: Colors.redAccent,
+                    ),
+                  ),
+                  title: const Text(
+                    'Police',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  subtitle: const Text(
+                    'Mark police at your current location for 2 hours.',
+                    style: TextStyle(color: Colors.white54),
+                  ),
+                  onTap: () => Navigator.pop(context, 'police'),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+
+    if (selected == 'police') {
+      await addPoliceReportAtCurrentLocation();
+    }
+  }
+
+  double? policeReportDistanceMeters(PoliceReportData report) {
+    final location = currentUserLocation;
+
+    if (location == null) {
+      return null;
+    }
+
+    return const Distance().as(LengthUnit.Meter, location, report.coordinates);
+  }
+
+  bool isPoliceReportCreatorCooldownOver(PoliceReportData report) {
+    final createdAt = DateTime.fromMillisecondsSinceEpoch(
+      report.createdAtMillis,
+    );
+
+    return DateTime.now().difference(createdAt) >=
+        policeReportCreatorVoteCooldown;
+  }
+
+  bool canVotePoliceReportFromCurrentMapLocation(PoliceReportData report) {
+    final firebaseUser = FirebaseAuth.instance.currentUser;
+
+    if (firebaseUser == null) {
+      return false;
+    }
+
+    final distance = policeReportDistanceMeters(report);
+
+    if (distance == null || distance > policeReportVoteRadiusMeters) {
+      return false;
+    }
+
+    if (report.uid == firebaseUser.uid &&
+        !isPoliceReportCreatorCooldownOver(report)) {
+      return false;
+    }
+
+    return true;
+  }
+
+  String policeReportVoteHint(PoliceReportData report) {
+    final firebaseUser = FirebaseAuth.instance.currentUser;
+
+    if (firebaseUser == null) {
+      return 'Log in to confirm this police mark.';
+    }
+
+    final distance = policeReportDistanceMeters(report);
+
+    if (distance == null) {
+      return 'Move to your current location before confirming this mark.';
+    }
+
+    if (distance > policeReportVoteRadiusMeters) {
+      return 'Get closer to confirm this police mark.';
+    }
+
+    if (report.uid == firebaseUser.uid &&
+        !isPoliceReportCreatorCooldownOver(report)) {
+      return 'You created this mark. You can confirm it later if you drive by this spot again.';
+    }
+
+    return '';
+  }
+
+  Future<void> addPoliceReportAtCurrentLocation() async {
+    if (isAddingPoliceReport) {
+      return;
+    }
+
+    final firebaseUser = FirebaseAuth.instance.currentUser;
+
+    if (firebaseUser == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          backgroundColor: Colors.redAccent,
+          content: Text(
+            'Log in before adding a police mark.',
+            style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+          ),
+        ),
+      );
+      return;
+    }
+
+    setState(() => isAddingPoliceReport = true);
+
+    final position = await getMapUserPosition(showErrors: true);
+
+    if (!mounted) {
+      return;
+    }
+
+    if (position == null) {
+      setState(() => isAddingPoliceReport = false);
+      return;
+    }
+
+    final now = DateTime.now();
+    final expiresAt = now.add(const Duration(hours: 2));
+    final location = LatLng(position.latitude, position.longitude);
+    final docRef = policeReportsCollection().doc();
+
+    await docRef.set({
+      'uid': firebaseUser.uid,
+      'username': currentUser.username,
+      'lat': position.latitude,
+      'lng': position.longitude,
+      'coordinates': GeoPoint(position.latitude, position.longitude),
+      'createdAt': FieldValue.serverTimestamp(),
+      'expiresAt': Timestamp.fromDate(expiresAt),
+      'updatedAt': FieldValue.serverTimestamp(),
+      'status': 'active',
+      'stillThereBy': <String>[],
+      'notThereBy': <String>[],
+    });
+
+    if (!mounted) {
+      return;
+    }
+
+    final newReport = PoliceReportData(
+      id: docRef.id,
+      uid: firebaseUser.uid,
+      username: currentUser.username,
+      coordinates: location,
+      createdAtMillis: now.millisecondsSinceEpoch,
+      expiresAtMillis: expiresAt.millisecondsSinceEpoch,
+      updatedAtMillis: now.millisecondsSinceEpoch,
+    );
+
+    setState(() {
+      currentUserLocation = location;
+      selectedSpot = null;
+      selectedPoliceReport = newReport;
+      isAddingPoliceReport = false;
+    });
+
+    mapController.move(location, 15.5);
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        backgroundColor: panel,
+        content: Text(
+          'Police marked on the map for 2 hours.',
+          style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+        ),
+      ),
+    );
+  }
+
+  Future<void> votePoliceReport(
+    PoliceReportData report, {
+    required bool stillThere,
+  }) async {
+    if (isVotingPoliceReport) {
+      return;
+    }
+
+    final firebaseUser = FirebaseAuth.instance.currentUser;
+
+    if (firebaseUser == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          backgroundColor: Colors.redAccent,
+          content: Text(
+            'Log in before confirming a police mark.',
+            style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+          ),
+        ),
+      );
+      return;
+    }
+
+    final position = await getMapUserPosition(showErrors: true);
+
+    if (!mounted) {
+      return;
+    }
+
+    if (position == null) {
+      return;
+    }
+
+    final freshLocation = LatLng(position.latitude, position.longitude);
+    final distance = const Distance().as(
+      LengthUnit.Meter,
+      freshLocation,
+      report.coordinates,
+    );
+
+    setState(() => currentUserLocation = freshLocation);
+
+    if (distance > policeReportVoteRadiusMeters) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          backgroundColor: panel,
+          content: Text(
+            'Get closer to this police mark before confirming it.',
+            style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+          ),
+        ),
+      );
+      return;
+    }
+
+    if (report.uid == firebaseUser.uid &&
+        !isPoliceReportCreatorCooldownOver(report)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          backgroundColor: panel,
+          content: Text(
+            'You created this mark. You can confirm it later if you drive by this spot again.',
+            style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+          ),
+        ),
+      );
+      return;
+    }
+
+    setState(() => isVotingPoliceReport = true);
+
+    final reportRef = policeReportsCollection().doc(report.id);
+    var removed = false;
+
+    try {
+      await FirebaseFirestore.instance.runTransaction((transaction) async {
+        final snapshot = await transaction.get(reportRef);
+
+        if (!snapshot.exists) {
+          removed = true;
+          return;
+        }
+
+        final data = snapshot.data() ?? <String, dynamic>{};
+        final stillThereBy = stringListFromFirebase(
+          data['stillThereBy'],
+          const [],
+        );
+        final notThereBy = stringListFromFirebase(data['notThereBy'], const []);
+
+        stillThereBy.remove(firebaseUser.uid);
+        notThereBy.remove(firebaseUser.uid);
+
+        if (stillThere) {
+          stillThereBy.add(firebaseUser.uid);
+        } else {
+          notThereBy.add(firebaseUser.uid);
+        }
+
+        final shouldRemove =
+            !stillThere &&
+            (notThereBy.length >= 2 || data['uid'] == firebaseUser.uid);
+
+        if (shouldRemove) {
+          removed = true;
+          transaction.update(reportRef, {
+            'status': 'removed',
+            'removedByUid': firebaseUser.uid,
+            'removedAt': FieldValue.serverTimestamp(),
+            'stillThereBy': stillThereBy,
+            'notThereBy': notThereBy,
+            'updatedAt': FieldValue.serverTimestamp(),
+          });
+        } else {
+          transaction.update(reportRef, {
+            'stillThereBy': stillThereBy,
+            'notThereBy': notThereBy,
+            'updatedAt': FieldValue.serverTimestamp(),
+          });
+        }
+      });
+    } finally {
+      if (mounted) {
+        setState(() => isVotingPoliceReport = false);
+      }
+    }
+
+    if (!mounted) {
+      return;
+    }
+
+    if (removed) {
+      setState(() {
+        selectedPoliceReport = null;
+        policeReports = policeReports
+            .where((item) => item.id != report.id)
+            .toList();
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          backgroundColor: panel,
+          content: Text(
+            'Police mark removed from the map.',
+            style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+          ),
+        ),
+      );
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: panel,
+          content: Text(
+            stillThere
+                ? 'Thanks. Police mark confirmed.'
+                : 'Thanks. Not there report saved.',
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+      );
+    }
+  }
+
+  void startLiveLocationSync() {
+    liveLocationSubscription?.cancel();
+    liveLocationSubscription = liveLocationsCollection()
+        .where('expiresAt', isGreaterThan: Timestamp.now())
+        .snapshots()
+        .listen(
+          (snapshot) {
+            if (!mounted) {
+              return;
+            }
+
+            final firebaseUser = FirebaseAuth.instance.currentUser;
+            final locations = snapshot.docs
+                .map((doc) => LiveLocationData.fromFirestore(doc))
+                .where((location) => !location.isExpired)
+                .toList();
+
+            LiveLocationData? ownLocation;
+            if (firebaseUser != null) {
+              for (final location in locations) {
+                if (location.uid == firebaseUser.uid) {
+                  ownLocation = location;
+                  break;
+                }
+              }
+            }
+
+            setState(() {
+              liveLocations = locations;
+              if (ownLocation != null) {
+                isSharingLiveLocation = true;
+                liveLocationPromptAt = DateTime.fromMillisecondsSinceEpoch(
+                  ownLocation.promptAtMillis,
+                );
+                liveLocationExpiresAt = DateTime.fromMillisecondsSinceEpoch(
+                  ownLocation.expiresAtMillis,
+                );
+                scheduleLiveLocationTimers();
+              } else if (!isTogglingLiveLocation) {
+                isSharingLiveLocation = false;
+                liveLocationPromptAt = null;
+                liveLocationExpiresAt = null;
+                cancelLiveLocationTimers(keepUploadTimer: false);
+              }
+            });
+          },
+          onError: (_) {
+            // Firestore rules may still be closed while this feature is being set up.
+          },
+        );
+  }
+
+  void cancelLiveLocationTimers({bool keepUploadTimer = false}) {
+    liveLocationPromptTimer?.cancel();
+    liveLocationPromptTimer = null;
+    liveLocationAutoStopTimer?.cancel();
+    liveLocationAutoStopTimer = null;
+
+    if (!keepUploadTimer) {
+      liveLocationUploadTimer?.cancel();
+      liveLocationUploadTimer = null;
+    }
+  }
+
+  void scheduleLiveLocationTimers() {
+    final promptAt = liveLocationPromptAt;
+    final expiresAt = liveLocationExpiresAt;
+
+    liveLocationPromptTimer?.cancel();
+    liveLocationAutoStopTimer?.cancel();
+
+    if (!isSharingLiveLocation || promptAt == null || expiresAt == null) {
+      return;
+    }
+
+    final now = DateTime.now();
+    final promptDelay = promptAt.difference(now);
+    final autoStopDelay = expiresAt.difference(now);
+
+    liveLocationPromptTimer = Timer(
+      promptDelay.isNegative ? Duration.zero : promptDelay,
+      showLiveLocationRenewPrompt,
+    );
+    liveLocationAutoStopTimer = Timer(
+      autoStopDelay.isNegative ? Duration.zero : autoStopDelay,
+      stopLiveLocationSharing,
+    );
+  }
+
+  Future<void> toggleLiveLocationSharing(bool enabled) async {
+    if (enabled) {
+      await startLiveLocationSharing();
+    } else {
+      await stopLiveLocationSharing();
+    }
+  }
+
+  Future<void> startLiveLocationSharing() async {
+    if (isTogglingLiveLocation) {
+      return;
+    }
+
+    final firebaseUser = FirebaseAuth.instance.currentUser;
+
+    if (firebaseUser == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          backgroundColor: Colors.redAccent,
+          content: Text(
+            'Log in before sharing your live location.',
+            style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+          ),
+        ),
+      );
+      return;
+    }
+
+    setState(() => isTogglingLiveLocation = true);
+
+    final position = await getMapUserPosition(showErrors: true);
+
+    if (!mounted) {
+      return;
+    }
+
+    if (position == null) {
+      setState(() => isTogglingLiveLocation = false);
+      return;
+    }
+
+    await writeLiveLocation(position, renewWindow: true);
+
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      currentUserLocation = LatLng(position.latitude, position.longitude);
+      isSharingLiveLocation = true;
+      isTogglingLiveLocation = false;
+    });
+
+    liveLocationUploadTimer?.cancel();
+    liveLocationUploadTimer = Timer.periodic(
+      const Duration(seconds: 15),
+      (_) => uploadLatestLiveLocation(),
+    );
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        backgroundColor: panel,
+        content: Text(
+          'Live location sharing is on for 1 hour.',
+          style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+        ),
+      ),
+    );
+  }
+
+  Future<void> uploadLatestLiveLocation() async {
+    if (!isSharingLiveLocation) {
+      return;
+    }
+
+    final position = await getMapUserPosition(showErrors: false);
+
+    if (position == null || !mounted) {
+      return;
+    }
+
+    await writeLiveLocation(position, renewWindow: false);
+
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      currentUserLocation = LatLng(position.latitude, position.longitude);
+    });
+  }
+
+  Future<void> writeLiveLocation(
+    Position position, {
+    required bool renewWindow,
+  }) async {
+    final firebaseUser = FirebaseAuth.instance.currentUser;
+
+    if (firebaseUser == null) {
+      return;
+    }
+
+    final now = DateTime.now();
+    final promptAt = renewWindow
+        ? now.add(const Duration(hours: 1))
+        : liveLocationPromptAt ?? now.add(const Duration(hours: 1));
+    final expiresAt = renewWindow
+        ? promptAt.add(const Duration(minutes: 10))
+        : liveLocationExpiresAt ?? promptAt.add(const Duration(minutes: 10));
+
+    liveLocationPromptAt = promptAt;
+    liveLocationExpiresAt = expiresAt;
+
+    await liveLocationsCollection().doc(firebaseUser.uid).set({
+      'uid': firebaseUser.uid,
+      'username': currentUser.username,
+      'name': currentUser.name,
+      'photoUrl': currentUser.photoUrl,
+      'lat': position.latitude,
+      'lng': position.longitude,
+      'coordinates': GeoPoint(position.latitude, position.longitude),
+      'promptAt': Timestamp.fromDate(promptAt),
+      'expiresAt': Timestamp.fromDate(expiresAt),
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+
+    if (mounted) {
+      scheduleLiveLocationTimers();
+    }
+  }
+
+  Future<void> stopLiveLocationSharing() async {
+    final firebaseUser = FirebaseAuth.instance.currentUser;
+
+    liveLocationUploadTimer?.cancel();
+    liveLocationUploadTimer = null;
+    cancelLiveLocationTimers(keepUploadTimer: true);
+
+    if (firebaseUser != null) {
+      await liveLocationsCollection().doc(firebaseUser.uid).delete();
+    }
+
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      isSharingLiveLocation = false;
+      isTogglingLiveLocation = false;
+      liveLocationPromptAt = null;
+      liveLocationExpiresAt = null;
+      liveLocationPromptOpen = false;
+      liveLocations = liveLocations
+          .where((location) => location.uid != firebaseUser?.uid)
+          .toList();
+    });
+  }
+
+  Future<void> continueLiveLocationSharing() async {
+    final position = await getMapUserPosition(showErrors: true);
+
+    if (!mounted) {
+      return;
+    }
+
+    if (position == null) {
+      await stopLiveLocationSharing();
+      return;
+    }
+
+    await writeLiveLocation(position, renewWindow: true);
+
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      isSharingLiveLocation = true;
+      currentUserLocation = LatLng(position.latitude, position.longitude);
+    });
+  }
+
+  Future<void> showLiveLocationRenewPrompt() async {
+    if (!mounted || !isSharingLiveLocation || liveLocationPromptOpen) {
+      return;
+    }
+
+    liveLocationPromptOpen = true;
+
+    final keepSharing = await showDialog<bool>(
+      context: context,
+      barrierDismissible: true,
+      builder: (context) {
+        return AlertDialog(
+          backgroundColor: panel,
+          title: const Text(
+            'Continue sharing?',
+            style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900),
+          ),
+          content: const Text(
+            'Your live location has been shared for 1 hour. Keep sharing it for another hour?',
+            style: TextStyle(color: Colors.white70, height: 1.35),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Stop sharing'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(context, true),
+              style: ElevatedButton.styleFrom(backgroundColor: blue),
+              child: const Text(
+                'Continue sharing',
+                style: TextStyle(color: Colors.white),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+
+    liveLocationPromptOpen = false;
+
+    if (!mounted || !isSharingLiveLocation) {
+      return;
+    }
+
+    if (keepSharing == true) {
+      await continueLiveLocationSharing();
+    } else if (keepSharing == false) {
+      await stopLiveLocationSharing();
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          backgroundColor: panel,
+          content: Text(
+            'No answer. Live location will stop automatically in 10 minutes.',
+            style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+          ),
+        ),
+      );
+    }
+  }
+
   @override
   void dispose() {
     temporarySpotRefreshTimer?.cancel();
+    liveLocationUploadTimer?.cancel();
+    liveLocationPromptTimer?.cancel();
+    liveLocationAutoStopTimer?.cancel();
+    liveLocationSubscription?.cancel();
+    policeReportSubscription?.cancel();
     reviewSpots.removeListener(refreshMap);
     mapController.dispose();
     super.dispose();
@@ -2437,6 +3646,7 @@ class _MapScreenState extends State<MapScreen> {
   @override
   Widget build(BuildContext context) {
     final spot = selectedSpot;
+    final policeReport = selectedPoliceReport;
 
     return Scaffold(
       backgroundColor: Colors.black,
@@ -2450,7 +3660,10 @@ class _MapScreenState extends State<MapScreen> {
               minZoom: 4,
               maxZoom: 18,
               backgroundColor: night,
-              onTap: (_, _) => setState(() => selectedSpot = null),
+              onTap: (_, _) => setState(() {
+                selectedSpot = null;
+                selectedPoliceReport = null;
+              }),
             ),
             children: [
               TileLayer(
@@ -2467,7 +3680,12 @@ class _MapScreenState extends State<MapScreen> {
               children: [
                 Padding(
                   padding: const EdgeInsets.fromLTRB(16, 12, 16, 10),
-                  child: _MapHeader(approvedCount: visibleSpots.length),
+                  child: _MapHeader(
+                    approvedCount: visibleSpots.length,
+                    isSharingLiveLocation: isSharingLiveLocation,
+                    isBusy: isTogglingLiveLocation,
+                    onShareChanged: toggleLiveLocationSharing,
+                  ),
                 ),
                 SizedBox(
                   height: 42,
@@ -2509,9 +3727,30 @@ class _MapScreenState extends State<MapScreen> {
             ),
           ),
           Positioned(
-            right: 16,
-            bottom: spot == null ? 18 : 196,
+            left: 16,
+            bottom: spot == null && policeReport == null ? 18 : 196,
             child: FloatingActionButton.small(
+              heroTag: 'add_map_report',
+              onPressed: isAddingPoliceReport ? null : showAddMapReportSheet,
+              backgroundColor: panel,
+              foregroundColor: Colors.white,
+              child: isAddingPoliceReport
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
+                  : const Icon(Icons.add),
+            ),
+          ),
+          Positioned(
+            right: 16,
+            bottom: spot == null && policeReport == null ? 18 : 196,
+            child: FloatingActionButton.small(
+              heroTag: 'current_location',
               onPressed: isLocatingUser ? null : () => moveToCurrentLocation(),
               backgroundColor: blue,
               foregroundColor: Colors.white,
@@ -2527,6 +3766,24 @@ class _MapScreenState extends State<MapScreen> {
                   : const Icon(Icons.my_location),
             ),
           ),
+          if (policeReport != null)
+            Positioned(
+              left: 16,
+              right: 16,
+              bottom: 16,
+              child: PoliceReportMapCard(
+                report: policeReport,
+                isBusy: isVotingPoliceReport,
+                canVote: canVotePoliceReportFromCurrentMapLocation(
+                  policeReport,
+                ),
+                voteHint: policeReportVoteHint(policeReport),
+                onStillThere: () =>
+                    votePoliceReport(policeReport, stillThere: true),
+                onNotThere: () =>
+                    votePoliceReport(policeReport, stillThere: false),
+              ),
+            ),
           if (spot != null)
             Positioned(
               left: 16,
@@ -2545,8 +3802,16 @@ class _MapScreenState extends State<MapScreen> {
 
 class _MapHeader extends StatelessWidget {
   final int approvedCount;
+  final bool isSharingLiveLocation;
+  final bool isBusy;
+  final ValueChanged<bool> onShareChanged;
 
-  const _MapHeader({required this.approvedCount});
+  const _MapHeader({
+    required this.approvedCount,
+    required this.isSharingLiveLocation,
+    required this.isBusy,
+    required this.onShareChanged,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -2589,22 +3854,228 @@ class _MapHeader extends StatelessWidget {
               ],
             ),
           ),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-            decoration: BoxDecoration(
-              color: panel,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: Colors.white12),
-            ),
-            child: Text(
-              '$approvedCount spots',
-              style: const TextStyle(
-                color: Colors.white70,
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
+          const SizedBox(width: 10),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 7,
+                ),
+                decoration: BoxDecoration(
+                  color: panel,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.white12),
+                ),
+                child: Text(
+                  '$approvedCount spots',
+                  style: const TextStyle(
+                    color: Colors.white70,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
               ),
-            ),
+              const SizedBox(height: 8),
+              Container(
+                padding: const EdgeInsets.only(left: 10),
+                decoration: BoxDecoration(
+                  color: isSharingLiveLocation
+                      ? blue.withValues(alpha: 0.18)
+                      : panel.withValues(alpha: 0.92),
+                  borderRadius: BorderRadius.circular(999),
+                  border: Border.all(
+                    color: isSharingLiveLocation ? blue : Colors.white12,
+                  ),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Text(
+                      'Share live location',
+                      style: TextStyle(
+                        color: Colors.white70,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    Transform.scale(
+                      scale: 0.74,
+                      child: Switch(
+                        value: isSharingLiveLocation,
+                        activeColor: blue,
+                        onChanged: isBusy ? null : onShareChanged,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
+        ],
+      ),
+    );
+  }
+}
+
+class PoliceReportMapCard extends StatelessWidget {
+  final PoliceReportData report;
+  final bool isBusy;
+  final bool canVote;
+  final String voteHint;
+  final VoidCallback onStillThere;
+  final VoidCallback onNotThere;
+
+  const PoliceReportMapCard({
+    super.key,
+    required this.report,
+    required this.isBusy,
+    required this.canVote,
+    required this.voteHint,
+    required this.onStillThere,
+    required this.onNotThere,
+  });
+
+  String get timeLeftLabel {
+    final expiresAt = DateTime.fromMillisecondsSinceEpoch(
+      report.expiresAtMillis,
+    );
+    final left = expiresAt.difference(DateTime.now());
+
+    if (left.isNegative) {
+      return 'expired';
+    }
+
+    final hours = left.inHours;
+    final minutes = left.inMinutes.remainder(60);
+
+    if (hours > 0) {
+      return '${hours}h ${minutes}m left';
+    }
+
+    return '${left.inMinutes.clamp(0, 120)}m left';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.88),
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: Colors.redAccent.withValues(alpha: 0.35)),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  color: Colors.redAccent.withValues(alpha: 0.18),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: const Icon(Icons.local_police, color: Colors.redAccent),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Police nearby',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 18,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      'Marked by @${report.username} • $timeLeftLabel',
+                      style: const TextStyle(
+                        color: Colors.white54,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              _SmallTag(
+                label: '${report.stillThereCount} still there',
+                icon: Icons.check_circle_outline,
+              ),
+              const SizedBox(width: 8),
+              _SmallTag(
+                label: '${report.notThereCount} not there',
+                icon: Icons.cancel_outlined,
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          if (!canVote)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.06),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: Colors.white12),
+              ),
+              child: Text(
+                voteHint.isEmpty
+                    ? 'You can confirm this mark when you are close to it.'
+                    : voteHint,
+                style: const TextStyle(
+                  color: Colors.white70,
+                  fontWeight: FontWeight.w700,
+                  height: 1.25,
+                ),
+              ),
+            )
+          else
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: isBusy ? null : onNotThere,
+                    icon: const Icon(Icons.close, size: 18),
+                    label: const Text('Not there'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.white70,
+                      side: const BorderSide(color: Colors.white24),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: isBusy ? null : onStillThere,
+                    icon: const Icon(Icons.check, size: 18),
+                    label: const Text('Still there'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: blue,
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
         ],
       ),
     );
@@ -4073,7 +5544,10 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
 
   final selectedCategories = <String>{'Photo', 'Reels', 'Meet'};
   LatLng? selectedLocation;
+  String detectedCityCountry = 'Choose location to detect city/country';
+  bool isDetectingCityCountry = false;
   String? selectedPhotoPath;
+  bool verifiedOnlySpot = false;
   bool isTemporarySpot = false;
   DateTime? temporaryStartsAt;
   DateTime? temporaryExpiresAt;
@@ -4109,7 +5583,22 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
       return;
     }
 
-    setState(() => selectedLocation = location);
+    setState(() {
+      selectedLocation = location;
+      detectedCityCountry = 'Detecting city/country...';
+      isDetectingCityCountry = true;
+    });
+
+    final cityCountry = await detectCityCountryForCoordinates(location);
+
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      detectedCityCountry = cityCountry;
+      isDetectingCityCountry = false;
+    });
   }
 
   Future<void> choosePhoto() async {
@@ -4282,9 +5771,12 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
       name: nameController.text.trim().isEmpty
           ? 'Untitled spot'
           : nameController.text.trim(),
-      cityCountry: cityController.text.trim().isEmpty
-          ? 'Riga, Latvia'
-          : cityController.text.trim(),
+      cityCountry:
+          detectedCityCountry.trim().isEmpty ||
+              detectedCityCountry == 'Choose location to detect city/country' ||
+              detectedCityCountry == 'Detecting city/country...'
+          ? 'Unknown location'
+          : detectedCityCountry.trim(),
       coordinates: location,
       description: descriptionController.text.trim().isEmpty
           ? 'Submitted community car spot.'
@@ -4312,6 +5804,7 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
       expiresAtMillis: isTemporarySpot
           ? temporaryExpiresAt!.millisecondsSinceEpoch
           : null,
+      verifiedOnly: verifiedOnlySpot,
     );
 
     setState(() => isSubmitting = true);
@@ -4448,14 +5941,13 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
                 hint: 'Andrejsala Harbor',
                 icon: Icons.place,
               ),
-              _CcsTextField(
-                controller: cityController,
-                label: 'City / country',
-                hint: 'Riga, Latvia',
-                icon: Icons.location_city,
-              ),
               _LocationPickerField(
                 hasLocation: selectedLocation != null,
+                subtitle: isDetectingCityCountry
+                    ? 'Detecting city/country...'
+                    : selectedLocation == null
+                    ? 'Choose the spot on map'
+                    : detectedCityCountry,
                 onTap: chooseLocation,
               ),
               _CcsTextField(
@@ -4467,6 +5959,23 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
               ),
             ],
           ),
+          if (currentUserCanUseVerifiedOnlySpots) ...[
+            const SizedBox(height: 16),
+            _AddSpotSection(
+              title: 'Visibility',
+              children: [
+                _SettingsSwitchTile(
+                  icon: Icons.verified_user,
+                  title: 'Verified only',
+                  subtitle:
+                      'Only verified users and admins can see this spot after approval',
+                  value: verifiedOnlySpot,
+                  onChanged: (value) =>
+                      setState(() => verifiedOnlySpot = value),
+                ),
+              ],
+            ),
+          ],
           const SizedBox(height: 16),
           _AddSpotSection(
             title: 'Temporary schedule',
@@ -4902,9 +6411,14 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
 
 class _LocationPickerField extends StatelessWidget {
   final bool hasLocation;
+  final String? subtitle;
   final VoidCallback onTap;
 
-  const _LocationPickerField({required this.hasLocation, required this.onTap});
+  const _LocationPickerField({
+    required this.hasLocation,
+    this.subtitle,
+    required this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -4948,9 +6462,10 @@ class _LocationPickerField extends StatelessWidget {
                   ),
                   const SizedBox(height: 3),
                   Text(
-                    hasLocation
-                        ? 'Spot location selected on map'
-                        : 'Choose the spot on map',
+                    subtitle ??
+                        (hasLocation
+                            ? 'Spot location selected on map'
+                            : 'Choose the spot on map'),
                     style: const TextStyle(color: Colors.white54),
                   ),
                 ],
@@ -5811,7 +7326,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 _ProfileActionTile(
                   icon: Icons.admin_panel_settings,
                   title: 'Admin Panel',
-                  subtitle: 'Review pending community spots',
+                  subtitle: 'Review spots and manage verified users',
                   onTap: openAdminPanel,
                 ),
                 const SizedBox(height: 10),
@@ -6693,12 +8208,6 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
               ),
               const SizedBox(height: 14),
               _CcsTextField(
-                controller: cityController,
-                label: 'City / country',
-                hint: 'Riga, Latvia',
-                icon: Icons.location_city,
-              ),
-              _CcsTextField(
                 controller: bioController,
                 label: 'About you',
                 hint: 'Short description',
@@ -7296,6 +8805,207 @@ class _SettingsSwitchTile extends StatelessWidget {
   }
 }
 
+class AdminUserData {
+  final String uid;
+  final String username;
+  final String name;
+  final String email;
+  final UserRole role;
+  final bool verified;
+
+  const AdminUserData({
+    required this.uid,
+    required this.username,
+    required this.name,
+    required this.email,
+    required this.role,
+    required this.verified,
+  });
+
+  factory AdminUserData.fromFirestore(
+    DocumentSnapshot<Map<String, dynamic>> doc,
+  ) {
+    final data = doc.data() ?? {};
+    return AdminUserData(
+      uid: stringFromFirebase(data['uid'], doc.id),
+      username: stringFromFirebase(data['username'], 'ccs_driver'),
+      name: stringFromFirebase(data['name'], 'CCS Driver'),
+      email: stringFromFirebase(data['email'], ''),
+      role: roleFromFirebase(data['role']),
+      verified:
+          roleFromFirebase(data['role']) == UserRole.admin ||
+          data['verified'] == true,
+    );
+  }
+}
+
+class AdminVerifiedUsersScreen extends StatelessWidget {
+  const AdminVerifiedUsersScreen({super.key});
+
+  Future<void> setVerifiedStatus(
+    BuildContext context,
+    AdminUserData user,
+    bool verified,
+  ) async {
+    try {
+      await usersCollection().doc(user.uid).set({
+        'verified': verified,
+        'verifiedUpdatedByUid': currentUser.uid,
+        'verifiedUpdatedBy': currentUser.username,
+        'verifiedUpdatedAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+
+      if (user.uid == currentUser.uid) {
+        currentUser = AppUser(
+          uid: currentUser.uid,
+          name: currentUser.name,
+          username: currentUser.username,
+          email: currentUser.email,
+          photoUrl: currentUser.photoUrl,
+          bio: currentUser.bio,
+          avatarPath: currentUser.avatarPath,
+          role: currentUser.role,
+          verified: verified || currentUser.role == UserRole.admin,
+          city: currentUser.city,
+          country: currentUser.country,
+        );
+      }
+    } catch (error) {
+      showAdminActionError(
+        context,
+        message: 'Could not update verified status',
+        error: error,
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        title: const Text('Verified Users'),
+        backgroundColor: Colors.black,
+        foregroundColor: blue,
+      ),
+      body: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+        stream: usersCollection().orderBy('usernameKey').snapshots(),
+        builder: (context, snapshot) {
+          final users =
+              snapshot.data?.docs
+                  .map((doc) => AdminUserData.fromFirestore(doc))
+                  .toList() ??
+              const <AdminUserData>[];
+
+          return ListView(
+            padding: const EdgeInsets.fromLTRB(20, 18, 20, 28),
+            children: [
+              const Text(
+                'Grant verified status',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 30,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              const SizedBox(height: 6),
+              const Text(
+                'Verified users can create and see verified-only spots.',
+                style: TextStyle(color: Colors.white54, height: 1.35),
+              ),
+              const SizedBox(height: 18),
+              if (users.isEmpty)
+                const EmptyStateCard(
+                  icon: Icons.verified_user,
+                  title: 'No users yet',
+                  text: 'Users will appear here after they sign in.',
+                )
+              else
+                for (final user in users) ...[
+                  Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: panel,
+                      borderRadius: BorderRadius.circular(18),
+                      border: Border.all(color: Colors.white12),
+                    ),
+                    child: Row(
+                      children: [
+                        Container(
+                          width: 42,
+                          height: 42,
+                          decoration: BoxDecoration(
+                            color: user.verified
+                                ? blue.withValues(alpha: 0.16)
+                                : Colors.white.withValues(alpha: 0.06),
+                            shape: BoxShape.circle,
+                          ),
+                          child: Icon(
+                            user.verified
+                                ? Icons.verified
+                                : Icons.person_outline,
+                            color: user.verified ? blue : Colors.white54,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  Flexible(
+                                    child: Text(
+                                      user.username,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontWeight: FontWeight.w900,
+                                      ),
+                                    ),
+                                  ),
+                                  if (user.role == UserRole.admin) ...[
+                                    const SizedBox(width: 6),
+                                    const _SmallTag(
+                                      label: 'Admin',
+                                      icon: Icons.admin_panel_settings,
+                                    ),
+                                  ],
+                                ],
+                              ),
+                              const SizedBox(height: 3),
+                              Text(
+                                user.email.isEmpty ? user.name : user.email,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(color: Colors.white54),
+                              ),
+                            ],
+                          ),
+                        ),
+                        Switch(
+                          value: user.verified,
+                          activeColor: blue,
+                          onChanged: user.role == UserRole.admin
+                              ? null
+                              : (value) =>
+                                    setVerifiedStatus(context, user, value),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                ],
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
 enum AdminSpotFilter { pending, approved, rejected, all }
 
 String adminSpotFilterLabel(AdminSpotFilter filter) {
@@ -7516,6 +9226,20 @@ class _AdminReviewScreenState extends State<AdminReviewScreen> {
                     ? 'No $label spots right now.'
                     : '${filteredSpots.length} $label spot${filteredSpots.length == 1 ? '' : 's'} in Firebase.',
                 style: const TextStyle(color: Colors.white54, height: 1.35),
+              ),
+              const SizedBox(height: 16),
+              _ProfileActionTile(
+                icon: Icons.verified_user,
+                title: 'Verified Users',
+                subtitle: 'Grant or remove verified status',
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const AdminVerifiedUsersScreen(),
+                    ),
+                  );
+                },
               ),
               const SizedBox(height: 16),
               SingleChildScrollView(
@@ -7808,6 +9532,8 @@ class AdminSpotReviewScreen extends StatelessWidget {
             spacing: 8,
             runSpacing: 8,
             children: [
+              if (spot.verifiedOnly)
+                _SmallTag(label: 'Verified only', icon: Icons.verified_user),
               for (final category in spot.categories)
                 _SmallTag(label: category, icon: Icons.local_offer),
             ],
