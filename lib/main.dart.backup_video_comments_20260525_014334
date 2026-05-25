@@ -1,4 +1,4 @@
-﻿import 'dart:async';
+import 'dart:async';
 import 'dart:io';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -949,10 +949,6 @@ String formatShortDateTime(DateTime value) {
       '${twoDigits(value.hour)}:${twoDigits(value.minute)}';
 }
 
-String formatShortDate(DateTime value) {
-  return '${twoDigits(value.day)}.${twoDigits(value.month)}.${value.year}';
-}
-
 List<String> stringListFromFirebase(Object? value, List<String> fallback) {
   if (value is List) {
     final list = value
@@ -1187,8 +1183,6 @@ CollectionReference<Map<String, dynamic>> spotLikesCollection() {
   return FirebaseFirestore.instance.collection('spot_likes');
 }
 
-const int maxCommentsPerUserPerSpot = 50;
-
 String spotReviewKey(CarSpot spot) {
   if (spot.id.trim().isNotEmpty) {
     return spot.id.trim();
@@ -1281,70 +1275,9 @@ Future<void> toggleSpotLike(
   }
 }
 
-String commentLikeDocumentId(SpotReviewData review, String userId) {
-  return 'comment_${review.id}_$userId';
-}
-
-Stream<int> watchCommentLikeCount(SpotReviewData review) {
-  return spotLikesCollection()
-      .where('commentId', isEqualTo: review.id)
-      .snapshots()
-      .map((snapshot) => snapshot.docs.length);
-}
-
-Stream<bool> watchCurrentUserLikedComment(SpotReviewData review) {
-  final firebaseUser = FirebaseAuth.instance.currentUser;
-
-  if (firebaseUser == null) {
-    return Stream.value(false);
-  }
-
-  return spotLikesCollection()
-      .doc(commentLikeDocumentId(review, firebaseUser.uid))
-      .snapshots()
-      .map((snapshot) => snapshot.exists);
-}
-
-Future<void> toggleCommentLike(
-  BuildContext context,
-  SpotReviewData review,
-  bool currentlyLiked,
-) async {
-  final firebaseUser = FirebaseAuth.instance.currentUser;
-
-  if (firebaseUser == null) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        backgroundColor: Colors.redAccent,
-        content: Text(
-          'Log in before liking comments.',
-          style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
-        ),
-      ),
-    );
-    return;
-  }
-
-  final likeRef = spotLikesCollection().doc(
-    commentLikeDocumentId(review, firebaseUser.uid),
-  );
-
-  if (currentlyLiked) {
-    await likeRef.delete();
-  } else {
-    await likeRef.set({
-      'targetType': 'comment',
-      'commentId': review.id,
-      'commentSpotId': review.spotId,
-      'userId': firebaseUser.uid,
-      'username': currentUser.username,
-      'createdAt': FieldValue.serverTimestamp(),
-    });
-  }
-}
-
 Future<void> saveSpotReview({
   required CarSpot spot,
+  required int rating,
   required String comment,
 }) async {
   final firebaseUser = FirebaseAuth.instance.currentUser;
@@ -1358,167 +1291,19 @@ Future<void> saveSpotReview({
   }
 
   final spotId = spotReviewKey(spot);
-  final cleanComment = comment.trim();
 
-  final existingReviews = await spotReviewsCollection()
-      .where('spotId', isEqualTo: spotId)
-      .get();
-
-  final userCommentCount = existingReviews.docs.where((doc) {
-    final data = doc.data();
-    return stringFromFirebase(data['userId'], '') == firebaseUser.uid &&
-        stringFromFirebase(data['comment'], '').trim().isNotEmpty;
-  }).length;
-
-  if (userCommentCount >= maxCommentsPerUserPerSpot) {
-    throw FirebaseException(
-      plugin: 'cloud_firestore',
-      code: 'comment-limit-reached',
-      message: 'You reached the 50 comment limit for this spot.',
-    );
-  }
-
-  await spotReviewsCollection().add({
+  await spotReviewsCollection().doc('${spotId}_${firebaseUser.uid}').set({
     'spotId': spotId,
     'spotName': spot.name,
-    'type': 'comment',
     'userId': firebaseUser.uid,
     'username': currentUser.username,
-    'comment': cleanComment,
+    'rating': rating.clamp(1, 5),
+    'comment': comment.trim(),
     'createdAt': FieldValue.serverTimestamp(),
     'updatedAt': FieldValue.serverTimestamp(),
-  });
-}
+  }, SetOptions(merge: true));
 
-Future<void> editSpotReview({
-  required CarSpot spot,
-  required SpotReviewData review,
-  required String comment,
-}) async {
-  final firebaseUser = FirebaseAuth.instance.currentUser;
-
-  if (firebaseUser == null) {
-    throw FirebaseException(
-      plugin: 'cloud_firestore',
-      code: 'not-logged-in',
-      message: 'Log in before editing a review.',
-    );
-  }
-
-  if (firebaseUser.uid != review.userId) {
-    throw FirebaseException(
-      plugin: 'cloud_firestore',
-      code: 'permission-denied',
-      message: 'You can edit only your own comments.',
-    );
-  }
-
-  final cleanComment = comment.trim();
-  if (cleanComment.isEmpty) {
-    throw FirebaseException(
-      plugin: 'cloud_firestore',
-      code: 'empty-comment',
-      message: 'Comment cannot be empty.',
-    );
-  }
-
-  await spotReviewsCollection().doc(review.id).update({
-    'comment': cleanComment,
-    'updatedAt': FieldValue.serverTimestamp(),
-  });
-}
-
-Future<void> deleteSpotReview({
-  required CarSpot spot,
-  required SpotReviewData review,
-}) async {
-  final firebaseUser = FirebaseAuth.instance.currentUser;
-
-  if (firebaseUser == null) {
-    throw FirebaseException(
-      plugin: 'cloud_firestore',
-      code: 'not-logged-in',
-      message: 'Log in before deleting a review.',
-    );
-  }
-
-  if (firebaseUser.uid != review.userId) {
-    throw FirebaseException(
-      plugin: 'cloud_firestore',
-      code: 'permission-denied',
-      message: 'You can delete only your own comments.',
-    );
-  }
-
-  await spotReviewsCollection().doc(review.id).delete();
-}
-
-String spotRatingDocumentId(CarSpot spot, String userId) {
-  return '${spotReviewKey(spot)}_${userId}_rating';
-}
-
-Stream<int> watchCurrentUserSpotRating(CarSpot spot) {
-  final firebaseUser = FirebaseAuth.instance.currentUser;
-
-  if (firebaseUser == null) {
-    return Stream.value(0);
-  }
-
-  return spotReviewsCollection()
-      .doc(spotRatingDocumentId(spot, firebaseUser.uid))
-      .snapshots()
-      .map((snapshot) {
-        final data = snapshot.data();
-
-        if (!snapshot.exists || data == null) {
-          return 0;
-        }
-
-        return doubleFromFirebase(data['rating'], 0)
-            .round()
-            .clamp(0, 5)
-            .toInt();
-      });
-}
-
-Future<double?> saveSpotRating({
-  required CarSpot spot,
-  required int rating,
-}) async {
-  final firebaseUser = FirebaseAuth.instance.currentUser;
-
-  if (firebaseUser == null) {
-    throw FirebaseException(
-      plugin: 'cloud_firestore',
-      code: 'not-logged-in',
-      message: 'Log in before rating a spot.',
-    );
-  }
-
-  final safeRating = rating.clamp(1, 5);
-  final ratingRef = spotReviewsCollection().doc(
-    spotRatingDocumentId(spot, firebaseUser.uid),
-  );
-  final ratingSnapshot = await ratingRef.get();
-
-  final data = <String, Object?>{
-    'spotId': spotReviewKey(spot),
-    'spotName': spot.name,
-    'type': 'rating',
-    'userId': firebaseUser.uid,
-    'username': currentUser.username,
-    'rating': safeRating,
-    'comment': '',
-    'updatedAt': FieldValue.serverTimestamp(),
-  };
-
-  if (!ratingSnapshot.exists) {
-    data['createdAt'] = FieldValue.serverTimestamp();
-  }
-
-  await ratingRef.set(data, SetOptions(merge: true));
-
-  return updateSpotRatingFromReviews(spot);
+  await updateSpotRatingFromReviews(spot);
 }
 
 Future<double?> updateSpotRatingFromReviews(CarSpot spot) async {
@@ -1531,9 +1316,7 @@ Future<double?> updateSpotRatingFromReviews(CarSpot spot) async {
       .get();
 
   final ratings = snapshot.docs
-      .map((doc) => doc.data())
-      .where((data) => stringFromFirebase(data['type'], '') == 'rating')
-      .map((data) => doubleFromFirebase(data['rating'], 0))
+      .map((doc) => doubleFromFirebase(doc.data()['rating'], 0))
       .where((rating) => rating >= 1 && rating <= 5)
       .toList();
 
@@ -1548,7 +1331,7 @@ Future<double?> updateSpotRatingFromReviews(CarSpot spot) async {
 
   await spotsCollection().doc(spot.id).update({
     'rating': roundedRating,
-    'ratingCount': ratings.length,
+    'reviewCount': ratings.length,
     'reviewUpdatedAt': FieldValue.serverTimestamp(),
     'updatedAt': FieldValue.serverTimestamp(),
   });
@@ -2371,12 +2154,18 @@ class ExploreSpotStatsRow extends StatelessWidget {
       return Stream.value(false);
     }
 
-    return watchSpotReviews(spot).map(
-      (reviews) => reviews.any(
-        (review) =>
-            review.userId == firebaseUser.uid && review.comment.isNotEmpty,
-      ),
-    );
+    return spotReviewsCollection()
+        .doc('${spotReviewKey(spot)}_${firebaseUser.uid}')
+        .snapshots()
+        .map((snapshot) {
+          final data = snapshot.data();
+
+          if (!snapshot.exists || data == null) {
+            return false;
+          }
+
+          return stringFromFirebase(data['comment'], '').isNotEmpty;
+        });
   }
 
   @override
@@ -3337,26 +3126,16 @@ String formatDistanceKm(double value) {
 }
 
 String estimateDriveTime(double distanceKm) {
-  // This is only a rough straight-line estimate before Waze opens.
-  // City trips use slower speed, long trips use a higher average speed.
-  final averageSpeedKmh = distanceKm > 120 ? 70 : 35;
-  final minutes = (distanceKm / averageSpeedKmh * 60).round().clamp(2, 999999);
+  final minutes = (distanceKm / 35 * 60).clamp(2, 180).round();
 
   if (minutes < 60) {
     return '~$minutes min';
   }
 
   final hours = minutes ~/ 60;
-  final restMinutes = minutes % 60;
+  final rest = minutes % 60;
 
-  if (hours < 24) {
-    return restMinutes == 0 ? '~$hours h' : '~$hours h $restMinutes min';
-  }
-
-  final days = hours ~/ 24;
-  final restHours = hours % 24;
-
-  return restHours == 0 ? '~$days d' : '~$days d $restHours h';
+  return rest == 0 ? '~$hours h' : '~$hours h $rest min';
 }
 
 List<String> spotPhotoSources(CarSpot spot) {
@@ -3719,27 +3498,19 @@ class _SpotDetailScreenState extends State<SpotDetailScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                SpotDetailEngagementPanel(
-                  spot: spot,
-                  onRatingChanged: updateVisibleRating,
-                ),
-                const SizedBox(height: 12),
                 Row(
                   children: [
-                    if (spot.createdAtMillis > 0) ...[
-                      Icon(
-                        Icons.schedule,
-                        color: Colors.white.withValues(alpha: 0.45),
-                        size: 17,
+                    const Icon(Icons.star, color: blue, size: 20),
+                    const SizedBox(width: 6),
+                    Text(
+                      '${spot.rating.toStringAsFixed(1)} rating',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w700,
                       ),
-                      const SizedBox(width: 6),
-                      Text(
-                        'Added ${formatShortDate(DateTime.fromMillisecondsSinceEpoch(spot.createdAtMillis))}',
-                        style: const TextStyle(color: Colors.white54),
-                      ),
-                      const SizedBox(width: 14),
-                    ],
-                    Expanded(
+                    ),
+                    const Spacer(),
+                    Flexible(
                       child: Text(
                         'Added by ${spot.addedBy}',
                         maxLines: 1,
@@ -3778,7 +3549,7 @@ class _SpotDetailScreenState extends State<SpotDetailScreen> {
                 SpotRouteActions(spot: spot),
                 const SizedBox(height: 24),
                 const Text(
-                  'Video link',
+                  'Reel link',
                   style: TextStyle(
                     color: Colors.white,
                     fontSize: 18,
@@ -3802,7 +3573,7 @@ class _SpotDetailScreenState extends State<SpotDetailScreen> {
                         Expanded(
                           child: Text(
                             spot.reelLink.isEmpty
-                                ? 'No video link added'
+                                ? 'No reel link added'
                                 : spot.reelLink,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
@@ -3816,219 +3587,12 @@ class _SpotDetailScreenState extends State<SpotDetailScreen> {
                   ),
                 ),
                 const SizedBox(height: 24),
-                SpotReviewsSection(spot: spot),
+                SpotReviewsSection(
+                  spot: spot,
+                  onRatingChanged: updateVisibleRating,
+                ),
               ],
             ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class SpotDetailEngagementPanel extends StatefulWidget {
-  final CarSpot spot;
-  final ValueChanged<double>? onRatingChanged;
-
-  const SpotDetailEngagementPanel({
-    super.key,
-    required this.spot,
-    this.onRatingChanged,
-  });
-
-  @override
-  State<SpotDetailEngagementPanel> createState() =>
-      _SpotDetailEngagementPanelState();
-}
-
-class _SpotDetailEngagementPanelState extends State<SpotDetailEngagementPanel> {
-  bool isSavingRating = false;
-
-  Future<void> submitRating(int rating) async {
-    setState(() => isSavingRating = true);
-
-    try {
-      final updatedRating = await saveSpotRating(
-        spot: widget.spot,
-        rating: rating,
-      );
-
-      if (!mounted) {
-        return;
-      }
-
-      if (updatedRating != null) {
-        widget.onRatingChanged?.call(updatedRating);
-      }
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          backgroundColor: blue,
-          content: Text(
-            'Rating saved.',
-            style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
-          ),
-        ),
-      );
-    } catch (error) {
-      if (!mounted) {
-        return;
-      }
-
-      final code = error is FirebaseException ? error.code : error.toString();
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          backgroundColor: Colors.redAccent,
-          content: Text(
-            'Could not save rating: $code',
-            style: const TextStyle(
-              color: Colors.white,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-        ),
-      );
-    } finally {
-      if (mounted) {
-        setState(() => isSavingRating = false);
-      }
-    }
-  }
-
-  Widget starButton(int value, int currentRating) {
-    final selected = value <= currentRating;
-
-    return IconButton(
-      visualDensity: VisualDensity.compact,
-      onPressed: isSavingRating ? null : () => submitRating(value),
-      icon: Icon(
-        selected ? Icons.star : Icons.star_border,
-        color: selected ? blue : Colors.white38,
-        size: 26,
-      ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: panel,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: Colors.white12),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              const Icon(Icons.star, color: blue, size: 19),
-              const SizedBox(width: 7),
-              Text(
-                '${widget.spot.rating.toStringAsFixed(1)} spot rating',
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w900,
-                ),
-              ),
-              const Spacer(),
-              StreamBuilder<bool>(
-                stream: watchCurrentUserLikedSpot(widget.spot),
-                builder: (context, likedSnapshot) {
-                  final liked = likedSnapshot.data ?? false;
-
-                  return StreamBuilder<int>(
-                    stream: watchSpotLikeCount(widget.spot),
-                    builder: (context, countSnapshot) {
-                      final likeCount = countSnapshot.data ?? 0;
-
-                      return InkWell(
-                        onTap: () => toggleSpotLike(context, widget.spot, liked),
-                        borderRadius: BorderRadius.circular(16),
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 14,
-                            vertical: 10,
-                          ),
-                          decoration: BoxDecoration(
-                            color: liked
-                                ? Colors.redAccent.withValues(alpha: 0.18)
-                                : Colors.white.withValues(alpha: 0.06),
-                            borderRadius: BorderRadius.circular(16),
-                            border: Border.all(
-                              color: liked ? Colors.redAccent : Colors.white12,
-                            ),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(
-                                liked
-                                    ? Icons.favorite
-                                    : Icons.favorite_border,
-                                color: liked
-                                    ? Colors.redAccent
-                                    : Colors.white70,
-                                size: 23,
-                              ),
-                              const SizedBox(width: 7),
-                              Text(
-                                liked ? 'Liked' : 'Like',
-                                style: TextStyle(
-                                  color: liked
-                                      ? Colors.redAccent
-                                      : Colors.white,
-                                  fontWeight: FontWeight.w900,
-                                ),
-                              ),
-                              const SizedBox(width: 6),
-                              Text(
-                                '$likeCount',
-                                style: const TextStyle(
-                                  color: Colors.white70,
-                                  fontWeight: FontWeight.w800,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      );
-                    },
-                  );
-                },
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          const Text(
-            'Your rating',
-            style: TextStyle(color: Colors.white70, fontWeight: FontWeight.w800),
-          ),
-          StreamBuilder<int>(
-            stream: watchCurrentUserSpotRating(widget.spot),
-            builder: (context, ratingSnapshot) {
-              final currentRating = ratingSnapshot.data ?? 0;
-
-              return Row(
-                children: [
-                  for (var i = 1; i <= 5; i++) starButton(i, currentRating),
-                  if (isSavingRating) ...[
-                    const SizedBox(width: 8),
-                    const SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: blue,
-                      ),
-                    ),
-                  ],
-                ],
-              );
-            },
           ),
         ],
       ),
@@ -4147,10 +3711,12 @@ class _SpotRouteActionsState extends State<SpotRouteActions> {
 
 class SpotReviewsSection extends StatefulWidget {
   final CarSpot spot;
+  final ValueChanged<double>? onRatingChanged;
 
   const SpotReviewsSection({
     super.key,
     required this.spot,
+    this.onRatingChanged,
   });
 
   @override
@@ -4159,6 +3725,7 @@ class SpotReviewsSection extends StatefulWidget {
 
 class _SpotReviewsSectionState extends State<SpotReviewsSection> {
   final commentController = TextEditingController();
+  int selectedRating = 5;
   bool isSaving = false;
 
   @override
@@ -4167,7 +3734,7 @@ class _SpotReviewsSectionState extends State<SpotReviewsSection> {
     super.dispose();
   }
 
-  Future<void> submitComment() async {
+  Future<void> submitReview() async {
     final comment = commentController.text.trim();
 
     if (comment.isEmpty) {
@@ -4188,6 +3755,7 @@ class _SpotReviewsSectionState extends State<SpotReviewsSection> {
     try {
       await saveSpotReview(
         spot: widget.spot,
+        rating: selectedRating,
         comment: comment,
       );
 
@@ -4196,12 +3764,13 @@ class _SpotReviewsSectionState extends State<SpotReviewsSection> {
       }
 
       commentController.clear();
+      setState(() => selectedRating = 5);
 
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           backgroundColor: blue,
           content: Text(
-            'Comment posted.',
+            'Review saved.',
             style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
           ),
         ),
@@ -4217,7 +3786,7 @@ class _SpotReviewsSectionState extends State<SpotReviewsSection> {
         SnackBar(
           backgroundColor: Colors.redAccent,
           content: Text(
-            'Could not save comment: $code',
+            'Could not save review: $code',
             style: const TextStyle(
               color: Colors.white,
               fontWeight: FontWeight.w700,
@@ -4232,12 +3801,37 @@ class _SpotReviewsSectionState extends State<SpotReviewsSection> {
     }
   }
 
+  Widget starButton(int value) {
+    final selected = value <= selectedRating;
+
+    return IconButton(
+      onPressed: isSaving ? null : () => setState(() => selectedRating = value),
+      icon: Icon(
+        selected ? Icons.star : Icons.star_border,
+        color: selected ? blue : Colors.white38,
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<List<SpotReviewData>>(
       stream: watchSpotReviews(widget.spot),
       builder: (context, snapshot) {
         final reviews = snapshot.data ?? const <SpotReviewData>[];
+        final averageRating = reviews.isEmpty
+            ? widget.spot.rating
+            : reviews.fold<double>(
+                    0,
+                    (total, review) => total + review.rating,
+                  ) /
+                  reviews.length;
+
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) {
+            widget.onRatingChanged?.call(averageRating);
+          }
+        });
 
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -4245,7 +3839,7 @@ class _SpotReviewsSectionState extends State<SpotReviewsSection> {
             Row(
               children: [
                 const Text(
-                  'Comments',
+                  'Reviews',
                   style: TextStyle(
                     color: Colors.white,
                     fontSize: 20,
@@ -4276,6 +3870,14 @@ class _SpotReviewsSectionState extends State<SpotReviewsSection> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  const Text(
+                    'Your rating',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  Row(children: [for (var i = 1; i <= 5; i++) starButton(i)]),
                   TextField(
                     controller: commentController,
                     minLines: 2,
@@ -4305,11 +3907,11 @@ class _SpotReviewsSectionState extends State<SpotReviewsSection> {
                     width: double.infinity,
                     height: 46,
                     child: ElevatedButton.icon(
-                      onPressed: isSaving ? null : submitComment,
+                      onPressed: isSaving ? null : submitReview,
                       icon: Icon(
                         isSaving ? Icons.hourglass_bottom : Icons.send,
                       ),
-                      label: Text(isSaving ? 'Saving...' : 'Post Comment'),
+                      label: Text(isSaving ? 'Saving...' : 'Post Review'),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: blue,
                         foregroundColor: Colors.white,
@@ -4333,13 +3935,13 @@ class _SpotReviewsSectionState extends State<SpotReviewsSection> {
                   border: Border.all(color: Colors.white12),
                 ),
                 child: const Text(
-                  'No comments yet. Be the first to comment on this spot.',
+                  'No comments yet. Be the first to rate this spot.',
                   style: TextStyle(color: Colors.white54),
                 ),
               )
             else
               for (final review in reviews) ...[
-                SpotReviewCard(spot: widget.spot, review: review),
+                SpotReviewCard(review: review),
                 const SizedBox(height: 10),
               ],
           ],
@@ -4350,151 +3952,12 @@ class _SpotReviewsSectionState extends State<SpotReviewsSection> {
 }
 
 class SpotReviewCard extends StatelessWidget {
-  final CarSpot spot;
   final SpotReviewData review;
 
-  const SpotReviewCard({super.key, required this.spot, required this.review});
-
-  Future<void> _showEditDialog(BuildContext context) async {
-    final commentController = TextEditingController(text: review.comment);
-
-    final saved = await showDialog<bool>(
-      context: context,
-      builder: (context) {
-        return AlertDialog(
-          backgroundColor: panel,
-          title: const Text('Edit comment', style: TextStyle(color: Colors.white)),
-          content: StatefulBuilder(
-            builder: (context, setState) {
-              return Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  TextField(
-                    controller: commentController,
-                    minLines: 3,
-                    maxLines: 5,
-                    style: const TextStyle(color: Colors.white),
-                    decoration: InputDecoration(
-                      hintText: 'Edit your comment',
-                      hintStyle: const TextStyle(color: Colors.white38),
-                      filled: true,
-                      fillColor: Colors.white.withValues(alpha: 0.06),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(14),
-                        borderSide: const BorderSide(color: Colors.white12),
-                      ),
-                    ),
-                  ),
-                ],
-              );
-            },
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(false),
-              child: const Text('Cancel'),
-            ),
-            ElevatedButton(
-              onPressed: () {
-                if (commentController.text.trim().isEmpty) {
-                  return;
-                }
-                Navigator.of(context).pop(true);
-              },
-              child: const Text('Save'),
-            ),
-          ],
-        );
-      },
-    );
-
-    if (saved != true) {
-      return;
-    }
-
-    final newComment = commentController.text.trim();
-
-    try {
-      await editSpotReview(
-        spot: spot,
-        review: review,
-        comment: newComment,
-      );
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            backgroundColor: blue,
-            content: Text('Comment updated.', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
-          ),
-        );
-      }
-    } catch (error) {
-      if (context.mounted) {
-        final code = error is FirebaseException ? error.code : error.toString();
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            backgroundColor: Colors.redAccent,
-            content: Text('Could not update comment: $code', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
-          ),
-        );
-      }
-    }
-  }
-
-  Future<void> _showDeleteDialog(BuildContext context) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) {
-        return AlertDialog(
-          backgroundColor: panel,
-          title: const Text('Delete comment', style: TextStyle(color: Colors.white)),
-          content: const Text('Are you sure you want to delete this comment?', style: TextStyle(color: Colors.white70)),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(false),
-              child: const Text('Cancel'),
-            ),
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
-              onPressed: () => Navigator.of(context).pop(true),
-              child: const Text('Delete'),
-            ),
-          ],
-        );
-      },
-    );
-
-    if (confirmed != true) {
-      return;
-    }
-
-    try {
-      await deleteSpotReview(spot: spot, review: review);
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            backgroundColor: blue,
-            content: Text('Comment deleted.', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
-          ),
-        );
-      }
-    } catch (error) {
-      if (context.mounted) {
-        final code = error is FirebaseException ? error.code : error.toString();
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            backgroundColor: Colors.redAccent,
-            content: Text('Could not delete comment: $code', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
-          ),
-        );
-      }
-    }
-  }
+  const SpotReviewCard({super.key, required this.review});
 
   @override
   Widget build(BuildContext context) {
-    final canManage = FirebaseAuth.instance.currentUser?.uid == review.userId;
-
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(14),
@@ -4519,9 +3982,15 @@ class SpotReviewCard extends StatelessWidget {
                   ),
                 ),
               ),
-              Text(
-                formatShortDate(review.createdAt),
-                style: const TextStyle(color: Colors.white54, fontSize: 12),
+              Row(
+                children: [
+                  for (var i = 1; i <= 5; i++)
+                    Icon(
+                      i <= review.rating ? Icons.star : Icons.star_border,
+                      color: blue,
+                      size: 15,
+                    ),
+                ],
               ),
             ],
           ),
@@ -4529,76 +3998,6 @@ class SpotReviewCard extends StatelessWidget {
           Text(
             review.comment,
             style: const TextStyle(color: Colors.white70, height: 1.35),
-          ),
-          const SizedBox(height: 10),
-          Row(
-            children: [
-              StreamBuilder<bool>(
-                stream: watchCurrentUserLikedComment(review),
-                builder: (context, likedSnapshot) {
-                  final liked = likedSnapshot.data ?? false;
-
-                  return StreamBuilder<int>(
-                    stream: watchCommentLikeCount(review),
-                    builder: (context, countSnapshot) {
-                      final likeCount = countSnapshot.data ?? 0;
-
-                      return InkWell(
-                        onTap: () => toggleCommentLike(context, review, liked),
-                        borderRadius: BorderRadius.circular(999),
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 4,
-                            vertical: 4,
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(
-                                liked
-                                    ? Icons.favorite
-                                    : Icons.favorite_border,
-                                color: liked
-                                    ? Colors.redAccent
-                                    : Colors.white54,
-                                size: 17,
-                              ),
-                              const SizedBox(width: 5),
-                              Text(
-                                '$likeCount',
-                                style: TextStyle(
-                                  color: liked
-                                      ? Colors.redAccent
-                                      : Colors.white54,
-                                  fontWeight: FontWeight.w800,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      );
-                    },
-                  );
-                },
-              ),
-              const Spacer(),
-              if (canManage) ...[
-                IconButton(
-                  onPressed: () => _showEditDialog(context),
-                  icon: const Icon(Icons.edit, color: Colors.white54, size: 18),
-                  tooltip: 'Edit comment',
-                ),
-                IconButton(
-                  onPressed: () => _showDeleteDialog(context),
-                  icon: const Icon(
-                    Icons.delete_outline,
-                    color: Colors.white54,
-                    size: 18,
-                  ),
-                  tooltip: 'Delete comment',
-                ),
-              ],
-            ],
           ),
         ],
       ),
@@ -5186,7 +4585,7 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
               ),
               _CcsTextField(
                 controller: reelController,
-                label: 'Instagram / TikTok video link',
+                label: 'Instagram / TikTok reel link',
                 hint: 'https://instagram.com/reel/...',
                 icon: Icons.play_circle,
                 keyboardType: TextInputType.url,
@@ -8087,16 +7486,15 @@ Future<void> deleteAdminSpot(
     if (popAfterDelete) {
       Navigator.pop(context);
     }
-} catch (error) {
-  if (!context.mounted) return;
+  } catch (error) {
+    showAdminActionError(
+      context,
+      message: 'Could not delete spot',
+      error: error,
+    );
+  }
+}
 
-  showAdminActionError(
-    context,
-    message: 'Could not delete spot',
-    error: error,
-  );
-}
-}
 class AdminReviewScreen extends StatefulWidget {
   const AdminReviewScreen({super.key});
 
@@ -8564,6 +7962,3 @@ class AppPage extends StatelessWidget {
     );
   }
 }
-
-
-
