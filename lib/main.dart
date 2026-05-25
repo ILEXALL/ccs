@@ -1,4 +1,5 @@
-﻿import 'dart:async';
+import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -20,6 +21,10 @@ import 'firebase_options.dart';
 // It usually looks like: 325709324670-xxxxx.apps.googleusercontent.com
 const googleServerClientId =
     '325709324670-cep9b3r2j2mmapmmuougmqai7umvlod6.apps.googleusercontent.com';
+
+// Real Telegram login needs a small backend server.
+// Deploy ccs_app/telegram_auth_server, then paste its HTTPS URL here.
+const telegramAuthBaseUrl = 'https://y-beige-eta.vercel.app';
 
 String? googleSignInSetupError;
 bool firebaseReady = false;
@@ -278,6 +283,19 @@ String makeUsernameFromFirebaseUser(User user) {
   return cleanName.isEmpty ? 'ccs_driver' : cleanName;
 }
 
+String providerNameForFirebaseUser(User user) {
+  if (user.isAnonymous) {
+    return 'telegram';
+  }
+
+  final providerIds = user.providerData.map((provider) => provider.providerId);
+  if (providerIds.contains('google.com')) {
+    return 'google';
+  }
+
+  return providerIds.isEmpty ? 'firebase' : providerIds.first;
+}
+
 CollectionReference<Map<String, dynamic>> usernamesCollection() {
   return FirebaseFirestore.instance.collection('usernames');
 }
@@ -487,7 +505,10 @@ Future<AppUser?> loadCurrentFirebaseUser() async {
   }
 
   try {
-    currentUser = await saveFirebaseUser(firebaseUser, provider: 'google');
+    currentUser = await saveFirebaseUser(
+      firebaseUser,
+      provider: providerNameForFirebaseUser(firebaseUser),
+    );
     return currentUser;
   } catch (_) {
     return null;
@@ -497,6 +518,11 @@ Future<AppUser?> loadCurrentFirebaseUser() async {
 Future<AppUser> saveFirebaseUser(
   User firebaseUser, {
   required String provider,
+  String? displayNameOverride,
+  String? usernameOverride,
+  String? emailOverride,
+  String? photoUrlOverride,
+  String? telegramUsername,
 }) async {
   final userRef = FirebaseFirestore.instance
       .collection('users')
@@ -509,9 +535,13 @@ Future<AppUser> saveFirebaseUser(
       : roleFromFirebase(data?['role']);
   final name = (data?['name'] as String?)?.trim().isNotEmpty == true
       ? data!['name'] as String
+      : displayNameOverride?.trim().isNotEmpty == true
+      ? displayNameOverride!.trim()
       : firebaseUser.displayName ?? 'CCS Driver';
   final rawUsername = (data?['username'] as String?)?.trim().isNotEmpty == true
       ? data!['username'] as String
+      : usernameOverride?.trim().isNotEmpty == true
+      ? usernameOverride!.trim()
       : makeUsernameFromFirebaseUser(firebaseUser);
   final username = await reserveUsernameForCurrentUser(
     preferredUsername: rawUsername,
@@ -526,7 +556,7 @@ Future<AppUser> saveFirebaseUser(
       : 'Latvia';
   final photoUrl = (data?['photoUrl'] as String?)?.trim().isNotEmpty == true
       ? data!['photoUrl'] as String
-      : firebaseUser.photoURL;
+      : photoUrlOverride ?? firebaseUser.photoURL;
   final bio = (data?['bio'] as String?)?.trim().isNotEmpty == true
       ? data!['bio'] as String
       : 'Night drive setup, Riga spots, clean reels, and low car routes.';
@@ -544,7 +574,7 @@ Future<AppUser> saveFirebaseUser(
     'name': name,
     'username': username,
     'usernameKey': usernameKey(username),
-    'email': firebaseUser.email ?? '',
+    'email': emailOverride ?? firebaseUser.email ?? '',
     'photoUrl': photoUrl,
     'bio': bio,
     'avatarPath': avatarPath,
@@ -554,6 +584,7 @@ Future<AppUser> saveFirebaseUser(
     'settings': settings.toFirebase(),
     'garage': garage.map((car) => car.toFirebase()).toList(),
     'provider': provider,
+    'telegramUsername': telegramUsername,
     'updatedAt': FieldValue.serverTimestamp(),
   };
 
@@ -567,7 +598,7 @@ Future<AppUser> saveFirebaseUser(
     uid: firebaseUser.uid,
     name: name,
     username: username,
-    email: firebaseUser.email ?? '',
+    email: emailOverride ?? firebaseUser.email ?? '',
     photoUrl: photoUrl,
     bio: bio,
     avatarPath: avatarPath,
@@ -575,6 +606,129 @@ Future<AppUser> saveFirebaseUser(
     city: city,
     country: country,
   );
+}
+
+Future<AppUser> signInWithTelegramAndSaveUser() async {
+  if (!firebaseReady) {
+    throw Exception(
+      googleSignInSetupError ??
+          'Firebase did not initialize on this device. Check setup first.',
+    );
+  }
+
+  final baseUrl = telegramAuthBaseUrl.trim();
+  if (baseUrl.contains('YOUR_CCS_TELEGRAM_AUTH_BACKEND')) {
+    throw Exception(
+      'Telegram backend URL is not set. Deploy telegram_auth_server first.',
+    );
+  }
+
+  final startData = await getJsonFromUrl('$baseUrl/api/telegram-start');
+  final sessionId = stringFromFirebase(startData['sessionId'], '');
+  final loginUrl = stringFromFirebase(startData['loginUrl'], '');
+
+  if (sessionId.isEmpty || loginUrl.isEmpty) {
+    throw Exception('Telegram backend returned an invalid login session.');
+  }
+
+  final opened = await launchUrl(
+    Uri.parse(loginUrl),
+    mode: LaunchMode.externalApplication,
+  );
+
+  if (!opened) {
+    throw Exception('Could not open Telegram login page.');
+  }
+
+  Map<String, dynamic>? completeData;
+
+  for (var attempt = 0; attempt < 90; attempt++) {
+    await Future.delayed(const Duration(seconds: 2));
+
+    final statusData = await getJsonFromUrl(
+      '$baseUrl/api/telegram-status?sessionId=${Uri.encodeComponent(sessionId)}',
+    );
+    final status = stringFromFirebase(statusData['status'], 'pending');
+
+    if (status == 'complete') {
+      completeData = statusData;
+      break;
+    }
+
+    if (status == 'error') {
+      throw Exception(
+        stringFromFirebase(statusData['message'], 'Telegram login failed.'),
+      );
+    }
+  }
+
+  if (completeData == null) {
+    throw Exception('Telegram login timed out. Try again.');
+  }
+
+  final firebaseToken = stringFromFirebase(completeData['firebaseToken'], '');
+  final telegramData = mapFromFirebase(completeData['telegram']);
+
+  if (firebaseToken.isEmpty) {
+    throw Exception('Telegram backend did not return a Firebase token.');
+  }
+
+  final userCredential = await FirebaseAuth.instance.signInWithCustomToken(
+    firebaseToken,
+  );
+  final firebaseUser = userCredential.user;
+
+  if (firebaseUser == null) {
+    throw Exception('Firebase login finished without a user.');
+  }
+
+  final telegramUsername = stringFromFirebase(telegramData['username'], '');
+  final firstName = stringFromFirebase(telegramData['first_name'], '');
+  final lastName = stringFromFirebase(telegramData['last_name'], '');
+  final fullName = ('$firstName $lastName').trim();
+  final telegramId = stringFromFirebase(telegramData['id'], firebaseUser.uid);
+  final photoUrl = stringFromFirebase(telegramData['photo_url'], '');
+  final fallbackUsername = telegramUsername.isNotEmpty
+      ? telegramUsername
+      : 'telegram_$telegramId';
+
+  currentUser = await saveFirebaseUser(
+    firebaseUser,
+    provider: 'telegram',
+    displayNameOverride: fullName.isEmpty ? '@$fallbackUsername' : fullName,
+    usernameOverride: fallbackUsername,
+    emailOverride: '',
+    photoUrlOverride: photoUrl.isEmpty ? null : photoUrl,
+    telegramUsername: fallbackUsername,
+  );
+  startFirebaseSpotSync();
+  return currentUser;
+}
+
+Future<Map<String, dynamic>> getJsonFromUrl(String url) async {
+  final client = HttpClient();
+
+  try {
+    final request = await client.getUrl(Uri.parse(url));
+    request.headers.set(HttpHeaders.acceptHeader, 'application/json');
+
+    final response = await request.close();
+    final body = await utf8.decodeStream(response);
+
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw Exception('Request failed ${response.statusCode}: $body');
+    }
+
+    final decoded = jsonDecode(body);
+
+    if (decoded is Map<String, dynamic>) {
+      return decoded;
+    }
+
+    throw Exception('Backend returned invalid JSON.');
+  } finally {
+    client.close(force: true);
+  }
 }
 
 Future<AppUser> signInWithGoogleAndSaveUser() async {
@@ -1880,16 +2034,43 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
-  void showTelegramLoginInfo() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        backgroundColor: panel,
-        content: Text(
-          'Telegram login needs a Telegram bot and backend. Google login is connected now.',
-          style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+  Future<void> loginWithTelegram() async {
+    setState(() => isSigningIn = true);
+
+    try {
+      await signInWithTelegramAndSaveUser();
+      await saveRememberMePreference(rememberMe);
+
+      if (!mounted) {
+        return;
+      }
+
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (_) => const MainScreen()),
+      );
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: Colors.redAccent,
+          content: Text(
+            'Telegram login failed. $error',
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
         ),
-      ),
-    );
+      );
+    } finally {
+      if (mounted) {
+        setState(() => isSigningIn = false);
+      }
+    }
   }
 
   @override
@@ -1927,17 +2108,17 @@ class _LoginScreenState extends State<LoginScreen> {
                   Colors.red,
                   isSigningIn ? null : loginWithGoogle,
                 ),
-                _RememberMeRow(
-                  value: rememberMe,
-                  enabled: !isSigningIn,
-                  onChanged: (value) => setState(() => rememberMe = value),
-                ),
-                const SizedBox(height: 10),
                 loginButton(
                   'Continue with Telegram',
                   Icons.send,
                   blue,
-                  isSigningIn ? null : showTelegramLoginInfo,
+                  isSigningIn ? null : loginWithTelegram,
+                ),
+                const SizedBox(height: 4),
+                _RememberMeRow(
+                  value: rememberMe,
+                  enabled: !isSigningIn,
+                  onChanged: (value) => setState(() => rememberMe = value),
                 ),
                 const SizedBox(height: 28),
                 const Text(
@@ -2208,6 +2389,9 @@ class ExploreSpotCard extends StatelessWidget {
       for (final category in spot.categories.take(3))
         _SmallTag(label: category, icon: Icons.local_offer),
     ];
+    final addedDateText = spot.createdAtMillis > 0
+        ? 'Added ${formatShortDate(DateTime.fromMillisecondsSinceEpoch(spot.createdAtMillis))}'
+        : 'Added date unknown';
 
     return InkWell(
       onTap: () {
@@ -2231,8 +2415,8 @@ class ExploreSpotCard extends StatelessWidget {
               children: [
                 SpotPhoto(
                   spot: spot,
-                  width: 126,
-                  height: 92,
+                  width: 136,
+                  height: 98,
                   fit: BoxFit.cover,
                   borderRadius: BorderRadius.circular(12),
                 ),
@@ -2266,18 +2450,18 @@ class ExploreSpotCard extends StatelessWidget {
                           overflow: TextOverflow.ellipsis,
                           style: const TextStyle(
                             color: Colors.white,
-                            fontSize: 15,
+                            fontSize: 16,
                             fontWeight: FontWeight.w900,
                           ),
                         ),
                       ),
-                      const Icon(Icons.star, color: blue, size: 14),
+                      const Icon(Icons.star, color: blue, size: 15),
                       const SizedBox(width: 3),
                       Text(
                         spot.rating.toStringAsFixed(1),
                         style: const TextStyle(
                           color: Colors.white,
-                          fontSize: 11,
+                          fontSize: 12,
                           fontWeight: FontWeight.w800,
                         ),
                       ),
@@ -2288,22 +2472,45 @@ class ExploreSpotCard extends StatelessWidget {
                     spot.cityCountry,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(color: Colors.white54, fontSize: 11),
+                    style: const TextStyle(color: Colors.white54, fontSize: 12),
                   ),
-                  const SizedBox(height: 5),
+                  const SizedBox(height: 2),
+                  Row(
+                    children: [
+                      const Icon(
+                        Icons.schedule,
+                        color: Colors.white38,
+                        size: 12,
+                      ),
+                      const SizedBox(width: 4),
+                      Expanded(
+                        child: Text(
+                          addedDateText,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Colors.white38,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
                   Text(
                     spot.description,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
                       color: Colors.white70,
-                      fontSize: 11,
+                      fontSize: 12,
                       height: 1.2,
                     ),
                   ),
                   const SizedBox(height: 8),
                   SizedBox(
-                    height: 25,
+                    height: 28,
                     child: ListView.separated(
                       scrollDirection: Axis.horizontal,
                       itemCount: tagWidgets.length,
@@ -2345,13 +2552,13 @@ class ExploreSpotStatsRow extends StatelessWidget {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, color: color, size: overlay ? 14 : 15),
-            const SizedBox(width: 3),
+            Icon(icon, color: color, size: 16),
+            const SizedBox(width: 4),
             Text(
               '$count',
               style: TextStyle(
                 color: color,
-                fontSize: overlay ? 10 : 11,
+                fontSize: overlay ? 12 : 12,
                 fontWeight: FontWeight.w900,
                 shadows: overlay
                     ? const [Shadow(color: Colors.black, blurRadius: 5)]
@@ -4663,7 +4870,7 @@ class _SmallTag extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
       decoration: BoxDecoration(
         color: Colors.white.withValues(alpha: 0.08),
         borderRadius: BorderRadius.circular(999),
@@ -4672,13 +4879,13 @@ class _SmallTag extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, color: blue, size: 13),
+          Icon(icon, color: blue, size: 14),
           const SizedBox(width: 5),
           Text(
             label,
             style: const TextStyle(
               color: Colors.white70,
-              fontSize: 11,
+              fontSize: 12,
               fontWeight: FontWeight.w600,
             ),
           ),
@@ -8087,16 +8294,15 @@ Future<void> deleteAdminSpot(
     if (popAfterDelete) {
       Navigator.pop(context);
     }
-} catch (error) {
-  if (!context.mounted) return;
+  } catch (error) {
+    showAdminActionError(
+      context,
+      message: 'Could not delete spot',
+      error: error,
+    );
+  }
+}
 
-  showAdminActionError(
-    context,
-    message: 'Could not delete spot',
-    error: error,
-  );
-}
-}
 class AdminReviewScreen extends StatefulWidget {
   const AdminReviewScreen({super.key});
 
@@ -8564,6 +8770,3 @@ class AppPage extends StatelessWidget {
     );
   }
 }
-
-
-

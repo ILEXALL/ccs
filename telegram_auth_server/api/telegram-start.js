@@ -1,6 +1,6 @@
 const crypto = require('crypto');
 const { db } = require('../lib/firebase-admin');
-const { publicBaseUrl } = require('../lib/telegram');
+const { telegramBotUsername } = require('../lib/telegram');
 
 module.exports = async (request, response) => {
   try {
@@ -9,8 +9,8 @@ module.exports = async (request, response) => {
       return;
     }
 
-    const sessionId = crypto.randomUUID();
-    const baseUrl = publicBaseUrl();
+    const sessionId = crypto.randomBytes(18).toString('base64url');
+    const botUsername = telegramBotUsername();
 
     await db.collection('telegram_login_sessions').doc(sessionId).set({
       status: 'pending',
@@ -21,7 +21,7 @@ module.exports = async (request, response) => {
     response.setHeader('Cache-Control', 'no-store');
     response.status(200).json({
       sessionId,
-      loginUrl: `${baseUrl}/api/telegram-login?sessionId=${encodeURIComponent(sessionId)}`,
+      loginUrl: `https://t.me/${botUsername}?start=login_${encodeURIComponent(sessionId)}`,
     });
   } catch (error) {
     response.status(500).json({ error: error.message });

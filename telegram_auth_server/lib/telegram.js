@@ -29,6 +29,10 @@ function telegramBotToken() {
   return token;
 }
 
+function telegramWebhookSecret() {
+  return process.env.TELEGRAM_WEBHOOK_SECRET || '';
+}
+
 function telegramBotUsername() {
   const username = process.env.TELEGRAM_BOT_USERNAME;
 
@@ -78,6 +82,8 @@ function verifyTelegramLogin(data) {
 module.exports = {
   escapeHtml,
   publicBaseUrl,
+  telegramBotToken,
   telegramBotUsername,
+  telegramWebhookSecret,
   verifyTelegramLogin,
 };
