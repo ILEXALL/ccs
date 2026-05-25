@@ -1,5 +1,4 @@
 ﻿import 'dart:async';
-import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -7328,6 +7327,7 @@ class AddSpotScreen extends StatefulWidget {
 class _AddSpotScreenState extends State<AddSpotScreen> {
   final nameController = TextEditingController();
   final cityController = TextEditingController();
+  final addressController = TextEditingController();
   final descriptionController = TextEditingController();
   final reelController = TextEditingController();
   final addedByController = TextEditingController();
@@ -7355,26 +7355,14 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
   void dispose() {
     nameController.dispose();
     cityController.dispose();
+    addressController.dispose();
     descriptionController.dispose();
     reelController.dispose();
     addedByController.dispose();
     super.dispose();
   }
 
-  Future<void> chooseLocation() async {
-    FocusScope.of(context).unfocus();
-
-    final location = await Navigator.push<LatLng>(
-      context,
-      MaterialPageRoute(
-        builder: (_) => LocationPickerScreen(initialLocation: selectedLocation),
-      ),
-    );
-
-    if (!mounted || location == null) {
-      return;
-    }
-
+  Future<void> applySelectedLocation(LatLng location) async {
     setState(() {
       selectedLocation = location;
       detectedCityCountry = 'Detecting city/country...';
@@ -7391,6 +7379,142 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
       detectedCityCountry = cityCountry;
       isDetectingCityCountry = false;
     });
+  }
+
+  Future<void> chooseLocation() async {
+    FocusScope.of(context).unfocus();
+
+    final location = await Navigator.push<LatLng>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => LocationPickerScreen(initialLocation: selectedLocation),
+      ),
+    );
+
+    if (!mounted || location == null) {
+      return;
+    }
+
+    await applySelectedLocation(location);
+  }
+
+  Future<void> findExactAddress() async {
+    FocusScope.of(context).unfocus();
+
+    final address = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          backgroundColor: panel,
+          title: const Text('Find exact address'),
+          content: TextField(
+            controller: addressController,
+            autofocus: true,
+            keyboardType: TextInputType.streetAddress,
+            textInputAction: TextInputAction.search,
+            style: const TextStyle(color: Colors.white),
+            decoration: InputDecoration(
+              hintText: 'Street, city, country',
+              hintStyle: const TextStyle(color: Colors.white38),
+              prefixIcon: const Icon(Icons.search, color: blue),
+              filled: true,
+              fillColor: Colors.white.withValues(alpha: 0.06),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+                borderSide: const BorderSide(color: Colors.white12),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+                borderSide: const BorderSide(color: Colors.white12),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+                borderSide: const BorderSide(color: blue),
+              ),
+            ),
+            onSubmitted: (value) => Navigator.pop(dialogContext, value.trim()),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: () =>
+                  Navigator.pop(dialogContext, addressController.text.trim()),
+              child: const Text('Find'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (!mounted || address == null || address.trim().isEmpty) {
+      return;
+    }
+
+    try {
+      setState(() {
+        detectedCityCountry = 'Finding address...';
+        isDetectingCityCountry = true;
+      });
+
+      final locations = await locationFromAddress(address.trim());
+
+      if (!mounted) {
+        return;
+      }
+
+      if (locations.isEmpty) {
+        setState(() {
+          detectedCityCountry = selectedLocation == null
+              ? 'Choose location to detect city/country'
+              : detectedCityCountry;
+          isDetectingCityCountry = false;
+        });
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            backgroundColor: Colors.redAccent,
+            content: Text(
+              'Address not found. Try adding city and country.',
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        );
+        return;
+      }
+
+      final first = locations.first;
+      await applySelectedLocation(LatLng(first.latitude, first.longitude));
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        detectedCityCountry = selectedLocation == null
+            ? 'Choose location to detect city/country'
+            : detectedCityCountry;
+        isDetectingCityCountry = false;
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: Colors.redAccent,
+          content: Text(
+            'Could not find that address. $error',
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+      );
+    }
   }
 
   Future<void> choosePhoto() async {
@@ -7491,7 +7615,7 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
         const SnackBar(
           backgroundColor: Colors.redAccent,
           content: Text(
-            'Choose the spot location on the map first.',
+            'Choose the spot location on the map or find exact address first.',
             style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
           ),
         ),
@@ -7752,6 +7876,8 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
                 icon: Icons.place,
               ),
               _LocationPickerField(
+                title: 'Pin on the map',
+                icon: Icons.map,
                 hasLocation: selectedLocation != null,
                 subtitle: isDetectingCityCountry
                     ? 'Detecting city/country...'
@@ -7759,6 +7885,16 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
                     ? 'Choose the spot on map'
                     : detectedCityCountry,
                 onTap: chooseLocation,
+              ),
+              const SizedBox(height: 10),
+              _LocationPickerField(
+                title: 'Find exact address',
+                icon: Icons.search,
+                hasLocation: selectedLocation != null,
+                subtitle: selectedLocation == null
+                    ? 'Type an address and place the pin automatically'
+                    : 'Current pin: $detectedCityCountry',
+                onTap: findExactAddress,
               ),
               _CcsTextField(
                 controller: descriptionController,
@@ -8197,11 +8333,15 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
 }
 
 class _LocationPickerField extends StatelessWidget {
+  final String title;
+  final IconData icon;
   final bool hasLocation;
   final String? subtitle;
   final VoidCallback onTap;
 
   const _LocationPickerField({
+    this.title = 'Location',
+    this.icon = Icons.map,
     required this.hasLocation,
     this.subtitle,
     required this.onTap,
@@ -8230,19 +8370,16 @@ class _LocationPickerField extends StatelessWidget {
                 color: blue.withValues(alpha: 0.15),
                 borderRadius: BorderRadius.circular(13),
               ),
-              child: Icon(
-                hasLocation ? Icons.check_circle : Icons.map,
-                color: blue,
-              ),
+              child: Icon(hasLocation ? Icons.check_circle : icon, color: blue),
             ),
             const SizedBox(width: 12),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text(
-                    'Location',
-                    style: TextStyle(
+                  Text(
+                    title,
+                    style: const TextStyle(
                       color: Colors.white,
                       fontWeight: FontWeight.w800,
                     ),
