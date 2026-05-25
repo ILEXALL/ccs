@@ -50,24 +50,17 @@ module.exports = async (request, response) => {
     const sessionId = text.replace('/start login_', '').trim();
     const sessionRef = db.collection('telegram_login_sessions').doc(sessionId);
     const sessionSnapshot = await sessionRef.get();
+    const now = Date.now();
 
-    if (!sessionSnapshot.exists) {
-      if (chatId) {
-        await sendBotMessage(chatId, 'CCS login expired. Please open CCS and try again.');
-      }
-
-      response.status(200).json({ ok: true });
-      return;
-    }
-
-    const session = sessionSnapshot.data();
-    const ageMs = Date.now() - Number(session.createdAt ?? 0);
+    const session = sessionSnapshot.exists ? sessionSnapshot.data() : null;
+    const createdAt = Number(session?.createdAt ?? now);
+    const ageMs = now - createdAt;
 
     if (ageMs > 10 * 60 * 1000) {
       await sessionRef.set({
         status: 'error',
         message: 'Telegram login session expired.',
-        updatedAt: Date.now(),
+        updatedAt: now,
       }, { merge: true });
 
       if (chatId) {
@@ -97,8 +90,9 @@ module.exports = async (request, response) => {
       status: 'complete',
       firebaseToken,
       telegram,
-      updatedAt: Date.now(),
-      completedAt: Date.now(),
+      createdAt,
+      updatedAt: now,
+      completedAt: now,
     }, { merge: true });
 
     if (chatId) {

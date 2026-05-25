@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -25,6 +26,7 @@ const googleServerClientId =
 // Real Telegram login needs a small backend server.
 // Deploy ccs_app/telegram_auth_server, then paste its HTTPS URL here.
 const telegramAuthBaseUrl = 'https://y-beige-eta.vercel.app';
+const telegramBotUsername = 'ccs_login_lv_bot';
 
 String? googleSignInSetupError;
 bool firebaseReady = false;
@@ -623,13 +625,8 @@ Future<AppUser> signInWithTelegramAndSaveUser() async {
     );
   }
 
-  final startData = await getJsonFromUrl('$baseUrl/api/telegram-start');
-  final sessionId = stringFromFirebase(startData['sessionId'], '');
-  final loginUrl = stringFromFirebase(startData['loginUrl'], '');
-
-  if (sessionId.isEmpty || loginUrl.isEmpty) {
-    throw Exception('Telegram backend returned an invalid login session.');
-  }
+  final sessionId = createTelegramLoginSessionId();
+  final loginUrl = 'https://t.me/$telegramBotUsername?start=login_$sessionId';
 
   final opened = await launchUrl(
     Uri.parse(loginUrl),
@@ -641,13 +638,24 @@ Future<AppUser> signInWithTelegramAndSaveUser() async {
   }
 
   Map<String, dynamic>? completeData;
+  Object? lastTelegramNetworkError;
 
   for (var attempt = 0; attempt < 90; attempt++) {
     await Future.delayed(const Duration(seconds: 2));
 
-    final statusData = await getJsonFromUrl(
-      '$baseUrl/api/telegram-status?sessionId=${Uri.encodeComponent(sessionId)}',
-    );
+    Map<String, dynamic> statusData;
+
+    try {
+      statusData = await getJsonFromUrl(
+        '$baseUrl/api/telegram-status?sessionId=${Uri.encodeComponent(sessionId)}',
+      );
+    } catch (error) {
+      // Mobile networks and emulators can briefly fail DNS while switching apps.
+      // Keep waiting instead of failing the Telegram login immediately.
+      lastTelegramNetworkError = error;
+      continue;
+    }
+
     final status = stringFromFirebase(statusData['status'], 'pending');
 
     if (status == 'complete') {
@@ -663,6 +671,12 @@ Future<AppUser> signInWithTelegramAndSaveUser() async {
   }
 
   if (completeData == null) {
+    if (lastTelegramNetworkError != null) {
+      throw Exception(
+        'Telegram backend did not respond. Check internet connection and try again. Last error: $lastTelegramNetworkError',
+      );
+    }
+
     throw Exception('Telegram login timed out. Try again.');
   }
 
@@ -703,6 +717,16 @@ Future<AppUser> signInWithTelegramAndSaveUser() async {
   );
   startFirebaseSpotSync();
   return currentUser;
+}
+
+String createTelegramLoginSessionId() {
+  const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-';
+  final random = Random.secure();
+
+  return List.generate(
+    32,
+    (_) => chars[random.nextInt(chars.length)],
+  ).join();
 }
 
 Future<Map<String, dynamic>> getJsonFromUrl(String url) async {

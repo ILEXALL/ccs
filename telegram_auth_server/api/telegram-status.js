@@ -13,7 +13,8 @@ module.exports = async (request, response) => {
     const sessionSnapshot = await sessionRef.get();
 
     if (!sessionSnapshot.exists) {
-      response.status(404).json({ status: 'error', message: 'Login session not found.' });
+      response.setHeader('Cache-Control', 'no-store');
+      response.status(200).json({ status: 'pending' });
       return;
     }
 
