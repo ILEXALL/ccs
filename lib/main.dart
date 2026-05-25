@@ -1,4 +1,5 @@
-﻿import 'dart:async';
+import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -20,6 +21,10 @@ import 'firebase_options.dart';
 // It usually looks like: 325709324670-xxxxx.apps.googleusercontent.com
 const googleServerClientId =
     '325709324670-cep9b3r2j2mmapmmuougmqai7umvlod6.apps.googleusercontent.com';
+
+// Real Telegram login needs a small backend server.
+// Deploy ccs_app/telegram_auth_server, then paste its HTTPS URL here.
+const telegramAuthBaseUrl = 'https://y-beige-eta.vercel.app';
 
 String? googleSignInSetupError;
 bool firebaseReady = false;
@@ -278,8 +283,112 @@ String makeUsernameFromFirebaseUser(User user) {
   return cleanName.isEmpty ? 'ccs_driver' : cleanName;
 }
 
+String providerNameForFirebaseUser(User user) {
+  if (user.isAnonymous) {
+    return 'telegram';
+  }
+
+  final providerIds = user.providerData.map((provider) => provider.providerId);
+  if (providerIds.contains('google.com')) {
+    return 'google';
+  }
+
+  return providerIds.isEmpty ? 'firebase' : providerIds.first;
+}
+
 CollectionReference<Map<String, dynamic>> usernamesCollection() {
   return FirebaseFirestore.instance.collection('usernames');
+}
+
+enum UsernameAvailability {
+  unchanged,
+  checking,
+  available,
+  taken,
+  invalid,
+  error,
+}
+
+Future<UsernameAvailability> checkUsernameAvailabilityForCurrentUser(
+  String username, {
+  required String currentUsername,
+}) async {
+  final firebaseUser = FirebaseAuth.instance.currentUser;
+  final cleanUsername = cleanProfileUsername(username);
+
+  if (cleanUsername.length < 3) {
+    return UsernameAvailability.invalid;
+  }
+
+  if (usernameKey(cleanUsername) == usernameKey(currentUsername)) {
+    return UsernameAvailability.unchanged;
+  }
+
+  if (firebaseUser == null) {
+    return UsernameAvailability.error;
+  }
+
+  try {
+    final snapshot = await usernamesCollection()
+        .doc(usernameKey(cleanUsername))
+        .get();
+
+    if (!snapshot.exists) {
+      return UsernameAvailability.available;
+    }
+
+    final ownerUid = snapshot.data()?['uid'] as String?;
+    return ownerUid == firebaseUser.uid
+        ? UsernameAvailability.unchanged
+        : UsernameAvailability.taken;
+  } catch (_) {
+    return UsernameAvailability.error;
+  }
+}
+
+String usernameAvailabilityText(UsernameAvailability availability) {
+  switch (availability) {
+    case UsernameAvailability.unchanged:
+      return 'This is your current nickname.';
+    case UsernameAvailability.checking:
+      return 'Checking nickname availability...';
+    case UsernameAvailability.available:
+      return 'Nickname is available.';
+    case UsernameAvailability.taken:
+      return 'This nickname is already taken.';
+    case UsernameAvailability.invalid:
+      return 'Nickname must be at least 3 characters.';
+    case UsernameAvailability.error:
+      return 'Could not check nickname availability.';
+  }
+}
+
+Color usernameAvailabilityColor(UsernameAvailability availability) {
+  switch (availability) {
+    case UsernameAvailability.available:
+    case UsernameAvailability.unchanged:
+      return Colors.greenAccent;
+    case UsernameAvailability.checking:
+      return Colors.white54;
+    case UsernameAvailability.taken:
+    case UsernameAvailability.invalid:
+    case UsernameAvailability.error:
+      return Colors.redAccent;
+  }
+}
+
+IconData usernameAvailabilityIcon(UsernameAvailability availability) {
+  switch (availability) {
+    case UsernameAvailability.available:
+    case UsernameAvailability.unchanged:
+      return Icons.check_circle_outline;
+    case UsernameAvailability.checking:
+      return Icons.hourglass_empty;
+    case UsernameAvailability.taken:
+    case UsernameAvailability.invalid:
+    case UsernameAvailability.error:
+      return Icons.error_outline;
+  }
 }
 
 String fallbackUsernameSuffix(String uid) {
@@ -396,7 +505,10 @@ Future<AppUser?> loadCurrentFirebaseUser() async {
   }
 
   try {
-    currentUser = await saveFirebaseUser(firebaseUser, provider: 'google');
+    currentUser = await saveFirebaseUser(
+      firebaseUser,
+      provider: providerNameForFirebaseUser(firebaseUser),
+    );
     return currentUser;
   } catch (_) {
     return null;
@@ -406,6 +518,11 @@ Future<AppUser?> loadCurrentFirebaseUser() async {
 Future<AppUser> saveFirebaseUser(
   User firebaseUser, {
   required String provider,
+  String? displayNameOverride,
+  String? usernameOverride,
+  String? emailOverride,
+  String? photoUrlOverride,
+  String? telegramUsername,
 }) async {
   final userRef = FirebaseFirestore.instance
       .collection('users')
@@ -418,9 +535,13 @@ Future<AppUser> saveFirebaseUser(
       : roleFromFirebase(data?['role']);
   final name = (data?['name'] as String?)?.trim().isNotEmpty == true
       ? data!['name'] as String
+      : displayNameOverride?.trim().isNotEmpty == true
+      ? displayNameOverride!.trim()
       : firebaseUser.displayName ?? 'CCS Driver';
   final rawUsername = (data?['username'] as String?)?.trim().isNotEmpty == true
       ? data!['username'] as String
+      : usernameOverride?.trim().isNotEmpty == true
+      ? usernameOverride!.trim()
       : makeUsernameFromFirebaseUser(firebaseUser);
   final username = await reserveUsernameForCurrentUser(
     preferredUsername: rawUsername,
@@ -435,7 +556,7 @@ Future<AppUser> saveFirebaseUser(
       : 'Latvia';
   final photoUrl = (data?['photoUrl'] as String?)?.trim().isNotEmpty == true
       ? data!['photoUrl'] as String
-      : firebaseUser.photoURL;
+      : photoUrlOverride ?? firebaseUser.photoURL;
   final bio = (data?['bio'] as String?)?.trim().isNotEmpty == true
       ? data!['bio'] as String
       : 'Night drive setup, Riga spots, clean reels, and low car routes.';
@@ -453,7 +574,7 @@ Future<AppUser> saveFirebaseUser(
     'name': name,
     'username': username,
     'usernameKey': usernameKey(username),
-    'email': firebaseUser.email ?? '',
+    'email': emailOverride ?? firebaseUser.email ?? '',
     'photoUrl': photoUrl,
     'bio': bio,
     'avatarPath': avatarPath,
@@ -463,6 +584,7 @@ Future<AppUser> saveFirebaseUser(
     'settings': settings.toFirebase(),
     'garage': garage.map((car) => car.toFirebase()).toList(),
     'provider': provider,
+    'telegramUsername': telegramUsername,
     'updatedAt': FieldValue.serverTimestamp(),
   };
 
@@ -476,7 +598,7 @@ Future<AppUser> saveFirebaseUser(
     uid: firebaseUser.uid,
     name: name,
     username: username,
-    email: firebaseUser.email ?? '',
+    email: emailOverride ?? firebaseUser.email ?? '',
     photoUrl: photoUrl,
     bio: bio,
     avatarPath: avatarPath,
@@ -484,6 +606,129 @@ Future<AppUser> saveFirebaseUser(
     city: city,
     country: country,
   );
+}
+
+Future<AppUser> signInWithTelegramAndSaveUser() async {
+  if (!firebaseReady) {
+    throw Exception(
+      googleSignInSetupError ??
+          'Firebase did not initialize on this device. Check setup first.',
+    );
+  }
+
+  final baseUrl = telegramAuthBaseUrl.trim();
+  if (baseUrl.contains('YOUR_CCS_TELEGRAM_AUTH_BACKEND')) {
+    throw Exception(
+      'Telegram backend URL is not set. Deploy telegram_auth_server first.',
+    );
+  }
+
+  final startData = await getJsonFromUrl('$baseUrl/api/telegram-start');
+  final sessionId = stringFromFirebase(startData['sessionId'], '');
+  final loginUrl = stringFromFirebase(startData['loginUrl'], '');
+
+  if (sessionId.isEmpty || loginUrl.isEmpty) {
+    throw Exception('Telegram backend returned an invalid login session.');
+  }
+
+  final opened = await launchUrl(
+    Uri.parse(loginUrl),
+    mode: LaunchMode.externalApplication,
+  );
+
+  if (!opened) {
+    throw Exception('Could not open Telegram login page.');
+  }
+
+  Map<String, dynamic>? completeData;
+
+  for (var attempt = 0; attempt < 90; attempt++) {
+    await Future.delayed(const Duration(seconds: 2));
+
+    final statusData = await getJsonFromUrl(
+      '$baseUrl/api/telegram-status?sessionId=${Uri.encodeComponent(sessionId)}',
+    );
+    final status = stringFromFirebase(statusData['status'], 'pending');
+
+    if (status == 'complete') {
+      completeData = statusData;
+      break;
+    }
+
+    if (status == 'error') {
+      throw Exception(
+        stringFromFirebase(statusData['message'], 'Telegram login failed.'),
+      );
+    }
+  }
+
+  if (completeData == null) {
+    throw Exception('Telegram login timed out. Try again.');
+  }
+
+  final firebaseToken = stringFromFirebase(completeData['firebaseToken'], '');
+  final telegramData = mapFromFirebase(completeData['telegram']);
+
+  if (firebaseToken.isEmpty) {
+    throw Exception('Telegram backend did not return a Firebase token.');
+  }
+
+  final userCredential = await FirebaseAuth.instance.signInWithCustomToken(
+    firebaseToken,
+  );
+  final firebaseUser = userCredential.user;
+
+  if (firebaseUser == null) {
+    throw Exception('Firebase login finished without a user.');
+  }
+
+  final telegramUsername = stringFromFirebase(telegramData['username'], '');
+  final firstName = stringFromFirebase(telegramData['first_name'], '');
+  final lastName = stringFromFirebase(telegramData['last_name'], '');
+  final fullName = ('$firstName $lastName').trim();
+  final telegramId = stringFromFirebase(telegramData['id'], firebaseUser.uid);
+  final photoUrl = stringFromFirebase(telegramData['photo_url'], '');
+  final fallbackUsername = telegramUsername.isNotEmpty
+      ? telegramUsername
+      : 'telegram_$telegramId';
+
+  currentUser = await saveFirebaseUser(
+    firebaseUser,
+    provider: 'telegram',
+    displayNameOverride: fullName.isEmpty ? '@$fallbackUsername' : fullName,
+    usernameOverride: fallbackUsername,
+    emailOverride: '',
+    photoUrlOverride: photoUrl.isEmpty ? null : photoUrl,
+    telegramUsername: fallbackUsername,
+  );
+  startFirebaseSpotSync();
+  return currentUser;
+}
+
+Future<Map<String, dynamic>> getJsonFromUrl(String url) async {
+  final client = HttpClient();
+
+  try {
+    final request = await client.getUrl(Uri.parse(url));
+    request.headers.set(HttpHeaders.acceptHeader, 'application/json');
+
+    final response = await request.close();
+    final body = await utf8.decodeStream(response);
+
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw Exception('Request failed ${response.statusCode}: $body');
+    }
+
+    final decoded = jsonDecode(body);
+
+    if (decoded is Map<String, dynamic>) {
+      return decoded;
+    }
+
+    throw Exception('Backend returned invalid JSON.');
+  } finally {
+    client.close(force: true);
+  }
 }
 
 Future<AppUser> signInWithGoogleAndSaveUser() async {
@@ -626,6 +871,7 @@ class CarSpot {
   final List<String> categories;
   final double rating;
   final String photoUrl;
+  final List<String> photoUrls;
   final String? localPhotoPath;
   final String reelLink;
   final String bestTime;
@@ -640,6 +886,9 @@ class CarSpot {
   final String addedByUid;
   final SpotStatus status;
   final int createdAtMillis;
+  final bool isTemporary;
+  final int? startsAtMillis;
+  final int? expiresAtMillis;
 
   const CarSpot({
     this.id = '',
@@ -650,6 +899,7 @@ class CarSpot {
     required this.categories,
     required this.rating,
     required this.photoUrl,
+    this.photoUrls = const [],
     this.localPhotoPath,
     required this.reelLink,
     required this.bestTime,
@@ -664,6 +914,9 @@ class CarSpot {
     this.addedByUid = '',
     required this.status,
     this.createdAtMillis = 0,
+    this.isTemporary = false,
+    this.startsAtMillis,
+    this.expiresAtMillis,
   });
 
   CarSpot copyWith({
@@ -675,6 +928,7 @@ class CarSpot {
     List<String>? categories,
     double? rating,
     String? photoUrl,
+    List<String>? photoUrls,
     String? localPhotoPath,
     String? reelLink,
     String? bestTime,
@@ -689,6 +943,9 @@ class CarSpot {
     String? addedByUid,
     SpotStatus? status,
     int? createdAtMillis,
+    bool? isTemporary,
+    int? startsAtMillis,
+    int? expiresAtMillis,
   }) {
     return CarSpot(
       id: id ?? this.id,
@@ -699,6 +956,7 @@ class CarSpot {
       categories: categories ?? this.categories,
       rating: rating ?? this.rating,
       photoUrl: photoUrl ?? this.photoUrl,
+      photoUrls: photoUrls ?? this.photoUrls,
       localPhotoPath: localPhotoPath ?? this.localPhotoPath,
       reelLink: reelLink ?? this.reelLink,
       bestTime: bestTime ?? this.bestTime,
@@ -713,7 +971,46 @@ class CarSpot {
       addedByUid: addedByUid ?? this.addedByUid,
       status: status ?? this.status,
       createdAtMillis: createdAtMillis ?? this.createdAtMillis,
+      isTemporary: isTemporary ?? this.isTemporary,
+      startsAtMillis: startsAtMillis ?? this.startsAtMillis,
+      expiresAtMillis: expiresAtMillis ?? this.expiresAtMillis,
     );
+  }
+
+  bool get hasTemporaryWindow =>
+      isTemporary && startsAtMillis != null && expiresAtMillis != null;
+
+  bool get isExpired {
+    final expiresAt = expiresAtMillis;
+    return isTemporary &&
+        expiresAt != null &&
+        DateTime.now().millisecondsSinceEpoch >= expiresAt;
+  }
+
+  bool get isVisibleNow {
+    if (!isTemporary) {
+      return true;
+    }
+
+    final startsAt = startsAtMillis;
+    final expiresAt = expiresAtMillis;
+
+    if (startsAt == null || expiresAt == null) {
+      return false;
+    }
+
+    final now = DateTime.now().millisecondsSinceEpoch;
+    return now >= startsAt && now < expiresAt;
+  }
+
+  String get temporaryTimeLabel {
+    if (!hasTemporaryWindow) {
+      return '';
+    }
+
+    final startsAt = DateTime.fromMillisecondsSinceEpoch(startsAtMillis!);
+    final expiresAt = DateTime.fromMillisecondsSinceEpoch(expiresAtMillis!);
+    return '${formatShortDateTime(startsAt)} - ${formatShortDateTime(expiresAt)}';
   }
 
   factory CarSpot.fromFirestore(DocumentSnapshot<Map<String, dynamic>> doc) {
@@ -738,6 +1035,7 @@ class CarSpot {
       categories: stringListFromFirebase(data['categories'], const ['Photo']),
       rating: doubleFromFirebase(data['rating'], 0),
       photoUrl: stringFromFirebase(data['photoUrl'], ''),
+      photoUrls: stringListFromFirebase(data['photoUrls'], const []),
       reelLink: stringFromFirebase(data['reelLink'], ''),
       bestTime: stringFromFirebase(data['bestTime'], 'Not reviewed'),
       parking: stringFromFirebase(data['parking'], 'Not reviewed'),
@@ -751,6 +1049,9 @@ class CarSpot {
       addedByUid: stringFromFirebase(data['addedByUid'], ''),
       status: spotStatusFromFirebase(data['status']),
       createdAtMillis: timestampMillisFromFirebase(data['createdAt']),
+      isTemporary: data['isTemporary'] == true,
+      startsAtMillis: nullableTimestampMillisFromFirebase(data['startsAt']),
+      expiresAtMillis: nullableTimestampMillisFromFirebase(data['expiresAt']),
     );
   }
 }
@@ -781,6 +1082,29 @@ int timestampMillisFromFirebase(Object? value) {
   }
 
   return 0;
+}
+
+int? nullableTimestampMillisFromFirebase(Object? value) {
+  if (value is Timestamp) {
+    return value.millisecondsSinceEpoch;
+  }
+
+  if (value is num) {
+    return value.toInt();
+  }
+
+  return null;
+}
+
+String twoDigits(int value) => value.toString().padLeft(2, '0');
+
+String formatShortDateTime(DateTime value) {
+  return '${twoDigits(value.day)}.${twoDigits(value.month)} '
+      '${twoDigits(value.hour)}:${twoDigits(value.minute)}';
+}
+
+String formatShortDate(DateTime value) {
+  return '${twoDigits(value.day)}.${twoDigits(value.month)}.${value.year}';
 }
 
 List<String> stringListFromFirebase(Object? value, List<String> fallback) {
@@ -894,6 +1218,7 @@ Map<String, Object?> spotToFirestoreData(
     'categories': spot.categories,
     'rating': spot.rating,
     'photoUrl': spot.photoUrl,
+    'photoUrls': spot.photoUrls,
     'reelLink': spot.reelLink,
     'bestTime': spot.bestTime,
     'parking': spot.parking,
@@ -908,6 +1233,20 @@ Map<String, Object?> spotToFirestoreData(
     'status': spotStatusName(spot.status),
     'updatedAt': FieldValue.serverTimestamp(),
   };
+
+  if (spot.isTemporary) {
+    data['isTemporary'] = true;
+    data['startsAt'] = spot.startsAtMillis == null
+        ? null
+        : Timestamp.fromMillisecondsSinceEpoch(spot.startsAtMillis!);
+    data['expiresAt'] = spot.expiresAtMillis == null
+        ? null
+        : Timestamp.fromMillisecondsSinceEpoch(spot.expiresAtMillis!);
+  } else {
+    data['isTemporary'] = false;
+    data['startsAt'] = null;
+    data['expiresAt'] = null;
+  }
 
   if (includeCreatedAt) {
     data['createdAt'] = FieldValue.serverTimestamp();
@@ -1002,6 +1341,8 @@ CollectionReference<Map<String, dynamic>> spotLikesCollection() {
   return FirebaseFirestore.instance.collection('spot_likes');
 }
 
+const int maxCommentsPerUserPerSpot = 50;
+
 String spotReviewKey(CarSpot spot) {
   if (spot.id.trim().isNotEmpty) {
     return spot.id.trim();
@@ -1094,9 +1435,70 @@ Future<void> toggleSpotLike(
   }
 }
 
+String commentLikeDocumentId(SpotReviewData review, String userId) {
+  return 'comment_${review.id}_$userId';
+}
+
+Stream<int> watchCommentLikeCount(SpotReviewData review) {
+  return spotLikesCollection()
+      .where('commentId', isEqualTo: review.id)
+      .snapshots()
+      .map((snapshot) => snapshot.docs.length);
+}
+
+Stream<bool> watchCurrentUserLikedComment(SpotReviewData review) {
+  final firebaseUser = FirebaseAuth.instance.currentUser;
+
+  if (firebaseUser == null) {
+    return Stream.value(false);
+  }
+
+  return spotLikesCollection()
+      .doc(commentLikeDocumentId(review, firebaseUser.uid))
+      .snapshots()
+      .map((snapshot) => snapshot.exists);
+}
+
+Future<void> toggleCommentLike(
+  BuildContext context,
+  SpotReviewData review,
+  bool currentlyLiked,
+) async {
+  final firebaseUser = FirebaseAuth.instance.currentUser;
+
+  if (firebaseUser == null) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        backgroundColor: Colors.redAccent,
+        content: Text(
+          'Log in before liking comments.',
+          style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+        ),
+      ),
+    );
+    return;
+  }
+
+  final likeRef = spotLikesCollection().doc(
+    commentLikeDocumentId(review, firebaseUser.uid),
+  );
+
+  if (currentlyLiked) {
+    await likeRef.delete();
+  } else {
+    await likeRef.set({
+      'targetType': 'comment',
+      'commentId': review.id,
+      'commentSpotId': review.spotId,
+      'userId': firebaseUser.uid,
+      'username': currentUser.username,
+      'createdAt': FieldValue.serverTimestamp(),
+    });
+  }
+}
+
 Future<void> saveSpotReview({
   required CarSpot spot,
-  required int rating,
   required String comment,
 }) async {
   final firebaseUser = FirebaseAuth.instance.currentUser;
@@ -1110,19 +1512,167 @@ Future<void> saveSpotReview({
   }
 
   final spotId = spotReviewKey(spot);
+  final cleanComment = comment.trim();
 
-  await spotReviewsCollection().doc('${spotId}_${firebaseUser.uid}').set({
+  final existingReviews = await spotReviewsCollection()
+      .where('spotId', isEqualTo: spotId)
+      .get();
+
+  final userCommentCount = existingReviews.docs.where((doc) {
+    final data = doc.data();
+    return stringFromFirebase(data['userId'], '') == firebaseUser.uid &&
+        stringFromFirebase(data['comment'], '').trim().isNotEmpty;
+  }).length;
+
+  if (userCommentCount >= maxCommentsPerUserPerSpot) {
+    throw FirebaseException(
+      plugin: 'cloud_firestore',
+      code: 'comment-limit-reached',
+      message: 'You reached the 50 comment limit for this spot.',
+    );
+  }
+
+  await spotReviewsCollection().add({
     'spotId': spotId,
     'spotName': spot.name,
+    'type': 'comment',
     'userId': firebaseUser.uid,
     'username': currentUser.username,
-    'rating': rating.clamp(1, 5),
-    'comment': comment.trim(),
+    'comment': cleanComment,
     'createdAt': FieldValue.serverTimestamp(),
     'updatedAt': FieldValue.serverTimestamp(),
-  }, SetOptions(merge: true));
+  });
+}
 
-  await updateSpotRatingFromReviews(spot);
+Future<void> editSpotReview({
+  required CarSpot spot,
+  required SpotReviewData review,
+  required String comment,
+}) async {
+  final firebaseUser = FirebaseAuth.instance.currentUser;
+
+  if (firebaseUser == null) {
+    throw FirebaseException(
+      plugin: 'cloud_firestore',
+      code: 'not-logged-in',
+      message: 'Log in before editing a review.',
+    );
+  }
+
+  if (firebaseUser.uid != review.userId) {
+    throw FirebaseException(
+      plugin: 'cloud_firestore',
+      code: 'permission-denied',
+      message: 'You can edit only your own comments.',
+    );
+  }
+
+  final cleanComment = comment.trim();
+  if (cleanComment.isEmpty) {
+    throw FirebaseException(
+      plugin: 'cloud_firestore',
+      code: 'empty-comment',
+      message: 'Comment cannot be empty.',
+    );
+  }
+
+  await spotReviewsCollection().doc(review.id).update({
+    'comment': cleanComment,
+    'updatedAt': FieldValue.serverTimestamp(),
+  });
+}
+
+Future<void> deleteSpotReview({
+  required CarSpot spot,
+  required SpotReviewData review,
+}) async {
+  final firebaseUser = FirebaseAuth.instance.currentUser;
+
+  if (firebaseUser == null) {
+    throw FirebaseException(
+      plugin: 'cloud_firestore',
+      code: 'not-logged-in',
+      message: 'Log in before deleting a review.',
+    );
+  }
+
+  if (firebaseUser.uid != review.userId) {
+    throw FirebaseException(
+      plugin: 'cloud_firestore',
+      code: 'permission-denied',
+      message: 'You can delete only your own comments.',
+    );
+  }
+
+  await spotReviewsCollection().doc(review.id).delete();
+}
+
+String spotRatingDocumentId(CarSpot spot, String userId) {
+  return '${spotReviewKey(spot)}_${userId}_rating';
+}
+
+Stream<int> watchCurrentUserSpotRating(CarSpot spot) {
+  final firebaseUser = FirebaseAuth.instance.currentUser;
+
+  if (firebaseUser == null) {
+    return Stream.value(0);
+  }
+
+  return spotReviewsCollection()
+      .doc(spotRatingDocumentId(spot, firebaseUser.uid))
+      .snapshots()
+      .map((snapshot) {
+        final data = snapshot.data();
+
+        if (!snapshot.exists || data == null) {
+          return 0;
+        }
+
+        return doubleFromFirebase(data['rating'], 0)
+            .round()
+            .clamp(0, 5)
+            .toInt();
+      });
+}
+
+Future<double?> saveSpotRating({
+  required CarSpot spot,
+  required int rating,
+}) async {
+  final firebaseUser = FirebaseAuth.instance.currentUser;
+
+  if (firebaseUser == null) {
+    throw FirebaseException(
+      plugin: 'cloud_firestore',
+      code: 'not-logged-in',
+      message: 'Log in before rating a spot.',
+    );
+  }
+
+  final safeRating = rating.clamp(1, 5);
+  final ratingRef = spotReviewsCollection().doc(
+    spotRatingDocumentId(spot, firebaseUser.uid),
+  );
+  final ratingSnapshot = await ratingRef.get();
+
+  final data = <String, Object?>{
+    'spotId': spotReviewKey(spot),
+    'spotName': spot.name,
+    'type': 'rating',
+    'userId': firebaseUser.uid,
+    'username': currentUser.username,
+    'rating': safeRating,
+    'comment': '',
+    'updatedAt': FieldValue.serverTimestamp(),
+  };
+
+  if (!ratingSnapshot.exists) {
+    data['createdAt'] = FieldValue.serverTimestamp();
+  }
+
+  await ratingRef.set(data, SetOptions(merge: true));
+
+  return updateSpotRatingFromReviews(spot);
 }
 
 Future<double?> updateSpotRatingFromReviews(CarSpot spot) async {
@@ -1135,7 +1685,9 @@ Future<double?> updateSpotRatingFromReviews(CarSpot spot) async {
       .get();
 
   final ratings = snapshot.docs
-      .map((doc) => doubleFromFirebase(doc.data()['rating'], 0))
+      .map((doc) => doc.data())
+      .where((data) => stringFromFirebase(data['type'], '') == 'rating')
+      .map((data) => doubleFromFirebase(data['rating'], 0))
       .where((rating) => rating >= 1 && rating <= 5)
       .toList();
 
@@ -1150,7 +1702,7 @@ Future<double?> updateSpotRatingFromReviews(CarSpot spot) async {
 
   await spotsCollection().doc(spot.id).update({
     'rating': roundedRating,
-    'reviewCount': ratings.length,
+    'ratingCount': ratings.length,
     'reviewUpdatedAt': FieldValue.serverTimestamp(),
     'updatedAt': FieldValue.serverTimestamp(),
   });
@@ -1266,7 +1818,7 @@ List<CarSpot> approvedPublicSpots() {
   // Demo spots stay in code as backup data, but they should not reappear
   // after an admin deletes an approved Firebase spot.
   return reviewSpots.value
-      .where((spot) => spot.status == SpotStatus.approved)
+      .where((spot) => spot.status == SpotStatus.approved && spot.isVisibleNow)
       .toList();
 }
 
@@ -1482,16 +2034,43 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
-  void showTelegramLoginInfo() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        backgroundColor: panel,
-        content: Text(
-          'Telegram login needs a Telegram bot and backend. Google login is connected now.',
-          style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+  Future<void> loginWithTelegram() async {
+    setState(() => isSigningIn = true);
+
+    try {
+      await signInWithTelegramAndSaveUser();
+      await saveRememberMePreference(rememberMe);
+
+      if (!mounted) {
+        return;
+      }
+
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (_) => const MainScreen()),
+      );
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: Colors.redAccent,
+          content: Text(
+            'Telegram login failed. $error',
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
         ),
-      ),
-    );
+      );
+    } finally {
+      if (mounted) {
+        setState(() => isSigningIn = false);
+      }
+    }
   }
 
   @override
@@ -1529,17 +2108,17 @@ class _LoginScreenState extends State<LoginScreen> {
                   Colors.red,
                   isSigningIn ? null : loginWithGoogle,
                 ),
-                _RememberMeRow(
-                  value: rememberMe,
-                  enabled: !isSigningIn,
-                  onChanged: (value) => setState(() => rememberMe = value),
-                ),
-                const SizedBox(height: 10),
                 loginButton(
                   'Continue with Telegram',
                   Icons.send,
                   blue,
-                  isSigningIn ? null : showTelegramLoginInfo,
+                  isSigningIn ? null : loginWithTelegram,
+                ),
+                const SizedBox(height: 4),
+                _RememberMeRow(
+                  value: rememberMe,
+                  enabled: !isSigningIn,
+                  onChanged: (value) => setState(() => rememberMe = value),
                 ),
                 const SizedBox(height: 28),
                 const Text(
@@ -1804,6 +2383,16 @@ class ExploreSpotCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final tagWidgets = <Widget>[
+      if (spot.isTemporary)
+        _SmallTag(label: spot.temporaryTimeLabel, icon: Icons.event),
+      for (final category in spot.categories.take(3))
+        _SmallTag(label: category, icon: Icons.local_offer),
+    ];
+    final addedDateText = spot.createdAtMillis > 0
+        ? 'Added ${formatShortDate(DateTime.fromMillisecondsSinceEpoch(spot.createdAtMillis))}'
+        : 'Added date unknown';
+
     return InkWell(
       onTap: () {
         Navigator.push(
@@ -1811,35 +2400,44 @@ class ExploreSpotCard extends StatelessWidget {
           MaterialPageRoute(builder: (_) => SpotDetailScreen(spot: spot)),
         );
       },
-      borderRadius: BorderRadius.circular(22),
+      borderRadius: BorderRadius.circular(16),
       child: Container(
+        padding: const EdgeInsets.all(8),
         decoration: BoxDecoration(
           color: panel,
-          borderRadius: BorderRadius.circular(22),
+          borderRadius: BorderRadius.circular(16),
           border: Border.all(color: Colors.white12),
         ),
-        child: Column(
+        child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Stack(
               children: [
                 SpotPhoto(
                   spot: spot,
-                  height: 190,
-                  width: double.infinity,
-                  borderRadius: const BorderRadius.vertical(
-                    top: Radius.circular(22),
+                  width: 136,
+                  height: 98,
+                  fit: BoxFit.cover,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                Positioned(
+                  top: -4,
+                  right: -4,
+                  child: Transform.scale(
+                    scale: 0.72,
+                    alignment: Alignment.topRight,
+                    child: SaveSpotButton(spot: spot, compact: true),
                   ),
                 ),
                 Positioned(
-                  top: 12,
-                  right: 12,
-                  child: SaveSpotButton(spot: spot, compact: true),
+                  left: 6,
+                  bottom: 6,
+                  child: ExploreSpotStatsRow(spot: spot, overlay: true),
                 ),
               ],
             ),
-            Padding(
-              padding: const EdgeInsets.all(14),
+            const SizedBox(width: 10),
+            Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -1852,45 +2450,74 @@ class ExploreSpotCard extends StatelessWidget {
                           overflow: TextOverflow.ellipsis,
                           style: const TextStyle(
                             color: Colors.white,
-                            fontSize: 20,
+                            fontSize: 16,
                             fontWeight: FontWeight.w900,
                           ),
                         ),
                       ),
-                      const Icon(Icons.star, color: blue, size: 17),
-                      const SizedBox(width: 4),
+                      const Icon(Icons.star, color: blue, size: 15),
+                      const SizedBox(width: 3),
                       Text(
                         spot.rating.toStringAsFixed(1),
                         style: const TextStyle(
                           color: Colors.white,
+                          fontSize: 12,
                           fontWeight: FontWeight.w800,
                         ),
                       ),
                     ],
                   ),
-                  const SizedBox(height: 5),
+                  const SizedBox(height: 2),
                   Text(
                     spot.cityCountry,
-                    style: const TextStyle(color: Colors.white54),
-                  ),
-                  const SizedBox(height: 10),
-                  Text(
-                    spot.description,
-                    maxLines: 2,
+                    maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(color: Colors.white70, height: 1.35),
+                    style: const TextStyle(color: Colors.white54, fontSize: 12),
                   ),
-                  const SizedBox(height: 12),
-                  Wrap(
-                    spacing: 7,
-                    runSpacing: 7,
+                  const SizedBox(height: 2),
+                  Row(
                     children: [
-                      for (final category in spot.categories.take(3))
-                        _SmallTag(label: category, icon: Icons.local_offer),
+                      const Icon(
+                        Icons.schedule,
+                        color: Colors.white38,
+                        size: 12,
+                      ),
+                      const SizedBox(width: 4),
+                      Expanded(
+                        child: Text(
+                          addedDateText,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Colors.white38,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
                     ],
                   ),
-                  const SizedBox(height: 12),
-                  ExploreSpotStatsRow(spot: spot),
+                  const SizedBox(height: 4),
+                  Text(
+                    spot.description,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Colors.white70,
+                      fontSize: 12,
+                      height: 1.2,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  SizedBox(
+                    height: 28,
+                    child: ListView.separated(
+                      scrollDirection: Axis.horizontal,
+                      itemCount: tagWidgets.length,
+                      separatorBuilder: (_, _) => const SizedBox(width: 6),
+                      itemBuilder: (context, index) => tagWidgets[index],
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -1903,12 +2530,70 @@ class ExploreSpotCard extends StatelessWidget {
 
 class ExploreSpotStatsRow extends StatelessWidget {
   final CarSpot spot;
+  final bool overlay;
 
-  const ExploreSpotStatsRow({super.key, required this.spot});
+  const ExploreSpotStatsRow({
+    super.key,
+    required this.spot,
+    this.overlay = false,
+  });
+
+  Widget simpleStat({
+    required IconData icon,
+    required int count,
+    required Color color,
+    VoidCallback? onTap,
+  }) {
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 3),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, color: color, size: 16),
+            const SizedBox(width: 4),
+            Text(
+              '$count',
+              style: TextStyle(
+                color: color,
+                fontSize: overlay ? 12 : 12,
+                fontWeight: FontWeight.w900,
+                shadows: overlay
+                    ? const [Shadow(color: Colors.black, blurRadius: 5)]
+                    : null,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Stream<bool> currentUserCommentedStream() {
+    final firebaseUser = FirebaseAuth.instance.currentUser;
+
+    if (firebaseUser == null) {
+      return Stream.value(false);
+    }
+
+    return watchSpotReviews(spot).map(
+      (reviews) => reviews.any(
+        (review) =>
+            review.userId == firebaseUser.uid && review.comment.isNotEmpty,
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
+    final inactiveColor = overlay
+        ? Colors.white.withValues(alpha: 0.88)
+        : Colors.white70;
+
     return Row(
+      mainAxisSize: MainAxisSize.min,
       children: [
         StreamBuilder<bool>(
           stream: watchCurrentUserLikedSpot(spot),
@@ -1920,65 +2605,35 @@ class ExploreSpotStatsRow extends StatelessWidget {
               builder: (context, countSnapshot) {
                 final likeCount = countSnapshot.data ?? 0;
 
-                return SizedBox(
-                  height: 36,
-                  child: OutlinedButton.icon(
-                    onPressed: () => toggleSpotLike(context, spot, liked),
-                    icon: Icon(
-                      liked ? Icons.favorite : Icons.favorite_border,
-                      size: 16,
-                    ),
-                    label: Text('$likeCount'),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: liked
-                          ? Colors.redAccent
-                          : Colors.white70,
-                      side: BorderSide(
-                        color: liked ? Colors.redAccent : Colors.white12,
-                      ),
-                      padding: const EdgeInsets.symmetric(horizontal: 11),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(999),
-                      ),
-                    ),
-                  ),
+                return simpleStat(
+                  icon: liked ? Icons.favorite : Icons.favorite_border,
+                  count: likeCount,
+                  color: liked ? Colors.redAccent : inactiveColor,
+                  onTap: () => toggleSpotLike(context, spot, liked),
                 );
               },
             );
           },
         ),
-        const SizedBox(width: 8),
-        StreamBuilder<int>(
-          stream: watchSpotCommentCount(spot),
-          builder: (context, snapshot) {
-            final commentCount = snapshot.data ?? 0;
+        const SizedBox(width: 5),
+        StreamBuilder<bool>(
+          stream: currentUserCommentedStream(),
+          builder: (context, commentedSnapshot) {
+            final commented = commentedSnapshot.data ?? false;
 
-            return Container(
-              height: 36,
-              padding: const EdgeInsets.symmetric(horizontal: 11),
-              decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.06),
-                borderRadius: BorderRadius.circular(999),
-                border: Border.all(color: Colors.white12),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Icon(
-                    Icons.chat_bubble_outline,
-                    color: Colors.white70,
-                    size: 15,
-                  ),
-                  const SizedBox(width: 6),
-                  Text(
-                    '$commentCount',
-                    style: const TextStyle(
-                      color: Colors.white70,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                ],
-              ),
+            return StreamBuilder<int>(
+              stream: watchSpotCommentCount(spot),
+              builder: (context, countSnapshot) {
+                final commentCount = countSnapshot.data ?? 0;
+
+                return simpleStat(
+                  icon: commented
+                      ? Icons.chat_bubble
+                      : Icons.chat_bubble_outline,
+                  count: commentCount,
+                  color: commented ? blue : inactiveColor,
+                );
+              },
             );
           },
         ),
@@ -2000,19 +2655,38 @@ class _MapScreenState extends State<MapScreen> {
 
   final filters = const ['All', 'Photo', 'Reels', 'Meet', 'Low car'];
   final mapController = MapController();
+  Timer? temporarySpotRefreshTimer;
   String selectedFilter = 'All';
   CarSpot? selectedSpot;
+  LatLng? currentUserLocation;
+  bool isLocatingUser = false;
 
   @override
   void initState() {
     super.initState();
     reviewSpots.addListener(refreshMap);
+
+    // Temporary spots can become visible or expire just because time passes.
+    // Firestore will not send a new snapshot at the start/end time, so the map
+    // needs a small live refresh while this screen is open.
+    temporarySpotRefreshTimer = Timer.periodic(
+      const Duration(seconds: 10),
+      (_) => refreshMap(),
+    );
+    loadInitialUserLocation();
   }
 
   void refreshMap() {
-    if (mounted) {
-      setState(() {});
+    if (!mounted) {
+      return;
     }
+
+    setState(() {
+      final spot = selectedSpot;
+      if (spot != null && !spot.isVisibleNow) {
+        selectedSpot = null;
+      }
+    });
   }
 
   List<CarSpot> get visibleSpots {
@@ -2066,8 +2740,59 @@ class _MapScreenState extends State<MapScreen> {
     }).toList();
   }
 
+  List<Marker> get allMapMarkers {
+    final allMarkers = [...markers];
+    final userMarker = currentUserMarker;
+
+    if (userMarker != null) {
+      allMarkers.add(userMarker);
+    }
+
+    return allMarkers;
+  }
+
+  Marker? get currentUserMarker {
+    final location = currentUserLocation;
+
+    if (location == null) {
+      return null;
+    }
+
+    return Marker(
+      point: location,
+      width: 58,
+      height: 58,
+      child: Container(
+        decoration: BoxDecoration(
+          color: blue.withValues(alpha: 0.18),
+          shape: BoxShape.circle,
+          border: Border.all(color: blue.withValues(alpha: 0.45), width: 2),
+        ),
+        child: Center(
+          child: Container(
+            width: 24,
+            height: 24,
+            decoration: BoxDecoration(
+              color: Colors.white,
+              shape: BoxShape.circle,
+              border: Border.all(color: blue, width: 5),
+              boxShadow: [
+                BoxShadow(
+                  color: blue.withValues(alpha: 0.55),
+                  blurRadius: 18,
+                  spreadRadius: 4,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   void dispose() {
+    temporarySpotRefreshTimer?.cancel();
     reviewSpots.removeListener(refreshMap);
     mapController.dispose();
     super.dispose();
@@ -2080,8 +2805,94 @@ class _MapScreenState extends State<MapScreen> {
     );
   }
 
-  void moveToRiga() {
-    mapController.move(rigaCenter, rigaZoom);
+  void loadInitialUserLocation() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        moveToCurrentLocation(showErrors: false);
+      }
+    });
+  }
+
+  Future<Position?> getMapUserPosition({required bool showErrors}) async {
+    final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+
+    if (!serviceEnabled) {
+      if (showErrors && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            backgroundColor: Colors.redAccent,
+            content: Text(
+              'Turn on phone location first.',
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        );
+      }
+
+      return null;
+    }
+
+    var permission = await Geolocator.checkPermission();
+
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+    }
+
+    if (permission == LocationPermission.denied ||
+        permission == LocationPermission.deniedForever) {
+      if (showErrors && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            backgroundColor: Colors.redAccent,
+            content: Text(
+              'Location permission is needed to show you on the map.',
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        );
+      }
+
+      return null;
+    }
+
+    return Geolocator.getCurrentPosition(
+      locationSettings: const LocationSettings(accuracy: LocationAccuracy.high),
+    );
+  }
+
+  Future<void> moveToCurrentLocation({bool showErrors = true}) async {
+    if (isLocatingUser) {
+      return;
+    }
+
+    setState(() => isLocatingUser = true);
+
+    final position = await getMapUserPosition(showErrors: showErrors);
+
+    if (!mounted) {
+      return;
+    }
+
+    if (position == null) {
+      setState(() => isLocatingUser = false);
+      return;
+    }
+
+    final location = LatLng(position.latitude, position.longitude);
+
+    setState(() {
+      currentUserLocation = location;
+      selectedSpot = null;
+      isLocatingUser = false;
+    });
+
+    mapController.move(location, 15.5);
   }
 
   @override
@@ -2095,8 +2906,8 @@ class _MapScreenState extends State<MapScreen> {
           FlutterMap(
             mapController: mapController,
             options: MapOptions(
-              initialCenter: rigaCenter,
-              initialZoom: rigaZoom,
+              initialCenter: currentUserLocation ?? rigaCenter,
+              initialZoom: currentUserLocation == null ? rigaZoom : 15.5,
               minZoom: 4,
               maxZoom: 18,
               backgroundColor: night,
@@ -2109,19 +2920,7 @@ class _MapScreenState extends State<MapScreen> {
                 userAgentPackageName: 'com.example.ccs_app',
                 maxNativeZoom: 19,
               ),
-              MarkerLayer(markers: markers),
-              RichAttributionWidget(
-                attributions: [
-                  TextSourceAttribution(
-                    'OpenStreetMap contributors, CARTO',
-                    prependCopyright: false,
-                    textStyle: const TextStyle(
-                      color: Colors.white54,
-                      fontSize: 11,
-                    ),
-                  ),
-                ],
-              ),
+              MarkerLayer(markers: allMapMarkers),
             ],
           ),
           SafeArea(
@@ -2174,10 +2973,19 @@ class _MapScreenState extends State<MapScreen> {
             right: 16,
             bottom: spot == null ? 18 : 196,
             child: FloatingActionButton.small(
-              onPressed: moveToRiga,
+              onPressed: isLocatingUser ? null : () => moveToCurrentLocation(),
               backgroundColor: blue,
               foregroundColor: Colors.white,
-              child: const Icon(Icons.my_location),
+              child: isLocatingUser
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
+                  : const Icon(Icons.my_location),
             ),
           ),
           if (spot != null)
@@ -2346,6 +3154,11 @@ class SpotMapCard extends StatelessWidget {
                   spacing: 7,
                   runSpacing: 7,
                   children: [
+                    if (spot.isTemporary)
+                      _SmallTag(
+                        label: spot.temporaryTimeLabel,
+                        icon: Icons.event,
+                      ),
                     _SmallTag(label: spot.bestTime, icon: Icons.dark_mode),
                     _SmallTag(
                       label: spot.lowCarFriendly ? 'Low car OK' : 'Careful',
@@ -2731,16 +3544,297 @@ String formatDistanceKm(double value) {
 }
 
 String estimateDriveTime(double distanceKm) {
-  final minutes = (distanceKm / 35 * 60).clamp(2, 180).round();
+  // This is only a rough straight-line estimate before Waze opens.
+  // City trips use slower speed, long trips use a higher average speed.
+  final averageSpeedKmh = distanceKm > 120 ? 70 : 35;
+  final minutes = (distanceKm / averageSpeedKmh * 60).round().clamp(2, 999999);
 
   if (minutes < 60) {
     return '~$minutes min';
   }
 
   final hours = minutes ~/ 60;
-  final rest = minutes % 60;
+  final restMinutes = minutes % 60;
 
-  return rest == 0 ? '~$hours h' : '~$hours h $rest min';
+  if (hours < 24) {
+    return restMinutes == 0 ? '~$hours h' : '~$hours h $restMinutes min';
+  }
+
+  final days = hours ~/ 24;
+  final restHours = hours % 24;
+
+  return restHours == 0 ? '~$days d' : '~$days d $restHours h';
+}
+
+List<String> spotPhotoSources(CarSpot spot) {
+  final sources = <String>[];
+
+  void addSource(String value) {
+    final trimmed = value.trim();
+
+    if (trimmed.isNotEmpty && !sources.contains(trimmed)) {
+      sources.add(trimmed);
+    }
+  }
+
+  if (localFileExists(spot.localPhotoPath)) {
+    addSource('local:${spot.localPhotoPath}');
+  }
+
+  for (final photoUrl in spot.photoUrls) {
+    addSource(photoUrl);
+  }
+
+  addSource(spot.photoUrl);
+
+  return sources;
+}
+
+bool isLocalSpotPhotoSource(String source) {
+  return source.startsWith('local:');
+}
+
+String localPhotoPathFromSource(String source) {
+  return source.substring('local:'.length);
+}
+
+Widget spotPhotoImage(
+  String source, {
+  double? width,
+  double? height,
+  BoxFit fit = BoxFit.cover,
+}) {
+  if (isLocalSpotPhotoSource(source)) {
+    return Image.file(
+      File(localPhotoPathFromSource(source)),
+      width: width,
+      height: height,
+      fit: fit,
+      errorBuilder: (_, _, _) =>
+          _SpotPhotoPlaceholder(width: width, height: height),
+    );
+  }
+
+  return Image.network(
+    source,
+    width: width,
+    height: height,
+    fit: fit,
+    errorBuilder: (_, _, _) =>
+        _SpotPhotoPlaceholder(width: width, height: height),
+  );
+}
+
+class SpotPhotoCarousel extends StatefulWidget {
+  final CarSpot spot;
+  final double height;
+
+  const SpotPhotoCarousel({
+    super.key,
+    required this.spot,
+    required this.height,
+  });
+
+  @override
+  State<SpotPhotoCarousel> createState() => _SpotPhotoCarouselState();
+}
+
+class _SpotPhotoCarouselState extends State<SpotPhotoCarousel> {
+  late final PageController controller;
+  int currentIndex = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    controller = PageController();
+  }
+
+  @override
+  void dispose() {
+    controller.dispose();
+    super.dispose();
+  }
+
+  void openGallery(int index) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) =>
+            SpotPhotoGalleryScreen(spot: widget.spot, initialIndex: index),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final sources = spotPhotoSources(widget.spot);
+
+    if (sources.isEmpty) {
+      return _SpotPhotoPlaceholder(height: widget.height);
+    }
+
+    return SizedBox(
+      height: widget.height,
+      width: double.infinity,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          PageView.builder(
+            controller: controller,
+            itemCount: sources.length,
+            onPageChanged: (index) => setState(() => currentIndex = index),
+            itemBuilder: (context, index) {
+              return GestureDetector(
+                onTap: () => openGallery(index),
+                child: spotPhotoImage(
+                  sources[index],
+                  width: double.infinity,
+                  height: widget.height,
+                  fit: BoxFit.cover,
+                ),
+              );
+            },
+          ),
+          if (sources.length > 1)
+            Positioned(
+              top: 14,
+              right: 14,
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 6,
+                ),
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.62),
+                  borderRadius: BorderRadius.circular(999),
+                  border: Border.all(color: Colors.white24),
+                ),
+                child: Text(
+                  '${currentIndex + 1}/${sources.length}',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class SpotPhotoGalleryScreen extends StatefulWidget {
+  final CarSpot spot;
+  final int initialIndex;
+
+  const SpotPhotoGalleryScreen({
+    super.key,
+    required this.spot,
+    required this.initialIndex,
+  });
+
+  @override
+  State<SpotPhotoGalleryScreen> createState() => _SpotPhotoGalleryScreenState();
+}
+
+class _SpotPhotoGalleryScreenState extends State<SpotPhotoGalleryScreen> {
+  late final List<String> sources;
+  late final PageController controller;
+  late int currentIndex;
+
+  @override
+  void initState() {
+    super.initState();
+    sources = spotPhotoSources(widget.spot);
+    currentIndex =
+        widget.initialIndex >= 0 && widget.initialIndex < sources.length
+        ? widget.initialIndex
+        : 0;
+    controller = PageController(initialPage: currentIndex);
+  }
+
+  @override
+  void dispose() {
+    controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      body: Stack(
+        children: [
+          if (sources.isEmpty)
+            const Center(
+              child: Icon(Icons.directions_car, color: blue, size: 44),
+            )
+          else
+            PageView.builder(
+              controller: controller,
+              itemCount: sources.length,
+              onPageChanged: (index) => setState(() => currentIndex = index),
+              itemBuilder: (context, index) {
+                return InteractiveViewer(
+                  minScale: 1,
+                  maxScale: 4,
+                  child: Center(
+                    child: spotPhotoImage(
+                      sources[index],
+                      width: double.infinity,
+                      height: double.infinity,
+                      fit: BoxFit.contain,
+                    ),
+                  ),
+                );
+              },
+            ),
+          SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.all(14),
+              child: Row(
+                children: [
+                  Container(
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.62),
+                      shape: BoxShape.circle,
+                      border: Border.all(color: Colors.white24),
+                    ),
+                    child: IconButton(
+                      onPressed: () => Navigator.pop(context),
+                      icon: const Icon(Icons.close, color: Colors.white),
+                    ),
+                  ),
+                  const Spacer(),
+                  if (sources.length > 1)
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 8,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withValues(alpha: 0.62),
+                        borderRadius: BorderRadius.circular(999),
+                        border: Border.all(color: Colors.white24),
+                      ),
+                      child: Text(
+                        '${currentIndex + 1}/${sources.length}',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class SpotDetailScreen extends StatefulWidget {
@@ -2832,19 +3926,27 @@ class _SpotDetailScreenState extends State<SpotDetailScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                SpotDetailEngagementPanel(
+                  spot: spot,
+                  onRatingChanged: updateVisibleRating,
+                ),
+                const SizedBox(height: 12),
                 Row(
                   children: [
-                    const Icon(Icons.star, color: blue, size: 20),
-                    const SizedBox(width: 6),
-                    Text(
-                      '${spot.rating.toStringAsFixed(1)} rating',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w700,
+                    if (spot.createdAtMillis > 0) ...[
+                      Icon(
+                        Icons.schedule,
+                        color: Colors.white.withValues(alpha: 0.45),
+                        size: 17,
                       ),
-                    ),
-                    const Spacer(),
-                    Flexible(
+                      const SizedBox(width: 6),
+                      Text(
+                        'Added ${formatShortDate(DateTime.fromMillisecondsSinceEpoch(spot.createdAtMillis))}',
+                        style: const TextStyle(color: Colors.white54),
+                      ),
+                      const SizedBox(width: 14),
+                    ],
+                    Expanded(
                       child: Text(
                         'Added by ${spot.addedBy}',
                         maxLines: 1,
@@ -2868,6 +3970,11 @@ class _SpotDetailScreenState extends State<SpotDetailScreen> {
                   spacing: 8,
                   runSpacing: 8,
                   children: [
+                    if (spot.isTemporary)
+                      _SmallTag(
+                        label: spot.temporaryTimeLabel,
+                        icon: Icons.event,
+                      ),
                     for (final category in spot.categories)
                       _SmallTag(label: category, icon: Icons.local_offer),
                   ],
@@ -2878,7 +3985,7 @@ class _SpotDetailScreenState extends State<SpotDetailScreen> {
                 SpotRouteActions(spot: spot),
                 const SizedBox(height: 24),
                 const Text(
-                  'Reel link',
+                  'Video link',
                   style: TextStyle(
                     color: Colors.white,
                     fontSize: 18,
@@ -2902,7 +4009,7 @@ class _SpotDetailScreenState extends State<SpotDetailScreen> {
                         Expanded(
                           child: Text(
                             spot.reelLink.isEmpty
-                                ? 'No reel link added'
+                                ? 'No video link added'
                                 : spot.reelLink,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
@@ -2916,12 +4023,219 @@ class _SpotDetailScreenState extends State<SpotDetailScreen> {
                   ),
                 ),
                 const SizedBox(height: 24),
-                SpotReviewsSection(
-                  spot: spot,
-                  onRatingChanged: updateVisibleRating,
-                ),
+                SpotReviewsSection(spot: spot),
               ],
             ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class SpotDetailEngagementPanel extends StatefulWidget {
+  final CarSpot spot;
+  final ValueChanged<double>? onRatingChanged;
+
+  const SpotDetailEngagementPanel({
+    super.key,
+    required this.spot,
+    this.onRatingChanged,
+  });
+
+  @override
+  State<SpotDetailEngagementPanel> createState() =>
+      _SpotDetailEngagementPanelState();
+}
+
+class _SpotDetailEngagementPanelState extends State<SpotDetailEngagementPanel> {
+  bool isSavingRating = false;
+
+  Future<void> submitRating(int rating) async {
+    setState(() => isSavingRating = true);
+
+    try {
+      final updatedRating = await saveSpotRating(
+        spot: widget.spot,
+        rating: rating,
+      );
+
+      if (!mounted) {
+        return;
+      }
+
+      if (updatedRating != null) {
+        widget.onRatingChanged?.call(updatedRating);
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          backgroundColor: blue,
+          content: Text(
+            'Rating saved.',
+            style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+          ),
+        ),
+      );
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      final code = error is FirebaseException ? error.code : error.toString();
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: Colors.redAccent,
+          content: Text(
+            'Could not save rating: $code',
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => isSavingRating = false);
+      }
+    }
+  }
+
+  Widget starButton(int value, int currentRating) {
+    final selected = value <= currentRating;
+
+    return IconButton(
+      visualDensity: VisualDensity.compact,
+      onPressed: isSavingRating ? null : () => submitRating(value),
+      icon: Icon(
+        selected ? Icons.star : Icons.star_border,
+        color: selected ? blue : Colors.white38,
+        size: 26,
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: panel,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: Colors.white12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.star, color: blue, size: 19),
+              const SizedBox(width: 7),
+              Text(
+                '${widget.spot.rating.toStringAsFixed(1)} spot rating',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              const Spacer(),
+              StreamBuilder<bool>(
+                stream: watchCurrentUserLikedSpot(widget.spot),
+                builder: (context, likedSnapshot) {
+                  final liked = likedSnapshot.data ?? false;
+
+                  return StreamBuilder<int>(
+                    stream: watchSpotLikeCount(widget.spot),
+                    builder: (context, countSnapshot) {
+                      final likeCount = countSnapshot.data ?? 0;
+
+                      return InkWell(
+                        onTap: () => toggleSpotLike(context, widget.spot, liked),
+                        borderRadius: BorderRadius.circular(16),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 10,
+                          ),
+                          decoration: BoxDecoration(
+                            color: liked
+                                ? Colors.redAccent.withValues(alpha: 0.18)
+                                : Colors.white.withValues(alpha: 0.06),
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(
+                              color: liked ? Colors.redAccent : Colors.white12,
+                            ),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                liked
+                                    ? Icons.favorite
+                                    : Icons.favorite_border,
+                                color: liked
+                                    ? Colors.redAccent
+                                    : Colors.white70,
+                                size: 23,
+                              ),
+                              const SizedBox(width: 7),
+                              Text(
+                                liked ? 'Liked' : 'Like',
+                                style: TextStyle(
+                                  color: liked
+                                      ? Colors.redAccent
+                                      : Colors.white,
+                                  fontWeight: FontWeight.w900,
+                                ),
+                              ),
+                              const SizedBox(width: 6),
+                              Text(
+                                '$likeCount',
+                                style: const TextStyle(
+                                  color: Colors.white70,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  );
+                },
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          const Text(
+            'Your rating',
+            style: TextStyle(color: Colors.white70, fontWeight: FontWeight.w800),
+          ),
+          StreamBuilder<int>(
+            stream: watchCurrentUserSpotRating(widget.spot),
+            builder: (context, ratingSnapshot) {
+              final currentRating = ratingSnapshot.data ?? 0;
+
+              return Row(
+                children: [
+                  for (var i = 1; i <= 5; i++) starButton(i, currentRating),
+                  if (isSavingRating) ...[
+                    const SizedBox(width: 8),
+                    const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: blue,
+                      ),
+                    ),
+                  ],
+                ],
+              );
+            },
           ),
         ],
       ),
@@ -3040,12 +4354,10 @@ class _SpotRouteActionsState extends State<SpotRouteActions> {
 
 class SpotReviewsSection extends StatefulWidget {
   final CarSpot spot;
-  final ValueChanged<double>? onRatingChanged;
 
   const SpotReviewsSection({
     super.key,
     required this.spot,
-    this.onRatingChanged,
   });
 
   @override
@@ -3054,7 +4366,6 @@ class SpotReviewsSection extends StatefulWidget {
 
 class _SpotReviewsSectionState extends State<SpotReviewsSection> {
   final commentController = TextEditingController();
-  int selectedRating = 5;
   bool isSaving = false;
 
   @override
@@ -3063,7 +4374,7 @@ class _SpotReviewsSectionState extends State<SpotReviewsSection> {
     super.dispose();
   }
 
-  Future<void> submitReview() async {
+  Future<void> submitComment() async {
     final comment = commentController.text.trim();
 
     if (comment.isEmpty) {
@@ -3084,7 +4395,6 @@ class _SpotReviewsSectionState extends State<SpotReviewsSection> {
     try {
       await saveSpotReview(
         spot: widget.spot,
-        rating: selectedRating,
         comment: comment,
       );
 
@@ -3093,13 +4403,12 @@ class _SpotReviewsSectionState extends State<SpotReviewsSection> {
       }
 
       commentController.clear();
-      setState(() => selectedRating = 5);
 
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           backgroundColor: blue,
           content: Text(
-            'Review saved.',
+            'Comment posted.',
             style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
           ),
         ),
@@ -3115,7 +4424,7 @@ class _SpotReviewsSectionState extends State<SpotReviewsSection> {
         SnackBar(
           backgroundColor: Colors.redAccent,
           content: Text(
-            'Could not save review: $code',
+            'Could not save comment: $code',
             style: const TextStyle(
               color: Colors.white,
               fontWeight: FontWeight.w700,
@@ -3130,37 +4439,12 @@ class _SpotReviewsSectionState extends State<SpotReviewsSection> {
     }
   }
 
-  Widget starButton(int value) {
-    final selected = value <= selectedRating;
-
-    return IconButton(
-      onPressed: isSaving ? null : () => setState(() => selectedRating = value),
-      icon: Icon(
-        selected ? Icons.star : Icons.star_border,
-        color: selected ? blue : Colors.white38,
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<List<SpotReviewData>>(
       stream: watchSpotReviews(widget.spot),
       builder: (context, snapshot) {
         final reviews = snapshot.data ?? const <SpotReviewData>[];
-        final averageRating = reviews.isEmpty
-            ? widget.spot.rating
-            : reviews.fold<double>(
-                    0,
-                    (total, review) => total + review.rating,
-                  ) /
-                  reviews.length;
-
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (mounted) {
-            widget.onRatingChanged?.call(averageRating);
-          }
-        });
 
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -3168,7 +4452,7 @@ class _SpotReviewsSectionState extends State<SpotReviewsSection> {
             Row(
               children: [
                 const Text(
-                  'Reviews',
+                  'Comments',
                   style: TextStyle(
                     color: Colors.white,
                     fontSize: 20,
@@ -3199,14 +4483,6 @@ class _SpotReviewsSectionState extends State<SpotReviewsSection> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text(
-                    'Your rating',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                  Row(children: [for (var i = 1; i <= 5; i++) starButton(i)]),
                   TextField(
                     controller: commentController,
                     minLines: 2,
@@ -3236,11 +4512,11 @@ class _SpotReviewsSectionState extends State<SpotReviewsSection> {
                     width: double.infinity,
                     height: 46,
                     child: ElevatedButton.icon(
-                      onPressed: isSaving ? null : submitReview,
+                      onPressed: isSaving ? null : submitComment,
                       icon: Icon(
                         isSaving ? Icons.hourglass_bottom : Icons.send,
                       ),
-                      label: Text(isSaving ? 'Saving...' : 'Post Review'),
+                      label: Text(isSaving ? 'Saving...' : 'Post Comment'),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: blue,
                         foregroundColor: Colors.white,
@@ -3264,13 +4540,13 @@ class _SpotReviewsSectionState extends State<SpotReviewsSection> {
                   border: Border.all(color: Colors.white12),
                 ),
                 child: const Text(
-                  'No comments yet. Be the first to rate this spot.',
+                  'No comments yet. Be the first to comment on this spot.',
                   style: TextStyle(color: Colors.white54),
                 ),
               )
             else
               for (final review in reviews) ...[
-                SpotReviewCard(review: review),
+                SpotReviewCard(spot: widget.spot, review: review),
                 const SizedBox(height: 10),
               ],
           ],
@@ -3281,12 +4557,151 @@ class _SpotReviewsSectionState extends State<SpotReviewsSection> {
 }
 
 class SpotReviewCard extends StatelessWidget {
+  final CarSpot spot;
   final SpotReviewData review;
 
-  const SpotReviewCard({super.key, required this.review});
+  const SpotReviewCard({super.key, required this.spot, required this.review});
+
+  Future<void> _showEditDialog(BuildContext context) async {
+    final commentController = TextEditingController(text: review.comment);
+
+    final saved = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          backgroundColor: panel,
+          title: const Text('Edit comment', style: TextStyle(color: Colors.white)),
+          content: StatefulBuilder(
+            builder: (context, setState) {
+              return Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: commentController,
+                    minLines: 3,
+                    maxLines: 5,
+                    style: const TextStyle(color: Colors.white),
+                    decoration: InputDecoration(
+                      hintText: 'Edit your comment',
+                      hintStyle: const TextStyle(color: Colors.white38),
+                      filled: true,
+                      fillColor: Colors.white.withValues(alpha: 0.06),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(14),
+                        borderSide: const BorderSide(color: Colors.white12),
+                      ),
+                    ),
+                  ),
+                ],
+              );
+            },
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                if (commentController.text.trim().isEmpty) {
+                  return;
+                }
+                Navigator.of(context).pop(true);
+              },
+              child: const Text('Save'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (saved != true) {
+      return;
+    }
+
+    final newComment = commentController.text.trim();
+
+    try {
+      await editSpotReview(
+        spot: spot,
+        review: review,
+        comment: newComment,
+      );
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            backgroundColor: blue,
+            content: Text('Comment updated.', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
+          ),
+        );
+      }
+    } catch (error) {
+      if (context.mounted) {
+        final code = error is FirebaseException ? error.code : error.toString();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: Colors.redAccent,
+            content: Text('Could not update comment: $code', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _showDeleteDialog(BuildContext context) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          backgroundColor: panel,
+          title: const Text('Delete comment', style: TextStyle(color: Colors.white)),
+          content: const Text('Are you sure you want to delete this comment?', style: TextStyle(color: Colors.white70)),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('Delete'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirmed != true) {
+      return;
+    }
+
+    try {
+      await deleteSpotReview(spot: spot, review: review);
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            backgroundColor: blue,
+            content: Text('Comment deleted.', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
+          ),
+        );
+      }
+    } catch (error) {
+      if (context.mounted) {
+        final code = error is FirebaseException ? error.code : error.toString();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: Colors.redAccent,
+            content: Text('Could not delete comment: $code', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
+          ),
+        );
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
+    final canManage = FirebaseAuth.instance.currentUser?.uid == review.userId;
+
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(14),
@@ -3311,15 +4726,9 @@ class SpotReviewCard extends StatelessWidget {
                   ),
                 ),
               ),
-              Row(
-                children: [
-                  for (var i = 1; i <= 5; i++)
-                    Icon(
-                      i <= review.rating ? Icons.star : Icons.star_border,
-                      color: blue,
-                      size: 15,
-                    ),
-                ],
+              Text(
+                formatShortDate(review.createdAt),
+                style: const TextStyle(color: Colors.white54, fontSize: 12),
               ),
             ],
           ),
@@ -3327,6 +4736,76 @@ class SpotReviewCard extends StatelessWidget {
           Text(
             review.comment,
             style: const TextStyle(color: Colors.white70, height: 1.35),
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              StreamBuilder<bool>(
+                stream: watchCurrentUserLikedComment(review),
+                builder: (context, likedSnapshot) {
+                  final liked = likedSnapshot.data ?? false;
+
+                  return StreamBuilder<int>(
+                    stream: watchCommentLikeCount(review),
+                    builder: (context, countSnapshot) {
+                      final likeCount = countSnapshot.data ?? 0;
+
+                      return InkWell(
+                        onTap: () => toggleCommentLike(context, review, liked),
+                        borderRadius: BorderRadius.circular(999),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 4,
+                            vertical: 4,
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                liked
+                                    ? Icons.favorite
+                                    : Icons.favorite_border,
+                                color: liked
+                                    ? Colors.redAccent
+                                    : Colors.white54,
+                                size: 17,
+                              ),
+                              const SizedBox(width: 5),
+                              Text(
+                                '$likeCount',
+                                style: TextStyle(
+                                  color: liked
+                                      ? Colors.redAccent
+                                      : Colors.white54,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  );
+                },
+              ),
+              const Spacer(),
+              if (canManage) ...[
+                IconButton(
+                  onPressed: () => _showEditDialog(context),
+                  icon: const Icon(Icons.edit, color: Colors.white54, size: 18),
+                  tooltip: 'Edit comment',
+                ),
+                IconButton(
+                  onPressed: () => _showDeleteDialog(context),
+                  icon: const Icon(
+                    Icons.delete_outline,
+                    color: Colors.white54,
+                    size: 18,
+                  ),
+                  tooltip: 'Delete comment',
+                ),
+              ],
+            ],
           ),
         ],
       ),
@@ -3352,29 +4831,10 @@ class SpotPhoto extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    Widget photo;
-
-    if (localFileExists(spot.localPhotoPath)) {
-      photo = Image.file(
-        File(spot.localPhotoPath!),
-        width: width,
-        height: height,
-        fit: fit,
-        errorBuilder: (_, _, _) =>
-            _SpotPhotoPlaceholder(width: width, height: height),
-      );
-    } else if (spot.photoUrl.isNotEmpty) {
-      photo = Image.network(
-        spot.photoUrl,
-        width: width,
-        height: height,
-        fit: fit,
-        errorBuilder: (_, _, _) =>
-            _SpotPhotoPlaceholder(width: width, height: height),
-      );
-    } else {
-      photo = _SpotPhotoPlaceholder(width: width, height: height);
-    }
+    final sources = spotPhotoSources(spot);
+    final photo = sources.isEmpty
+        ? _SpotPhotoPlaceholder(width: width, height: height)
+        : spotPhotoImage(sources.first, width: width, height: height, fit: fit);
 
     if (borderRadius == null) {
       return photo;
@@ -3410,7 +4870,7 @@ class _SmallTag extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
       decoration: BoxDecoration(
         color: Colors.white.withValues(alpha: 0.08),
         borderRadius: BorderRadius.circular(999),
@@ -3419,13 +4879,13 @@ class _SmallTag extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, color: blue, size: 13),
+          Icon(icon, color: blue, size: 14),
           const SizedBox(width: 5),
           Text(
             label,
             style: const TextStyle(
               color: Colors.white70,
-              fontSize: 11,
+              fontSize: 12,
               fontWeight: FontWeight.w600,
             ),
           ),
@@ -3465,6 +4925,9 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
   final selectedCategories = <String>{'Photo', 'Reels', 'Meet'};
   LatLng? selectedLocation;
   String? selectedPhotoPath;
+  bool isTemporarySpot = false;
+  DateTime? temporaryStartsAt;
+  DateTime? temporaryExpiresAt;
   bool isSubmitting = false;
 
   @override
@@ -3512,6 +4975,65 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
     setState(() => selectedPhotoPath = path);
   }
 
+  Future<DateTime?> pickTemporaryDateTime(DateTime? initialValue) async {
+    final now = DateTime.now();
+    final initial = initialValue ?? now.add(const Duration(hours: 1));
+
+    final date = await showDatePicker(
+      context: context,
+      initialDate: initial,
+      firstDate: DateTime(now.year, now.month, now.day),
+      lastDate: now.add(const Duration(days: 365)),
+      builder: (context, child) {
+        return Theme(data: ThemeData.dark(), child: child!);
+      },
+    );
+
+    if (date == null || !mounted) {
+      return null;
+    }
+
+    final time = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.fromDateTime(initial),
+      builder: (context, child) {
+        return Theme(data: ThemeData.dark(), child: child!);
+      },
+    );
+
+    if (time == null) {
+      return null;
+    }
+
+    return DateTime(date.year, date.month, date.day, time.hour, time.minute);
+  }
+
+  Future<void> chooseTemporaryStart() async {
+    final value = await pickTemporaryDateTime(temporaryStartsAt);
+
+    if (!mounted || value == null) {
+      return;
+    }
+
+    setState(() {
+      temporaryStartsAt = value;
+      if (temporaryExpiresAt == null || !temporaryExpiresAt!.isAfter(value)) {
+        temporaryExpiresAt = value.add(const Duration(hours: 3));
+      }
+    });
+  }
+
+  Future<void> chooseTemporaryEnd() async {
+    final fallback = temporaryStartsAt?.add(const Duration(hours: 3));
+    final value = await pickTemporaryDateTime(temporaryExpiresAt ?? fallback);
+
+    if (!mounted || value == null) {
+      return;
+    }
+
+    setState(() => temporaryExpiresAt = value);
+  }
+
   Future<void> submitSpot() async {
     FocusScope.of(context).unfocus();
 
@@ -3545,6 +5067,59 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
         ),
       );
       return;
+    }
+
+    if (isTemporarySpot) {
+      final startsAt = temporaryStartsAt;
+      final expiresAt = temporaryExpiresAt;
+
+      if (startsAt == null || expiresAt == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            backgroundColor: Colors.redAccent,
+            content: Text(
+              'Choose both start and end time for a temporary spot.',
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        );
+        return;
+      }
+
+      if (!expiresAt.isAfter(startsAt)) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            backgroundColor: Colors.redAccent,
+            content: Text(
+              'End time must be after start time.',
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        );
+        return;
+      }
+
+      if (!expiresAt.isAfter(DateTime.now())) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            backgroundColor: Colors.redAccent,
+            content: Text(
+              'End time must be in the future.',
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        );
+        return;
+      }
     }
 
     final location = selectedLocation!;
@@ -3581,6 +5156,13 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
       addedBy: currentUser.username,
       addedByUid: firebaseUser.uid,
       status: SpotStatus.pending,
+      isTemporary: isTemporarySpot,
+      startsAtMillis: isTemporarySpot
+          ? temporaryStartsAt!.millisecondsSinceEpoch
+          : null,
+      expiresAtMillis: isTemporarySpot
+          ? temporaryExpiresAt!.millisecondsSinceEpoch
+          : null,
     );
 
     setState(() => isSubmitting = true);
@@ -3596,7 +5178,10 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
         );
       }
 
-      newSpot = newSpot.copyWith(photoUrl: uploadedPhotoUrl);
+      newSpot = newSpot.copyWith(
+        photoUrl: uploadedPhotoUrl,
+        photoUrls: uploadedPhotoUrl.isEmpty ? const [] : [uploadedPhotoUrl],
+      );
       await spotRef.set(spotToFirestoreData(newSpot, includeCreatedAt: true));
       final savedSpot = await spotRef.get(
         const GetOptions(source: Source.server),
@@ -3735,6 +5320,31 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
           ),
           const SizedBox(height: 16),
           _AddSpotSection(
+            title: 'Temporary schedule',
+            children: [
+              _TemporarySpotScheduleCard(
+                enabled: isTemporarySpot,
+                startsAt: temporaryStartsAt,
+                expiresAt: temporaryExpiresAt,
+                onEnabledChanged: (value) {
+                  setState(() {
+                    isTemporarySpot = value;
+                    if (value && temporaryStartsAt == null) {
+                      final start = DateTime.now().add(
+                        const Duration(hours: 1),
+                      );
+                      temporaryStartsAt = start;
+                      temporaryExpiresAt = start.add(const Duration(hours: 3));
+                    }
+                  });
+                },
+                onPickStart: chooseTemporaryStart,
+                onPickEnd: chooseTemporaryEnd,
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          _AddSpotSection(
             title: 'Categories',
             children: [
               Wrap(
@@ -3783,7 +5393,7 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
               ),
               _CcsTextField(
                 controller: reelController,
-                label: 'Instagram / TikTok reel link',
+                label: 'Instagram / TikTok video link',
                 hint: 'https://instagram.com/reel/...',
                 icon: Icons.play_circle,
                 keyboardType: TextInputType.url,
@@ -3829,6 +5439,122 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
           ),
           const SizedBox(height: 16),
           const _MySubmissionsSection(),
+        ],
+      ),
+    );
+  }
+}
+
+class _TemporarySpotScheduleCard extends StatelessWidget {
+  final bool enabled;
+  final DateTime? startsAt;
+  final DateTime? expiresAt;
+  final ValueChanged<bool> onEnabledChanged;
+  final VoidCallback onPickStart;
+  final VoidCallback onPickEnd;
+
+  const _TemporarySpotScheduleCard({
+    required this.enabled,
+    required this.startsAt,
+    required this.expiresAt,
+    required this.onEnabledChanged,
+    required this.onPickStart,
+    required this.onPickEnd,
+  });
+
+  Widget timeButton({
+    required String label,
+    required DateTime? value,
+    required IconData icon,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: enabled ? onTap : null,
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: enabled ? 0.06 : 0.03),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: Colors.white12),
+        ),
+        child: Row(
+          children: [
+            Icon(icon, color: enabled ? blue : Colors.white30),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    label,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    value == null ? 'Choose time' : formatShortDateTime(value),
+                    style: const TextStyle(color: Colors.white54),
+                  ),
+                ],
+              ),
+            ),
+            const Icon(Icons.chevron_right, color: Colors.white54),
+          ],
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.06),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: enabled ? blue.withValues(alpha: 0.7) : Colors.white12,
+        ),
+      ),
+      child: Column(
+        children: [
+          SwitchListTile(
+            value: enabled,
+            onChanged: onEnabledChanged,
+            activeThumbColor: blue,
+            contentPadding: EdgeInsets.zero,
+            secondary: const Icon(Icons.timer, color: blue),
+            title: const Text(
+              'Temporary spot',
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+            subtitle: const Text(
+              'Use this for meets and events. It disappears after the end time.',
+              style: TextStyle(color: Colors.white54),
+            ),
+          ),
+          if (enabled) ...[
+            const SizedBox(height: 10),
+            timeButton(
+              label: 'Starts at',
+              value: startsAt,
+              icon: Icons.play_arrow,
+              onTap: onPickStart,
+            ),
+            const SizedBox(height: 10),
+            timeButton(
+              label: 'Ends at',
+              value: expiresAt,
+              icon: Icons.stop,
+              onTap: onPickEnd,
+            ),
+          ],
         ],
       ),
     );
@@ -3918,18 +5644,6 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
                 maxNativeZoom: 19,
               ),
               MarkerLayer(markers: markers),
-              RichAttributionWidget(
-                attributions: [
-                  TextSourceAttribution(
-                    'OpenStreetMap contributors, CARTO',
-                    prependCopyright: false,
-                    textStyle: const TextStyle(
-                      color: Colors.white54,
-                      fontSize: 11,
-                    ),
-                  ),
-                ],
-              ),
             ],
           ),
           Positioned(
@@ -4282,6 +5996,15 @@ class _SubmittedSpotTile extends StatelessWidget {
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(color: Colors.white54),
                   ),
+                  if (spot.isTemporary) ...[
+                    const SizedBox(height: 6),
+                    Text(
+                      spot.temporaryTimeLabel,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(color: blue, fontSize: 12),
+                    ),
+                  ],
                   const SizedBox(height: 8),
                   Row(
                     children: [
@@ -5623,6 +7346,13 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   late final TextEditingController cityController;
   late final TextEditingController bioController;
   String? avatarPath;
+  Timer? usernameAvailabilityDebounce;
+  UsernameAvailability usernameAvailability = UsernameAvailability.unchanged;
+
+  bool get canSaveProfile {
+    return usernameAvailability == UsernameAvailability.unchanged ||
+        usernameAvailability == UsernameAvailability.available;
+  }
 
   @override
   void initState() {
@@ -5631,14 +7361,53 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     cityController = TextEditingController(text: widget.profile.cityCountry);
     bioController = TextEditingController(text: widget.profile.bio);
     avatarPath = widget.profile.avatarPath;
+    usernameController.addListener(queueUsernameAvailabilityCheck);
   }
 
   @override
   void dispose() {
+    usernameAvailabilityDebounce?.cancel();
+    usernameController.removeListener(queueUsernameAvailabilityCheck);
     usernameController.dispose();
     cityController.dispose();
     bioController.dispose();
     super.dispose();
+  }
+
+  void queueUsernameAvailabilityCheck() {
+    usernameAvailabilityDebounce?.cancel();
+
+    final cleanUsername = cleanProfileUsername(usernameController.text);
+
+    if (cleanUsername.length < 3) {
+      setState(() => usernameAvailability = UsernameAvailability.invalid);
+      return;
+    }
+
+    if (usernameKey(cleanUsername) == usernameKey(widget.profile.username)) {
+      setState(() => usernameAvailability = UsernameAvailability.unchanged);
+      return;
+    }
+
+    setState(() => usernameAvailability = UsernameAvailability.checking);
+
+    usernameAvailabilityDebounce = Timer(const Duration(milliseconds: 450), () {
+      checkUsernameAvailability(cleanUsername);
+    });
+  }
+
+  Future<void> checkUsernameAvailability(String usernameToCheck) async {
+    final checkedKey = usernameKey(usernameToCheck);
+    final availability = await checkUsernameAvailabilityForCurrentUser(
+      usernameToCheck,
+      currentUsername: widget.profile.username,
+    );
+
+    if (!mounted || usernameKey(usernameController.text) != checkedKey) {
+      return;
+    }
+
+    setState(() => usernameAvailability = availability);
   }
 
   Future<void> chooseAvatar() async {
@@ -5652,6 +7421,22 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   }
 
   void saveProfile() {
+    if (!canSaveProfile) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: Colors.redAccent,
+          content: Text(
+            usernameAvailabilityText(usernameAvailability),
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+      );
+      return;
+    }
+
     Navigator.pop(
       context,
       UserProfileData(
@@ -5736,6 +7521,28 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                 hint: 'riga_driver',
                 icon: Icons.alternate_email,
               ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Icon(
+                    usernameAvailabilityIcon(usernameAvailability),
+                    color: usernameAvailabilityColor(usernameAvailability),
+                    size: 16,
+                  ),
+                  const SizedBox(width: 7),
+                  Expanded(
+                    child: Text(
+                      usernameAvailabilityText(usernameAvailability),
+                      style: TextStyle(
+                        color: usernameAvailabilityColor(usernameAvailability),
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 14),
               _CcsTextField(
                 controller: cityController,
                 label: 'City / country',
@@ -5755,7 +7562,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
           SizedBox(
             height: 54,
             child: ElevatedButton.icon(
-              onPressed: saveProfile,
+              onPressed: canSaveProfile ? saveProfile : null,
               icon: const Icon(Icons.check),
               label: const Text('Save Profile'),
               style: ElevatedButton.styleFrom(

@@ -717,6 +717,7 @@ class CarSpot {
   final List<String> categories;
   final double rating;
   final String photoUrl;
+  final List<String> photoUrls;
   final String? localPhotoPath;
   final String reelLink;
   final String bestTime;
@@ -744,6 +745,7 @@ class CarSpot {
     required this.categories,
     required this.rating,
     required this.photoUrl,
+    this.photoUrls = const [],
     this.localPhotoPath,
     required this.reelLink,
     required this.bestTime,
@@ -772,6 +774,7 @@ class CarSpot {
     List<String>? categories,
     double? rating,
     String? photoUrl,
+    List<String>? photoUrls,
     String? localPhotoPath,
     String? reelLink,
     String? bestTime,
@@ -799,6 +802,7 @@ class CarSpot {
       categories: categories ?? this.categories,
       rating: rating ?? this.rating,
       photoUrl: photoUrl ?? this.photoUrl,
+      photoUrls: photoUrls ?? this.photoUrls,
       localPhotoPath: localPhotoPath ?? this.localPhotoPath,
       reelLink: reelLink ?? this.reelLink,
       bestTime: bestTime ?? this.bestTime,
@@ -877,6 +881,7 @@ class CarSpot {
       categories: stringListFromFirebase(data['categories'], const ['Photo']),
       rating: doubleFromFirebase(data['rating'], 0),
       photoUrl: stringFromFirebase(data['photoUrl'], ''),
+      photoUrls: stringListFromFirebase(data['photoUrls'], const []),
       reelLink: stringFromFirebase(data['reelLink'], ''),
       bestTime: stringFromFirebase(data['bestTime'], 'Not reviewed'),
       parking: stringFromFirebase(data['parking'], 'Not reviewed'),
@@ -942,6 +947,10 @@ String twoDigits(int value) => value.toString().padLeft(2, '0');
 String formatShortDateTime(DateTime value) {
   return '${twoDigits(value.day)}.${twoDigits(value.month)} '
       '${twoDigits(value.hour)}:${twoDigits(value.minute)}';
+}
+
+String formatShortDate(DateTime value) {
+  return '${twoDigits(value.day)}.${twoDigits(value.month)}.${value.year}';
 }
 
 List<String> stringListFromFirebase(Object? value, List<String> fallback) {
@@ -1055,6 +1064,7 @@ Map<String, Object?> spotToFirestoreData(
     'categories': spot.categories,
     'rating': spot.rating,
     'photoUrl': spot.photoUrl,
+    'photoUrls': spot.photoUrls,
     'reelLink': spot.reelLink,
     'bestTime': spot.bestTime,
     'parking': spot.parking,
@@ -1177,6 +1187,8 @@ CollectionReference<Map<String, dynamic>> spotLikesCollection() {
   return FirebaseFirestore.instance.collection('spot_likes');
 }
 
+const int maxCommentsPerUserPerSpot = 50;
+
 String spotReviewKey(CarSpot spot) {
   if (spot.id.trim().isNotEmpty) {
     return spot.id.trim();
@@ -1285,18 +1297,89 @@ Future<void> saveSpotReview({
   }
 
   final spotId = spotReviewKey(spot);
+  final cleanComment = comment.trim();
 
-  await spotReviewsCollection().doc('${spotId}_${firebaseUser.uid}').set({
+  final existingReviews = await spotReviewsCollection()
+      .where('spotId', isEqualTo: spotId)
+      .get();
+
+  final userCommentCount = existingReviews.docs.where((doc) {
+    final data = doc.data();
+    return stringFromFirebase(data['userId'], '') == firebaseUser.uid &&
+        stringFromFirebase(data['comment'], '').trim().isNotEmpty;
+  }).length;
+
+  if (userCommentCount >= maxCommentsPerUserPerSpot) {
+    throw FirebaseException(
+      plugin: 'cloud_firestore',
+      code: 'comment-limit-reached',
+      message: 'You reached the 50 comment limit for this spot.',
+    );
+  }
+
+  await spotReviewsCollection().add({
     'spotId': spotId,
     'spotName': spot.name,
     'userId': firebaseUser.uid,
     'username': currentUser.username,
     'rating': rating.clamp(1, 5),
-    'comment': comment.trim(),
+    'comment': cleanComment,
     'createdAt': FieldValue.serverTimestamp(),
     'updatedAt': FieldValue.serverTimestamp(),
-  }, SetOptions(merge: true));
+  });
 
+  await updateSpotRatingFromReviews(spot);
+}
+
+Future<void> editSpotReview({
+  required CarSpot spot,
+  required SpotReviewData review,
+  required int rating,
+  required String comment,
+}) async {
+  final firebaseUser = FirebaseAuth.instance.currentUser;
+
+  if (firebaseUser == null) {
+    throw FirebaseException(
+      plugin: 'cloud_firestore',
+      code: 'not-logged-in',
+      message: 'Log in before editing a review.',
+    );
+  }
+
+  final cleanComment = comment.trim();
+  if (cleanComment.isEmpty) {
+    throw FirebaseException(
+      plugin: 'cloud_firestore',
+      code: 'empty-comment',
+      message: 'Comment cannot be empty.',
+    );
+  }
+
+  await spotReviewsCollection().doc(review.id).update({
+    'rating': rating.clamp(1, 5),
+    'comment': cleanComment,
+    'updatedAt': FieldValue.serverTimestamp(),
+  });
+
+  await updateSpotRatingFromReviews(spot);
+}
+
+Future<void> deleteSpotReview({
+  required CarSpot spot,
+  required SpotReviewData review,
+}) async {
+  final firebaseUser = FirebaseAuth.instance.currentUser;
+
+  if (firebaseUser == null) {
+    throw FirebaseException(
+      plugin: 'cloud_firestore',
+      code: 'not-logged-in',
+      message: 'Log in before deleting a review.',
+    );
+  }
+
+  await spotReviewsCollection().doc(review.id).delete();
   await updateSpotRatingFromReviews(spot);
 }
 
@@ -1979,6 +2062,13 @@ class ExploreSpotCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final tagWidgets = <Widget>[
+      if (spot.isTemporary)
+        _SmallTag(label: spot.temporaryTimeLabel, icon: Icons.event),
+      for (final category in spot.categories.take(3))
+        _SmallTag(label: category, icon: Icons.local_offer),
+    ];
+
     return InkWell(
       onTap: () {
         Navigator.push(
@@ -1986,35 +2076,44 @@ class ExploreSpotCard extends StatelessWidget {
           MaterialPageRoute(builder: (_) => SpotDetailScreen(spot: spot)),
         );
       },
-      borderRadius: BorderRadius.circular(22),
+      borderRadius: BorderRadius.circular(16),
       child: Container(
+        padding: const EdgeInsets.all(8),
         decoration: BoxDecoration(
           color: panel,
-          borderRadius: BorderRadius.circular(22),
+          borderRadius: BorderRadius.circular(16),
           border: Border.all(color: Colors.white12),
         ),
-        child: Column(
+        child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Stack(
               children: [
                 SpotPhoto(
                   spot: spot,
-                  height: 190,
-                  width: double.infinity,
-                  borderRadius: const BorderRadius.vertical(
-                    top: Radius.circular(22),
+                  width: 126,
+                  height: 92,
+                  fit: BoxFit.cover,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                Positioned(
+                  top: -4,
+                  right: -4,
+                  child: Transform.scale(
+                    scale: 0.72,
+                    alignment: Alignment.topRight,
+                    child: SaveSpotButton(spot: spot, compact: true),
                   ),
                 ),
                 Positioned(
-                  top: 12,
-                  right: 12,
-                  child: SaveSpotButton(spot: spot, compact: true),
+                  left: 6,
+                  bottom: 6,
+                  child: ExploreSpotStatsRow(spot: spot, overlay: true),
                 ),
               ],
             ),
-            Padding(
-              padding: const EdgeInsets.all(14),
+            const SizedBox(width: 10),
+            Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -2027,50 +2126,51 @@ class ExploreSpotCard extends StatelessWidget {
                           overflow: TextOverflow.ellipsis,
                           style: const TextStyle(
                             color: Colors.white,
-                            fontSize: 20,
+                            fontSize: 15,
                             fontWeight: FontWeight.w900,
                           ),
                         ),
                       ),
-                      const Icon(Icons.star, color: blue, size: 17),
-                      const SizedBox(width: 4),
+                      const Icon(Icons.star, color: blue, size: 14),
+                      const SizedBox(width: 3),
                       Text(
                         spot.rating.toStringAsFixed(1),
                         style: const TextStyle(
                           color: Colors.white,
+                          fontSize: 11,
                           fontWeight: FontWeight.w800,
                         ),
                       ),
                     ],
                   ),
-                  const SizedBox(height: 5),
+                  const SizedBox(height: 2),
                   Text(
                     spot.cityCountry,
-                    style: const TextStyle(color: Colors.white54),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(color: Colors.white54, fontSize: 11),
                   ),
-                  const SizedBox(height: 10),
+                  const SizedBox(height: 5),
                   Text(
                     spot.description,
-                    maxLines: 2,
+                    maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(color: Colors.white70, height: 1.35),
+                    style: const TextStyle(
+                      color: Colors.white70,
+                      fontSize: 11,
+                      height: 1.2,
+                    ),
                   ),
-                  const SizedBox(height: 12),
-                  Wrap(
-                    spacing: 7,
-                    runSpacing: 7,
-                    children: [
-                      if (spot.isTemporary)
-                        _SmallTag(
-                          label: spot.temporaryTimeLabel,
-                          icon: Icons.event,
-                        ),
-                      for (final category in spot.categories.take(3))
-                        _SmallTag(label: category, icon: Icons.local_offer),
-                    ],
+                  const SizedBox(height: 8),
+                  SizedBox(
+                    height: 25,
+                    child: ListView.separated(
+                      scrollDirection: Axis.horizontal,
+                      itemCount: tagWidgets.length,
+                      separatorBuilder: (_, _) => const SizedBox(width: 6),
+                      itemBuilder: (context, index) => tagWidgets[index],
+                    ),
                   ),
-                  const SizedBox(height: 12),
-                  ExploreSpotStatsRow(spot: spot),
                 ],
               ),
             ),
@@ -2083,12 +2183,70 @@ class ExploreSpotCard extends StatelessWidget {
 
 class ExploreSpotStatsRow extends StatelessWidget {
   final CarSpot spot;
+  final bool overlay;
 
-  const ExploreSpotStatsRow({super.key, required this.spot});
+  const ExploreSpotStatsRow({
+    super.key,
+    required this.spot,
+    this.overlay = false,
+  });
+
+  Widget simpleStat({
+    required IconData icon,
+    required int count,
+    required Color color,
+    VoidCallback? onTap,
+  }) {
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 3),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, color: color, size: overlay ? 14 : 15),
+            const SizedBox(width: 3),
+            Text(
+              '$count',
+              style: TextStyle(
+                color: color,
+                fontSize: overlay ? 10 : 11,
+                fontWeight: FontWeight.w900,
+                shadows: overlay
+                    ? const [Shadow(color: Colors.black, blurRadius: 5)]
+                    : null,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Stream<bool> currentUserCommentedStream() {
+    final firebaseUser = FirebaseAuth.instance.currentUser;
+
+    if (firebaseUser == null) {
+      return Stream.value(false);
+    }
+
+    return watchSpotReviews(spot).map(
+      (reviews) => reviews.any(
+        (review) =>
+            review.userId == firebaseUser.uid && review.comment.isNotEmpty,
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
+    final inactiveColor = overlay
+        ? Colors.white.withValues(alpha: 0.88)
+        : Colors.white70;
+
     return Row(
+      mainAxisSize: MainAxisSize.min,
       children: [
         StreamBuilder<bool>(
           stream: watchCurrentUserLikedSpot(spot),
@@ -2100,65 +2258,35 @@ class ExploreSpotStatsRow extends StatelessWidget {
               builder: (context, countSnapshot) {
                 final likeCount = countSnapshot.data ?? 0;
 
-                return SizedBox(
-                  height: 36,
-                  child: OutlinedButton.icon(
-                    onPressed: () => toggleSpotLike(context, spot, liked),
-                    icon: Icon(
-                      liked ? Icons.favorite : Icons.favorite_border,
-                      size: 16,
-                    ),
-                    label: Text('$likeCount'),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: liked
-                          ? Colors.redAccent
-                          : Colors.white70,
-                      side: BorderSide(
-                        color: liked ? Colors.redAccent : Colors.white12,
-                      ),
-                      padding: const EdgeInsets.symmetric(horizontal: 11),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(999),
-                      ),
-                    ),
-                  ),
+                return simpleStat(
+                  icon: liked ? Icons.favorite : Icons.favorite_border,
+                  count: likeCount,
+                  color: liked ? Colors.redAccent : inactiveColor,
+                  onTap: () => toggleSpotLike(context, spot, liked),
                 );
               },
             );
           },
         ),
-        const SizedBox(width: 8),
-        StreamBuilder<int>(
-          stream: watchSpotCommentCount(spot),
-          builder: (context, snapshot) {
-            final commentCount = snapshot.data ?? 0;
+        const SizedBox(width: 5),
+        StreamBuilder<bool>(
+          stream: currentUserCommentedStream(),
+          builder: (context, commentedSnapshot) {
+            final commented = commentedSnapshot.data ?? false;
 
-            return Container(
-              height: 36,
-              padding: const EdgeInsets.symmetric(horizontal: 11),
-              decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.06),
-                borderRadius: BorderRadius.circular(999),
-                border: Border.all(color: Colors.white12),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Icon(
-                    Icons.chat_bubble_outline,
-                    color: Colors.white70,
-                    size: 15,
-                  ),
-                  const SizedBox(width: 6),
-                  Text(
-                    '$commentCount',
-                    style: const TextStyle(
-                      color: Colors.white70,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                ],
-              ),
+            return StreamBuilder<int>(
+              stream: watchSpotCommentCount(spot),
+              builder: (context, countSnapshot) {
+                final commentCount = countSnapshot.data ?? 0;
+
+                return simpleStat(
+                  icon: commented
+                      ? Icons.chat_bubble
+                      : Icons.chat_bubble_outline,
+                  count: commentCount,
+                  color: commented ? blue : inactiveColor,
+                );
+              },
             );
           },
         ),
@@ -2183,6 +2311,8 @@ class _MapScreenState extends State<MapScreen> {
   Timer? temporarySpotRefreshTimer;
   String selectedFilter = 'All';
   CarSpot? selectedSpot;
+  LatLng? currentUserLocation;
+  bool isLocatingUser = false;
 
   @override
   void initState() {
@@ -2196,6 +2326,7 @@ class _MapScreenState extends State<MapScreen> {
       const Duration(seconds: 10),
       (_) => refreshMap(),
     );
+    loadInitialUserLocation();
   }
 
   void refreshMap() {
@@ -2262,6 +2393,56 @@ class _MapScreenState extends State<MapScreen> {
     }).toList();
   }
 
+  List<Marker> get allMapMarkers {
+    final allMarkers = [...markers];
+    final userMarker = currentUserMarker;
+
+    if (userMarker != null) {
+      allMarkers.add(userMarker);
+    }
+
+    return allMarkers;
+  }
+
+  Marker? get currentUserMarker {
+    final location = currentUserLocation;
+
+    if (location == null) {
+      return null;
+    }
+
+    return Marker(
+      point: location,
+      width: 58,
+      height: 58,
+      child: Container(
+        decoration: BoxDecoration(
+          color: blue.withValues(alpha: 0.18),
+          shape: BoxShape.circle,
+          border: Border.all(color: blue.withValues(alpha: 0.45), width: 2),
+        ),
+        child: Center(
+          child: Container(
+            width: 24,
+            height: 24,
+            decoration: BoxDecoration(
+              color: Colors.white,
+              shape: BoxShape.circle,
+              border: Border.all(color: blue, width: 5),
+              boxShadow: [
+                BoxShadow(
+                  color: blue.withValues(alpha: 0.55),
+                  blurRadius: 18,
+                  spreadRadius: 4,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   void dispose() {
     temporarySpotRefreshTimer?.cancel();
@@ -2277,8 +2458,94 @@ class _MapScreenState extends State<MapScreen> {
     );
   }
 
-  void moveToRiga() {
-    mapController.move(rigaCenter, rigaZoom);
+  void loadInitialUserLocation() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        moveToCurrentLocation(showErrors: false);
+      }
+    });
+  }
+
+  Future<Position?> getMapUserPosition({required bool showErrors}) async {
+    final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+
+    if (!serviceEnabled) {
+      if (showErrors && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            backgroundColor: Colors.redAccent,
+            content: Text(
+              'Turn on phone location first.',
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        );
+      }
+
+      return null;
+    }
+
+    var permission = await Geolocator.checkPermission();
+
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+    }
+
+    if (permission == LocationPermission.denied ||
+        permission == LocationPermission.deniedForever) {
+      if (showErrors && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            backgroundColor: Colors.redAccent,
+            content: Text(
+              'Location permission is needed to show you on the map.',
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        );
+      }
+
+      return null;
+    }
+
+    return Geolocator.getCurrentPosition(
+      locationSettings: const LocationSettings(accuracy: LocationAccuracy.high),
+    );
+  }
+
+  Future<void> moveToCurrentLocation({bool showErrors = true}) async {
+    if (isLocatingUser) {
+      return;
+    }
+
+    setState(() => isLocatingUser = true);
+
+    final position = await getMapUserPosition(showErrors: showErrors);
+
+    if (!mounted) {
+      return;
+    }
+
+    if (position == null) {
+      setState(() => isLocatingUser = false);
+      return;
+    }
+
+    final location = LatLng(position.latitude, position.longitude);
+
+    setState(() {
+      currentUserLocation = location;
+      selectedSpot = null;
+      isLocatingUser = false;
+    });
+
+    mapController.move(location, 15.5);
   }
 
   @override
@@ -2292,8 +2559,8 @@ class _MapScreenState extends State<MapScreen> {
           FlutterMap(
             mapController: mapController,
             options: MapOptions(
-              initialCenter: rigaCenter,
-              initialZoom: rigaZoom,
+              initialCenter: currentUserLocation ?? rigaCenter,
+              initialZoom: currentUserLocation == null ? rigaZoom : 15.5,
               minZoom: 4,
               maxZoom: 18,
               backgroundColor: night,
@@ -2306,19 +2573,7 @@ class _MapScreenState extends State<MapScreen> {
                 userAgentPackageName: 'com.example.ccs_app',
                 maxNativeZoom: 19,
               ),
-              MarkerLayer(markers: markers),
-              RichAttributionWidget(
-                attributions: [
-                  TextSourceAttribution(
-                    'OpenStreetMap contributors, CARTO',
-                    prependCopyright: false,
-                    textStyle: const TextStyle(
-                      color: Colors.white54,
-                      fontSize: 11,
-                    ),
-                  ),
-                ],
-              ),
+              MarkerLayer(markers: allMapMarkers),
             ],
           ),
           SafeArea(
@@ -2371,10 +2626,19 @@ class _MapScreenState extends State<MapScreen> {
             right: 16,
             bottom: spot == null ? 18 : 196,
             child: FloatingActionButton.small(
-              onPressed: moveToRiga,
+              onPressed: isLocatingUser ? null : () => moveToCurrentLocation(),
               backgroundColor: blue,
               foregroundColor: Colors.white,
-              child: const Icon(Icons.my_location),
+              child: isLocatingUser
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
+                  : const Icon(Icons.my_location),
             ),
           ),
           if (spot != null)
@@ -2933,16 +3197,297 @@ String formatDistanceKm(double value) {
 }
 
 String estimateDriveTime(double distanceKm) {
-  final minutes = (distanceKm / 35 * 60).clamp(2, 180).round();
+  // This is only a rough straight-line estimate before Waze opens.
+  // City trips use slower speed, long trips use a higher average speed.
+  final averageSpeedKmh = distanceKm > 120 ? 70 : 35;
+  final minutes = (distanceKm / averageSpeedKmh * 60).round().clamp(2, 999999);
 
   if (minutes < 60) {
     return '~$minutes min';
   }
 
   final hours = minutes ~/ 60;
-  final rest = minutes % 60;
+  final restMinutes = minutes % 60;
 
-  return rest == 0 ? '~$hours h' : '~$hours h $rest min';
+  if (hours < 24) {
+    return restMinutes == 0 ? '~$hours h' : '~$hours h $restMinutes min';
+  }
+
+  final days = hours ~/ 24;
+  final restHours = hours % 24;
+
+  return restHours == 0 ? '~$days d' : '~$days d $restHours h';
+}
+
+List<String> spotPhotoSources(CarSpot spot) {
+  final sources = <String>[];
+
+  void addSource(String value) {
+    final trimmed = value.trim();
+
+    if (trimmed.isNotEmpty && !sources.contains(trimmed)) {
+      sources.add(trimmed);
+    }
+  }
+
+  if (localFileExists(spot.localPhotoPath)) {
+    addSource('local:${spot.localPhotoPath}');
+  }
+
+  for (final photoUrl in spot.photoUrls) {
+    addSource(photoUrl);
+  }
+
+  addSource(spot.photoUrl);
+
+  return sources;
+}
+
+bool isLocalSpotPhotoSource(String source) {
+  return source.startsWith('local:');
+}
+
+String localPhotoPathFromSource(String source) {
+  return source.substring('local:'.length);
+}
+
+Widget spotPhotoImage(
+  String source, {
+  double? width,
+  double? height,
+  BoxFit fit = BoxFit.cover,
+}) {
+  if (isLocalSpotPhotoSource(source)) {
+    return Image.file(
+      File(localPhotoPathFromSource(source)),
+      width: width,
+      height: height,
+      fit: fit,
+      errorBuilder: (_, _, _) =>
+          _SpotPhotoPlaceholder(width: width, height: height),
+    );
+  }
+
+  return Image.network(
+    source,
+    width: width,
+    height: height,
+    fit: fit,
+    errorBuilder: (_, _, _) =>
+        _SpotPhotoPlaceholder(width: width, height: height),
+  );
+}
+
+class SpotPhotoCarousel extends StatefulWidget {
+  final CarSpot spot;
+  final double height;
+
+  const SpotPhotoCarousel({
+    super.key,
+    required this.spot,
+    required this.height,
+  });
+
+  @override
+  State<SpotPhotoCarousel> createState() => _SpotPhotoCarouselState();
+}
+
+class _SpotPhotoCarouselState extends State<SpotPhotoCarousel> {
+  late final PageController controller;
+  int currentIndex = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    controller = PageController();
+  }
+
+  @override
+  void dispose() {
+    controller.dispose();
+    super.dispose();
+  }
+
+  void openGallery(int index) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) =>
+            SpotPhotoGalleryScreen(spot: widget.spot, initialIndex: index),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final sources = spotPhotoSources(widget.spot);
+
+    if (sources.isEmpty) {
+      return _SpotPhotoPlaceholder(height: widget.height);
+    }
+
+    return SizedBox(
+      height: widget.height,
+      width: double.infinity,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          PageView.builder(
+            controller: controller,
+            itemCount: sources.length,
+            onPageChanged: (index) => setState(() => currentIndex = index),
+            itemBuilder: (context, index) {
+              return GestureDetector(
+                onTap: () => openGallery(index),
+                child: spotPhotoImage(
+                  sources[index],
+                  width: double.infinity,
+                  height: widget.height,
+                  fit: BoxFit.cover,
+                ),
+              );
+            },
+          ),
+          if (sources.length > 1)
+            Positioned(
+              top: 14,
+              right: 14,
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 6,
+                ),
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.62),
+                  borderRadius: BorderRadius.circular(999),
+                  border: Border.all(color: Colors.white24),
+                ),
+                child: Text(
+                  '${currentIndex + 1}/${sources.length}',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class SpotPhotoGalleryScreen extends StatefulWidget {
+  final CarSpot spot;
+  final int initialIndex;
+
+  const SpotPhotoGalleryScreen({
+    super.key,
+    required this.spot,
+    required this.initialIndex,
+  });
+
+  @override
+  State<SpotPhotoGalleryScreen> createState() => _SpotPhotoGalleryScreenState();
+}
+
+class _SpotPhotoGalleryScreenState extends State<SpotPhotoGalleryScreen> {
+  late final List<String> sources;
+  late final PageController controller;
+  late int currentIndex;
+
+  @override
+  void initState() {
+    super.initState();
+    sources = spotPhotoSources(widget.spot);
+    currentIndex =
+        widget.initialIndex >= 0 && widget.initialIndex < sources.length
+        ? widget.initialIndex
+        : 0;
+    controller = PageController(initialPage: currentIndex);
+  }
+
+  @override
+  void dispose() {
+    controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      body: Stack(
+        children: [
+          if (sources.isEmpty)
+            const Center(
+              child: Icon(Icons.directions_car, color: blue, size: 44),
+            )
+          else
+            PageView.builder(
+              controller: controller,
+              itemCount: sources.length,
+              onPageChanged: (index) => setState(() => currentIndex = index),
+              itemBuilder: (context, index) {
+                return InteractiveViewer(
+                  minScale: 1,
+                  maxScale: 4,
+                  child: Center(
+                    child: spotPhotoImage(
+                      sources[index],
+                      width: double.infinity,
+                      height: double.infinity,
+                      fit: BoxFit.contain,
+                    ),
+                  ),
+                );
+              },
+            ),
+          SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.all(14),
+              child: Row(
+                children: [
+                  Container(
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.62),
+                      shape: BoxShape.circle,
+                      border: Border.all(color: Colors.white24),
+                    ),
+                    child: IconButton(
+                      onPressed: () => Navigator.pop(context),
+                      icon: const Icon(Icons.close, color: Colors.white),
+                    ),
+                  ),
+                  const Spacer(),
+                  if (sources.length > 1)
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 8,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withValues(alpha: 0.62),
+                        borderRadius: BorderRadius.circular(999),
+                        border: Border.all(color: Colors.white24),
+                      ),
+                      child: Text(
+                        '${currentIndex + 1}/${sources.length}',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class SpotDetailScreen extends StatefulWidget {
@@ -3039,14 +3584,54 @@ class _SpotDetailScreenState extends State<SpotDetailScreen> {
                     const Icon(Icons.star, color: blue, size: 20),
                     const SizedBox(width: 6),
                     Text(
-                      '${spot.rating.toStringAsFixed(1)} rating',
+                      '${spot.rating.toStringAsFixed(1)} spot rating',
                       style: const TextStyle(
                         color: Colors.white,
                         fontWeight: FontWeight.w700,
                       ),
                     ),
                     const Spacer(),
-                    Flexible(
+                    if (spot.createdAtMillis > 0)
+                      Text(
+                        'Added ${formatShortDate(DateTime.fromMillisecondsSinceEpoch(spot.createdAtMillis))}',
+                        style: const TextStyle(color: Colors.white54),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    StreamBuilder<bool>(
+                      stream: watchCurrentUserLikedSpot(spot),
+                      builder: (context, likedSnapshot) {
+                        final liked = likedSnapshot.data ?? false;
+                        return IconButton(
+                          icon: Icon(
+                            liked ? Icons.favorite : Icons.favorite_border,
+                            color: liked ? Colors.redAccent : Colors.white54,
+                          ),
+                          onPressed: () => toggleSpotLike(context, spot, liked),
+                        );
+                      },
+                    ),
+                    const SizedBox(width: 6),
+                    StreamBuilder<int>(
+                      stream: watchSpotLikeCount(spot),
+                      builder: (context, countSnapshot) {
+                        final likeCount = countSnapshot.data ?? 0;
+                        return Text(
+                          '$likeCount likes',
+                          style: const TextStyle(
+                            color: Colors.white70,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        );
+                      },
+                    ),
+                    const SizedBox(width: 14),
+                    const Icon(Icons.person, color: Colors.white54, size: 18),
+                    const SizedBox(width: 6),
+                    Expanded(
                       child: Text(
                         'Added by ${spot.addedBy}',
                         maxLines: 1,
@@ -3085,7 +3670,7 @@ class _SpotDetailScreenState extends State<SpotDetailScreen> {
                 SpotRouteActions(spot: spot),
                 const SizedBox(height: 24),
                 const Text(
-                  'Reel link',
+                  'Video link',
                   style: TextStyle(
                     color: Colors.white,
                     fontSize: 18,
@@ -3109,7 +3694,7 @@ class _SpotDetailScreenState extends State<SpotDetailScreen> {
                         Expanded(
                           child: Text(
                             spot.reelLink.isEmpty
-                                ? 'No reel link added'
+                                ? 'No video link added'
                                 : spot.reelLink,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
@@ -3123,10 +3708,7 @@ class _SpotDetailScreenState extends State<SpotDetailScreen> {
                   ),
                 ),
                 const SizedBox(height: 24),
-                SpotReviewsSection(
-                  spot: spot,
-                  onRatingChanged: updateVisibleRating,
-                ),
+                SpotReviewsSection(spot: spot),
               ],
             ),
           ),
@@ -3247,12 +3829,10 @@ class _SpotRouteActionsState extends State<SpotRouteActions> {
 
 class SpotReviewsSection extends StatefulWidget {
   final CarSpot spot;
-  final ValueChanged<double>? onRatingChanged;
 
   const SpotReviewsSection({
     super.key,
     required this.spot,
-    this.onRatingChanged,
   });
 
   @override
@@ -3355,19 +3935,11 @@ class _SpotReviewsSectionState extends State<SpotReviewsSection> {
       stream: watchSpotReviews(widget.spot),
       builder: (context, snapshot) {
         final reviews = snapshot.data ?? const <SpotReviewData>[];
-        final averageRating = reviews.isEmpty
-            ? widget.spot.rating
-            : reviews.fold<double>(
-                    0,
-                    (total, review) => total + review.rating,
-                  ) /
-                  reviews.length;
-
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (mounted) {
-            widget.onRatingChanged?.call(averageRating);
-          }
-        });
+        final hasReviews = reviews.isNotEmpty;
+        final communityRating = hasReviews
+            ? reviews.fold<double>(0, (total, review) => total + review.rating) /
+                reviews.length
+            : null;
 
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -3375,7 +3947,7 @@ class _SpotReviewsSectionState extends State<SpotReviewsSection> {
             Row(
               children: [
                 const Text(
-                  'Reviews',
+                  'Comments',
                   style: TextStyle(
                     color: Colors.white,
                     fontSize: 20,
@@ -3390,6 +3962,22 @@ class _SpotReviewsSectionState extends State<SpotReviewsSection> {
                   style: const TextStyle(
                     color: Colors.white70,
                     fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                const Icon(Icons.star, color: blue, size: 18),
+                const SizedBox(width: 8),
+                Text(
+                  communityRating == null
+                      ? 'Community rating not available'
+                      : '${communityRating.toStringAsFixed(1)} community rating',
+                  style: const TextStyle(
+                    color: Colors.white70,
+                    fontWeight: FontWeight.w700,
                   ),
                 ),
               ],
@@ -3447,7 +4035,7 @@ class _SpotReviewsSectionState extends State<SpotReviewsSection> {
                       icon: Icon(
                         isSaving ? Icons.hourglass_bottom : Icons.send,
                       ),
-                      label: Text(isSaving ? 'Saving...' : 'Post Review'),
+                      label: Text(isSaving ? 'Saving...' : 'Post Comment'),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: blue,
                         foregroundColor: Colors.white,
@@ -3477,7 +4065,7 @@ class _SpotReviewsSectionState extends State<SpotReviewsSection> {
               )
             else
               for (final review in reviews) ...[
-                SpotReviewCard(review: review),
+                SpotReviewCard(spot: widget.spot, review: review),
                 const SizedBox(height: 10),
               ],
           ],
@@ -3488,9 +4076,161 @@ class _SpotReviewsSectionState extends State<SpotReviewsSection> {
 }
 
 class SpotReviewCard extends StatelessWidget {
+  final CarSpot spot;
   final SpotReviewData review;
 
-  const SpotReviewCard({super.key, required this.review});
+  const SpotReviewCard({super.key, required this.spot, required this.review});
+
+  Future<void> _showEditDialog(BuildContext context) async {
+    final commentController = TextEditingController(text: review.comment);
+    var selectedRating = review.rating;
+
+    final saved = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          backgroundColor: panel,
+          title: const Text('Edit comment', style: TextStyle(color: Colors.white)),
+          content: StatefulBuilder(
+            builder: (context, setState) {
+              return Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      for (var i = 1; i <= 5; i++)
+                        IconButton(
+                          onPressed: () => setState(() => selectedRating = i),
+                          icon: Icon(
+                            i <= selectedRating ? Icons.star : Icons.star_border,
+                            color: blue,
+                          ),
+                        ),
+                    ],
+                  ),
+                  TextField(
+                    controller: commentController,
+                    minLines: 3,
+                    maxLines: 5,
+                    style: const TextStyle(color: Colors.white),
+                    decoration: InputDecoration(
+                      hintText: 'Edit your comment',
+                      hintStyle: const TextStyle(color: Colors.white38),
+                      filled: true,
+                      fillColor: Colors.white.withValues(alpha: 0.06),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(14),
+                        borderSide: const BorderSide(color: Colors.white12),
+                      ),
+                    ),
+                  ),
+                ],
+              );
+            },
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                if (commentController.text.trim().isEmpty) {
+                  return;
+                }
+                Navigator.of(context).pop(true);
+              },
+              child: const Text('Save'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (saved != true) {
+      return;
+    }
+
+    final newComment = commentController.text.trim();
+
+    try {
+      await editSpotReview(
+        spot: spot,
+        review: review,
+        rating: selectedRating,
+        comment: newComment,
+      );
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            backgroundColor: blue,
+            content: Text('Comment updated.', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
+          ),
+        );
+      }
+    } catch (error) {
+      if (context.mounted) {
+        final code = error is FirebaseException ? error.code : error.toString();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: Colors.redAccent,
+            content: Text('Could not update comment: $code', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _showDeleteDialog(BuildContext context) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          backgroundColor: panel,
+          title: const Text('Delete comment', style: TextStyle(color: Colors.white)),
+          content: const Text('Are you sure you want to delete this comment?', style: TextStyle(color: Colors.white70)),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('Delete'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirmed != true) {
+      return;
+    }
+
+    try {
+      await deleteSpotReview(spot: spot, review: review);
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            backgroundColor: blue,
+            content: Text('Comment deleted.', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
+          ),
+        );
+      }
+    } catch (error) {
+      if (context.mounted) {
+        final code = error is FirebaseException ? error.code : error.toString();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: Colors.redAccent,
+            content: Text('Could not delete comment: $code', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
+          ),
+        );
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -3518,16 +4258,32 @@ class SpotReviewCard extends StatelessWidget {
                   ),
                 ),
               ),
-              Row(
-                children: [
-                  for (var i = 1; i <= 5; i++)
-                    Icon(
-                      i <= review.rating ? Icons.star : Icons.star_border,
-                      color: blue,
-                      size: 15,
-                    ),
-                ],
+              Text(
+                formatShortDate(review.createdAt),
+                style: const TextStyle(color: Colors.white54, fontSize: 12),
               ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(child: Container()),
+              if (review.userId == currentUser.uid)
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    IconButton(
+                      onPressed: () => _showEditDialog(context),
+                      icon: const Icon(Icons.edit, color: Colors.white54, size: 18),
+                      tooltip: 'Edit comment',
+                    ),
+                    IconButton(
+                      onPressed: () => _showDeleteDialog(context),
+                      icon: const Icon(Icons.delete_outline, color: Colors.white54, size: 18),
+                      tooltip: 'Delete comment',
+                    ),
+                  ],
+                ),
             ],
           ),
           const SizedBox(height: 8),
@@ -3559,29 +4315,10 @@ class SpotPhoto extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    Widget photo;
-
-    if (localFileExists(spot.localPhotoPath)) {
-      photo = Image.file(
-        File(spot.localPhotoPath!),
-        width: width,
-        height: height,
-        fit: fit,
-        errorBuilder: (_, _, _) =>
-            _SpotPhotoPlaceholder(width: width, height: height),
-      );
-    } else if (spot.photoUrl.isNotEmpty) {
-      photo = Image.network(
-        spot.photoUrl,
-        width: width,
-        height: height,
-        fit: fit,
-        errorBuilder: (_, _, _) =>
-            _SpotPhotoPlaceholder(width: width, height: height),
-      );
-    } else {
-      photo = _SpotPhotoPlaceholder(width: width, height: height);
-    }
+    final sources = spotPhotoSources(spot);
+    final photo = sources.isEmpty
+        ? _SpotPhotoPlaceholder(width: width, height: height)
+        : spotPhotoImage(sources.first, width: width, height: height, fit: fit);
 
     if (borderRadius == null) {
       return photo;
@@ -3925,7 +4662,10 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
         );
       }
 
-      newSpot = newSpot.copyWith(photoUrl: uploadedPhotoUrl);
+      newSpot = newSpot.copyWith(
+        photoUrl: uploadedPhotoUrl,
+        photoUrls: uploadedPhotoUrl.isEmpty ? const [] : [uploadedPhotoUrl],
+      );
       await spotRef.set(spotToFirestoreData(newSpot, includeCreatedAt: true));
       final savedSpot = await spotRef.get(
         const GetOptions(source: Source.server),
@@ -4137,7 +4877,7 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
               ),
               _CcsTextField(
                 controller: reelController,
-                label: 'Instagram / TikTok reel link',
+                label: 'Instagram / TikTok video link',
                 hint: 'https://instagram.com/reel/...',
                 icon: Icons.play_circle,
                 keyboardType: TextInputType.url,
@@ -4388,18 +5128,6 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
                 maxNativeZoom: 19,
               ),
               MarkerLayer(markers: markers),
-              RichAttributionWidget(
-                attributions: [
-                  TextSourceAttribution(
-                    'OpenStreetMap contributors, CARTO',
-                    prependCopyright: false,
-                    textStyle: const TextStyle(
-                      color: Colors.white54,
-                      fontSize: 11,
-                    ),
-                  ),
-                ],
-              ),
             ],
           ),
           Positioned(
@@ -7050,15 +7778,16 @@ Future<void> deleteAdminSpot(
     if (popAfterDelete) {
       Navigator.pop(context);
     }
-  } catch (error) {
-    showAdminActionError(
-      context,
-      message: 'Could not delete spot',
-      error: error,
-    );
-  }
-}
+} catch (error) {
+  if (!context.mounted) return;
 
+  showAdminActionError(
+    context,
+    message: 'Could not delete spot',
+    error: error,
+  );
+}
+}
 class AdminReviewScreen extends StatefulWidget {
   const AdminReviewScreen({super.key});
 
