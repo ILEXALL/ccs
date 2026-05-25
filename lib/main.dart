@@ -698,16 +698,7 @@ Future<AppUser> signInWithTelegramAndSaveUser() async {
     );
   }
 
-  Map<String, dynamic> startData;
-
-  try {
-    startData = await getJsonFromUrl('$baseUrl/api/telegram-start');
-  } catch (error) {
-    throw Exception(
-      'Could not start Telegram login. Check internet connection and backend. $error',
-    );
-  }
-
+  final startData = await getJsonFromUrl('$baseUrl/api/telegram-start');
   final sessionId = stringFromFirebase(startData['sessionId'], '');
   final loginUrl = stringFromFirebase(startData['loginUrl'], '');
 
@@ -725,35 +716,13 @@ Future<AppUser> signInWithTelegramAndSaveUser() async {
   }
 
   Map<String, dynamic>? completeData;
-  Object? lastTelegramNetworkError;
-  var failedPollCount = 0;
 
   for (var attempt = 0; attempt < 90; attempt++) {
     await Future.delayed(const Duration(seconds: 2));
 
-    Map<String, dynamic> statusData;
-
-    try {
-      statusData = await getJsonFromUrl(
-        '$baseUrl/api/telegram-status?sessionId=${Uri.encodeComponent(sessionId)}',
-      );
-      failedPollCount = 0;
-    } catch (error) {
-      lastTelegramNetworkError = error;
-      failedPollCount++;
-
-      // Android can abort an HTTPS request when the user switches between
-      // CCS and Telegram. Do not fail the login because of one dropped poll.
-      // Keep waiting, but stop if the backend/network fails continuously.
-      if (failedPollCount >= 10) {
-        throw Exception(
-          'Telegram backend did not respond reliably. Last error: $lastTelegramNetworkError',
-        );
-      }
-
-      continue;
-    }
-
+    final statusData = await getJsonFromUrl(
+      '$baseUrl/api/telegram-status?sessionId=${Uri.encodeComponent(sessionId)}',
+    );
     final status = stringFromFirebase(statusData['status'], 'pending');
 
     if (status == 'complete') {
@@ -769,12 +738,6 @@ Future<AppUser> signInWithTelegramAndSaveUser() async {
   }
 
   if (completeData == null) {
-    if (lastTelegramNetworkError != null) {
-      throw Exception(
-        'Telegram login timed out. Last network error: $lastTelegramNetworkError',
-      );
-    }
-
     throw Exception('Telegram login timed out. Try again.');
   }
 
@@ -819,18 +782,13 @@ Future<AppUser> signInWithTelegramAndSaveUser() async {
 
 Future<Map<String, dynamic>> getJsonFromUrl(String url) async {
   final client = HttpClient();
-  client.connectionTimeout = const Duration(seconds: 15);
 
   try {
-    final request = await client
-        .getUrl(Uri.parse(url))
-        .timeout(const Duration(seconds: 15));
+    final request = await client.getUrl(Uri.parse(url));
     request.headers.set(HttpHeaders.acceptHeader, 'application/json');
 
-    final response = await request.close().timeout(const Duration(seconds: 20));
-    final body = await utf8
-        .decodeStream(response)
-        .timeout(const Duration(seconds: 20));
+    final response = await request.close();
+    final body = await utf8.decodeStream(response);
 
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw Exception('Request failed ${response.statusCode}: $body');
@@ -3546,10 +3504,15 @@ class ExploreSpotCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final visibleCategories = <String>[
+      for (final category in spot.categories)
+        if (category.trim().isNotEmpty) category.trim(),
+    ].toSet().take(3).toList();
+
     final tagWidgets = <Widget>[
       if (spot.isTemporary)
         _SmallTag(label: spot.temporaryTimeLabel, icon: Icons.event),
-      for (final category in spot.categories.take(3))
+      for (final category in visibleCategories)
         _SmallTag(label: category, icon: Icons.local_offer),
     ];
     final addedDateText = spot.createdAtMillis > 0
@@ -3672,19 +3635,6 @@ class ExploreSpotCard extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(height: 8),
-                  Wrap(
-                    spacing: 6,
-                    runSpacing: 6,
-                    children: [
-                      if (spot.isTemporary)
-                        _SmallTag(
-                          label: spot.temporaryTimeLabel,
-                          icon: Icons.event,
-                        ),
-                      for (final category in spot.categories.take(2))
-                        _SmallTag(label: category, icon: Icons.local_offer),
-                    ],
-                  ),
                   SizedBox(
                     height: 28,
                     child: ListView.separated(
