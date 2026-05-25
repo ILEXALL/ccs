@@ -1142,6 +1142,486 @@ CollectionReference<Map<String, dynamic>> adminNotificationsCollection() {
   return FirebaseFirestore.instance.collection('admin_notifications');
 }
 
+CollectionReference<Map<String, dynamic>> friendRequestsCollection() {
+  return FirebaseFirestore.instance.collection('friend_requests');
+}
+
+CollectionReference<Map<String, dynamic>> friendshipsCollection() {
+  return FirebaseFirestore.instance.collection('friendships');
+}
+
+CollectionReference<Map<String, dynamic>>
+friendLocationNotificationsCollection() {
+  return FirebaseFirestore.instance.collection('friend_location_notifications');
+}
+
+String friendshipIdFor(String firstUid, String secondUid) {
+  final ids = [firstUid, secondUid]..sort();
+  return '${ids[0]}_${ids[1]}';
+}
+
+String friendRequestIdFor(String fromUid, String toUid) {
+  return '${fromUid}_$toUid';
+}
+
+class FriendUserData {
+  final String uid;
+  final String username;
+  final String name;
+  final String email;
+  final String? photoUrl;
+  final String? avatarPath;
+  final bool verified;
+  final UserRole role;
+
+  const FriendUserData({
+    required this.uid,
+    required this.username,
+    required this.name,
+    required this.email,
+    this.photoUrl,
+    this.avatarPath,
+    required this.verified,
+    required this.role,
+  });
+
+  factory FriendUserData.fromFirestore(
+    DocumentSnapshot<Map<String, dynamic>> doc,
+  ) {
+    final data = doc.data() ?? {};
+    final role = roleFromFirebase(data['role']);
+
+    return FriendUserData(
+      uid: stringFromFirebase(data['uid'], doc.id),
+      username: stringFromFirebase(data['username'], 'ccs_driver'),
+      name: stringFromFirebase(data['name'], 'CCS Driver'),
+      email: stringFromFirebase(data['email'], ''),
+      photoUrl: data['photoUrl'] is String ? data['photoUrl'] as String : null,
+      avatarPath: data['avatarPath'] is String
+          ? data['avatarPath'] as String
+          : null,
+      role: role,
+      verified: role == UserRole.admin || data['verified'] == true,
+    );
+  }
+}
+
+class FriendRequestData {
+  final String id;
+  final String fromUid;
+  final String fromUsername;
+  final String fromName;
+  final String toUid;
+  final String toUsername;
+  final String toName;
+  final String status;
+  final int createdAtMillis;
+
+  const FriendRequestData({
+    required this.id,
+    required this.fromUid,
+    required this.fromUsername,
+    required this.fromName,
+    required this.toUid,
+    required this.toUsername,
+    required this.toName,
+    required this.status,
+    required this.createdAtMillis,
+  });
+
+  factory FriendRequestData.fromFirestore(
+    DocumentSnapshot<Map<String, dynamic>> doc,
+  ) {
+    final data = doc.data() ?? {};
+
+    return FriendRequestData(
+      id: doc.id,
+      fromUid: stringFromFirebase(data['fromUid'], ''),
+      fromUsername: stringFromFirebase(data['fromUsername'], 'ccs_driver'),
+      fromName: stringFromFirebase(data['fromName'], 'CCS Driver'),
+      toUid: stringFromFirebase(data['toUid'], ''),
+      toUsername: stringFromFirebase(data['toUsername'], 'ccs_driver'),
+      toName: stringFromFirebase(data['toName'], 'CCS Driver'),
+      status: stringFromFirebase(data['status'], 'pending'),
+      createdAtMillis: timestampMillisFromFirebase(data['createdAt']),
+    );
+  }
+}
+
+Future<bool> areUsersFriends(String firstUid, String secondUid) async {
+  if (firstUid.trim().isEmpty || secondUid.trim().isEmpty) {
+    return false;
+  }
+
+  final snapshot = await friendshipsCollection()
+      .doc(friendshipIdFor(firstUid, secondUid))
+      .get();
+  return snapshot.exists;
+}
+
+Future<String?> pendingRequestStatusBetweenUsers(
+  String firstUid,
+  String secondUid,
+) async {
+  final outgoing = await friendRequestsCollection()
+      .doc(friendRequestIdFor(firstUid, secondUid))
+      .get();
+
+  if (outgoing.exists && outgoing.data()?['status'] == 'pending') {
+    return 'outgoing';
+  }
+
+  final incoming = await friendRequestsCollection()
+      .doc(friendRequestIdFor(secondUid, firstUid))
+      .get();
+
+  if (incoming.exists && incoming.data()?['status'] == 'pending') {
+    return 'incoming';
+  }
+
+  return null;
+}
+
+Future<void> sendFriendRequestToUser(FriendUserData user) async {
+  final firebaseUser = FirebaseAuth.instance.currentUser;
+
+  if (firebaseUser == null) {
+    throw FirebaseException(
+      plugin: 'cloud_firestore',
+      code: 'not-logged-in',
+      message: 'Log in before adding friends.',
+    );
+  }
+
+  if (user.uid == firebaseUser.uid) {
+    throw FirebaseException(
+      plugin: 'cloud_firestore',
+      code: 'cannot-add-yourself',
+      message: 'You cannot add yourself as a friend.',
+    );
+  }
+
+  if (await areUsersFriends(firebaseUser.uid, user.uid)) {
+    return;
+  }
+
+  final incomingRef = friendRequestsCollection().doc(
+    friendRequestIdFor(user.uid, firebaseUser.uid),
+  );
+  final incoming = await incomingRef.get();
+
+  if (incoming.exists && incoming.data()?['status'] == 'pending') {
+    await acceptFriendRequest(FriendRequestData.fromFirestore(incoming));
+    return;
+  }
+
+  await friendRequestsCollection()
+      .doc(friendRequestIdFor(firebaseUser.uid, user.uid))
+      .set({
+        'fromUid': firebaseUser.uid,
+        'fromUsername': currentUser.username,
+        'fromName': currentUser.name,
+        'toUid': user.uid,
+        'toUsername': user.username,
+        'toName': user.name,
+        'status': 'pending',
+        'createdAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+}
+
+Future<void> acceptFriendRequest(FriendRequestData request) async {
+  final firebaseUser = FirebaseAuth.instance.currentUser;
+
+  if (firebaseUser == null || request.toUid != firebaseUser.uid) {
+    throw FirebaseException(
+      plugin: 'cloud_firestore',
+      code: 'permission-denied',
+      message: 'Only the invited user can accept this request.',
+    );
+  }
+
+  final friendshipRef = friendshipsCollection().doc(
+    friendshipIdFor(request.fromUid, request.toUid),
+  );
+  final requestRef = friendRequestsCollection().doc(request.id);
+
+  await FirebaseFirestore.instance.runTransaction((transaction) async {
+    transaction.set(friendshipRef, {
+      'userIds': [request.fromUid, request.toUid]..sort(),
+      'users': {
+        request.fromUid: {
+          'uid': request.fromUid,
+          'username': request.fromUsername,
+          'name': request.fromName,
+        },
+        request.toUid: {
+          'uid': request.toUid,
+          'username': request.toUsername,
+          'name': request.toName,
+        },
+      },
+      'createdAt': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+
+    transaction.set(requestRef, {
+      'status': 'accepted',
+      'respondedAt': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+  });
+}
+
+Future<void> declineFriendRequest(FriendRequestData request) async {
+  final firebaseUser = FirebaseAuth.instance.currentUser;
+
+  if (firebaseUser == null || request.toUid != firebaseUser.uid) {
+    throw FirebaseException(
+      plugin: 'cloud_firestore',
+      code: 'permission-denied',
+      message: 'Only the invited user can decline this request.',
+    );
+  }
+
+  await friendRequestsCollection().doc(request.id).set({
+    'status': 'declined',
+    'respondedAt': FieldValue.serverTimestamp(),
+    'updatedAt': FieldValue.serverTimestamp(),
+  }, SetOptions(merge: true));
+}
+
+Future<void> cancelFriendRequest(FriendRequestData request) async {
+  final firebaseUser = FirebaseAuth.instance.currentUser;
+
+  if (firebaseUser == null || request.fromUid != firebaseUser.uid) {
+    return;
+  }
+
+  await friendRequestsCollection().doc(request.id).delete();
+}
+
+String friendUidFromFriendshipData(
+  Map<String, dynamic> data,
+  String currentUid,
+) {
+  final userIds = stringListFromFirebase(data['userIds'], const []);
+
+  for (final uid in userIds) {
+    if (uid != currentUid) {
+      return uid;
+    }
+  }
+
+  return '';
+}
+
+Future<void> removeFriendship(String friendUid) async {
+  final firebaseUser = FirebaseAuth.instance.currentUser;
+
+  if (firebaseUser == null) {
+    return;
+  }
+
+  await friendshipsCollection()
+      .doc(friendshipIdFor(firebaseUser.uid, friendUid))
+      .delete();
+}
+
+const double friendNearbyRadiusMeters = 5000;
+const double friendAtSpotRadiusMeters = 200;
+const Duration friendLocationNotificationCooldown = Duration(minutes: 30);
+
+String friendNearbyNotificationId(String userId, String friendUid) {
+  return 'nearby_${userId}_$friendUid';
+}
+
+String friendSpotNotificationId(
+  String userId,
+  String friendUid,
+  String spotId,
+) {
+  return 'spot_${userId}_${friendUid}_$spotId';
+}
+
+Future<List<String>> loadCurrentFriendUids() async {
+  final firebaseUser = FirebaseAuth.instance.currentUser;
+
+  if (firebaseUser == null) {
+    return const [];
+  }
+
+  final snapshot = await friendshipsCollection()
+      .where('userIds', arrayContains: firebaseUser.uid)
+      .get();
+
+  return snapshot.docs
+      .map((doc) => friendUidFromFriendshipData(doc.data(), firebaseUser.uid))
+      .where((uid) => uid.trim().isNotEmpty)
+      .toList();
+}
+
+Future<LiveLocationData?> loadCurrentLiveLocationForUser(String uid) async {
+  final snapshot = await liveLocationsCollection().doc(uid).get();
+
+  if (!snapshot.exists) {
+    return null;
+  }
+
+  final location = LiveLocationData.fromFirestore(snapshot);
+  return location.isExpired ? null : location;
+}
+
+Future<bool> shouldCreateFriendLocationNotification(
+  String notificationId,
+) async {
+  final snapshot = await friendLocationNotificationsCollection()
+      .doc(notificationId)
+      .get();
+
+  if (!snapshot.exists) {
+    return true;
+  }
+
+  final data = snapshot.data() ?? {};
+  final lastNotifiedAtMillis = timestampMillisFromFirebase(
+    data['lastNotifiedAtMillis'],
+  );
+
+  if (lastNotifiedAtMillis <= 0) {
+    return true;
+  }
+
+  final elapsedMillis =
+      DateTime.now().millisecondsSinceEpoch - lastNotifiedAtMillis;
+  return elapsedMillis >= friendLocationNotificationCooldown.inMilliseconds;
+}
+
+Future<void> createFriendLocationNotification({
+  required String notificationId,
+  required String userId,
+  required LiveLocationData friendLocation,
+  required String type,
+  required double distanceMeters,
+  CarSpot? spot,
+}) async {
+  if (!await shouldCreateFriendLocationNotification(notificationId)) {
+    return;
+  }
+
+  final nowMillis = DateTime.now().millisecondsSinceEpoch;
+
+  await friendLocationNotificationsCollection().doc(notificationId).set({
+    'userId': userId,
+    'friendUid': friendLocation.uid,
+    'friendUsername': friendLocation.username,
+    'friendName': friendLocation.name,
+    'friendLat': friendLocation.coordinates.latitude,
+    'friendLng': friendLocation.coordinates.longitude,
+    'friendCoordinates': GeoPoint(
+      friendLocation.coordinates.latitude,
+      friendLocation.coordinates.longitude,
+    ),
+    'type': type,
+    'distanceMeters': distanceMeters.round(),
+    'spotId': spot?.id ?? '',
+    'spotName': spot?.name ?? '',
+    'spotCategory': spot?.categories.isEmpty == true
+        ? ''
+        : spot?.categories.first ?? '',
+    'read': false,
+    'lastNotifiedAtMillis': nowMillis,
+    'createdAt': FieldValue.serverTimestamp(),
+    'updatedAt': FieldValue.serverTimestamp(),
+  }, SetOptions(merge: true));
+}
+
+Future<void> checkFriendLocationNotifications() async {
+  final firebaseUser = FirebaseAuth.instance.currentUser;
+
+  if (firebaseUser == null) {
+    return;
+  }
+
+  final friendUids = await loadCurrentFriendUids();
+
+  if (friendUids.isEmpty) {
+    return;
+  }
+
+  final activeLocations = await liveLocationsCollection()
+      .where('expiresAt', isGreaterThan: Timestamp.now())
+      .get();
+
+  final friendUidSet = friendUids.toSet();
+  final friendLocations = activeLocations.docs
+      .map((doc) => LiveLocationData.fromFirestore(doc))
+      .where(
+        (location) =>
+            friendUidSet.contains(location.uid) &&
+            location.uid != firebaseUser.uid &&
+            !location.isExpired,
+      )
+      .toList();
+
+  if (friendLocations.isEmpty) {
+    return;
+  }
+
+  final currentLocation = await loadCurrentLiveLocationForUser(
+    firebaseUser.uid,
+  );
+  final visibleApprovedSpots = approvedPublicSpots();
+
+  for (final friendLocation in friendLocations) {
+    if (currentLocation != null) {
+      final distanceMeters = distanceBetweenLatLngMeters(
+        currentLocation.coordinates,
+        friendLocation.coordinates,
+      );
+
+      if (distanceMeters <= friendNearbyRadiusMeters) {
+        await createFriendLocationNotification(
+          notificationId: friendNearbyNotificationId(
+            firebaseUser.uid,
+            friendLocation.uid,
+          ),
+          userId: firebaseUser.uid,
+          friendLocation: friendLocation,
+          type: 'friend_nearby',
+          distanceMeters: distanceMeters,
+        );
+      }
+    }
+
+    for (final spot in visibleApprovedSpots) {
+      if (spot.id.trim().isEmpty) {
+        continue;
+      }
+
+      final distanceToSpotMeters = distanceBetweenLatLngMeters(
+        friendLocation.coordinates,
+        spot.coordinates,
+      );
+
+      if (distanceToSpotMeters <= friendAtSpotRadiusMeters) {
+        await createFriendLocationNotification(
+          notificationId: friendSpotNotificationId(
+            firebaseUser.uid,
+            friendLocation.uid,
+            spot.id,
+          ),
+          userId: firebaseUser.uid,
+          friendLocation: friendLocation,
+          type: 'friend_at_spot',
+          distanceMeters: distanceToSpotMeters,
+          spot: spot,
+        );
+      }
+    }
+  }
+}
+
 bool get currentUserCanUseVerifiedOnlySpots {
   return currentUser.role == UserRole.admin || currentUser.verified;
 }
@@ -2204,6 +2684,10 @@ class _MainScreenState extends State<MainScreen> {
   meetNotificationSubscription;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>?
   adminNotificationSubscription;
+  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>?
+  friendLocationNotificationSubscription;
+  Timer? friendLocationCheckTimer;
+  bool isCheckingFriendLocationNotifications = false;
 
   final screens = const [
     ExploreScreen(),
@@ -2218,6 +2702,8 @@ class _MainScreenState extends State<MainScreen> {
     super.initState();
     startMeetNotificationListener();
     startAdminNotificationListener();
+    startFriendLocationNotificationListener();
+    startFriendLocationNotificationChecks();
   }
 
   void startMeetNotificationListener() {
@@ -2337,10 +2823,103 @@ class _MainScreenState extends State<MainScreen> {
         });
   }
 
+  void startFriendLocationNotificationListener() {
+    final firebaseUser = FirebaseAuth.instance.currentUser;
+
+    if (firebaseUser == null) {
+      return;
+    }
+
+    friendLocationNotificationSubscription =
+        friendLocationNotificationsCollection()
+            .where('userId', isEqualTo: firebaseUser.uid)
+            .snapshots()
+            .listen((snapshot) async {
+              for (final change in snapshot.docChanges) {
+                if (change.type != DocumentChangeType.added &&
+                    change.type != DocumentChangeType.modified) {
+                  continue;
+                }
+
+                final data = change.doc.data() ?? {};
+
+                if (data['read'] == true) {
+                  continue;
+                }
+
+                final type = stringFromFirebase(data['type'], 'friend_nearby');
+                final friendUsername = stringFromFirebase(
+                  data['friendUsername'],
+                  'friend',
+                );
+                final spotName = stringFromFirebase(data['spotName'], 'a spot');
+                final distanceMeters = doubleFromFirebase(
+                  data['distanceMeters'],
+                  0,
+                );
+                final distanceLabel = distanceMeters <= 0
+                    ? ''
+                    : distanceMeters >= 1000
+                    ? ' • ${(distanceMeters / 1000).toStringAsFixed(1)} km away'
+                    : ' • ${distanceMeters.round()} m away';
+
+                final message = type == 'friend_at_spot'
+                    ? '@$friendUsername is at $spotName$distanceLabel'
+                    : '@$friendUsername is nearby$distanceLabel';
+
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      backgroundColor: Colors.greenAccent.shade700,
+                      content: Text(
+                        message,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                  );
+                }
+
+                await change.doc.reference.set({
+                  'read': true,
+                  'readAt': FieldValue.serverTimestamp(),
+                }, SetOptions(merge: true));
+              }
+            });
+  }
+
+  void startFriendLocationNotificationChecks() {
+    runFriendLocationNotificationCheck();
+    friendLocationCheckTimer = Timer.periodic(
+      const Duration(seconds: 45),
+      (_) => runFriendLocationNotificationCheck(),
+    );
+  }
+
+  Future<void> runFriendLocationNotificationCheck() async {
+    if (isCheckingFriendLocationNotifications) {
+      return;
+    }
+
+    isCheckingFriendLocationNotifications = true;
+
+    try {
+      await checkFriendLocationNotifications();
+    } catch (_) {
+      // Friend location notifications are best-effort in-app alerts.
+    } finally {
+      isCheckingFriendLocationNotifications = false;
+    }
+  }
+
   @override
   void dispose() {
     meetNotificationSubscription?.cancel();
     adminNotificationSubscription?.cancel();
+    friendLocationNotificationSubscription?.cancel();
+    friendLocationCheckTimer?.cancel();
     super.dispose();
   }
 
@@ -7504,6 +8083,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
+  void openFriends() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const FriendsScreen()),
+    );
+  }
+
   void openAdminPanel() {
     Navigator.push(
       context,
@@ -7640,6 +8226,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
               const SizedBox(height: 16),
               _ProfileSubmissionsPreview(spots: spots),
               const SizedBox(height: 16),
+              _ProfileActionTile(
+                icon: Icons.group_add,
+                title: 'Friends',
+                subtitle: 'Send requests, accept invites, and manage friends',
+                onTap: openFriends,
+              ),
+              const SizedBox(height: 10),
               if (currentUser.role == UserRole.admin) ...[
                 _ProfileActionTile(
                   icon: Icons.admin_panel_settings,
@@ -7673,6 +8266,702 @@ class _ProfileScreenState extends State<ProfileScreen> {
             ],
           );
         },
+      ),
+    );
+  }
+}
+
+class FriendsScreen extends StatefulWidget {
+  const FriendsScreen({super.key});
+
+  @override
+  State<FriendsScreen> createState() => _FriendsScreenState();
+}
+
+class _FriendsScreenState extends State<FriendsScreen> {
+  final searchController = TextEditingController();
+  String searchText = '';
+
+  @override
+  void dispose() {
+    searchController.dispose();
+    super.dispose();
+  }
+
+  Future<FriendUserData?> loadFriendUser(String uid) async {
+    final snapshot = await usersCollection().doc(uid).get();
+
+    if (!snapshot.exists) {
+      return null;
+    }
+
+    return FriendUserData.fromFirestore(snapshot);
+  }
+
+  void showFriendActionMessage(String message, {Color color = blue}) {
+    if (!mounted) {
+      return;
+    }
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        backgroundColor: color,
+        content: Text(
+          message,
+          style: const TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> sendRequest(FriendUserData user) async {
+    try {
+      await sendFriendRequestToUser(user);
+      showFriendActionMessage('Friend request sent to ${user.username}.');
+      setState(() {});
+    } catch (error) {
+      showFriendActionMessage(
+        'Could not send request: $error',
+        color: Colors.redAccent,
+      );
+    }
+  }
+
+  Future<void> acceptRequest(FriendRequestData request) async {
+    try {
+      await acceptFriendRequest(request);
+      showFriendActionMessage('${request.fromUsername} added to friends.');
+      setState(() {});
+    } catch (error) {
+      showFriendActionMessage(
+        'Could not accept request: $error',
+        color: Colors.redAccent,
+      );
+    }
+  }
+
+  Future<void> declineRequest(FriendRequestData request) async {
+    try {
+      await declineFriendRequest(request);
+      showFriendActionMessage('Friend request declined.');
+      setState(() {});
+    } catch (error) {
+      showFriendActionMessage(
+        'Could not decline request: $error',
+        color: Colors.redAccent,
+      );
+    }
+  }
+
+  Future<void> cancelRequest(FriendRequestData request) async {
+    try {
+      await cancelFriendRequest(request);
+      showFriendActionMessage('Friend request cancelled.');
+      setState(() {});
+    } catch (error) {
+      showFriendActionMessage(
+        'Could not cancel request: $error',
+        color: Colors.redAccent,
+      );
+    }
+  }
+
+  Future<void> removeFriend(FriendUserData user) async {
+    try {
+      await removeFriendship(user.uid);
+      showFriendActionMessage(
+        '${user.username} removed from friends.',
+        color: Colors.redAccent,
+      );
+      setState(() {});
+    } catch (error) {
+      showFriendActionMessage(
+        'Could not remove friend: $error',
+        color: Colors.redAccent,
+      );
+    }
+  }
+
+  Widget userAvatar({
+    required String username,
+    String? photoUrl,
+    String? avatarPath,
+    bool verified = false,
+  }) {
+    return Stack(
+      children: [
+        Container(
+          width: 48,
+          height: 48,
+          decoration: BoxDecoration(
+            color: blue.withValues(alpha: 0.16),
+            shape: BoxShape.circle,
+            border: Border.all(color: blue.withValues(alpha: 0.45)),
+          ),
+          child: ClipOval(
+            child: localFileExists(avatarPath)
+                ? Image.file(File(avatarPath!), fit: BoxFit.cover)
+                : (photoUrl != null && photoUrl.trim().isNotEmpty)
+                ? Image.network(
+                    photoUrl,
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, __, ___) => Center(
+                      child: Text(
+                        username.substring(0, 1).toUpperCase(),
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    ),
+                  )
+                : Center(
+                    child: Text(
+                      username.substring(0, 1).toUpperCase(),
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ),
+          ),
+        ),
+        if (verified)
+          const Positioned(
+            right: 0,
+            bottom: 0,
+            child: Icon(Icons.verified, color: blue, size: 17),
+          ),
+      ],
+    );
+  }
+
+  Widget friendUserTile({
+    required FriendUserData user,
+    required String subtitle,
+    required Widget trailing,
+  }) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: panel,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: Colors.white12),
+      ),
+      child: Row(
+        children: [
+          userAvatar(
+            username: user.username,
+            photoUrl: user.photoUrl,
+            avatarPath: user.avatarPath,
+            verified: user.verified,
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Flexible(
+                      child: Text(
+                        user.username,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 16,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    ),
+                    if (user.role == UserRole.admin) ...[
+                      const SizedBox(width: 6),
+                      const Icon(
+                        Icons.admin_panel_settings,
+                        color: blue,
+                        size: 15,
+                      ),
+                    ],
+                  ],
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  subtitle,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(color: Colors.white54, fontSize: 12),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 10),
+          trailing,
+        ],
+      ),
+    );
+  }
+
+  Widget actionButton({
+    required String label,
+    required VoidCallback? onPressed,
+    Color color = blue,
+    bool outlined = false,
+  }) {
+    final shape = RoundedRectangleBorder(
+      borderRadius: BorderRadius.circular(999),
+    );
+
+    if (outlined) {
+      return OutlinedButton(
+        onPressed: onPressed,
+        style: OutlinedButton.styleFrom(
+          foregroundColor: color,
+          side: BorderSide(color: color.withValues(alpha: 0.65)),
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          shape: shape,
+        ),
+        child: Text(label),
+      );
+    }
+
+    return ElevatedButton(
+      onPressed: onPressed,
+      style: ElevatedButton.styleFrom(
+        backgroundColor: color,
+        foregroundColor: Colors.white,
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        shape: shape,
+      ),
+      child: Text(label),
+    );
+  }
+
+  Widget friendsTab() {
+    final firebaseUser = FirebaseAuth.instance.currentUser;
+
+    if (firebaseUser == null) {
+      return const EmptyStateCard(
+        icon: Icons.group,
+        title: 'Log in required',
+        text: 'Log in before using friends.',
+      );
+    }
+
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: friendshipsCollection()
+          .where('userIds', arrayContains: firebaseUser.uid)
+          .snapshots(),
+      builder: (context, snapshot) {
+        final docs = snapshot.data?.docs ?? const [];
+
+        if (docs.isEmpty) {
+          return const EmptyStateCard(
+            icon: Icons.group_outlined,
+            title: 'No friends yet',
+            text: 'Use Find Users to send your first friend request.',
+          );
+        }
+
+        return Column(
+          children: [
+            for (final doc in docs)
+              FutureBuilder<FriendUserData?>(
+                future: loadFriendUser(
+                  friendUidFromFriendshipData(doc.data(), firebaseUser.uid),
+                ),
+                builder: (context, userSnapshot) {
+                  final user = userSnapshot.data;
+
+                  if (user == null) {
+                    return const SizedBox.shrink();
+                  }
+
+                  return friendUserTile(
+                    user: user,
+                    subtitle: user.name,
+                    trailing: actionButton(
+                      label: 'Remove',
+                      color: Colors.redAccent,
+                      outlined: true,
+                      onPressed: () => removeFriend(user),
+                    ),
+                  );
+                },
+              ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget requestsTab() {
+    final firebaseUser = FirebaseAuth.instance.currentUser;
+
+    if (firebaseUser == null) {
+      return const EmptyStateCard(
+        icon: Icons.mark_email_unread_outlined,
+        title: 'Log in required',
+        text: 'Log in before using friend requests.',
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Incoming requests',
+          style: TextStyle(
+            color: Colors.white,
+            fontSize: 18,
+            fontWeight: FontWeight.w900,
+          ),
+        ),
+        const SizedBox(height: 10),
+        StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+          stream: friendRequestsCollection()
+              .where('toUid', isEqualTo: firebaseUser.uid)
+              .where('status', isEqualTo: 'pending')
+              .snapshots(),
+          builder: (context, snapshot) {
+            final requests =
+                snapshot.data?.docs
+                    .map((doc) => FriendRequestData.fromFirestore(doc))
+                    .toList() ??
+                const <FriendRequestData>[];
+
+            if (requests.isEmpty) {
+              return const EmptyStateCard(
+                icon: Icons.inbox_outlined,
+                title: 'No incoming requests',
+                text: 'Friend invites sent to you will appear here.',
+              );
+            }
+
+            return Column(
+              children: [
+                for (final request in requests)
+                  Container(
+                    margin: const EdgeInsets.only(bottom: 10),
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: panel,
+                      borderRadius: BorderRadius.circular(18),
+                      border: Border.all(color: Colors.white12),
+                    ),
+                    child: Row(
+                      children: [
+                        userAvatar(username: request.fromUsername),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                request.fromUsername,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w900,
+                                ),
+                              ),
+                              const SizedBox(height: 3),
+                              Text(
+                                request.fromName,
+                                style: const TextStyle(
+                                  color: Colors.white54,
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        actionButton(
+                          label: 'Accept',
+                          onPressed: () => acceptRequest(request),
+                        ),
+                        const SizedBox(width: 6),
+                        actionButton(
+                          label: 'Decline',
+                          color: Colors.redAccent,
+                          outlined: true,
+                          onPressed: () => declineRequest(request),
+                        ),
+                      ],
+                    ),
+                  ),
+              ],
+            );
+          },
+        ),
+        const SizedBox(height: 22),
+        const Text(
+          'Sent requests',
+          style: TextStyle(
+            color: Colors.white,
+            fontSize: 18,
+            fontWeight: FontWeight.w900,
+          ),
+        ),
+        const SizedBox(height: 10),
+        StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+          stream: friendRequestsCollection()
+              .where('fromUid', isEqualTo: firebaseUser.uid)
+              .where('status', isEqualTo: 'pending')
+              .snapshots(),
+          builder: (context, snapshot) {
+            final requests =
+                snapshot.data?.docs
+                    .map((doc) => FriendRequestData.fromFirestore(doc))
+                    .toList() ??
+                const <FriendRequestData>[];
+
+            if (requests.isEmpty) {
+              return const EmptyStateCard(
+                icon: Icons.outbox_outlined,
+                title: 'No sent requests',
+                text: 'Requests you send will appear here until accepted.',
+              );
+            }
+
+            return Column(
+              children: [
+                for (final request in requests)
+                  Container(
+                    margin: const EdgeInsets.only(bottom: 10),
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: panel,
+                      borderRadius: BorderRadius.circular(18),
+                      border: Border.all(color: Colors.white12),
+                    ),
+                    child: Row(
+                      children: [
+                        userAvatar(username: request.toUsername),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                request.toUsername,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w900,
+                                ),
+                              ),
+                              const SizedBox(height: 3),
+                              Text(
+                                request.toName,
+                                style: const TextStyle(
+                                  color: Colors.white54,
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        actionButton(
+                          label: 'Cancel',
+                          color: Colors.redAccent,
+                          outlined: true,
+                          onPressed: () => cancelRequest(request),
+                        ),
+                      ],
+                    ),
+                  ),
+              ],
+            );
+          },
+        ),
+      ],
+    );
+  }
+
+  Widget findUsersTab() {
+    final firebaseUser = FirebaseAuth.instance.currentUser;
+
+    if (firebaseUser == null) {
+      return const EmptyStateCard(
+        icon: Icons.person_search,
+        title: 'Log in required',
+        text: 'Log in before finding friends.',
+      );
+    }
+
+    return Column(
+      children: [
+        TextField(
+          controller: searchController,
+          onChanged: (value) =>
+              setState(() => searchText = value.trim().toLowerCase()),
+          style: const TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.w700,
+          ),
+          decoration: InputDecoration(
+            labelText: 'Search users',
+            hintText: 'nickname or name',
+            prefixIcon: const Icon(Icons.search, color: blue),
+            labelStyle: const TextStyle(color: Colors.white60),
+            hintStyle: const TextStyle(color: Colors.white24),
+            filled: true,
+            fillColor: Colors.white.withValues(alpha: 0.06),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(16),
+              borderSide: const BorderSide(color: Colors.white12),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(16),
+              borderSide: const BorderSide(color: blue, width: 1.4),
+            ),
+          ),
+        ),
+        const SizedBox(height: 16),
+        StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+          stream: usersCollection().orderBy('usernameKey').snapshots(),
+          builder: (context, snapshot) {
+            final users =
+                snapshot.data?.docs
+                    .map((doc) => FriendUserData.fromFirestore(doc))
+                    .where((user) => user.uid != firebaseUser.uid)
+                    .where((user) {
+                      if (searchText.isEmpty) {
+                        return true;
+                      }
+
+                      return user.username.toLowerCase().contains(searchText) ||
+                          user.name.toLowerCase().contains(searchText);
+                    })
+                    .toList() ??
+                const <FriendUserData>[];
+
+            if (users.isEmpty) {
+              return const EmptyStateCard(
+                icon: Icons.person_search,
+                title: 'No users found',
+                text: 'Try searching by nickname or name.',
+              );
+            }
+
+            return Column(
+              children: [
+                for (final user in users)
+                  FutureBuilder<String>(
+                    future: friendStatusLabelForUser(
+                      firebaseUser.uid,
+                      user.uid,
+                    ),
+                    builder: (context, statusSnapshot) {
+                      final status = statusSnapshot.data ?? 'loading';
+                      final isFriend = status == 'friends';
+                      final incoming = status == 'incoming';
+                      final outgoing = status == 'outgoing';
+
+                      return friendUserTile(
+                        user: user,
+                        subtitle: user.name,
+                        trailing: incoming
+                            ? actionButton(
+                                label: 'Accept',
+                                onPressed: () async {
+                                  final doc = await friendRequestsCollection()
+                                      .doc(
+                                        friendRequestIdFor(
+                                          user.uid,
+                                          firebaseUser.uid,
+                                        ),
+                                      )
+                                      .get();
+                                  if (doc.exists) {
+                                    await acceptRequest(
+                                      FriendRequestData.fromFirestore(doc),
+                                    );
+                                  }
+                                },
+                              )
+                            : actionButton(
+                                label: isFriend
+                                    ? 'Friends'
+                                    : outgoing
+                                    ? 'Sent'
+                                    : status == 'loading'
+                                    ? '...'
+                                    : 'Add',
+                                outlined: isFriend || outgoing,
+                                onPressed:
+                                    (isFriend ||
+                                        outgoing ||
+                                        status == 'loading')
+                                    ? null
+                                    : () => sendRequest(user),
+                              ),
+                      );
+                    },
+                  ),
+              ],
+            );
+          },
+        ),
+      ],
+    );
+  }
+
+  Future<String> friendStatusLabelForUser(
+    String currentUid,
+    String otherUid,
+  ) async {
+    if (await areUsersFriends(currentUid, otherUid)) {
+      return 'friends';
+    }
+
+    return await pendingRequestStatusBetweenUsers(currentUid, otherUid) ??
+        'none';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return DefaultTabController(
+      length: 3,
+      child: Scaffold(
+        backgroundColor: Colors.black,
+        appBar: AppBar(
+          title: const Text('Friends'),
+          backgroundColor: Colors.black,
+          foregroundColor: blue,
+          bottom: const TabBar(
+            indicatorColor: blue,
+            labelColor: Colors.white,
+            unselectedLabelColor: Colors.white54,
+            tabs: [
+              Tab(icon: Icon(Icons.group), text: 'Friends'),
+              Tab(
+                icon: Icon(Icons.mark_email_unread_outlined),
+                text: 'Requests',
+              ),
+              Tab(icon: Icon(Icons.person_search), text: 'Find'),
+            ],
+          ),
+        ),
+        body: TabBarView(
+          children: [
+            SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(20, 18, 20, 28),
+              child: friendsTab(),
+            ),
+            SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(20, 18, 20, 28),
+              child: requestsTab(),
+            ),
+            SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(20, 18, 20, 28),
+              child: findUsersTab(),
+            ),
+          ],
+        ),
       ),
     );
   }
