@@ -85,6 +85,74 @@ const night = Color(0xFF050507);
 const panel = Color(0xFF101014);
 const photoPickerChannel = MethodChannel('ccs/photo_picker');
 
+const spotCategoryOptions = [
+  'Stance',
+  'Drift',
+  'Photo',
+  'Meet',
+  'Drive',
+  'Service',
+  'Detailing',
+  'Wash',
+  'Store',
+  'Drag',
+  'Food',
+];
+
+const spotCategoryIconAssets = {
+  'Stance': 'assets/spot_icons/stance.png',
+  'Drift': 'assets/spot_icons/drift.png',
+  'Photo': 'assets/spot_icons/photo.png',
+  'Meet': 'assets/spot_icons/meet.png',
+  'Drive': 'assets/spot_icons/drive.png',
+  'Service': 'assets/spot_icons/service.png',
+  'Detailing': 'assets/spot_icons/detailing.png',
+  'Wash': 'assets/spot_icons/wash.png',
+  'Store': 'assets/spot_icons/store.png',
+  'Drag': 'assets/spot_icons/drag.png',
+  'Food': 'assets/spot_icons/food.png',
+};
+
+const spotCategoryColors = {
+  'Stance': Color(0xFFFF1B72),
+  'Drift': Color(0xFFFF7A00),
+  'Photo': Color(0xFF9B35FF),
+  'Meet': Color(0xFF8AE600),
+  'Drive': Color(0xFF00B8FF),
+  'Service': Color(0xFFFFD400),
+  'Detailing': Color(0xFF00E0C7),
+  'Wash': Color(0xFF008CFF),
+  'Store': Color(0xFFA83DFF),
+  'Drag': Color(0xFFFF1635),
+  'Food': Color(0xFFFF1B8D),
+};
+
+String spotIconAssetPathForCategory(String category) {
+  return spotCategoryIconAssets[category] ?? spotCategoryIconAssets['Photo']!;
+}
+
+String primarySpotCategory(CarSpot spot) {
+  for (final category in spot.categories) {
+    if (spotCategoryIconAssets.containsKey(category)) {
+      return category;
+    }
+  }
+
+  return 'Photo';
+}
+
+String spotIconAssetPathForSpot(CarSpot spot) {
+  return spotIconAssetPathForCategory(primarySpotCategory(spot));
+}
+
+Color spotColorForCategory(String category) {
+  return spotCategoryColors[category] ?? blue;
+}
+
+Color spotColorForSpot(CarSpot spot) {
+  return spotColorForCategory(primarySpotCategory(spot));
+}
+
 final submittedSpots = ValueNotifier<List<CarSpot>>([]);
 final savedSpots = ValueNotifier<List<CarSpot>>([]);
 final reviewSpots = ValueNotifier<List<CarSpot>>([]);
@@ -1070,6 +1138,10 @@ CollectionReference<Map<String, dynamic>> meetNotificationsCollection() {
   return FirebaseFirestore.instance.collection('meet_notifications');
 }
 
+CollectionReference<Map<String, dynamic>> adminNotificationsCollection() {
+  return FirebaseFirestore.instance.collection('admin_notifications');
+}
+
 bool get currentUserCanUseVerifiedOnlySpots {
   return currentUser.role == UserRole.admin || currentUser.verified;
 }
@@ -1156,6 +1228,91 @@ Future<void> createMeetSpotNotificationsForNearbyUsers(CarSpot spot) async {
   if (writes > 0) {
     await batch.commit();
   }
+}
+
+Future<List<String>> adminUserIdsExcept({String? excludedUid}) async {
+  final snapshot = await usersCollection()
+      .where('role', isEqualTo: 'admin')
+      .get();
+
+  return snapshot.docs
+      .map((doc) => stringFromFirebase(doc.data()['uid'], doc.id))
+      .where((uid) => uid.isNotEmpty && uid != excludedUid)
+      .toList();
+}
+
+Future<void> createAdminSpotReviewNotification(CarSpot spot) async {
+  if (spot.id.trim().isEmpty || spot.status != SpotStatus.pending) {
+    return;
+  }
+
+  final adminUids = await adminUserIdsExcept(excludedUid: spot.addedByUid);
+
+  if (adminUids.isEmpty) {
+    return;
+  }
+
+  final batch = FirebaseFirestore.instance.batch();
+
+  for (final adminUid in adminUids) {
+    final notificationRef = adminNotificationsCollection().doc(
+      '${spot.id}_review_$adminUid',
+    );
+    batch.set(notificationRef, {
+      'userId': adminUid,
+      'type': 'spot_pending_review',
+      'spotId': spot.id,
+      'spotName': spot.name,
+      'cityCountry': spot.cityCountry,
+      'addedBy': spot.addedBy,
+      'addedByUid': spot.addedByUid,
+      'read': false,
+      'createdAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+  }
+
+  await batch.commit();
+}
+
+Future<void> createAdminSpotDecisionNotification(
+  CarSpot spot,
+  SpotStatus status,
+) async {
+  if (spot.id.trim().isEmpty ||
+      (status != SpotStatus.approved && status != SpotStatus.rejected)) {
+    return;
+  }
+
+  final adminUids = await adminUserIdsExcept(excludedUid: currentUser.uid);
+
+  if (adminUids.isEmpty) {
+    return;
+  }
+
+  final batch = FirebaseFirestore.instance.batch();
+  final statusName = spotStatusName(status);
+
+  for (final adminUid in adminUids) {
+    final notificationRef = adminNotificationsCollection().doc(
+      '${spot.id}_${statusName}_$adminUid',
+    );
+    batch.set(notificationRef, {
+      'userId': adminUid,
+      'type': status == SpotStatus.approved
+          ? 'spot_approved_by_admin'
+          : 'spot_rejected_by_admin',
+      'spotId': spot.id,
+      'spotName': spot.name,
+      'cityCountry': spot.cityCountry,
+      'status': statusName,
+      'reviewedBy': currentUser.username,
+      'reviewedByUid': currentUser.uid,
+      'read': false,
+      'createdAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+  }
+
+  await batch.commit();
 }
 
 class PoliceReportData {
@@ -1700,10 +1857,14 @@ bool isSameSpot(CarSpot first, CarSpot second) {
 }
 
 Future<void> updateSpotStatus(CarSpot spot, SpotStatus status) async {
+  final statusChanged = spot.status != status;
   final shouldNotifyNearbyMeetUsers =
       status == SpotStatus.approved &&
       spot.status != SpotStatus.approved &&
       spot.categories.contains('Meet');
+  final shouldNotifyOtherAdmins =
+      statusChanged &&
+      (status == SpotStatus.approved || status == SpotStatus.rejected);
 
   final updatedSpot = spot.copyWith(
     status: status,
@@ -1736,6 +1897,10 @@ Future<void> updateSpotStatus(CarSpot spot, SpotStatus status) async {
 
   if (shouldNotifyNearbyMeetUsers) {
     await createMeetSpotNotificationsForNearbyUsers(updatedSpot);
+  }
+
+  if (shouldNotifyOtherAdmins) {
+    await createAdminSpotDecisionNotification(updatedSpot, status);
   }
 }
 
@@ -2037,6 +2202,8 @@ class _MainScreenState extends State<MainScreen> {
   int index = 0;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>?
   meetNotificationSubscription;
+  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>?
+  adminNotificationSubscription;
 
   final screens = const [
     ExploreScreen(),
@@ -2050,6 +2217,7 @@ class _MainScreenState extends State<MainScreen> {
   void initState() {
     super.initState();
     startMeetNotificationListener();
+    startAdminNotificationListener();
   }
 
   void startMeetNotificationListener() {
@@ -2109,9 +2277,70 @@ class _MainScreenState extends State<MainScreen> {
         });
   }
 
+  void startAdminNotificationListener() {
+    final firebaseUser = FirebaseAuth.instance.currentUser;
+
+    if (firebaseUser == null || currentUser.role != UserRole.admin) {
+      return;
+    }
+
+    adminNotificationSubscription = adminNotificationsCollection()
+        .where('userId', isEqualTo: firebaseUser.uid)
+        .snapshots()
+        .listen((snapshot) async {
+          for (final change in snapshot.docChanges) {
+            if (change.type != DocumentChangeType.added) {
+              continue;
+            }
+
+            final data = change.doc.data() ?? {};
+
+            if (data['read'] == true) {
+              continue;
+            }
+
+            final type = stringFromFirebase(data['type'], '');
+            final spotName = stringFromFirebase(data['spotName'], 'New spot');
+            final addedBy = stringFromFirebase(data['addedBy'], 'user');
+            final reviewedBy = stringFromFirebase(data['reviewedBy'], 'admin');
+
+            final message = switch (type) {
+              'spot_pending_review' =>
+                'New spot waiting for review: $spotName by $addedBy',
+              'spot_approved_by_admin' =>
+                '$reviewedBy approved spot: $spotName',
+              'spot_rejected_by_admin' =>
+                '$reviewedBy rejected spot: $spotName',
+              _ => 'Admin update: $spotName',
+            };
+
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  backgroundColor: panel,
+                  content: Text(
+                    message,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              );
+            }
+
+            await change.doc.reference.set({
+              'read': true,
+              'readAt': FieldValue.serverTimestamp(),
+            }, SetOptions(merge: true));
+          }
+        });
+  }
+
   @override
   void dispose() {
     meetNotificationSubscription?.cancel();
+    adminNotificationSubscription?.cancel();
     super.dispose();
   }
 
@@ -2392,9 +2621,8 @@ class ExploreSpotCard extends StatelessWidget {
                           label: spot.temporaryTimeLabel,
                           icon: Icons.event,
                         ),
-                      for (final category in spot.categories.take(3))
-                        for (final category in spot.categories.take(2))
-                          _SmallTag(label: category, icon: Icons.local_offer),
+                      for (final category in spot.categories.take(2))
+                        _SmallTag(label: category, icon: Icons.local_offer),
                     ],
                   ),
                   const SizedBox(height: 8),
@@ -2505,8 +2733,9 @@ class MapScreen extends StatefulWidget {
 class _MapScreenState extends State<MapScreen> {
   static const rigaCenter = LatLng(56.9496, 24.1052);
   static const rigaZoom = 12.2;
+  static const fullSpotIconMinZoom = 14.0;
 
-  final filters = const ['All', 'Photo', 'Reels', 'Meet', 'Low car'];
+  final filters = const ['All', ...spotCategoryOptions];
   final mapController = MapController();
   Timer? temporarySpotRefreshTimer;
   Timer? liveLocationUploadTimer;
@@ -2532,6 +2761,7 @@ class _MapScreenState extends State<MapScreen> {
   DateTime? liveLocationExpiresAt;
   List<LiveLocationData> liveLocations = [];
   List<PoliceReportData> policeReports = [];
+  double currentMapZoom = rigaZoom;
 
   @override
   void initState() {
@@ -2588,33 +2818,29 @@ class _MapScreenState extends State<MapScreen> {
   }
 
   List<Marker> get markers {
+    final showFullIcons = currentMapZoom >= fullSpotIconMinZoom;
+
     return visibleSpots.map((spot) {
+      final markerColor = spotColorForSpot(spot);
+      final markerSize = showFullIcons ? 70.0 : 26.0;
+
       return Marker(
         point: spot.coordinates,
-        width: 54,
-        height: 54,
+        width: markerSize,
+        height: markerSize,
         child: GestureDetector(
           onTap: () {
             setState(() => selectedSpot = spot);
           },
-          child: Container(
-            decoration: BoxDecoration(
-              color: blue,
-              shape: BoxShape.circle,
-              boxShadow: [
-                BoxShadow(
-                  color: blue.withValues(alpha: 0.35),
-                  blurRadius: 18,
-                  spreadRadius: 4,
-                ),
-              ],
-            ),
-            child: const Icon(
-              Icons.directions_car,
-              color: Colors.white,
-              size: 24,
-            ),
-          ),
+          child: showFullIcons
+              ? Image.asset(
+                  spotIconAssetPathForSpot(spot),
+                  fit: BoxFit.contain,
+                  errorBuilder: (context, error, stackTrace) {
+                    return CompactSpotMapPoint(color: markerColor);
+                  },
+                )
+              : CompactSpotMapPoint(color: markerColor),
         ),
       );
     }).toList();
@@ -3636,6 +3862,7 @@ class _MapScreenState extends State<MapScreen> {
 
     setState(() {
       currentUserLocation = location;
+      currentMapZoom = 15.5;
       selectedSpot = null;
       isLocatingUser = false;
     });
@@ -3660,6 +3887,12 @@ class _MapScreenState extends State<MapScreen> {
               minZoom: 4,
               maxZoom: 18,
               backgroundColor: night,
+              onPositionChanged: (camera, _) {
+                final nextZoom = camera.zoom;
+                if ((nextZoom - currentMapZoom).abs() >= 0.05) {
+                  setState(() => currentMapZoom = nextZoom);
+                }
+              },
               onTap: (_, _) => setState(() {
                 selectedSpot = null;
                 selectedPoliceReport = null;
@@ -3795,6 +4028,37 @@ class _MapScreenState extends State<MapScreen> {
               ),
             ),
         ],
+      ),
+    );
+  }
+}
+
+class CompactSpotMapPoint extends StatelessWidget {
+  final Color color;
+
+  const CompactSpotMapPoint({super.key, required this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Container(
+        width: 14,
+        height: 14,
+        decoration: BoxDecoration(
+          color: color,
+          shape: BoxShape.circle,
+          border: Border.all(
+            color: Colors.white.withValues(alpha: 0.80),
+            width: 1.5,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: color.withValues(alpha: 0.45),
+              blurRadius: 8,
+              spreadRadius: 2,
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -5515,6 +5779,76 @@ class _SmallTag extends StatelessWidget {
   }
 }
 
+class _SpotCategoryDropdown extends StatelessWidget {
+  final String value;
+  final List<String> categories;
+  final ValueChanged<String?> onChanged;
+
+  const _SpotCategoryDropdown({
+    required this.value,
+    required this.categories,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return DropdownButtonFormField<String>(
+      value: value,
+      dropdownColor: panel,
+      iconEnabledColor: blue,
+      decoration: InputDecoration(
+        labelText: 'Category',
+        labelStyle: const TextStyle(
+          color: Colors.white70,
+          fontWeight: FontWeight.w700,
+        ),
+        prefixIcon: Padding(
+          padding: const EdgeInsets.all(10),
+          child: Image.asset(
+            spotIconAssetPathForCategory(value),
+            width: 24,
+            height: 24,
+            fit: BoxFit.contain,
+            errorBuilder: (context, error, stackTrace) =>
+                const Icon(Icons.local_offer, color: blue),
+          ),
+        ),
+        filled: true,
+        fillColor: Colors.white.withValues(alpha: 0.06),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(16),
+          borderSide: const BorderSide(color: Colors.white12),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(16),
+          borderSide: const BorderSide(color: blue, width: 1.4),
+        ),
+      ),
+      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800),
+      items: categories.map((category) {
+        return DropdownMenuItem<String>(
+          value: category,
+          child: Row(
+            children: [
+              Image.asset(
+                spotIconAssetPathForCategory(category),
+                width: 30,
+                height: 30,
+                fit: BoxFit.contain,
+                errorBuilder: (context, error, stackTrace) =>
+                    const Icon(Icons.local_offer, color: blue, size: 20),
+              ),
+              const SizedBox(width: 10),
+              Text(category),
+            ],
+          ),
+        );
+      }).toList(),
+      onChanged: onChanged,
+    );
+  }
+}
+
 class AddSpotScreen extends StatefulWidget {
   const AddSpotScreen({super.key});
 
@@ -5529,20 +5863,9 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
   final reelController = TextEditingController();
   final addedByController = TextEditingController();
 
-  final categoryOptions = const [
-    'Stance',
-    'Drift',
-    'Photo',
-    'Meet',
-    'Drive',
-    'Service',
-    'Detailing',
-    'Wash',
-    'Store',
-    'Drag',
-  ];
+  final categoryOptions = spotCategoryOptions;
 
-  final selectedCategories = <String>{'Photo', 'Reels', 'Meet'};
+  String selectedCategory = 'Photo';
   LatLng? selectedLocation;
   String detectedCityCountry = 'Choose location to detect city/country';
   bool isDetectingCityCountry = false;
@@ -5761,9 +6084,11 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
     }
 
     final location = selectedLocation!;
-    final categories = selectedCategories.isEmpty
-        ? const ['Photo']
-        : selectedCategories.toList();
+    final categories = [selectedCategory];
+    final isAdminCreatedSpot = currentUser.role == UserRole.admin;
+    final initialStatus = isAdminCreatedSpot
+        ? SpotStatus.approved
+        : SpotStatus.pending;
     final spotRef = spotsCollection().doc();
 
     var newSpot = CarSpot(
@@ -5782,7 +6107,7 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
           ? 'Submitted community car spot.'
           : descriptionController.text.trim(),
       categories: categories,
-      rating: 0,
+      rating: isAdminCreatedSpot ? 4.5 : 0,
       photoUrl: '',
       localPhotoPath: selectedPhotoPath,
       reelLink: reelController.text.trim(),
@@ -5796,7 +6121,7 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
       crowd: 'Not reviewed',
       addedBy: currentUser.username,
       addedByUid: firebaseUser.uid,
-      status: SpotStatus.pending,
+      status: initialStatus,
       isTemporary: isTemporarySpot,
       startsAtMillis: isTemporarySpot
           ? temporaryStartsAt!.millisecondsSinceEpoch
@@ -5825,6 +6150,15 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
         photoUrls: uploadedPhotoUrl.isEmpty ? const [] : [uploadedPhotoUrl],
       );
       await spotRef.set(spotToFirestoreData(newSpot, includeCreatedAt: true));
+
+      if (isAdminCreatedSpot && newSpot.categories.contains('Meet')) {
+        await createMeetSpotNotificationsForNearbyUsers(newSpot);
+      }
+
+      if (!isAdminCreatedSpot) {
+        await createAdminSpotReviewNotification(newSpot);
+      }
+
       final savedSpot = await spotRef.get(
         const GetOptions(source: Source.server),
       );
@@ -5843,12 +6177,19 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
         return;
       }
 
+      final message = isAdminCreatedSpot
+          ? 'Admin spot added. It is live now.'
+          : 'Spot submitted for review. Admins have been notified.';
+
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
+        SnackBar(
           backgroundColor: blue,
           content: Text(
-            'Spot submitted for review. Status: pending.',
-            style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+            message,
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w700,
+            ),
           ),
         ),
       );
@@ -5921,7 +6262,7 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
                       ),
                       SizedBox(height: 4),
                       Text(
-                        'New spots stay hidden until CCS approves them.',
+                        'Admins publish instantly. User spots wait for review.',
                         style: TextStyle(color: Colors.white54, height: 1.3),
                       ),
                     ],
@@ -6005,39 +6346,16 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
           _AddSpotSection(
             title: 'Categories',
             children: [
-              Wrap(
-                spacing: 9,
-                runSpacing: 9,
-                children: [
-                  for (final category in categoryOptions)
-                    FilterChip(
-                      label: Text(category),
-                      selected: selectedCategories.contains(category),
-                      showCheckmark: false,
-                      onSelected: (selected) {
-                        setState(() {
-                          if (selected) {
-                            selectedCategories.add(category);
-                          } else {
-                            selectedCategories.remove(category);
-                          }
-                        });
-                      },
-                      selectedColor: blue,
-                      backgroundColor: Colors.white.withValues(alpha: 0.07),
-                      side: BorderSide(
-                        color: selectedCategories.contains(category)
-                            ? blue
-                            : Colors.white12,
-                      ),
-                      labelStyle: TextStyle(
-                        color: selectedCategories.contains(category)
-                            ? Colors.white
-                            : Colors.white70,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                ],
+              _SpotCategoryDropdown(
+                value: selectedCategory,
+                categories: categoryOptions,
+                onChanged: (category) {
+                  if (category == null) {
+                    return;
+                  }
+
+                  setState(() => selectedCategory = category);
+                },
               ),
             ],
           ),

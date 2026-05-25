@@ -44,5 +44,6 @@ flutter_launcher_icons:
 flutter:
   assets:
     - assets/bg.png
+    - assets/spot_icons/
 
   uses-material-design: true
