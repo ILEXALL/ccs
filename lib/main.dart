@@ -1,6 +1,8 @@
 ﻿import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math' as math;
+import 'dart:ui' as ui;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
@@ -130,6 +132,10 @@ const spotCategoryColors = {
   'Drag': Color(0xFFFF1635),
   'Food': Color(0xFFFF1B8D),
 };
+
+const regularUserCarIconAsset = 'assets/user_cars/car_blue.png';
+const verifiedUserCarIconAsset = 'assets/user_cars/car_green.png';
+const friendUserCarIconAsset = 'assets/user_cars/car_purple.png';
 
 String spotIconAssetPathForCategory(String category) {
   return spotCategoryIconAssets[category] ?? spotCategoryIconAssets['Photo']!;
@@ -1243,6 +1249,9 @@ class LiveLocationData {
   final String username;
   final String name;
   final String? photoUrl;
+  final UserRole role;
+  final bool verified;
+  final double headingDegrees;
   final LatLng coordinates;
   final int promptAtMillis;
   final int expiresAtMillis;
@@ -1253,6 +1262,9 @@ class LiveLocationData {
     required this.username,
     required this.name,
     this.photoUrl,
+    required this.role,
+    required this.verified,
+    this.headingDegrees = 0,
     required this.coordinates,
     required this.promptAtMillis,
     required this.expiresAtMillis,
@@ -1274,11 +1286,18 @@ class LiveLocationData {
             doubleFromFirebase(data['lng'], 24.1052),
           );
 
+    final role = roleFromFirebase(data['role']);
+
     return LiveLocationData(
       uid: stringFromFirebase(data['uid'], doc.id),
       username: stringFromFirebase(data['username'], 'ccs_driver'),
       name: stringFromFirebase(data['name'], 'CCS Driver'),
       photoUrl: data['photoUrl'] is String ? data['photoUrl'] as String : null,
+      role: role,
+      verified: role == UserRole.admin || data['verified'] == true,
+      headingDegrees: normalizedHeadingDegrees(
+        doubleFromFirebase(data['heading'], 0),
+      ),
       coordinates: coordinates,
       promptAtMillis: timestampMillisFromFirebase(data['promptAt']),
       expiresAtMillis: timestampMillisFromFirebase(data['expiresAt']),
@@ -1813,6 +1832,19 @@ Future<String> detectCityCountryForCoordinates(LatLng coordinates) async {
 
 double distanceBetweenLatLngMeters(LatLng first, LatLng second) {
   return const Distance().as(LengthUnit.Meter, first, second);
+}
+
+double normalizedHeadingDegrees(double value, {double fallback = 0}) {
+  if (!value.isFinite || value < 0) {
+    return fallback;
+  }
+
+  final normalized = value % 360;
+  return normalized < 0 ? normalized + 360 : normalized;
+}
+
+double headingRadiansForMap(double headingDegrees, double mapRotationDegrees) {
+  return (headingDegrees - mapRotationDegrees) * math.pi / 180;
 }
 
 Future<void> createMeetSpotNotificationsForNearbyUsers(CarSpot spot) async {
@@ -3768,6 +3800,49 @@ class ExploreSpotStatsRow extends StatelessWidget {
   }
 }
 
+class CurrentUserTrianglePainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final centerX = size.width / 2;
+    final triangle = ui.Path()
+      ..moveTo(centerX, size.height * 0.10)
+      ..lineTo(size.width * 0.22, size.height * 0.86)
+      ..quadraticBezierTo(
+        centerX,
+        size.height * 0.72,
+        size.width * 0.78,
+        size.height * 0.86,
+      )
+      ..close();
+
+    final shadowPaint = Paint()
+      ..color = const Color(0xFF4DDCFF).withValues(alpha: 0.32)
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 8);
+    canvas.drawPath(triangle.shift(const Offset(0, 2)), shadowPaint);
+
+    final fillPaint = Paint()
+      ..shader = const LinearGradient(
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
+        colors: [Color(0xFF9BEFFF), Color(0xFF1AAFFF)],
+      ).createShader(Offset.zero & size);
+    canvas.drawPath(triangle, fillPaint);
+
+    final borderPaint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.4
+      ..strokeJoin = StrokeJoin.round
+      ..color = Colors.white.withValues(alpha: 0.92);
+    canvas.drawPath(triangle, borderPaint);
+
+    final centerPaint = Paint()..color = Colors.white.withValues(alpha: 0.85);
+    canvas.drawCircle(Offset(centerX, size.height * 0.51), 3.6, centerPaint);
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
+
 class MapScreen extends StatefulWidget {
   const MapScreen({super.key});
 
@@ -3778,9 +3853,9 @@ class MapScreen extends StatefulWidget {
 class _MapScreenState extends State<MapScreen> {
   static const rigaCenter = LatLng(56.9496, 24.1052);
   static const rigaZoom = 12.2;
-  static const fullSpotIconMinZoom = 14.0;
+  static const fullSpotIconMinZoom = 10;
+  static const navigationZoom = 16.35;
 
-  final filters = const ['All', ...spotCategoryOptions];
   final mapController = MapController();
   Timer? temporarySpotRefreshTimer;
   Timer? liveLocationUploadTimer;
@@ -3790,7 +3865,7 @@ class _MapScreenState extends State<MapScreen> {
   liveLocationSubscription;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>?
   policeReportSubscription;
-  String selectedFilter = 'All';
+  final Set<String> enabledCategoryFilters = {...spotCategoryOptions};
   CarSpot? selectedSpot;
   PoliceReportData? selectedPoliceReport;
   LatLng? currentUserLocation;
@@ -3805,8 +3880,12 @@ class _MapScreenState extends State<MapScreen> {
   DateTime? liveLocationPromptAt;
   DateTime? liveLocationExpiresAt;
   List<LiveLocationData> liveLocations = [];
+  Set<String> friendLiveLocationUids = {};
   List<PoliceReportData> policeReports = [];
   double currentMapZoom = rigaZoom;
+  double currentMapRotationDegrees = 0;
+  double currentUserHeadingDegrees = 0;
+  bool mapCenteredOnCurrentUser = false;
 
   @override
   void initState() {
@@ -3821,6 +3900,7 @@ class _MapScreenState extends State<MapScreen> {
       (_) => refreshMap(),
     );
     startLiveLocationSync();
+    loadFriendLiveLocationUids();
     startPoliceReportSync();
     loadInitialUserLocation();
   }
@@ -3850,16 +3930,173 @@ class _MapScreenState extends State<MapScreen> {
         return false;
       }
 
-      if (selectedFilter == 'All') {
-        return true;
+      if (enabledCategoryFilters.isEmpty) {
+        return false;
       }
 
-      if (selectedFilter == 'Low car') {
-        return spot.lowCarFriendly;
-      }
-
-      return spot.categories.contains(selectedFilter);
+      return spot.categories.any(enabledCategoryFilters.contains);
     }).toList();
+  }
+
+  Future<void> showMapCategoryFilterSheet() async {
+    final nextEnabledCategories = Set<String>.from(enabledCategoryFilters);
+
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: panel,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(26)),
+      ),
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            final selectedCount = nextEnabledCategories.length;
+
+            void selectAll() {
+              setSheetState(() {
+                nextEnabledCategories
+                  ..clear()
+                  ..addAll(spotCategoryOptions);
+              });
+            }
+
+            void clearAll() {
+              setSheetState(nextEnabledCategories.clear);
+            }
+
+            return SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(18, 14, 18, 22),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const Expanded(
+                          child: Text(
+                            'Map filters',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 22,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                        ),
+                        IconButton(
+                          onPressed: () => Navigator.pop(context),
+                          icon: const Icon(Icons.close, color: Colors.white70),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      selectedCount == spotCategoryOptions.length
+                          ? 'All categories enabled'
+                          : '$selectedCount of ${spotCategoryOptions.length} categories enabled',
+                      style: const TextStyle(color: Colors.white54),
+                    ),
+                    const SizedBox(height: 14),
+                    Row(
+                      children: [
+                        TextButton.icon(
+                          onPressed: selectAll,
+                          icon: const Icon(Icons.done_all),
+                          label: const Text('Select all'),
+                        ),
+                        const SizedBox(width: 8),
+                        TextButton.icon(
+                          onPressed: clearAll,
+                          icon: const Icon(Icons.clear_all),
+                          label: const Text('Clear'),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Flexible(
+                      child: SingleChildScrollView(
+                        child: Column(
+                          children: [
+                            for (final category in spotCategoryOptions)
+                              CheckboxListTile(
+                                value: nextEnabledCategories.contains(category),
+                                onChanged: (enabled) {
+                                  setSheetState(() {
+                                    if (enabled == true) {
+                                      nextEnabledCategories.add(category);
+                                    } else {
+                                      nextEnabledCategories.remove(category);
+                                    }
+                                  });
+                                },
+                                dense: true,
+                                activeColor: spotColorForCategory(category),
+                                checkColor: Colors.black,
+                                contentPadding: EdgeInsets.zero,
+                                controlAffinity:
+                                    ListTileControlAffinity.leading,
+                                title: Row(
+                                  children: [
+                                    Container(
+                                      width: 10,
+                                      height: 10,
+                                      decoration: BoxDecoration(
+                                        color: spotColorForCategory(category),
+                                        shape: BoxShape.circle,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 10),
+                                    Text(
+                                      category,
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontWeight: FontWeight.w800,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    SizedBox(
+                      width: double.infinity,
+                      height: 54,
+                      child: ElevatedButton.icon(
+                        onPressed: () {
+                          setState(() {
+                            enabledCategoryFilters
+                              ..clear()
+                              ..addAll(nextEnabledCategories);
+                            selectedSpot = null;
+                          });
+                          Navigator.pop(context);
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: blue,
+                          foregroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(18),
+                          ),
+                        ),
+                        icon: const Icon(Icons.tune),
+                        label: const Text(
+                          'Apply filters',
+                          style: TextStyle(fontWeight: FontWeight.w900),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
   }
 
   List<Marker> get markers {
@@ -3964,6 +4201,48 @@ class _MapScreenState extends State<MapScreen> {
     }).toList();
   }
 
+  Future<void> loadFriendLiveLocationUids() async {
+    try {
+      final friendUids = await loadCurrentFriendUids();
+
+      if (!mounted) {
+        return;
+      }
+
+      setState(() => friendLiveLocationUids = friendUids.toSet());
+    } catch (_) {
+      // Friend icon highlighting is best-effort.
+    }
+  }
+
+  bool liveLocationIsFriend(LiveLocationData location) {
+    return friendLiveLocationUids.contains(location.uid);
+  }
+
+  String liveLocationCarIconAsset(LiveLocationData location) {
+    if (liveLocationIsFriend(location)) {
+      return friendUserCarIconAsset;
+    }
+
+    if (location.verified) {
+      return verifiedUserCarIconAsset;
+    }
+
+    return regularUserCarIconAsset;
+  }
+
+  String liveLocationTooltipMessage(LiveLocationData location) {
+    if (liveLocationIsFriend(location)) {
+      return '@${location.username} is your friend and is sharing live location';
+    }
+
+    if (location.verified) {
+      return '@${location.username} is verified and is sharing live location';
+    }
+
+    return '@${location.username} is sharing live location';
+  }
+
   List<Marker> get liveLocationMarkers {
     final firebaseUser = FirebaseAuth.instance.currentUser;
 
@@ -3971,43 +4250,35 @@ class _MapScreenState extends State<MapScreen> {
         .where((location) => !location.isExpired)
         .where((location) => location.uid != firebaseUser?.uid)
         .map((location) {
+          final iconAsset = liveLocationCarIconAsset(location);
+          final fallbackColor = liveLocationIsFriend(location)
+              ? Colors.purpleAccent
+              : location.verified
+              ? Colors.greenAccent
+              : blue;
+
           return Marker(
             point: location.coordinates,
-            width: 66,
-            height: 66,
+            width: 38,
+            height: 38,
+            rotate: true,
             child: Tooltip(
-              message: '@${location.username} is sharing live location',
-              child: Container(
-                decoration: BoxDecoration(
-                  color: Colors.greenAccent.withValues(alpha: 0.16),
-                  shape: BoxShape.circle,
-                  border: Border.all(
-                    color: Colors.greenAccent.withValues(alpha: 0.55),
-                    width: 2,
-                  ),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.greenAccent.withValues(alpha: 0.25),
-                      blurRadius: 18,
-                      spreadRadius: 4,
-                    ),
-                  ],
+              message: liveLocationTooltipMessage(location),
+              child: Transform.rotate(
+                angle: headingRadiansForMap(
+                  location.headingDegrees,
+                  currentMapRotationDegrees,
                 ),
-                child: Center(
-                  child: Container(
-                    width: 34,
-                    height: 34,
-                    decoration: BoxDecoration(
-                      color: panel,
-                      shape: BoxShape.circle,
-                      border: Border.all(color: Colors.greenAccent, width: 2),
-                    ),
-                    child: const Icon(
-                      Icons.person_pin_circle,
-                      color: Colors.greenAccent,
-                      size: 22,
-                    ),
-                  ),
+                child: Image.asset(
+                  iconAsset,
+                  fit: BoxFit.contain,
+                  errorBuilder: (context, error, stackTrace) {
+                    return Icon(
+                      Icons.directions_car,
+                      color: fallbackColor,
+                      size: 28,
+                    );
+                  },
                 ),
               ),
             ),
@@ -4025,31 +4296,14 @@ class _MapScreenState extends State<MapScreen> {
 
     return Marker(
       point: location,
-      width: 58,
-      height: 58,
-      child: Container(
-        decoration: BoxDecoration(
-          color: blue.withValues(alpha: 0.18),
-          shape: BoxShape.circle,
-          border: Border.all(color: blue.withValues(alpha: 0.45), width: 2),
-        ),
-        child: Center(
-          child: Container(
-            width: 24,
-            height: 24,
-            decoration: BoxDecoration(
-              color: Colors.white,
-              shape: BoxShape.circle,
-              border: Border.all(color: blue, width: 5),
-              boxShadow: [
-                BoxShadow(
-                  color: blue.withValues(alpha: 0.55),
-                  blurRadius: 18,
-                  spreadRadius: 4,
-                ),
-              ],
-            ),
-          ),
+      width: 42,
+      height: 42,
+      rotate: true,
+      child: Tooltip(
+        message: 'Your location',
+        child: CustomPaint(
+          painter: CurrentUserTrianglePainter(),
+          child: const SizedBox(width: 42, height: 42),
         ),
       ),
     );
@@ -4607,11 +4861,20 @@ class _MapScreenState extends State<MapScreen> {
       return;
     }
 
+    final location = LatLng(position.latitude, position.longitude);
+    final heading = normalizedHeadingDegrees(
+      position.heading,
+      fallback: currentUserHeadingDegrees,
+    );
+
     setState(() {
-      currentUserLocation = LatLng(position.latitude, position.longitude);
+      currentUserLocation = location;
+      currentUserHeadingDegrees = heading;
       isSharingLiveLocation = true;
       isTogglingLiveLocation = false;
     });
+
+    updateFollowCamera(location, heading);
 
     liveLocationUploadTimer?.cancel();
     liveLocationUploadTimer = Timer.periodic(
@@ -4647,9 +4910,20 @@ class _MapScreenState extends State<MapScreen> {
       return;
     }
 
+    final location = LatLng(position.latitude, position.longitude);
+    final heading = normalizedHeadingDegrees(
+      position.heading,
+      fallback: currentUserHeadingDegrees,
+    );
+
     setState(() {
-      currentUserLocation = LatLng(position.latitude, position.longitude);
+      currentUserLocation = location;
+      currentUserHeadingDegrees = heading;
     });
+
+    if (mapCenteredOnCurrentUser) {
+      updateFollowCamera(location, heading);
+    }
   }
 
   Future<void> writeLiveLocation(
@@ -4678,6 +4952,12 @@ class _MapScreenState extends State<MapScreen> {
       'username': currentUser.username,
       'name': currentUser.name,
       'photoUrl': currentUser.photoUrl,
+      'role': roleName(currentUser.role),
+      'verified': currentUser.verified,
+      'heading': normalizedHeadingDegrees(
+        position.heading,
+        fallback: currentUserHeadingDegrees,
+      ),
       'lat': position.latitude,
       'lng': position.longitude,
       'coordinates': GeoPoint(position.latitude, position.longitude),
@@ -4736,10 +5016,21 @@ class _MapScreenState extends State<MapScreen> {
       return;
     }
 
+    final location = LatLng(position.latitude, position.longitude);
+    final heading = normalizedHeadingDegrees(
+      position.heading,
+      fallback: currentUserHeadingDegrees,
+    );
+
     setState(() {
       isSharingLiveLocation = true;
-      currentUserLocation = LatLng(position.latitude, position.longitude);
+      currentUserLocation = location;
+      currentUserHeadingDegrees = heading;
     });
+
+    if (mapCenteredOnCurrentUser) {
+      updateFollowCamera(location, heading);
+    }
   }
 
   Future<void> showLiveLocationRenewPrompt() async {
@@ -4885,6 +5176,12 @@ class _MapScreenState extends State<MapScreen> {
     );
   }
 
+  void updateFollowCamera(LatLng location, double headingDegrees) {
+    currentMapZoom = navigationZoom;
+    currentMapRotationDegrees = headingDegrees;
+    mapController.moveAndRotate(location, navigationZoom, headingDegrees);
+  }
+
   Future<void> moveToCurrentLocation({bool showErrors = true}) async {
     if (isLocatingUser) {
       return;
@@ -4904,15 +5201,23 @@ class _MapScreenState extends State<MapScreen> {
     }
 
     final location = LatLng(position.latitude, position.longitude);
+    final heading = normalizedHeadingDegrees(
+      position.heading,
+      fallback: currentUserHeadingDegrees,
+    );
 
     setState(() {
       currentUserLocation = location;
-      currentMapZoom = 15.5;
+      currentUserHeadingDegrees = heading;
+      currentMapZoom = navigationZoom;
+      currentMapRotationDegrees = heading;
+      mapCenteredOnCurrentUser = true;
       selectedSpot = null;
+      selectedPoliceReport = null;
       isLocatingUser = false;
     });
 
-    mapController.move(location, 15.5);
+    updateFollowCamera(location, heading);
   }
 
   @override
@@ -4928,14 +5233,31 @@ class _MapScreenState extends State<MapScreen> {
             mapController: mapController,
             options: MapOptions(
               initialCenter: currentUserLocation ?? rigaCenter,
-              initialZoom: currentUserLocation == null ? rigaZoom : 15.5,
+              initialZoom: currentUserLocation == null
+                  ? rigaZoom
+                  : navigationZoom,
+              initialRotation: currentMapRotationDegrees,
               minZoom: 4,
               maxZoom: 18,
               backgroundColor: night,
-              onPositionChanged: (camera, _) {
+              onPositionChanged: (camera, hasGesture) {
                 final nextZoom = camera.zoom;
-                if ((nextZoom - currentMapZoom).abs() >= 0.05) {
-                  setState(() => currentMapZoom = nextZoom);
+                final nextRotation = normalizedHeadingDegrees(
+                  camera.rotation,
+                  fallback: currentMapRotationDegrees,
+                );
+                final zoomChanged = (nextZoom - currentMapZoom).abs() >= 0.05;
+                final rotationChanged =
+                    (nextRotation - currentMapRotationDegrees).abs() >= 0.5;
+
+                if (zoomChanged || rotationChanged || hasGesture) {
+                  setState(() {
+                    currentMapZoom = nextZoom;
+                    currentMapRotationDegrees = nextRotation;
+                    if (hasGesture) {
+                      mapCenteredOnCurrentUser = false;
+                    }
+                  });
                 }
               },
               onTap: (_, _) => setState(() {
@@ -4965,40 +5287,15 @@ class _MapScreenState extends State<MapScreen> {
                     onShareChanged: toggleLiveLocationSharing,
                   ),
                 ),
-                SizedBox(
-                  height: 42,
-                  child: ListView.separated(
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    scrollDirection: Axis.horizontal,
-                    itemCount: filters.length,
-                    separatorBuilder: (_, _) => const SizedBox(width: 10),
-                    itemBuilder: (context, itemIndex) {
-                      final filter = filters[itemIndex];
-                      final selected = filter == selectedFilter;
-
-                      return ChoiceChip(
-                        label: Text(filter),
-                        selected: selected,
-                        showCheckmark: false,
-                        onSelected: (_) {
-                          setState(() {
-                            selectedFilter = filter;
-                            selectedSpot = null;
-                          });
-                        },
-                        labelStyle: TextStyle(
-                          color: selected ? Colors.white : Colors.white70,
-                          fontWeight: selected
-                              ? FontWeight.w700
-                              : FontWeight.w500,
-                        ),
-                        selectedColor: blue,
-                        backgroundColor: panel.withValues(alpha: 0.92),
-                        side: BorderSide(
-                          color: selected ? blue : Colors.white12,
-                        ),
-                      );
-                    },
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: Align(
+                    alignment: Alignment.centerRight,
+                    child: MapFilterButton(
+                      enabledCount: enabledCategoryFilters.length,
+                      totalCount: spotCategoryOptions.length,
+                      onTap: showMapCategoryFilterSheet,
+                    ),
                   ),
                 ),
               ],
@@ -5073,6 +5370,69 @@ class _MapScreenState extends State<MapScreen> {
               ),
             ),
         ],
+      ),
+    );
+  }
+}
+
+class MapFilterButton extends StatelessWidget {
+  final int enabledCount;
+  final int totalCount;
+  final VoidCallback onTap;
+
+  const MapFilterButton({
+    super.key,
+    required this.enabledCount,
+    required this.totalCount,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final allEnabled = enabledCount == totalCount;
+    final label = allEnabled ? 'Filters' : 'Filters $enabledCount/$totalCount';
+
+    return Material(
+      color: panel.withValues(alpha: 0.94),
+      borderRadius: BorderRadius.circular(18),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(18),
+        child: Container(
+          height: 42,
+          padding: const EdgeInsets.symmetric(horizontal: 14),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(
+              color: allEnabled ? Colors.white12 : blue.withValues(alpha: 0.75),
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.22),
+                blurRadius: 14,
+                offset: const Offset(0, 6),
+              ),
+            ],
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.tune,
+                color: allEnabled ? Colors.white70 : blue,
+                size: 19,
+              ),
+              const SizedBox(width: 8),
+              Text(
+                label,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

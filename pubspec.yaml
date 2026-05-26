@@ -45,5 +45,6 @@ flutter:
   assets:
     - assets/bg.png
     - assets/spot_icons/
+    - assets/user_cars/
 
   uses-material-design: true
