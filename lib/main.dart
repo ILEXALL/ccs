@@ -6,13 +6,13 @@ import 'dart:ui' as ui;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
-import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:geocoding/geocoding.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:google_sign_in/google_sign_in.dart';
+import 'package:image/image.dart' as img;
 import 'package:latlong2/latlong.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -27,6 +27,14 @@ const googleServerClientId =
 // Real Telegram login needs a small backend server.
 // Deploy ccs_app/telegram_auth_server, then paste its HTTPS URL here.
 const telegramAuthBaseUrl = 'https://y-beige-eta.vercel.app';
+const r2PresignUploadUrl =
+    'https://ccs-telegram-auth-server.vercel.app/api/r2-presign-upload';
+const int maxSpotGalleryPhotos = 4;
+const int maxGaragePhotos = 4;
+const int r2SpotPhotoMaxLongSide = 1280;
+const int r2AvatarPhotoMaxLongSide = 768;
+const int r2GaragePhotoMaxLongSide = 1280;
+const int r2JpegQuality = 76;
 
 String? googleSignInSetupError;
 bool firebaseReady = false;
@@ -810,6 +818,155 @@ Future<Map<String, dynamic>> getJsonFromUrl(String url) async {
   } finally {
     client.close(force: true);
   }
+}
+
+bool isNetworkUrl(String? value) {
+  final cleanValue = value?.trim() ?? '';
+  return cleanValue.startsWith('http://') || cleanValue.startsWith('https://');
+}
+
+String imageContentTypeForPath(String path) {
+  // R2 uploads are normalized to compressed JPEGs to keep storage and bandwidth low.
+  return 'image/jpeg';
+}
+
+String imageExtensionForPath(String path) {
+  // Keep all uploaded images as JPG, even if the original phone image was PNG/WEBP.
+  return 'jpg';
+}
+
+Future<List<int>> compressedJpegBytesFromFile(
+  String localPhotoPath, {
+  int maxLongSide = r2SpotPhotoMaxLongSide,
+  int quality = r2JpegQuality,
+}) async {
+  final file = File(localPhotoPath);
+
+  if (!await file.exists()) {
+    throw Exception('Selected image file was not found on this phone.');
+  }
+
+  final originalBytes = await file.readAsBytes();
+  final decoded = img.decodeImage(originalBytes);
+
+  if (decoded == null) {
+    throw Exception('Could not read selected image. Try another photo.');
+  }
+
+  var normalized = img.bakeOrientation(decoded);
+  final longestSide = math.max(normalized.width, normalized.height);
+
+  if (longestSide > maxLongSide) {
+    final scale = maxLongSide / longestSide;
+    normalized = img.copyResize(
+      normalized,
+      width: math.max(1, (normalized.width * scale).round()),
+      height: math.max(1, (normalized.height * scale).round()),
+      interpolation: img.Interpolation.average,
+    );
+  }
+
+  return img.encodeJpg(normalized, quality: quality);
+}
+
+Future<Map<String, dynamic>> postJsonToUrl(
+  String url,
+  Map<String, Object?> body,
+) async {
+  final client = HttpClient();
+
+  try {
+    final request = await client.postUrl(Uri.parse(url));
+    request.headers.set(HttpHeaders.contentTypeHeader, 'application/json');
+    request.headers.set(HttpHeaders.acceptHeader, 'application/json');
+    request.add(utf8.encode(jsonEncode(body)));
+
+    final response = await request.close();
+    final responseBody = await utf8.decodeStream(response);
+
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw Exception('Request failed ${response.statusCode}: $responseBody');
+    }
+
+    final decoded = jsonDecode(responseBody);
+
+    if (decoded is Map<String, dynamic>) {
+      return decoded;
+    }
+
+    throw Exception('Backend returned invalid JSON.');
+  } finally {
+    client.close(force: true);
+  }
+}
+
+Future<void> putBytesToPresignedUrl({
+  required String uploadUrl,
+  required List<int> bytes,
+  required String contentType,
+}) async {
+  final client = HttpClient();
+
+  try {
+    final request = await client.putUrl(Uri.parse(uploadUrl));
+    request.headers.set(HttpHeaders.contentTypeHeader, contentType);
+    request.contentLength = bytes.length;
+    request.add(bytes);
+
+    final response = await request.close();
+    final responseBody = await utf8.decodeStream(response);
+
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw Exception('R2 upload failed ${response.statusCode}: $responseBody');
+    }
+  } finally {
+    client.close(force: true);
+  }
+}
+
+Future<String> uploadImageBytesToR2({
+  required String r2Path,
+  required List<int> bytes,
+  String contentType = 'image/jpeg',
+}) async {
+  final presignData = await postJsonToUrl(r2PresignUploadUrl, {
+    'path': r2Path,
+    'contentType': contentType,
+  });
+
+  final uploadUrl = stringFromFirebase(presignData['uploadUrl'], '');
+  final publicUrl = stringFromFirebase(presignData['publicUrl'], '');
+
+  if (uploadUrl.isEmpty || publicUrl.isEmpty) {
+    throw Exception('R2 backend did not return upload URL.');
+  }
+
+  await putBytesToPresignedUrl(
+    uploadUrl: uploadUrl,
+    bytes: bytes,
+    contentType: contentType,
+  );
+
+  return publicUrl;
+}
+
+Future<String> uploadImageToR2({
+  required String r2Path,
+  required String localPhotoPath,
+  int maxLongSide = r2SpotPhotoMaxLongSide,
+  int quality = r2JpegQuality,
+}) async {
+  final bytes = await compressedJpegBytesFromFile(
+    localPhotoPath,
+    maxLongSide: maxLongSide,
+    quality: quality,
+  );
+
+  return uploadImageBytesToR2(
+    r2Path: r2Path,
+    bytes: bytes,
+    contentType: 'image/jpeg',
+  );
 }
 
 Future<AppUser> signInWithGoogleAndSaveUser() async {
@@ -2071,30 +2228,60 @@ Future<String> uploadSpotPhoto({
   required String spotId,
   required String localPhotoPath,
   required String userId,
+  required int photoIndex,
 }) async {
-  final photoFile = File(localPhotoPath);
-
-  if (!await photoFile.exists()) {
-    throw FirebaseException(
-      plugin: 'firebase_storage',
-      code: 'photo-file-missing',
-      message: 'Selected photo file was not found on this phone.',
-    );
+  if (photoIndex < 0 || photoIndex >= maxSpotGalleryPhotos) {
+    throw Exception('Spot photo index is outside the allowed gallery range.');
   }
 
-  final photoRef = FirebaseStorage.instance
-      .ref()
-      .child('spots')
-      .child(spotId)
-      .child('main.jpg');
+  final timestamp = DateTime.now().millisecondsSinceEpoch;
+  final r2Path = photoIndex == 0
+      ? 'spots/$spotId/main.jpg'
+      : 'spots/$spotId/gallery/photo_${photoIndex + 1}_$timestamp.jpg';
 
-  final metadata = SettableMetadata(
-    contentType: 'image/jpeg',
-    customMetadata: {'spotId': spotId, 'uploadedByUid': userId},
+  return uploadImageToR2(
+    r2Path: r2Path,
+    localPhotoPath: localPhotoPath,
+    maxLongSide: r2SpotPhotoMaxLongSide,
+    quality: r2JpegQuality,
   );
+}
 
-  await photoRef.putFile(photoFile, metadata);
-  return photoRef.getDownloadURL();
+Future<String> uploadUserAvatarPhoto({
+  required String userId,
+  required String localPhotoPath,
+}) async {
+  final r2Path = 'users/$userId/avatar.jpg';
+
+  return uploadImageToR2(
+    r2Path: r2Path,
+    localPhotoPath: localPhotoPath,
+    maxLongSide: r2AvatarPhotoMaxLongSide,
+    quality: r2JpegQuality,
+  );
+}
+
+Future<String> uploadGarageCarPhoto({
+  required String userId,
+  required int carIndex,
+  required int photoIndex,
+  required String localPhotoPath,
+}) async {
+  if (photoIndex < 0 || photoIndex >= maxGaragePhotos) {
+    throw Exception('Garage photo index is outside the allowed range.');
+  }
+
+  final timestamp = DateTime.now().millisecondsSinceEpoch;
+  final r2Path = photoIndex == 0
+      ? 'garage/$userId/car_${carIndex}_cover.jpg'
+      : 'garage/$userId/car_${carIndex}/photo_${photoIndex + 1}_$timestamp.jpg';
+
+  return uploadImageToR2(
+    r2Path: r2Path,
+    localPhotoPath: localPhotoPath,
+    maxLongSide: r2GaragePhotoMaxLongSide,
+    quality: r2JpegQuality,
+  );
 }
 
 Map<String, Object?> spotToFirestoreData(
@@ -3410,6 +3597,7 @@ class ExploreScreen extends StatefulWidget {
 
 class _ExploreScreenState extends State<ExploreScreen> {
   ExploreSortMode selectedMode = ExploreSortMode.trending;
+  final Set<String> enabledCategoryFilters = {...spotCategoryOptions};
 
   List<CarSpot> sortedSpots(List<CarSpot> spots) {
     final list = [...spots];
@@ -3445,6 +3633,193 @@ class _ExploreScreenState extends State<ExploreScreen> {
     return list;
   }
 
+  List<CarSpot> filteredSpots() {
+    if (enabledCategoryFilters.isEmpty) {
+      return const [];
+    }
+
+    return approvedPublicSpots().where((spot) {
+      return spot.categories.any(enabledCategoryFilters.contains);
+    }).toList();
+  }
+
+  Map<String, List<CarSpot>> groupedSpotsByCategory(List<CarSpot> spots) {
+    final grouped = <String, List<CarSpot>>{};
+
+    for (final category in spotCategoryOptions) {
+      final categorySpots = spots
+          .where((spot) => primarySpotCategory(spot) == category)
+          .toList();
+      final sortedCategorySpots = sortedSpots(categorySpots);
+
+      if (sortedCategorySpots.isNotEmpty) {
+        grouped[category] = sortedCategorySpots;
+      }
+    }
+
+    return grouped;
+  }
+
+  Future<void> showExploreCategoryFilterSheet() async {
+    final nextEnabledCategories = Set<String>.from(enabledCategoryFilters);
+
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: panel,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(26)),
+      ),
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            final selectedCount = nextEnabledCategories.length;
+
+            void selectAll() {
+              setSheetState(() {
+                nextEnabledCategories
+                  ..clear()
+                  ..addAll(spotCategoryOptions);
+              });
+            }
+
+            void clearAll() {
+              setSheetState(nextEnabledCategories.clear);
+            }
+
+            return SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(18, 14, 18, 22),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const Expanded(
+                          child: Text(
+                            'Explore filters',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 22,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                        ),
+                        IconButton(
+                          onPressed: () => Navigator.pop(context),
+                          icon: const Icon(Icons.close, color: Colors.white70),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      selectedCount == spotCategoryOptions.length
+                          ? 'All categories enabled'
+                          : '$selectedCount of ${spotCategoryOptions.length} categories enabled',
+                      style: const TextStyle(color: Colors.white54),
+                    ),
+                    const SizedBox(height: 14),
+                    Row(
+                      children: [
+                        TextButton.icon(
+                          onPressed: selectAll,
+                          icon: const Icon(Icons.done_all),
+                          label: const Text('Select all'),
+                        ),
+                        const SizedBox(width: 8),
+                        TextButton.icon(
+                          onPressed: clearAll,
+                          icon: const Icon(Icons.clear_all),
+                          label: const Text('Clear'),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Flexible(
+                      child: SingleChildScrollView(
+                        child: Column(
+                          children: [
+                            for (final category in spotCategoryOptions)
+                              CheckboxListTile(
+                                value: nextEnabledCategories.contains(category),
+                                onChanged: (enabled) {
+                                  setSheetState(() {
+                                    if (enabled == true) {
+                                      nextEnabledCategories.add(category);
+                                    } else {
+                                      nextEnabledCategories.remove(category);
+                                    }
+                                  });
+                                },
+                                dense: true,
+                                activeColor: spotColorForCategory(category),
+                                checkColor: Colors.black,
+                                contentPadding: EdgeInsets.zero,
+                                controlAffinity:
+                                    ListTileControlAffinity.leading,
+                                title: Row(
+                                  children: [
+                                    Container(
+                                      width: 10,
+                                      height: 10,
+                                      decoration: BoxDecoration(
+                                        color: spotColorForCategory(category),
+                                        shape: BoxShape.circle,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 10),
+                                    Text(
+                                      category,
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontWeight: FontWeight.w800,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    SizedBox(
+                      width: double.infinity,
+                      height: 54,
+                      child: ElevatedButton.icon(
+                        onPressed: () {
+                          setState(() {
+                            enabledCategoryFilters
+                              ..clear()
+                              ..addAll(nextEnabledCategories);
+                          });
+                          Navigator.pop(context);
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: blue,
+                          foregroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(18),
+                          ),
+                        ),
+                        icon: const Icon(Icons.tune),
+                        label: const Text(
+                          'Apply filters',
+                          style: TextStyle(fontWeight: FontWeight.w900),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
   Widget sortChip(ExploreSortMode mode) {
     final selected = selectedMode == mode;
 
@@ -3471,7 +3846,9 @@ class _ExploreScreenState extends State<ExploreScreen> {
     return ValueListenableBuilder<List<CarSpot>>(
       valueListenable: reviewSpots,
       builder: (context, _, _) {
-        final approvedSpots = sortedSpots(approvedPublicSpots());
+        final approvedSpots = filteredSpots();
+        final groupedSpots = groupedSpotsByCategory(approvedSpots);
+        final selectedCount = enabledCategoryFilters.length;
 
         return Scaffold(
           backgroundColor: Colors.black,
@@ -3479,22 +3856,80 @@ class _ExploreScreenState extends State<ExploreScreen> {
             title: const Text('CCS'),
             backgroundColor: Colors.black,
             foregroundColor: blue,
+            actions: [
+              Padding(
+                padding: const EdgeInsets.only(right: 10),
+                child: Stack(
+                  alignment: Alignment.topRight,
+                  children: [
+                    IconButton(
+                      tooltip: 'Filters',
+                      onPressed: showExploreCategoryFilterSheet,
+                      icon: const Icon(Icons.tune),
+                    ),
+                    if (selectedCount != spotCategoryOptions.length)
+                      Positioned(
+                        top: 8,
+                        right: 8,
+                        child: Container(
+                          width: 9,
+                          height: 9,
+                          decoration: const BoxDecoration(
+                            color: Colors.redAccent,
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ],
           ),
           body: ListView(
             padding: const EdgeInsets.fromLTRB(20, 18, 20, 28),
             children: [
-              const Text(
-                'Explore',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 34,
-                  fontWeight: FontWeight.w900,
-                ),
-              ),
-              const SizedBox(height: 6),
-              const Text(
-                'Approved car spots for shoots, reels, and night drives.',
-                style: TextStyle(color: Colors.white54, height: 1.35),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Explore',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 34,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                        SizedBox(height: 6),
+                        Text(
+                          'Approved car spots for shoots, reels, and night drives.',
+                          style: TextStyle(color: Colors.white54, height: 1.35),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  OutlinedButton.icon(
+                    onPressed: showExploreCategoryFilterSheet,
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.white,
+                      side: const BorderSide(color: Colors.white24),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                    ),
+                    icon: const Icon(Icons.tune, size: 18),
+                    label: Text(
+                      selectedCount == spotCategoryOptions.length
+                          ? 'Filters'
+                          : '$selectedCount/${spotCategoryOptions.length}',
+                      style: const TextStyle(fontWeight: FontWeight.w800),
+                    ),
+                  ),
+                ],
               ),
               const SizedBox(height: 18),
               SingleChildScrollView(
@@ -3510,21 +3945,80 @@ class _ExploreScreenState extends State<ExploreScreen> {
                 ),
               ),
               const SizedBox(height: 18),
-              if (approvedSpots.isEmpty)
-                const EmptyStateCard(
+              if (groupedSpots.isEmpty)
+                EmptyStateCard(
                   icon: Icons.explore,
-                  title: 'No spots here yet',
-                  text: 'Approved spots will appear here after moderation.',
+                  title: approvedPublicSpots().isEmpty
+                      ? 'No spots here yet'
+                      : 'No spots match your filters',
+                  text: approvedPublicSpots().isEmpty
+                      ? 'Approved spots will appear here after moderation.'
+                      : 'Open filters and enable more categories to see more spots.',
                 )
               else
-                for (final spot in approvedSpots) ...[
-                  ExploreSpotCard(spot: spot),
-                  const SizedBox(height: 14),
+                for (final entry in groupedSpots.entries) ...[
+                  ExploreCategoryHeader(
+                    category: entry.key,
+                    count: entry.value.length,
+                  ),
+                  const SizedBox(height: 10),
+                  for (final spot in entry.value) ...[
+                    ExploreSpotCard(spot: spot),
+                    const SizedBox(height: 14),
+                  ],
+                  const SizedBox(height: 6),
                 ],
             ],
           ),
         );
       },
+    );
+  }
+}
+
+class ExploreCategoryHeader extends StatelessWidget {
+  final String category;
+  final int count;
+
+  const ExploreCategoryHeader({
+    super.key,
+    required this.category,
+    required this.count,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final color = spotColorForCategory(category);
+
+    return Row(
+      children: [
+        Container(
+          width: 12,
+          height: 12,
+          decoration: BoxDecoration(
+            color: color,
+            shape: BoxShape.circle,
+            boxShadow: [
+              BoxShadow(color: color.withValues(alpha: 0.45), blurRadius: 12),
+            ],
+          ),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Text(
+            category,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 20,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+        ),
+        Text(
+          '$count',
+          style: TextStyle(color: color, fontWeight: FontWeight.w900),
+        ),
+      ],
     );
   }
 }
@@ -3550,6 +4044,10 @@ class ExploreSpotCard extends StatelessWidget {
     final addedDateText = spot.createdAtMillis > 0
         ? 'Added ${formatShortDate(DateTime.fromMillisecondsSinceEpoch(spot.createdAtMillis))}'
         : 'Added date unknown';
+    final categoryColor = spotColorForSpot(spot);
+    final addedByText = spot.addedBy.trim().isEmpty
+        ? 'Added by: unknown'
+        : 'Added by: ${spot.addedBy}';
 
     return InkWell(
       onTap: () {
@@ -3564,7 +4062,17 @@ class ExploreSpotCard extends StatelessWidget {
         decoration: BoxDecoration(
           color: panel,
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: Colors.white12),
+          border: Border.all(
+            color: categoryColor.withValues(alpha: 0.85),
+            width: 1.4,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: categoryColor.withValues(alpha: 0.10),
+              blurRadius: 16,
+              offset: const Offset(0, 8),
+            ),
+          ],
         ),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -3644,6 +4152,29 @@ class ExploreSpotCard extends StatelessWidget {
                       Expanded(
                         child: Text(
                           addedDateText,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Colors.white38,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 2),
+                  Row(
+                    children: [
+                      const Icon(
+                        Icons.person_outline,
+                        color: Colors.white38,
+                        size: 12,
+                      ),
+                      const SizedBox(width: 4),
+                      Expanded(
+                        child: Text(
+                          addedByText,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: const TextStyle(
@@ -4105,22 +4636,55 @@ class _MapScreenState extends State<MapScreen> {
     return visibleSpots.map((spot) {
       final markerColor = spotColorForSpot(spot);
       final markerSize = showFullIcons ? 70.0 : 26.0;
+      final markerWidth = showFullIcons ? 122.0 : markerSize;
+      final markerHeight = showFullIcons ? 112.0 : markerSize;
 
       return Marker(
         point: spot.coordinates,
-        width: markerSize,
-        height: markerSize,
+        width: markerWidth,
+        height: markerHeight,
         child: GestureDetector(
           onTap: () {
             setState(() => selectedSpot = spot);
           },
           child: showFullIcons
-              ? Image.asset(
-                  spotIconAssetPathForSpot(spot),
-                  fit: BoxFit.contain,
-                  errorBuilder: (context, error, stackTrace) {
-                    return CompactSpotMapPoint(color: markerColor);
-                  },
+              ? Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    Positioned(
+                      top: 0,
+                      left: 2,
+                      right: 2,
+                      child: IgnorePointer(
+                        child: Text(
+                          spot.name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: Colors.white.withValues(alpha: 0.74),
+                            fontSize: 10,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: 0.2,
+                            shadows: const [
+                              Shadow(color: Colors.black, blurRadius: 5),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                    SizedBox(
+                      width: markerSize,
+                      height: markerSize,
+                      child: Image.asset(
+                        spotIconAssetPathForSpot(spot),
+                        fit: BoxFit.contain,
+                        errorBuilder: (context, error, stackTrace) {
+                          return CompactSpotMapPoint(color: markerColor);
+                        },
+                      ),
+                    ),
+                  ],
                 )
               : CompactSpotMapPoint(color: markerColor),
         ),
@@ -6319,20 +6883,7 @@ class SpotPhotoCarousel extends StatefulWidget {
 }
 
 class _SpotPhotoCarouselState extends State<SpotPhotoCarousel> {
-  late final PageController controller;
   int currentIndex = 0;
-
-  @override
-  void initState() {
-    super.initState();
-    controller = PageController();
-  }
-
-  @override
-  void dispose() {
-    controller.dispose();
-    super.dispose();
-  }
 
   void openGallery(int index) {
     Navigator.push(
@@ -6352,54 +6903,110 @@ class _SpotPhotoCarouselState extends State<SpotPhotoCarousel> {
       return _SpotPhotoPlaceholder(height: widget.height);
     }
 
-    return SizedBox(
-      height: widget.height,
-      width: double.infinity,
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          PageView.builder(
-            controller: controller,
-            itemCount: sources.length,
-            onPageChanged: (index) => setState(() => currentIndex = index),
-            itemBuilder: (context, index) {
-              return GestureDetector(
-                onTap: () => openGallery(index),
+    if (currentIndex >= sources.length) {
+      currentIndex = sources.length - 1;
+    }
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        SizedBox(
+          height: widget.height,
+          width: double.infinity,
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              GestureDetector(
+                onTap: () => openGallery(currentIndex),
                 child: spotPhotoImage(
-                  sources[index],
+                  sources[currentIndex],
                   width: double.infinity,
                   height: widget.height,
                   fit: BoxFit.cover,
                 ),
-              );
-            },
-          ),
-          if (sources.length > 1)
-            Positioned(
-              top: 14,
-              right: 14,
-              child: Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 6,
-                ),
-                decoration: BoxDecoration(
-                  color: Colors.black.withValues(alpha: 0.62),
-                  borderRadius: BorderRadius.circular(999),
-                  border: Border.all(color: Colors.white24),
-                ),
-                child: Text(
-                  '${currentIndex + 1}/${sources.length}',
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w900,
+              ),
+              if (sources.length > 1)
+                Positioned(
+                  top: 14,
+                  right: 14,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 6,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.62),
+                      borderRadius: BorderRadius.circular(999),
+                      border: Border.all(color: Colors.white24),
+                    ),
+                    child: Text(
+                      '${currentIndex + 1}/${sources.length}',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
                   ),
                 ),
-              ),
+            ],
+          ),
+        ),
+        if (sources.length > 1)
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.fromLTRB(14, 10, 14, 12),
+            color: Colors.black,
+            child: Row(
+              children: [
+                for (var index = 0; index < sources.length; index++) ...[
+                  Expanded(
+                    child: GestureDetector(
+                      onTap: () => setState(() => currentIndex = index),
+                      onLongPress: () => openGallery(index),
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 160),
+                        height: 58,
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(
+                            color: currentIndex == index
+                                ? blue
+                                : Colors.white24,
+                            width: currentIndex == index ? 2.2 : 1,
+                          ),
+                          boxShadow: currentIndex == index
+                              ? [
+                                  BoxShadow(
+                                    color: blue.withValues(alpha: 0.36),
+                                    blurRadius: 14,
+                                    spreadRadius: 1,
+                                  ),
+                                ]
+                              : null,
+                        ),
+                        clipBehavior: Clip.antiAlias,
+                        child: Stack(
+                          fit: StackFit.expand,
+                          children: [
+                            spotPhotoImage(sources[index], fit: BoxFit.cover),
+                            if (currentIndex == index)
+                              Container(
+                                decoration: BoxDecoration(
+                                  color: blue.withValues(alpha: 0.16),
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                  if (index != sources.length - 1) const SizedBox(width: 8),
+                ],
+              ],
             ),
-        ],
-      ),
+          ),
+      ],
     );
   }
 }
@@ -6553,58 +7160,26 @@ class _SpotDetailScreenState extends State<SpotDetailScreen> {
       ),
       body: ListView(
         children: [
-          SizedBox(
-            height: 280,
-            child: Stack(
-              fit: StackFit.expand,
-              children: [
-                SpotPhoto(spot: spot, fit: BoxFit.cover),
-                Container(
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                      colors: [
-                        Colors.transparent,
-                        Colors.black.withValues(alpha: 0.9),
-                      ],
-                    ),
-                  ),
-                ),
-                Positioned(
-                  left: 20,
-                  right: 20,
-                  bottom: 22,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        spot.name,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 32,
-                          fontWeight: FontWeight.w900,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        spot.cityCountry,
-                        style: const TextStyle(
-                          color: Colors.white70,
-                          fontSize: 15,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
+          SpotPhotoCarousel(spot: spot, height: 300),
           Padding(
             padding: const EdgeInsets.all(20),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                Text(
+                  spot.name,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 32,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  spot.cityCountry,
+                  style: const TextStyle(color: Colors.white70, fontSize: 15),
+                ),
+                const SizedBox(height: 18),
                 SpotDetailEngagementPanel(
                   spot: spot,
                   onRatingChanged: updateVisibleRating,
@@ -7690,7 +8265,7 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
   LatLng? selectedLocation;
   String detectedCityCountry = 'Choose location to detect city/country';
   bool isDetectingCityCountry = false;
-  String? selectedPhotoPath;
+  final List<String> selectedPhotoPaths = [];
   bool verifiedOnlySpot = false;
   bool isTemporarySpot = false;
   DateTime? temporaryStartsAt;
@@ -7872,13 +8447,38 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
   Future<void> choosePhoto() async {
     FocusScope.of(context).unfocus();
 
+    if (selectedPhotoPaths.length >= maxSpotGalleryPhotos) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          backgroundColor: Colors.redAccent,
+          content: Text(
+            'Maximum 4 photos per spot.',
+            style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+          ),
+        ),
+      );
+      return;
+    }
+
     final path = await pickPhotoFromPhone(context);
 
     if (!mounted || path == null) {
       return;
     }
 
-    setState(() => selectedPhotoPath = path);
+    if (selectedPhotoPaths.contains(path)) {
+      return;
+    }
+
+    setState(() => selectedPhotoPaths.add(path));
+  }
+
+  void removePhotoAt(int index) {
+    if (index < 0 || index >= selectedPhotoPaths.length) {
+      return;
+    }
+
+    setState(() => selectedPhotoPaths.removeAt(index));
   }
 
   Future<DateTime?> pickTemporaryDateTime(DateTime? initialValue) async {
@@ -8054,7 +8654,9 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
       categories: categories,
       rating: isAdminCreatedSpot ? 4.5 : 0,
       photoUrl: '',
-      localPhotoPath: selectedPhotoPath,
+      localPhotoPath: selectedPhotoPaths.isEmpty
+          ? null
+          : selectedPhotoPaths.first,
       reelLink: reelController.text.trim(),
       bestTime: 'Not reviewed',
       parking: 'Not reviewed',
@@ -8080,19 +8682,21 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
     setState(() => isSubmitting = true);
 
     try {
-      var uploadedPhotoUrl = '';
+      final uploadedPhotoUrls = <String>[];
 
-      if (selectedPhotoPath != null) {
-        uploadedPhotoUrl = await uploadSpotPhoto(
+      for (var index = 0; index < selectedPhotoPaths.length; index++) {
+        final uploadedUrl = await uploadSpotPhoto(
           spotId: spotRef.id,
-          localPhotoPath: selectedPhotoPath!,
+          localPhotoPath: selectedPhotoPaths[index],
           userId: firebaseUser.uid,
+          photoIndex: index,
         );
+        uploadedPhotoUrls.add(uploadedUrl);
       }
 
       newSpot = newSpot.copyWith(
-        photoUrl: uploadedPhotoUrl,
-        photoUrls: uploadedPhotoUrl.isEmpty ? const [] : [uploadedPhotoUrl],
+        photoUrl: uploadedPhotoUrls.isEmpty ? '' : uploadedPhotoUrls.first,
+        photoUrls: uploadedPhotoUrls,
       );
       await spotRef.set(spotToFirestoreData(newSpot, includeCreatedAt: true));
 
@@ -8213,7 +8817,11 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
                     ],
                   ),
                 ),
-                const _PendingBadge(),
+                _PendingBadge(
+                  status: currentUser.role == UserRole.admin
+                      ? SpotStatus.approved
+                      : SpotStatus.pending,
+                ),
               ],
             ),
           ),
@@ -8320,9 +8928,10 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
           _AddSpotSection(
             title: 'Media',
             children: [
-              _PhotoPickerField(
-                photoPath: selectedPhotoPath,
-                onTap: choosePhoto,
+              _SpotPhotoPickerField(
+                photoPaths: selectedPhotoPaths,
+                onAddPhoto: choosePhoto,
+                onRemovePhoto: removePhotoAt,
               ),
               _CcsTextField(
                 controller: reelController,
@@ -8359,8 +8968,12 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
                   const SizedBox(width: 10),
                   Text(
                     isSubmitting
-                        ? 'Saving to Firebase...'
-                        : 'Submit for Review',
+                        ? (currentUser.role == UserRole.admin
+                              ? 'Creating spot...'
+                              : 'Submitting for review...')
+                        : (currentUser.role == UserRole.admin
+                              ? 'Create Spot'
+                              : 'Submit for Review'),
                     style: const TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.w800,
@@ -8371,8 +8984,191 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
             ),
           ),
           const SizedBox(height: 16),
-          const _MySubmissionsSection(),
+          _MySubmissionsSection(),
         ],
+      ),
+    );
+  }
+}
+
+class _PendingBadge extends StatelessWidget {
+  final SpotStatus status;
+
+  const _PendingBadge({this.status = SpotStatus.pending});
+
+  String get label {
+    switch (status) {
+      case SpotStatus.pending:
+        return 'pending';
+      case SpotStatus.approved:
+        return 'live';
+      case SpotStatus.rejected:
+        return 'rejected';
+    }
+  }
+
+  Color get color {
+    switch (status) {
+      case SpotStatus.pending:
+        return blue;
+      case SpotStatus.approved:
+        return Colors.greenAccent;
+      case SpotStatus.rejected:
+        return Colors.redAccent;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.14),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: color.withValues(alpha: 0.45)),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          color: color,
+          fontSize: 12,
+          fontWeight: FontWeight.w900,
+        ),
+      ),
+    );
+  }
+}
+
+class _MySubmissionsSection extends StatelessWidget {
+  const _MySubmissionsSection();
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<List<CarSpot>>(
+      valueListenable: submittedSpots,
+      builder: (context, spots, _) {
+        return Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: panel,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: Colors.white12),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'My submissions',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              const SizedBox(height: 6),
+              const Text(
+                'Your created spots are saved here. Pending spots wait for review; live spots are already public.',
+                style: TextStyle(color: Colors.white54, height: 1.3),
+              ),
+              const SizedBox(height: 14),
+              if (spots.isEmpty)
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.06),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: Colors.white12),
+                  ),
+                  child: const Text(
+                    'No submitted spots yet.',
+                    style: TextStyle(color: Colors.white54),
+                  ),
+                )
+              else
+                ...spots.map(
+                  (spot) => Padding(
+                    padding: const EdgeInsets.only(bottom: 10),
+                    child: _SubmittedSpotTile(spot: spot),
+                  ),
+                ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _SubmittedSpotTile extends StatelessWidget {
+  final CarSpot spot;
+
+  const _SubmittedSpotTile({required this.spot});
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: () {
+        Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => SpotDetailScreen(spot: spot)),
+        );
+      },
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: 0.06),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: Colors.white12),
+        ),
+        child: Row(
+          children: [
+            SpotPhoto(
+              spot: spot,
+              width: 72,
+              height: 72,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    spot.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    spot.cityCountry,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(color: Colors.white54),
+                  ),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: [
+                      _PendingBadge(status: spot.status),
+                      for (final category in spot.categories.take(2))
+                        _SmallTag(label: category, icon: Icons.local_offer),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            const Icon(Icons.chevron_right, color: Colors.white38),
+          ],
+        ),
       ),
     );
   }
@@ -8755,245 +9551,168 @@ class _LocationPickerField extends StatelessWidget {
   }
 }
 
-class _PhotoPickerField extends StatelessWidget {
-  final String? photoPath;
-  final VoidCallback onTap;
+class _SpotPhotoPickerField extends StatelessWidget {
+  final List<String> photoPaths;
+  final VoidCallback onAddPhoto;
+  final ValueChanged<int> onRemovePhoto;
 
-  const _PhotoPickerField({required this.photoPath, required this.onTap});
+  const _SpotPhotoPickerField({
+    required this.photoPaths,
+    required this.onAddPhoto,
+    required this.onRemovePhoto,
+  });
 
   @override
   Widget build(BuildContext context) {
-    final hasPhoto = photoPath != null;
+    final canAddMore = photoPaths.length < maxSpotGalleryPhotos;
 
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(16),
-      child: Container(
-        padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(
-          color: Colors.white.withValues(alpha: 0.06),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        InkWell(
+          onTap: canAddMore ? onAddPhoto : null,
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(
-            color: hasPhoto ? blue.withValues(alpha: 0.7) : Colors.white12,
-          ),
-        ),
-        child: Row(
-          children: [
-            ClipRRect(
-              borderRadius: BorderRadius.circular(14),
-              child: hasPhoto
-                  ? Image.file(
-                      File(photoPath!),
-                      width: 72,
-                      height: 72,
-                      fit: BoxFit.cover,
-                    )
-                  : Container(
-                      width: 72,
-                      height: 72,
-                      color: blue.withValues(alpha: 0.15),
-                      child: const Icon(Icons.add_photo_alternate, color: blue),
-                    ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    hasPhoto ? 'Photo selected' : 'Add photo',
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  const Text(
-                    'Choose from phone gallery. Videos stay as links.',
-                    style: TextStyle(color: Colors.white54, height: 1.3),
-                  ),
-                ],
+          child: Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.06),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(
+                color: photoPaths.isNotEmpty
+                    ? blue.withValues(alpha: 0.7)
+                    : Colors.white12,
               ),
             ),
-            const Icon(Icons.chevron_right, color: Colors.white54),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _MySubmissionsSection extends StatelessWidget {
-  const _MySubmissionsSection();
-
-  @override
-  Widget build(BuildContext context) {
-    return ValueListenableBuilder<List<CarSpot>>(
-      valueListenable: submittedSpots,
-      builder: (context, spots, _) {
-        return Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: panel,
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: Colors.white12),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'My submissions',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 18,
-                  fontWeight: FontWeight.w900,
-                ),
-              ),
-              const SizedBox(height: 6),
-              const Text(
-                'Pending spots are saved here, but hidden from the public map.',
-                style: TextStyle(color: Colors.white54, height: 1.3),
-              ),
-              const SizedBox(height: 14),
-              if (spots.isEmpty)
+            child: Row(
+              children: [
                 Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(14),
+                  width: 72,
+                  height: 72,
                   decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.06),
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(color: Colors.white12),
+                    color: blue.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(14),
                   ),
-                  child: const Text(
-                    'No submitted spots yet.',
-                    style: TextStyle(color: Colors.white54),
-                  ),
-                )
-              else
-                ...spots.map(
-                  (spot) => Padding(
-                    padding: const EdgeInsets.only(bottom: 10),
-                    child: _SubmittedSpotTile(spot: spot),
+                  child: Icon(
+                    canAddMore ? Icons.add_photo_alternate : Icons.check,
+                    color: blue,
                   ),
                 ),
-            ],
-          ),
-        );
-      },
-    );
-  }
-}
-
-class _SubmittedSpotTile extends StatelessWidget {
-  final CarSpot spot;
-
-  const _SubmittedSpotTile({required this.spot});
-
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      onTap: () {
-        Navigator.push(
-          context,
-          MaterialPageRoute(builder: (_) => SpotDetailScreen(spot: spot)),
-        );
-      },
-      borderRadius: BorderRadius.circular(16),
-      child: Container(
-        padding: const EdgeInsets.all(10),
-        decoration: BoxDecoration(
-          color: Colors.white.withValues(alpha: 0.06),
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: Colors.white12),
-        ),
-        child: Row(
-          children: [
-            SpotPhoto(
-              spot: spot,
-              width: 72,
-              height: 72,
-              borderRadius: BorderRadius.circular(12),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    spot.name,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 16,
-                      fontWeight: FontWeight.w900,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    spot.cityCountry,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(color: Colors.white54),
-                  ),
-                  if (spot.isTemporary) ...[
-                    const SizedBox(height: 6),
-                    Text(
-                      spot.temporaryTimeLabel,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(color: blue, fontSize: 12),
-                    ),
-                  ],
-                  const SizedBox(height: 8),
-                  Row(
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const _PendingBadge(),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          spot.categories.join(', '),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            color: Colors.white38,
-                            fontSize: 12,
-                          ),
+                      Text(
+                        photoPaths.isEmpty
+                            ? 'Upload photos'
+                            : '${photoPaths.length}/$maxSpotGalleryPhotos photos selected',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        canAddMore
+                            ? 'Add up to 4 spot photos. The first photo becomes the Explore thumbnail.'
+                            : 'Maximum 4 photos selected. First photo is the spot thumbnail.',
+                        style: const TextStyle(
+                          color: Colors.white54,
+                          height: 1.3,
                         ),
                       ),
                     ],
                   ),
-                ],
-              ),
+                ),
+                Icon(
+                  canAddMore ? Icons.chevron_right : Icons.lock,
+                  color: Colors.white54,
+                ),
+              ],
             ),
-            const Icon(Icons.chevron_right, color: Colors.white38),
-          ],
+          ),
         ),
-      ),
-    );
-  }
-}
-
-class _PendingBadge extends StatelessWidget {
-  const _PendingBadge();
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-      decoration: BoxDecoration(
-        color: blue.withValues(alpha: 0.16),
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: blue.withValues(alpha: 0.45)),
-      ),
-      child: const Text(
-        'pending',
-        style: TextStyle(
-          color: blue,
-          fontSize: 12,
-          fontWeight: FontWeight.w900,
-        ),
-      ),
+        if (photoPaths.isNotEmpty) ...[
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: [
+              for (var index = 0; index < photoPaths.length; index++)
+                Stack(
+                  children: [
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(14),
+                      child: Image.file(
+                        File(photoPaths[index]),
+                        width: 88,
+                        height: 88,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, _, _) {
+                          return Container(
+                            width: 88,
+                            height: 88,
+                            color: Colors.white.withValues(alpha: 0.06),
+                            child: const Icon(
+                              Icons.broken_image,
+                              color: Colors.white38,
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                    Positioned(
+                      left: 6,
+                      bottom: 6,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 7,
+                          vertical: 4,
+                        ),
+                        decoration: BoxDecoration(
+                          color: index == 0
+                              ? blue.withValues(alpha: 0.9)
+                              : Colors.black.withValues(alpha: 0.65),
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                        child: Text(
+                          index == 0 ? 'Cover' : '${index + 1}',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                      ),
+                    ),
+                    Positioned(
+                      top: 4,
+                      right: 4,
+                      child: InkWell(
+                        onTap: () => onRemovePhoto(index),
+                        borderRadius: BorderRadius.circular(999),
+                        child: Container(
+                          width: 28,
+                          height: 28,
+                          decoration: BoxDecoration(
+                            color: Colors.black.withValues(alpha: 0.78),
+                            shape: BoxShape.circle,
+                            border: Border.all(color: Colors.white24),
+                          ),
+                          child: const Icon(
+                            Icons.close,
+                            color: Colors.white,
+                            size: 16,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+            ],
+          ),
+        ],
+      ],
     );
   }
 }
@@ -9143,12 +9862,14 @@ class UserProfileData {
   final String cityCountry;
   final String bio;
   final String? avatarPath;
+  final String? photoUrl;
 
   const UserProfileData({
     required this.username,
     required this.cityCountry,
     required this.bio,
     this.avatarPath,
+    this.photoUrl,
   });
 
   factory UserProfileData.fromCurrentUser() {
@@ -9157,6 +9878,7 @@ class UserProfileData {
       cityCountry: '${currentUser.city}, ${currentUser.country}',
       bio: currentUser.bio,
       avatarPath: currentUser.avatarPath,
+      photoUrl: currentUser.photoUrl,
     );
   }
 }
@@ -9168,19 +9890,78 @@ class GarageCar {
   final String useType;
   final List<String> tags;
   final String? photoPath;
+  final List<String> photoPaths;
 
   const GarageCar({
     required this.name,
     required this.description,
-    required this.buildType,
-    required this.useType,
-    required this.tags,
+    this.buildType = '',
+    this.useType = '',
+    this.tags = const [],
     this.photoPath,
+    this.photoPaths = const [],
   });
+
+  List<String> get galleryPhotos {
+    final sources = <String>[];
+
+    for (final source in photoPaths) {
+      final cleanSource = source.trim();
+      if (cleanSource.isNotEmpty && !sources.contains(cleanSource)) {
+        sources.add(cleanSource);
+      }
+    }
+
+    final cover = photoPath?.trim() ?? '';
+    if (cover.isNotEmpty && !sources.contains(cover)) {
+      sources.insert(0, cover);
+    }
+
+    return sources.take(maxGaragePhotos).toList();
+  }
+
+  String? get coverPhotoPath {
+    final photos = galleryPhotos;
+    return photos.isEmpty ? null : photos.first;
+  }
+
+  GarageCar copyWith({
+    String? name,
+    String? description,
+    String? buildType,
+    String? useType,
+    List<String>? tags,
+    String? photoPath,
+    List<String>? photoPaths,
+  }) {
+    final nextPhotoPaths = photoPaths ?? this.photoPaths;
+    final nextPhotoPath =
+        photoPath ??
+        (nextPhotoPaths.isNotEmpty ? nextPhotoPaths.first : this.photoPath);
+
+    return GarageCar(
+      name: name ?? this.name,
+      description: description ?? this.description,
+      buildType: buildType ?? this.buildType,
+      useType: useType ?? this.useType,
+      tags: tags ?? this.tags,
+      photoPath: nextPhotoPath,
+      photoPaths: nextPhotoPaths.take(maxGaragePhotos).toList(),
+    );
+  }
 
   factory GarageCar.fromFirebase(Object? value) {
     final data = mapFromFirebase(value);
     final photoPath = data['photoPath'];
+    final legacyPhotoPath = photoPath is String && photoPath.trim().isNotEmpty
+        ? photoPath.trim()
+        : null;
+    final photos = stringListFromFirebase(data['photoPaths'], const []);
+    final gallery = photos.isNotEmpty
+        ? photos.take(maxGaragePhotos).toList()
+        : legacyPhotoPath == null
+        ? const <String>[]
+        : [legacyPhotoPath];
 
     return GarageCar(
       name: stringFromFirebase(data['name'], 'BMW E46 Coupe'),
@@ -9188,28 +9969,25 @@ class GarageCar {
         data['description'],
         'Night drive setup for city shoots and clean street parking spots.',
       ),
-      buildType: stringFromFirebase(data['buildType'], 'Static'),
-      useType: stringFromFirebase(data['useType'], 'Street'),
-      tags: stringListFromFirebase(data['tags'], const [
-        'BMW',
-        'Night shots',
-        'Riga spots',
-        'Low car friendly',
-      ]),
-      photoPath: photoPath is String && photoPath.trim().isNotEmpty
-          ? photoPath.trim()
-          : null,
+      buildType: stringFromFirebase(data['buildType'], ''),
+      useType: stringFromFirebase(data['useType'], ''),
+      tags: stringListFromFirebase(data['tags'], const []),
+      photoPath: gallery.isEmpty ? legacyPhotoPath : gallery.first,
+      photoPaths: gallery,
     );
   }
 
   Map<String, Object?> toFirebase() {
+    final gallery = galleryPhotos;
+
     return {
       'name': name,
       'description': description,
       'buildType': buildType,
       'useType': useType,
       'tags': tags,
-      'photoPath': photoPath,
+      'photoPath': gallery.isEmpty ? photoPath : gallery.first,
+      'photoPaths': gallery,
     };
   }
 }
@@ -9220,9 +9998,6 @@ List<GarageCar> defaultGarageCars() {
       name: 'BMW E46 Coupe',
       description:
           'Night drive setup for city shoots and clean street parking spots.',
-      buildType: 'Static',
-      useType: 'Street',
-      tags: ['BMW', 'Night shots', 'Riga spots', 'Low car friendly'],
     ),
   ];
 }
@@ -9258,15 +10033,30 @@ Future<void> saveProfileToFirebase(UserProfileData profile) async {
     previousUsername: previousUsername,
   );
 
+  var nextPhotoUrl = currentUser.photoUrl;
+  String? nextAvatarPath = profile.avatarPath;
+
+  if (localFileExists(profile.avatarPath)) {
+    nextPhotoUrl = await uploadUserAvatarPhoto(
+      userId: currentUser.uid,
+      localPhotoPath: profile.avatarPath!,
+    );
+    nextAvatarPath = null;
+  } else if (isNetworkUrl(profile.avatarPath)) {
+    nextPhotoUrl = profile.avatarPath;
+    nextAvatarPath = null;
+  }
+
   currentUser = AppUser(
     uid: currentUser.uid,
     name: currentUser.name,
     username: cleanUsername,
     email: currentUser.email,
-    photoUrl: currentUser.photoUrl,
+    photoUrl: nextPhotoUrl,
     bio: profile.bio,
-    avatarPath: profile.avatarPath,
+    avatarPath: nextAvatarPath,
     role: currentUser.role,
+    verified: currentUser.verified,
     city: cityCountry[0],
     country: cityCountry[1],
   );
@@ -9275,17 +10065,55 @@ Future<void> saveProfileToFirebase(UserProfileData profile) async {
     'username': cleanUsername,
     'usernameKey': usernameKey(cleanUsername),
     'bio': profile.bio,
-    'avatarPath': profile.avatarPath,
+    'photoUrl': nextPhotoUrl,
+    'avatarPath': nextAvatarPath,
     'city': cityCountry[0],
     'country': cityCountry[1],
   });
 }
 
 Future<void> saveGarageToFirebase(List<GarageCar> cars) async {
-  garageCars.value = cars;
+  final firebaseUser = FirebaseAuth.instance.currentUser;
+  final uploadedCars = <GarageCar>[];
+
+  for (var carIndex = 0; carIndex < cars.length; carIndex++) {
+    final car = cars[carIndex];
+    final uploadedPhotoPaths = <String>[];
+    final photoSources = car.galleryPhotos.take(maxGaragePhotos).toList();
+
+    for (var photoIndex = 0; photoIndex < photoSources.length; photoIndex++) {
+      final source = photoSources[photoIndex];
+
+      if (firebaseUser != null && localFileExists(source)) {
+        final uploadedPhotoUrl = await uploadGarageCarPhoto(
+          userId: firebaseUser.uid,
+          carIndex: carIndex,
+          photoIndex: photoIndex,
+          localPhotoPath: source,
+        );
+        uploadedPhotoPaths.add(uploadedPhotoUrl);
+      } else if (source.trim().isNotEmpty) {
+        uploadedPhotoPaths.add(source.trim());
+      }
+    }
+
+    uploadedCars.add(
+      GarageCar(
+        name: car.name,
+        description: car.description,
+        buildType: car.buildType,
+        useType: car.useType,
+        tags: car.tags,
+        photoPath: uploadedPhotoPaths.isEmpty ? null : uploadedPhotoPaths.first,
+        photoPaths: uploadedPhotoPaths,
+      ),
+    );
+  }
+
+  garageCars.value = uploadedCars;
 
   await saveCurrentUserFields({
-    'garage': cars.map((car) => car.toFirebase()).toList(),
+    'garage': uploadedCars.map((car) => car.toFirebase()).toList(),
   });
 }
 
@@ -9601,8 +10429,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 _GarageCard(car: cars[i], onEdit: () => editGarage(i)),
                 const SizedBox(height: 16),
               ],
-              _ProfileStyleSection(tags: profileTags),
-              const SizedBox(height: 16),
               _ProfileSubmissionsPreview(spots: spots),
               const SizedBox(height: 16),
               _ProfileActionTile(
@@ -9624,7 +10450,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
               _ProfileActionTile(
                 icon: Icons.directions_car,
                 title: 'Add another car',
-                subtitle: 'Add a second build to your garage',
+                subtitle: 'Add another car to your garage',
                 onTap: addCar,
               ),
               const SizedBox(height: 10),
@@ -10374,19 +11200,8 @@ class _ProfileHeader extends StatelessWidget {
                   border: Border.all(color: blue.withValues(alpha: 0.5)),
                 ),
                 child: ClipOval(
-                  child: !localFileExists(profile.avatarPath)
-                      ? const Center(
-                          child: Text(
-                            'CCS',
-                            style: TextStyle(
-                              color: blue,
-                              fontSize: 20,
-                              fontWeight: FontWeight.w900,
-                              letterSpacing: 1.5,
-                            ),
-                          ),
-                        )
-                      : Image.file(
+                  child: localFileExists(profile.avatarPath)
+                      ? Image.file(
                           File(profile.avatarPath!),
                           fit: BoxFit.cover,
                           errorBuilder: (_, _, _) {
@@ -10402,6 +11217,35 @@ class _ProfileHeader extends StatelessWidget {
                               ),
                             );
                           },
+                        )
+                      : isNetworkUrl(profile.photoUrl)
+                      ? Image.network(
+                          profile.photoUrl!,
+                          fit: BoxFit.cover,
+                          errorBuilder: (_, _, _) {
+                            return const Center(
+                              child: Text(
+                                'CCS',
+                                style: TextStyle(
+                                  color: blue,
+                                  fontSize: 20,
+                                  fontWeight: FontWeight.w900,
+                                  letterSpacing: 1.5,
+                                ),
+                              ),
+                            );
+                          },
+                        )
+                      : const Center(
+                          child: Text(
+                            'CCS',
+                            style: TextStyle(
+                              color: blue,
+                              fontSize: 20,
+                              fontWeight: FontWeight.w900,
+                              letterSpacing: 1.5,
+                            ),
+                          ),
                         ),
                 ),
               ),
@@ -10522,6 +11366,269 @@ class _ProfileStatTile extends StatelessWidget {
   }
 }
 
+class _GarageGalleryHeader extends StatefulWidget {
+  final GarageCar car;
+
+  const _GarageGalleryHeader({required this.car});
+
+  @override
+  State<_GarageGalleryHeader> createState() => _GarageGalleryHeaderState();
+}
+
+class _GarageGalleryHeaderState extends State<_GarageGalleryHeader> {
+  int currentIndex = 0;
+
+  List<String> get photos => widget.car.galleryPhotos;
+
+  void openGallery(int index) {
+    if (photos.isEmpty) {
+      return;
+    }
+
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) =>
+            GaragePhotoGalleryScreen(car: widget.car, initialIndex: index),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (currentIndex >= photos.length) {
+      currentIndex = photos.isEmpty ? 0 : photos.length - 1;
+    }
+
+    return ClipRRect(
+      borderRadius: const BorderRadius.vertical(top: Radius.circular(22)),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          SizedBox(
+            height: 176,
+            width: double.infinity,
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                GestureDetector(
+                  onTap: () => openGallery(currentIndex),
+                  child: photos.isEmpty
+                      ? const _GaragePhotoFallback()
+                      : garagePhotoImage(
+                          photos[currentIndex],
+                          fit: BoxFit.cover,
+                        ),
+                ),
+                Container(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [
+                        Colors.transparent,
+                        Colors.black.withValues(alpha: 0.86),
+                      ],
+                    ),
+                  ),
+                ),
+                if (photos.length > 1)
+                  Positioned(
+                    top: 12,
+                    right: 12,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 9,
+                        vertical: 5,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withValues(alpha: 0.65),
+                        borderRadius: BorderRadius.circular(999),
+                        border: Border.all(color: Colors.white24),
+                      ),
+                      child: Text(
+                        '${currentIndex + 1}/${photos.length}',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    ),
+                  ),
+                Positioned(
+                  left: 16,
+                  right: 16,
+                  bottom: 16,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Garage',
+                        style: TextStyle(
+                          color: Colors.white70,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        widget.car.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 27,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          if (photos.length > 1)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.fromLTRB(14, 10, 14, 12),
+              color: Colors.black,
+              child: Row(
+                children: [
+                  for (var index = 0; index < photos.length; index++) ...[
+                    Expanded(
+                      child: GestureDetector(
+                        onTap: () => setState(() => currentIndex = index),
+                        onLongPress: () => openGallery(index),
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 160),
+                          height: 58,
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(
+                              color: currentIndex == index
+                                  ? blue
+                                  : Colors.white24,
+                              width: currentIndex == index ? 2.2 : 1,
+                            ),
+                            boxShadow: currentIndex == index
+                                ? [
+                                    BoxShadow(
+                                      color: blue.withValues(alpha: 0.36),
+                                      blurRadius: 14,
+                                      spreadRadius: 1,
+                                    ),
+                                  ]
+                                : null,
+                          ),
+                          clipBehavior: Clip.antiAlias,
+                          child: Stack(
+                            fit: StackFit.expand,
+                            children: [
+                              garagePhotoImage(
+                                photos[index],
+                                fit: BoxFit.cover,
+                              ),
+                              if (currentIndex == index)
+                                Container(
+                                  decoration: BoxDecoration(
+                                    color: blue.withValues(alpha: 0.16),
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                    if (index != photos.length - 1) const SizedBox(width: 8),
+                  ],
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class GaragePhotoGalleryScreen extends StatefulWidget {
+  final GarageCar car;
+  final int initialIndex;
+
+  const GaragePhotoGalleryScreen({
+    super.key,
+    required this.car,
+    required this.initialIndex,
+  });
+
+  @override
+  State<GaragePhotoGalleryScreen> createState() =>
+      _GaragePhotoGalleryScreenState();
+}
+
+class _GaragePhotoGalleryScreenState extends State<GaragePhotoGalleryScreen> {
+  late final PageController controller;
+  late int currentIndex;
+
+  @override
+  void initState() {
+    super.initState();
+    currentIndex = widget.initialIndex.clamp(
+      0,
+      widget.car.galleryPhotos.length - 1,
+    );
+    controller = PageController(initialPage: currentIndex);
+  }
+
+  @override
+  void dispose() {
+    controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final photos = widget.car.galleryPhotos;
+
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        backgroundColor: Colors.black,
+        title: Text(
+          photos.isEmpty
+              ? widget.car.name
+              : '${widget.car.name}  ${currentIndex + 1}/${photos.length}',
+          style: const TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+      ),
+      body: photos.isEmpty
+          ? const Center(child: _GaragePhotoFallback())
+          : PageView.builder(
+              controller: controller,
+              itemCount: photos.length,
+              onPageChanged: (index) => setState(() => currentIndex = index),
+              itemBuilder: (context, index) {
+                return InteractiveViewer(
+                  minScale: 1,
+                  maxScale: 4,
+                  child: Center(
+                    child: garagePhotoImage(
+                      photos[index],
+                      width: double.infinity,
+                      height: double.infinity,
+                      fit: BoxFit.contain,
+                    ),
+                  ),
+                );
+              },
+            ),
+    );
+  }
+}
+
 class _GarageCard extends StatelessWidget {
   final GarageCar car;
   final VoidCallback onEdit;
@@ -10530,8 +11637,6 @@ class _GarageCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final tags = [car.buildType, car.useType, ...car.tags];
-
     return Container(
       decoration: BoxDecoration(
         color: panel,
@@ -10541,60 +11646,7 @@ class _GarageCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          ClipRRect(
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(22)),
-            child: SizedBox(
-              height: 176,
-              width: double.infinity,
-              child: Stack(
-                fit: StackFit.expand,
-                children: [
-                  GarageCarPhoto(car: car),
-                  Container(
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.topCenter,
-                        end: Alignment.bottomCenter,
-                        colors: [
-                          Colors.transparent,
-                          Colors.black.withValues(alpha: 0.86),
-                        ],
-                      ),
-                    ),
-                  ),
-                  Positioned(
-                    left: 16,
-                    right: 16,
-                    bottom: 16,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'Garage',
-                          style: TextStyle(
-                            color: Colors.white70,
-                            fontSize: 13,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          car.name,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 27,
-                            fontWeight: FontWeight.w900,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
+          _GarageGalleryHeader(car: car),
           Padding(
             padding: const EdgeInsets.all(16),
             child: Column(
@@ -10604,21 +11656,13 @@ class _GarageCard extends StatelessWidget {
                   car.description,
                   style: const TextStyle(color: Colors.white70, height: 1.35),
                 ),
-                const SizedBox(height: 14),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    for (final tag in tags.take(8)) _BuildChip(label: tag),
-                  ],
-                ),
                 const SizedBox(height: 16),
                 SizedBox(
                   width: double.infinity,
                   height: 44,
                   child: ElevatedButton.icon(
                     onPressed: onEdit,
-                    icon: const Icon(Icons.build, size: 18),
+                    icon: const Icon(Icons.edit, size: 18),
                     label: const Text('Edit Garage'),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: blue,
@@ -10757,27 +11801,97 @@ class _BuildChip extends StatelessWidget {
   }
 }
 
-class GarageCarPhoto extends StatelessWidget {
+class GarageCarPhoto extends StatefulWidget {
   final GarageCar car;
 
   const GarageCarPhoto({super.key, required this.car});
 
   @override
+  State<GarageCarPhoto> createState() => _GarageCarPhotoState();
+}
+
+class _GarageCarPhotoState extends State<GarageCarPhoto> {
+  final PageController controller = PageController();
+  int currentIndex = 0;
+
+  @override
+  void dispose() {
+    controller.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    if (localFileExists(car.photoPath)) {
-      return Image.file(
-        File(car.photoPath!),
-        fit: BoxFit.cover,
-        errorBuilder: (_, _, _) => const _GaragePhotoFallback(),
-      );
+    final photos = widget.car.galleryPhotos;
+
+    if (photos.isEmpty) {
+      return const _GaragePhotoFallback();
     }
 
-    return Image.network(
-      'https://images.unsplash.com/photo-1555353540-64580b51c258?q=80&w=1200&auto=format&fit=crop',
-      fit: BoxFit.cover,
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        PageView.builder(
+          controller: controller,
+          itemCount: photos.length,
+          onPageChanged: (index) => setState(() => currentIndex = index),
+          itemBuilder: (context, index) {
+            return garagePhotoImage(photos[index], fit: BoxFit.cover);
+          },
+        ),
+        if (photos.length > 1)
+          Positioned(
+            top: 12,
+            right: 12,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: 0.65),
+                borderRadius: BorderRadius.circular(999),
+                border: Border.all(color: Colors.white24),
+              ),
+              child: Text(
+                '${currentIndex + 1}/${photos.length}',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+Widget garagePhotoImage(
+  String source, {
+  double? width,
+  double? height,
+  BoxFit fit = BoxFit.cover,
+}) {
+  if (localFileExists(source)) {
+    return Image.file(
+      File(source),
+      width: width,
+      height: height,
+      fit: fit,
       errorBuilder: (_, _, _) => const _GaragePhotoFallback(),
     );
   }
+
+  if (isNetworkUrl(source)) {
+    return Image.network(
+      source,
+      width: width,
+      height: height,
+      fit: fit,
+      errorBuilder: (_, _, _) => const _GaragePhotoFallback(),
+    );
+  }
+
+  return const _GaragePhotoFallback();
 }
 
 class _GaragePhotoFallback extends StatelessWidget {
@@ -10843,6 +11957,22 @@ class _ProfileSubmissionsPreview extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final latest = spots.isEmpty ? null : spots.first;
+    final pendingCount = spots
+        .where((spot) => spot.status == SpotStatus.pending)
+        .length;
+    final liveCount = spots
+        .where((spot) => spot.status == SpotStatus.approved)
+        .length;
+    final rejectedCount = spots
+        .where((spot) => spot.status == SpotStatus.rejected)
+        .length;
+    final summary = spots.isEmpty
+        ? 'No spots created yet.'
+        : [
+            if (pendingCount > 0) '$pendingCount pending review',
+            if (liveCount > 0) '$liveCount live',
+            if (rejectedCount > 0) '$rejectedCount rejected',
+          ].join(' • ');
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -10863,12 +11993,7 @@ class _ProfileSubmissionsPreview extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 8),
-          Text(
-            spots.isEmpty
-                ? 'No pending spots yet.'
-                : '${spots.length} spot waiting for review.',
-            style: const TextStyle(color: Colors.white54),
-          ),
+          Text(summary, style: const TextStyle(color: Colors.white54)),
           if (latest != null) ...[
             const SizedBox(height: 14),
             Row(
@@ -10901,7 +12026,7 @@ class _ProfileSubmissionsPreview extends StatelessWidget {
                         style: const TextStyle(color: Colors.white54),
                       ),
                       const SizedBox(height: 8),
-                      const _PendingBadge(),
+                      _PendingBadge(status: latest.status),
                     ],
                   ),
                 ),
@@ -11100,6 +12225,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
             ? 'Find. Drive. Shoot.'
             : bioController.text.trim(),
         avatarPath: avatarPath,
+        photoUrl: widget.profile.photoUrl,
       ),
     );
   }
@@ -11137,9 +12263,8 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                       border: Border.all(color: blue.withValues(alpha: 0.5)),
                     ),
                     child: ClipOval(
-                      child: !localFileExists(avatarPath)
-                          ? const Icon(Icons.add_a_photo, color: blue, size: 34)
-                          : Image.file(
+                      child: localFileExists(avatarPath)
+                          ? Image.file(
                               File(avatarPath!),
                               fit: BoxFit.cover,
                               errorBuilder: (_, _, _) {
@@ -11149,6 +12274,27 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                                   size: 34,
                                 );
                               },
+                            )
+                          : (isNetworkUrl(avatarPath) ||
+                                (currentUser.photoUrl?.trim().isNotEmpty ??
+                                    false))
+                          ? Image.network(
+                              isNetworkUrl(avatarPath)
+                                  ? avatarPath!
+                                  : currentUser.photoUrl!,
+                              fit: BoxFit.cover,
+                              errorBuilder: (_, _, _) {
+                                return const Icon(
+                                  Icons.add_a_photo,
+                                  color: blue,
+                                  size: 34,
+                                );
+                              },
+                            )
+                          : const Icon(
+                              Icons.add_a_photo,
+                              color: blue,
+                              size: 34,
                             ),
                     ),
                   ),
@@ -11236,23 +12382,7 @@ class EditGarageScreen extends StatefulWidget {
 class _EditGarageScreenState extends State<EditGarageScreen> {
   late final TextEditingController nameController;
   late final TextEditingController descriptionController;
-  late String buildType;
-  late String useType;
-  late Set<String> selectedTags;
-  String? photoPath;
-
-  final buildOptions = const ['Static', 'Pneumo', 'Coilovers'];
-  final useOptions = const ['Street', 'Track', 'Show'];
-  final tagOptions = const [
-    'BMW',
-    'JDM',
-    'VAG',
-    'Drift',
-    'Stance',
-    'Night shots',
-    'Riga spots',
-    'Low car friendly',
-  ];
+  late List<String> photoPaths;
 
   @override
   void initState() {
@@ -11264,12 +12394,9 @@ class _EditGarageScreenState extends State<EditGarageScreen> {
           car?.description ??
           'Short description about your car, setup, and what content you shoot.',
     );
-    buildType = car?.buildType ?? 'Static';
-    useType = car?.useType ?? 'Street';
-    selectedTags = {
-      ...(car?.tags ?? const ['BMW', 'Night shots']),
-    };
-    photoPath = car?.photoPath;
+    photoPaths = [
+      ...(car?.galleryPhotos ?? const <String>[]),
+    ].take(maxGaragePhotos).toList();
   }
 
   @override
@@ -11280,16 +12407,36 @@ class _EditGarageScreenState extends State<EditGarageScreen> {
   }
 
   Future<void> chooseCarPhoto() async {
+    if (photoPaths.length >= maxGaragePhotos) {
+      return;
+    }
+
     final path = await pickPhotoFromPhone(context);
 
     if (!mounted || path == null) {
       return;
     }
 
-    setState(() => photoPath = path);
+    setState(
+      () => photoPaths = [...photoPaths, path].take(maxGaragePhotos).toList(),
+    );
+  }
+
+  void removeCarPhoto(int index) {
+    if (index < 0 || index >= photoPaths.length) {
+      return;
+    }
+
+    setState(() => photoPaths = [...photoPaths]..removeAt(index));
   }
 
   void saveCar() {
+    final cleanPhotos = photoPaths
+        .map((source) => source.trim())
+        .where((source) => source.isNotEmpty)
+        .take(maxGaragePhotos)
+        .toList();
+
     Navigator.pop(
       context,
       GarageCar(
@@ -11297,58 +12444,11 @@ class _EditGarageScreenState extends State<EditGarageScreen> {
             ? 'Untitled car'
             : nameController.text.trim(),
         description: descriptionController.text.trim().isEmpty
-            ? 'Car build profile.'
+            ? 'Car profile.'
             : descriptionController.text.trim(),
-        buildType: buildType,
-        useType: useType,
-        tags: selectedTags.toList(),
-        photoPath: photoPath,
+        photoPath: cleanPhotos.isEmpty ? null : cleanPhotos.first,
+        photoPaths: cleanPhotos,
       ),
-    );
-  }
-
-  Widget choiceGroup({
-    required String title,
-    required List<String> options,
-    required String selectedValue,
-    required ValueChanged<String> onSelected,
-  }) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          title,
-          style: const TextStyle(
-            color: Colors.white70,
-            fontWeight: FontWeight.w800,
-          ),
-        ),
-        const SizedBox(height: 10),
-        Wrap(
-          spacing: 9,
-          runSpacing: 9,
-          children: [
-            for (final option in options)
-              ChoiceChip(
-                label: Text(option),
-                selected: option == selectedValue,
-                showCheckmark: false,
-                onSelected: (_) => setState(() => onSelected(option)),
-                selectedColor: blue,
-                backgroundColor: Colors.white.withValues(alpha: 0.07),
-                side: BorderSide(
-                  color: option == selectedValue ? blue : Colors.white12,
-                ),
-                labelStyle: TextStyle(
-                  color: option == selectedValue
-                      ? Colors.white
-                      : Colors.white70,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-          ],
-        ),
-      ],
     );
   }
 
@@ -11366,65 +12466,15 @@ class _EditGarageScreenState extends State<EditGarageScreen> {
       body: ListView(
         padding: const EdgeInsets.fromLTRB(20, 18, 20, 28),
         children: [
-          InkWell(
-            onTap: chooseCarPhoto,
-            borderRadius: BorderRadius.circular(22),
-            child: Container(
-              height: 210,
-              decoration: BoxDecoration(
-                color: panel,
-                borderRadius: BorderRadius.circular(22),
-                border: Border.all(color: Colors.white12),
+          _AddSpotSection(
+            title: 'Car photos',
+            children: [
+              _GaragePhotoPickerField(
+                photoPaths: photoPaths,
+                onAddPhoto: chooseCarPhoto,
+                onRemovePhoto: removeCarPhoto,
               ),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(22),
-                child: Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    if (!localFileExists(photoPath))
-                      Container(
-                        color: Colors.white.withValues(alpha: 0.06),
-                        child: const Icon(
-                          Icons.add_photo_alternate,
-                          color: blue,
-                          size: 44,
-                        ),
-                      )
-                    else
-                      Image.file(
-                        File(photoPath!),
-                        fit: BoxFit.cover,
-                        errorBuilder: (_, _, _) {
-                          return Container(
-                            color: Colors.white.withValues(alpha: 0.06),
-                            child: const Icon(
-                              Icons.add_photo_alternate,
-                              color: blue,
-                              size: 44,
-                            ),
-                          );
-                        },
-                      ),
-                    Align(
-                      alignment: Alignment.bottomCenter,
-                      child: Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.all(14),
-                        color: Colors.black.withValues(alpha: 0.68),
-                        child: const Text(
-                          'Tap to choose car photo',
-                          textAlign: TextAlign.center,
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.w800,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
+            ],
           ),
           const SizedBox(height: 16),
           _AddSpotSection(
@@ -11438,75 +12488,10 @@ class _EditGarageScreenState extends State<EditGarageScreen> {
               ),
               _CcsTextField(
                 controller: descriptionController,
-                label: 'Short description',
-                hint: 'Tell people about your build',
+                label: 'Description',
+                hint: 'Tell people about your car, build, setup, and plans',
                 icon: Icons.notes,
-                maxLines: 4,
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          _AddSpotSection(
-            title: 'Build',
-            children: [
-              choiceGroup(
-                title: 'Suspension',
-                options: buildOptions,
-                selectedValue: buildType,
-                onSelected: (value) => buildType = value,
-              ),
-              choiceGroup(
-                title: 'Use',
-                options: useOptions,
-                selectedValue: useType,
-                onSelected: (value) => useType = value,
-              ),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Tags',
-                    style: TextStyle(
-                      color: Colors.white70,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  Wrap(
-                    spacing: 9,
-                    runSpacing: 9,
-                    children: [
-                      for (final tag in tagOptions)
-                        FilterChip(
-                          label: Text(tag),
-                          selected: selectedTags.contains(tag),
-                          showCheckmark: false,
-                          onSelected: (selected) {
-                            setState(() {
-                              if (selected) {
-                                selectedTags.add(tag);
-                              } else {
-                                selectedTags.remove(tag);
-                              }
-                            });
-                          },
-                          selectedColor: blue,
-                          backgroundColor: Colors.white.withValues(alpha: 0.07),
-                          side: BorderSide(
-                            color: selectedTags.contains(tag)
-                                ? blue
-                                : Colors.white12,
-                          ),
-                          labelStyle: TextStyle(
-                            color: selectedTags.contains(tag)
-                                ? Colors.white
-                                : Colors.white70,
-                            fontWeight: FontWeight.w800,
-                          ),
-                        ),
-                    ],
-                  ),
-                ],
+                maxLines: 5,
               ),
             ],
           ),
@@ -11528,6 +12513,161 @@ class _EditGarageScreenState extends State<EditGarageScreen> {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _GaragePhotoPickerField extends StatelessWidget {
+  final List<String> photoPaths;
+  final VoidCallback onAddPhoto;
+  final ValueChanged<int> onRemovePhoto;
+
+  const _GaragePhotoPickerField({
+    required this.photoPaths,
+    required this.onAddPhoto,
+    required this.onRemovePhoto,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final canAddMore = photoPaths.length < maxGaragePhotos;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        InkWell(
+          onTap: canAddMore ? onAddPhoto : null,
+          borderRadius: BorderRadius.circular(16),
+          child: Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.06),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(
+                color: photoPaths.isNotEmpty
+                    ? blue.withValues(alpha: 0.7)
+                    : Colors.white12,
+              ),
+            ),
+            child: Row(
+              children: [
+                Container(
+                  width: 72,
+                  height: 72,
+                  decoration: BoxDecoration(
+                    color: blue.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: Icon(
+                    canAddMore ? Icons.add_photo_alternate : Icons.check,
+                    color: blue,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        photoPaths.isEmpty
+                            ? 'Upload photos'
+                            : '${photoPaths.length}/$maxGaragePhotos photos selected',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        canAddMore
+                            ? 'Add up to 4 car photos. The first photo becomes the garage cover.'
+                            : 'Maximum 4 photos selected. First photo is the garage cover.',
+                        style: const TextStyle(
+                          color: Colors.white54,
+                          height: 1.3,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Icon(
+                  canAddMore ? Icons.chevron_right : Icons.lock,
+                  color: Colors.white54,
+                ),
+              ],
+            ),
+          ),
+        ),
+        if (photoPaths.isNotEmpty) ...[
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: [
+              for (var index = 0; index < photoPaths.length; index++)
+                Stack(
+                  children: [
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(14),
+                      child: garagePhotoImage(
+                        photoPaths[index],
+                        width: 88,
+                        height: 88,
+                        fit: BoxFit.cover,
+                      ),
+                    ),
+                    Positioned(
+                      left: 6,
+                      bottom: 6,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 7,
+                          vertical: 4,
+                        ),
+                        decoration: BoxDecoration(
+                          color: index == 0
+                              ? blue.withValues(alpha: 0.9)
+                              : Colors.black.withValues(alpha: 0.65),
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                        child: Text(
+                          index == 0 ? 'Cover' : '${index + 1}',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                      ),
+                    ),
+                    Positioned(
+                      top: 4,
+                      right: 4,
+                      child: InkWell(
+                        onTap: () => onRemovePhoto(index),
+                        borderRadius: BorderRadius.circular(999),
+                        child: Container(
+                          width: 28,
+                          height: 28,
+                          decoration: BoxDecoration(
+                            color: Colors.black.withValues(alpha: 0.78),
+                            shape: BoxShape.circle,
+                            border: Border.all(color: Colors.white24),
+                          ),
+                          child: const Icon(
+                            Icons.close,
+                            color: Colors.white,
+                            size: 16,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+            ],
+          ),
+        ],
+      ],
     );
   }
 }
@@ -12330,6 +13470,11 @@ class AdminSpotTile extends StatelessWidget {
               ),
             ),
             IconButton(
+              tooltip: 'Edit spot',
+              onPressed: () => openAdminEditSpot(context, spot),
+              icon: const Icon(Icons.edit_outlined, color: blue),
+            ),
+            IconButton(
               tooltip: 'Delete spot',
               onPressed: () => deleteAdminSpot(context, spot),
               icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
@@ -12389,6 +13534,521 @@ class _AdminStatusBadge extends StatelessWidget {
               color: color,
               fontSize: 11,
               fontWeight: FontWeight.w900,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+Future<void> openAdminEditSpot(
+  BuildContext context,
+  CarSpot spot, {
+  bool popAfterSave = false,
+}) async {
+  final saved = await Navigator.push<bool>(
+    context,
+    MaterialPageRoute(builder: (_) => AdminEditSpotScreen(spot: spot)),
+  );
+
+  if (saved == true && popAfterSave && context.mounted) {
+    Navigator.pop(context);
+  }
+}
+
+class AdminEditSpotScreen extends StatefulWidget {
+  final CarSpot spot;
+
+  const AdminEditSpotScreen({super.key, required this.spot});
+
+  @override
+  State<AdminEditSpotScreen> createState() => _AdminEditSpotScreenState();
+}
+
+class _AdminEditSpotScreenState extends State<AdminEditSpotScreen> {
+  late final TextEditingController nameController;
+  late final TextEditingController cityController;
+  late final TextEditingController descriptionController;
+  late final TextEditingController reelController;
+  late String selectedCategory;
+  late bool verifiedOnlySpot;
+  late final List<String> existingPhotoUrls;
+  final List<String> newPhotoPaths = [];
+  bool isSaving = false;
+
+  int get totalPhotoCount => existingPhotoUrls.length + newPhotoPaths.length;
+
+  @override
+  void initState() {
+    super.initState();
+    nameController = TextEditingController(text: widget.spot.name);
+    cityController = TextEditingController(text: widget.spot.cityCountry);
+    descriptionController = TextEditingController(
+      text: widget.spot.description,
+    );
+    reelController = TextEditingController(text: widget.spot.reelLink);
+    selectedCategory = primarySpotCategory(widget.spot);
+    verifiedOnlySpot = widget.spot.verifiedOnly;
+    existingPhotoUrls = <String>[];
+
+    void addExistingUrl(String value) {
+      final cleanValue = value.trim();
+      if (cleanValue.isNotEmpty &&
+          isNetworkUrl(cleanValue) &&
+          !existingPhotoUrls.contains(cleanValue)) {
+        existingPhotoUrls.add(cleanValue);
+      }
+    }
+
+    for (final photoUrl in widget.spot.photoUrls) {
+      addExistingUrl(photoUrl);
+    }
+    addExistingUrl(widget.spot.photoUrl);
+  }
+
+  @override
+  void dispose() {
+    nameController.dispose();
+    cityController.dispose();
+    descriptionController.dispose();
+    reelController.dispose();
+    super.dispose();
+  }
+
+  Future<void> addPhoto() async {
+    if (totalPhotoCount >= maxSpotGalleryPhotos) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          backgroundColor: Colors.redAccent,
+          content: Text(
+            'Maximum 4 spot photos.',
+            style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+          ),
+        ),
+      );
+      return;
+    }
+
+    final path = await pickPhotoFromPhone(context);
+    if (!mounted || path == null || path.trim().isEmpty) {
+      return;
+    }
+
+    if (newPhotoPaths.contains(path)) {
+      return;
+    }
+
+    setState(() => newPhotoPaths.add(path));
+  }
+
+  void removeExistingPhotoAt(int index) {
+    if (index < 0 || index >= existingPhotoUrls.length) {
+      return;
+    }
+
+    setState(() => existingPhotoUrls.removeAt(index));
+  }
+
+  void removeNewPhotoAt(int index) {
+    if (index < 0 || index >= newPhotoPaths.length) {
+      return;
+    }
+
+    setState(() => newPhotoPaths.removeAt(index));
+  }
+
+  Future<void> saveSpot() async {
+    final firebaseUser = FirebaseAuth.instance.currentUser;
+    final cleanName = nameController.text.trim();
+    final cleanCity = cityController.text.trim();
+    final cleanDescription = descriptionController.text.trim();
+    final cleanReel = reelController.text.trim();
+
+    if (firebaseUser == null) {
+      showAdminActionError(
+        context,
+        message: 'Could not save spot',
+        error: FirebaseException(
+          plugin: 'firebase_auth',
+          code: 'not-logged-in',
+        ),
+      );
+      return;
+    }
+
+    if (widget.spot.id.trim().isEmpty) {
+      showAdminActionError(
+        context,
+        message: 'Could not save spot',
+        error: FirebaseException(
+          plugin: 'cloud_firestore',
+          code: 'missing-spot-id',
+        ),
+      );
+      return;
+    }
+
+    if (cleanName.isEmpty || cleanDescription.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          backgroundColor: Colors.redAccent,
+          content: Text(
+            'Spot name and description are required.',
+            style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+          ),
+        ),
+      );
+      return;
+    }
+
+    setState(() => isSaving = true);
+
+    try {
+      final finalPhotoUrls = <String>[...existingPhotoUrls];
+
+      for (final localPhotoPath in newPhotoPaths) {
+        final uploadIndex = finalPhotoUrls.length;
+        final uploadedUrl = await uploadSpotPhoto(
+          spotId: widget.spot.id,
+          localPhotoPath: localPhotoPath,
+          userId: firebaseUser.uid,
+          photoIndex: uploadIndex,
+        );
+        finalPhotoUrls.add(uploadedUrl);
+      }
+
+      final updatedSpot = widget.spot.copyWith(
+        name: cleanName,
+        cityCountry: cleanCity.isEmpty ? widget.spot.cityCountry : cleanCity,
+        description: cleanDescription,
+        categories: [selectedCategory],
+        reelLink: cleanReel,
+        photoUrl: finalPhotoUrls.isEmpty ? '' : finalPhotoUrls.first,
+        photoUrls: finalPhotoUrls,
+        verifiedOnly: verifiedOnlySpot,
+      );
+
+      await spotsCollection().doc(widget.spot.id).update({
+        'name': updatedSpot.name,
+        'cityCountry': updatedSpot.cityCountry,
+        'description': updatedSpot.description,
+        'categories': updatedSpot.categories,
+        'reelLink': updatedSpot.reelLink,
+        'photoUrl': updatedSpot.photoUrl,
+        'photoUrls': updatedSpot.photoUrls,
+        'verifiedOnly': updatedSpot.verifiedOnly,
+        'editedBy': currentUser.username,
+        'editedByUid': currentUser.uid,
+        'editedAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+
+      reviewSpots.value = reviewSpots.value
+          .map((item) => isSameSpot(item, widget.spot) ? updatedSpot : item)
+          .toList();
+      submittedSpots.value = submittedSpots.value
+          .map((item) => isSameSpot(item, widget.spot) ? updatedSpot : item)
+          .toList();
+      savedSpots.value = savedSpots.value
+          .map((item) => isSameSpot(item, widget.spot) ? updatedSpot : item)
+          .toList();
+
+      await refreshFirebaseSpotsFromServer();
+
+      if (!mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          backgroundColor: blue,
+          content: Text(
+            'Spot updated.',
+            style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+          ),
+        ),
+      );
+      Navigator.pop(context, true);
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      showAdminActionError(
+        context,
+        message: 'Could not save spot',
+        error: error,
+      );
+    } finally {
+      if (mounted) {
+        setState(() => isSaving = false);
+      }
+    }
+  }
+
+  Widget photoThumb({
+    required int index,
+    required String label,
+    required String source,
+    required VoidCallback onRemove,
+    required bool isLocal,
+  }) {
+    final image = isLocal
+        ? Image.file(
+            File(source),
+            width: 88,
+            height: 88,
+            fit: BoxFit.cover,
+            errorBuilder: (_, _, _) =>
+                _SpotPhotoPlaceholder(width: 88, height: 88),
+          )
+        : Image.network(
+            source,
+            width: 88,
+            height: 88,
+            fit: BoxFit.cover,
+            errorBuilder: (_, _, _) =>
+                _SpotPhotoPlaceholder(width: 88, height: 88),
+          );
+
+    return Stack(
+      children: [
+        ClipRRect(borderRadius: BorderRadius.circular(14), child: image),
+        Positioned(
+          left: 6,
+          bottom: 6,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 4),
+            decoration: BoxDecoration(
+              color: index == 0
+                  ? blue.withValues(alpha: 0.9)
+                  : Colors.black.withValues(alpha: 0.65),
+              borderRadius: BorderRadius.circular(999),
+            ),
+            child: Text(
+              label,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 11,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+          ),
+        ),
+        Positioned(
+          top: 4,
+          right: 4,
+          child: InkWell(
+            onTap: onRemove,
+            borderRadius: BorderRadius.circular(999),
+            child: Container(
+              width: 28,
+              height: 28,
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: 0.78),
+                shape: BoxShape.circle,
+                border: Border.all(color: Colors.white24),
+              ),
+              child: const Icon(Icons.close, color: Colors.white, size: 16),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final canAddMore = totalPhotoCount < maxSpotGalleryPhotos;
+
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        title: const Text('Edit Spot'),
+        backgroundColor: Colors.black,
+        foregroundColor: blue,
+      ),
+      body: ListView(
+        padding: const EdgeInsets.fromLTRB(20, 18, 20, 28),
+        children: [
+          _AddSpotSection(
+            title: 'Basic info',
+            children: [
+              _CcsTextField(
+                controller: nameController,
+                label: 'Spot name',
+                hint: 'Andrejsala Harbor',
+                icon: Icons.place,
+              ),
+              _CcsTextField(
+                controller: cityController,
+                label: 'City / country',
+                hint: 'Riga, Latvia',
+                icon: Icons.location_city,
+              ),
+              _CcsTextField(
+                controller: descriptionController,
+                label: 'Description',
+                hint: 'What makes this spot good for car photos?',
+                icon: Icons.notes,
+                maxLines: 4,
+              ),
+              _CcsTextField(
+                controller: reelController,
+                label: 'Instagram / TikTok video link',
+                hint: 'https://instagram.com/reel/...',
+                icon: Icons.play_circle,
+                keyboardType: TextInputType.url,
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          _AddSpotSection(
+            title: 'Category',
+            children: [
+              _SpotCategoryDropdown(
+                value: selectedCategory,
+                categories: spotCategoryOptions,
+                onChanged: (category) {
+                  if (category == null) {
+                    return;
+                  }
+                  setState(() => selectedCategory = category);
+                },
+              ),
+            ],
+          ),
+          if (currentUserCanUseVerifiedOnlySpots) ...[
+            const SizedBox(height: 16),
+            _AddSpotSection(
+              title: 'Visibility',
+              children: [
+                _SettingsSwitchTile(
+                  icon: Icons.verified_user,
+                  title: 'Verified only',
+                  subtitle:
+                      'Only verified users and admins can see this spot after approval',
+                  value: verifiedOnlySpot,
+                  onChanged: (value) =>
+                      setState(() => verifiedOnlySpot = value),
+                ),
+              ],
+            ),
+          ],
+          const SizedBox(height: 16),
+          _AddSpotSection(
+            title: 'Photos',
+            children: [
+              InkWell(
+                onTap: canAddMore ? addPhoto : null,
+                borderRadius: BorderRadius.circular(16),
+                child: Container(
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.06),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(
+                      color: totalPhotoCount > 0
+                          ? blue.withValues(alpha: 0.7)
+                          : Colors.white12,
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 72,
+                        height: 72,
+                        decoration: BoxDecoration(
+                          color: blue.withValues(alpha: 0.15),
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                        child: Icon(
+                          canAddMore ? Icons.add_photo_alternate : Icons.check,
+                          color: blue,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              totalPhotoCount == 0
+                                  ? 'Upload photos'
+                                  : '$totalPhotoCount/$maxSpotGalleryPhotos photos selected',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              canAddMore
+                                  ? 'Add or remove spot photos. The first photo becomes the Explore thumbnail.'
+                                  : 'Maximum 4 photos selected. First photo is the spot thumbnail.',
+                              style: const TextStyle(
+                                color: Colors.white54,
+                                height: 1.3,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Icon(
+                        canAddMore ? Icons.chevron_right : Icons.lock,
+                        color: Colors.white54,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              if (totalPhotoCount > 0) ...[
+                const SizedBox(height: 12),
+                Wrap(
+                  spacing: 10,
+                  runSpacing: 10,
+                  children: [
+                    for (
+                      var index = 0;
+                      index < existingPhotoUrls.length;
+                      index++
+                    )
+                      photoThumb(
+                        index: index,
+                        label: index == 0 ? 'Cover' : '${index + 1}',
+                        source: existingPhotoUrls[index],
+                        isLocal: false,
+                        onRemove: () => removeExistingPhotoAt(index),
+                      ),
+                    for (var index = 0; index < newPhotoPaths.length; index++)
+                      photoThumb(
+                        index: existingPhotoUrls.length + index,
+                        label: existingPhotoUrls.length + index == 0
+                            ? 'Cover'
+                            : '${existingPhotoUrls.length + index + 1}',
+                        source: newPhotoPaths[index],
+                        isLocal: true,
+                        onRemove: () => removeNewPhotoAt(index),
+                      ),
+                  ],
+                ),
+              ],
+            ],
+          ),
+          const SizedBox(height: 22),
+          SizedBox(
+            height: 56,
+            child: ElevatedButton.icon(
+              onPressed: isSaving ? null : saveSpot,
+              icon: Icon(isSaving ? Icons.hourglass_top : Icons.save),
+              label: Text(isSaving ? 'Saving...' : 'Save Changes'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: blue,
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(18),
+                ),
+              ),
             ),
           ),
         ],
@@ -12468,6 +14128,14 @@ class AdminSpotReviewScreen extends StatelessWidget {
         title: const Text('Manage Spot'),
         backgroundColor: Colors.black,
         foregroundColor: blue,
+        actions: [
+          IconButton(
+            tooltip: 'Edit spot',
+            onPressed: () =>
+                openAdminEditSpot(context, spot, popAfterSave: true),
+            icon: const Icon(Icons.edit_outlined),
+          ),
+        ],
       ),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(20, 18, 20, 28),
@@ -12563,6 +14231,24 @@ class AdminSpotReviewScreen extends StatelessWidget {
                 ),
               ),
             ],
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: () =>
+                  openAdminEditSpot(context, spot, popAfterSave: true),
+              icon: const Icon(Icons.edit_outlined),
+              label: const Text('Edit Spot'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: blue,
+                foregroundColor: Colors.white,
+                minimumSize: const Size.fromHeight(52),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                ),
+              ),
+            ),
           ),
           const SizedBox(height: 12),
           SizedBox(
