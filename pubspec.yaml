@@ -22,6 +22,7 @@ dependencies:
   shared_preferences: ^2.5.5
   url_launcher: ^6.3.2
   geolocator: ^14.0.2
+  image: ^4.8.0
 
   # Use 2.2.2 because geocoding 3.x can force geocoding_android to compile
   # against an incompatible Android SDK in this project.
@@ -45,5 +46,6 @@ flutter:
   assets:
     - assets/bg.png
     - assets/spot_icons/
+    - assets/user_cars/
 
   uses-material-design: true
