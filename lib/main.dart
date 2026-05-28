@@ -159,6 +159,7 @@ const spotCategoryOptions = [
   'Wash',
   'Store',
   'Drag',
+  'Off-road',
   'Food',
 ];
 
@@ -293,6 +294,7 @@ const spotCategoryIconAssets = {
   'Wash': 'assets/spot_icons/wash.png',
   'Store': 'assets/spot_icons/store.png',
   'Drag': 'assets/spot_icons/drag.png',
+  'Off-road': 'assets/spot_icons/offroad.png',
   'Food': 'assets/spot_icons/food.png',
 };
 
@@ -307,6 +309,7 @@ const spotCategoryColors = {
   'Wash': Color(0xFF008CFF),
   'Store': Color(0xFFA83DFF),
   'Drag': Color(0xFFFF1635),
+  'Off-road': Color(0xFF8B5A2B),
   'Food': Color(0xFFFF1B8D),
 };
 
@@ -3351,6 +3354,43 @@ double bearingBetweenLatLngDegrees(LatLng from, LatLng to) {
   return normalizedHeadingDegrees(bearing + 360);
 }
 
+LatLng projectLatLngMeters(
+  LatLng origin,
+  double bearingDegrees,
+  double distanceMeters,
+) {
+  if (distanceMeters <= 0 || !distanceMeters.isFinite) {
+    return origin;
+  }
+
+  const earthRadiusMeters = 6371000.0;
+  final bearing = normalizedHeadingDegrees(bearingDegrees) * math.pi / 180;
+  final angularDistance = distanceMeters / earthRadiusMeters;
+  final lat1 = origin.latitude * math.pi / 180;
+  final lng1 = origin.longitude * math.pi / 180;
+
+  final lat2 = math.asin(
+    math.sin(lat1) * math.cos(angularDistance) +
+        math.cos(lat1) * math.sin(angularDistance) * math.cos(bearing),
+  );
+  final lng2 =
+      lng1 +
+      math.atan2(
+        math.sin(bearing) * math.sin(angularDistance) * math.cos(lat1),
+        math.cos(angularDistance) - math.sin(lat1) * math.sin(lat2),
+      );
+
+  return LatLng(lat2 * 180 / math.pi, lng2 * 180 / math.pi);
+}
+
+LatLng lerpLatLng(LatLng from, LatLng to, double amount) {
+  final t = amount.clamp(0.0, 1.0).toDouble();
+  return LatLng(
+    from.latitude + (to.latitude - from.latitude) * t,
+    from.longitude + (to.longitude - from.longitude) * t,
+  );
+}
+
 Future<void> createMeetSpotNotificationsForNearbyUsers(CarSpot spot) async {
   if (spot.id.trim().isEmpty || !spot.categories.contains('Meet')) {
     return;
@@ -4342,8 +4382,104 @@ Future<void> deleteSpotFromFirebase(CarSpot spot) async {
       .toList();
 }
 
-class SplashScreen extends StatelessWidget {
+class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
+
+  @override
+  State<SplashScreen> createState() => _SplashScreenState();
+}
+
+class _SplashScreenState extends State<SplashScreen>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController introController;
+  late final Animation<double> ccsSlide;
+  late final Animation<double> subtitleSlide;
+  late final Animation<double> taglineSlide;
+  late final Animation<double> buttonSlide;
+  late final Animation<double> ccsFade;
+  late final Animation<double> subtitleFade;
+  late final Animation<double> taglineFade;
+  late final Animation<double> buttonFade;
+
+  @override
+  void initState() {
+    super.initState();
+
+    introController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1450),
+    );
+
+    ccsSlide = _slideAnimation(0.00, 0.58);
+    subtitleSlide = _slideAnimation(0.14, 0.68);
+    taglineSlide = _slideAnimation(0.28, 0.78);
+    buttonSlide = _slideAnimation(0.44, 1.00);
+    ccsFade = _fadeAnimation(0.00, 0.42);
+    subtitleFade = _fadeAnimation(0.14, 0.52);
+    taglineFade = _fadeAnimation(0.28, 0.66);
+    buttonFade = _fadeAnimation(0.44, 0.88);
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        introController.forward();
+      }
+    });
+  }
+
+  Animation<double> _slideAnimation(double begin, double end) {
+    return CurvedAnimation(
+      parent: introController,
+      curve: Interval(begin, end, curve: Curves.easeOutCubic),
+    );
+  }
+
+  Animation<double> _fadeAnimation(double begin, double end) {
+    return CurvedAnimation(
+      parent: introController,
+      curve: Interval(begin, end, curve: Curves.easeOut),
+    );
+  }
+
+  @override
+  void dispose() {
+    introController.dispose();
+    super.dispose();
+  }
+
+  void openLogin() {
+    Navigator.push(
+      context,
+      PageRouteBuilder(
+        transitionDuration: const Duration(milliseconds: 650),
+        reverseTransitionDuration: const Duration(milliseconds: 450),
+        pageBuilder: (context, animation, secondaryAnimation) {
+          return const LoginScreen(showBackground: false);
+        },
+        transitionsBuilder: (context, animation, secondaryAnimation, child) {
+          final curvedAnimation = CurvedAnimation(
+            parent: animation,
+            curve: Curves.easeOutCubic,
+            reverseCurve: Curves.easeInCubic,
+          );
+
+          return Stack(
+            fit: StackFit.expand,
+            children: [
+              Image.asset('assets/bg.png', fit: BoxFit.cover),
+              Container(color: Colors.black.withValues(alpha: 0.42)),
+              SlideTransition(
+                position: Tween<Offset>(
+                  begin: const Offset(0, 1),
+                  end: Offset.zero,
+                ).animate(curvedAnimation),
+                child: FadeTransition(opacity: curvedAnimation, child: child),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -4353,65 +4489,96 @@ class SplashScreen extends StatelessWidget {
         fit: StackFit.expand,
         children: [
           Image.asset('assets/bg.png', fit: BoxFit.cover),
-          Container(color: Colors.black.withValues(alpha: 0.55)),
-          Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Text(
-                'CCS',
-                style: TextStyle(
-                  fontSize: 64,
-                  fontWeight: FontWeight.bold,
-                  letterSpacing: 4,
-                  color: blue,
-                ),
-              ),
-              const SizedBox(height: 12),
-              const Text(
-                'COMMUNITY CAR SPOTS',
-                style: TextStyle(
-                  fontSize: 16,
-                  letterSpacing: 3,
-                  color: Colors.white70,
-                ),
-              ),
-              const SizedBox(height: 32),
-              const Text(
-                'FIND - DRIVE - SHOOT',
-                style: TextStyle(
-                  fontSize: 13,
-                  letterSpacing: 4,
-                  color: Colors.white54,
-                ),
-              ),
-              const SizedBox(height: 80),
-              ElevatedButton(
-                onPressed: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (_) => const LoginScreen()),
-                  );
-                },
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: blue,
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 42,
-                    vertical: 16,
+          Container(color: Colors.black.withValues(alpha: 0.42)),
+          SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 28),
+              child: Stack(
+                children: [
+                  Align(
+                    alignment: const Alignment(0, -0.62),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        _SplashIntroItem(
+                          animation: ccsSlide,
+                          fadeAnimation: ccsFade,
+                          travel: 118,
+                          child: const _CcsWordmark(),
+                        ),
+                        const SizedBox(height: 16),
+                        _SplashIntroItem(
+                          animation: subtitleSlide,
+                          fadeAnimation: subtitleFade,
+                          travel: 104,
+                          child: const Text(
+                            'COMMUNITY CAR SPOTS',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              fontSize: 17,
+                              letterSpacing: 4.2,
+                              color: Colors.white70,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 28),
+                        _SplashIntroItem(
+                          animation: taglineSlide,
+                          fadeAnimation: taglineFade,
+                          travel: 90,
+                          child: const Text(
+                            'FIND - DRIVE - SHOOT',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              fontSize: 13,
+                              letterSpacing: 4.4,
+                              color: Colors.white54,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(18),
+                  Align(
+                    alignment: const Alignment(0, 0.76),
+                    child: Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: _SplashIntroItem(
+                        animation: buttonSlide,
+                        fadeAnimation: buttonFade,
+                        travel: 78,
+                        child: ElevatedButton(
+                          onPressed: openLogin,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: blue,
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 42,
+                              vertical: 16,
+                            ),
+                            elevation: 12,
+                            shadowColor: blue.withValues(alpha: 0.35),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(18),
+                            ),
+                          ),
+                          child: const Text(
+                            'ENTER CCS',
+                            style: TextStyle(
+                              fontSize: 16,
+                              letterSpacing: 2,
+                              color: Colors.white,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
                   ),
-                ),
-                child: const Text(
-                  'ENTER CCS',
-                  style: TextStyle(
-                    fontSize: 16,
-                    letterSpacing: 2,
-                    color: Colors.white,
-                  ),
-                ),
+                ],
               ),
-            ],
+            ),
           ),
         ],
       ),
@@ -4419,16 +4586,135 @@ class SplashScreen extends StatelessWidget {
   }
 }
 
+class _CcsWordmark extends StatelessWidget {
+  final double width;
+
+  const _CcsWordmark({this.width = 213});
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: width,
+      child: Image.asset(
+        'assets/ccs_logo.png',
+        fit: BoxFit.contain,
+        alignment: Alignment.center,
+        filterQuality: FilterQuality.high,
+      ),
+    );
+  }
+}
+
+class _SplashIntroItem extends StatelessWidget {
+  final Animation<double> animation;
+  final Animation<double> fadeAnimation;
+  final Widget child;
+  final double travel;
+
+  const _SplashIntroItem({
+    required this.animation,
+    required this.fadeAnimation,
+    required this.child,
+    this.travel = 96,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: animation,
+      child: child,
+      builder: (context, child) {
+        final easedValue = animation.value;
+        final opacity = fadeAnimation.value.clamp(0.0, 1.0);
+
+        return Opacity(
+          opacity: opacity,
+          child: Transform.translate(
+            offset: Offset(0, (1 - easedValue) * travel),
+            child: child,
+          ),
+        );
+      },
+    );
+  }
+}
+
 class LoginScreen extends StatefulWidget {
-  const LoginScreen({super.key});
+  final bool showBackground;
+
+  const LoginScreen({super.key, this.showBackground = true});
 
   @override
   State<LoginScreen> createState() => _LoginScreenState();
 }
 
-class _LoginScreenState extends State<LoginScreen> {
+class _LoginScreenState extends State<LoginScreen>
+    with SingleTickerProviderStateMixin {
   bool isSigningIn = false;
   bool rememberMe = rememberMeEnabled;
+
+  late final AnimationController loginIntroController;
+  late final Animation<double> loginLogoSlide;
+  late final Animation<double> loginSubtitleSlide;
+  late final Animation<double> loginGoogleSlide;
+  late final Animation<double> loginTelegramSlide;
+  late final Animation<double> loginRememberSlide;
+  late final Animation<double> loginTermsSlide;
+  late final Animation<double> loginLogoFade;
+  late final Animation<double> loginSubtitleFade;
+  late final Animation<double> loginGoogleFade;
+  late final Animation<double> loginTelegramFade;
+  late final Animation<double> loginRememberFade;
+  late final Animation<double> loginTermsFade;
+
+  @override
+  void initState() {
+    super.initState();
+
+    loginIntroController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1250),
+    );
+
+    loginLogoSlide = _loginSlideAnimation(0.00, 0.50);
+    loginSubtitleSlide = _loginSlideAnimation(0.12, 0.58);
+    loginGoogleSlide = _loginSlideAnimation(0.28, 0.72);
+    loginTelegramSlide = _loginSlideAnimation(0.40, 0.84);
+    loginRememberSlide = _loginSlideAnimation(0.52, 0.92);
+    loginTermsSlide = _loginSlideAnimation(0.62, 1.00);
+    loginLogoFade = _loginFadeAnimation(0.00, 0.36);
+    loginSubtitleFade = _loginFadeAnimation(0.12, 0.44);
+    loginGoogleFade = _loginFadeAnimation(0.28, 0.62);
+    loginTelegramFade = _loginFadeAnimation(0.40, 0.74);
+    loginRememberFade = _loginFadeAnimation(0.52, 0.86);
+    loginTermsFade = _loginFadeAnimation(0.62, 1.00);
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        loginIntroController.forward();
+      }
+    });
+  }
+
+  Animation<double> _loginSlideAnimation(double begin, double end) {
+    return CurvedAnimation(
+      parent: loginIntroController,
+      curve: Interval(begin, end, curve: Curves.easeOutCubic),
+    );
+  }
+
+  Animation<double> _loginFadeAnimation(double begin, double end) {
+    return CurvedAnimation(
+      parent: loginIntroController,
+      curve: Interval(begin, end, curve: Curves.easeOut),
+    );
+  }
+
+  @override
+  void dispose() {
+    loginIntroController.dispose();
+    super.dispose();
+  }
 
   Widget loginButton(
     String text,
@@ -4535,55 +4821,81 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.black,
+      backgroundColor: widget.showBackground
+          ? Colors.black
+          : Colors.transparent,
       body: Stack(
         fit: StackFit.expand,
         children: [
-          Image.asset('assets/bg.png', fit: BoxFit.cover),
-          Container(color: Colors.black.withValues(alpha: 0.68)),
+          if (widget.showBackground) ...[
+            Image.asset('assets/bg.png', fit: BoxFit.cover),
+            Container(color: Colors.black.withValues(alpha: 0.42)),
+          ],
           Padding(
             padding: const EdgeInsets.all(28),
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                const Text(
-                  'CCS',
-                  style: TextStyle(
-                    fontSize: 58,
-                    fontWeight: FontWeight.bold,
-                    letterSpacing: 4,
-                    color: blue,
+                _SplashIntroItem(
+                  animation: loginLogoSlide,
+                  fadeAnimation: loginLogoFade,
+                  travel: 112,
+                  child: const _CcsWordmark(width: 213),
+                ),
+                const SizedBox(height: 14),
+                _SplashIntroItem(
+                  animation: loginSubtitleSlide,
+                  fadeAnimation: loginSubtitleFade,
+                  travel: 100,
+                  child: const Text(
+                    'COMMUNITY CAR SPOTS',
+                    style: TextStyle(letterSpacing: 3, color: Colors.white70),
                   ),
                 ),
-                const SizedBox(height: 10),
-                const Text(
-                  'COMMUNITY CAR SPOTS',
-                  style: TextStyle(letterSpacing: 3, color: Colors.white70),
-                ),
                 const SizedBox(height: 60),
-                loginButton(
-                  isSigningIn ? 'Signing in...' : 'Continue with Google',
-                  Icons.g_mobiledata,
-                  Colors.red,
-                  isSigningIn ? null : loginWithGoogle,
+                _SplashIntroItem(
+                  animation: loginGoogleSlide,
+                  fadeAnimation: loginGoogleFade,
+                  travel: 88,
+                  child: loginButton(
+                    isSigningIn ? 'Signing in...' : 'Continue with Google',
+                    Icons.g_mobiledata,
+                    Colors.red,
+                    isSigningIn ? null : loginWithGoogle,
+                  ),
                 ),
-                loginButton(
-                  'Continue with Telegram',
-                  Icons.send,
-                  blue,
-                  isSigningIn ? null : loginWithTelegram,
+                _SplashIntroItem(
+                  animation: loginTelegramSlide,
+                  fadeAnimation: loginTelegramFade,
+                  travel: 76,
+                  child: loginButton(
+                    'Continue with Telegram',
+                    Icons.send,
+                    blue,
+                    isSigningIn ? null : loginWithTelegram,
+                  ),
                 ),
                 const SizedBox(height: 4),
-                _RememberMeRow(
-                  value: rememberMe,
-                  enabled: !isSigningIn,
-                  onChanged: (value) => setState(() => rememberMe = value),
+                _SplashIntroItem(
+                  animation: loginRememberSlide,
+                  fadeAnimation: loginRememberFade,
+                  travel: 64,
+                  child: _RememberMeRow(
+                    value: rememberMe,
+                    enabled: !isSigningIn,
+                    onChanged: (value) => setState(() => rememberMe = value),
+                  ),
                 ),
                 const SizedBox(height: 28),
-                const Text(
-                  'By continuing, you agree to our Terms & Privacy Policy',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(color: Colors.white38, fontSize: 12),
+                _SplashIntroItem(
+                  animation: loginTermsSlide,
+                  fadeAnimation: loginTermsFade,
+                  travel: 52,
+                  child: const Text(
+                    'By continuing, you agree to our Terms & Privacy Policy',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: Colors.white38, fontSize: 12),
+                  ),
                 ),
               ],
             ),
@@ -6032,6 +6344,8 @@ class _MapScreenState extends State<MapScreen> {
   Timer? liveLocationUploadTimer;
   Timer? liveLocationPromptTimer;
   Timer? liveLocationAutoStopTimer;
+  Timer? navigationPredictionTimer;
+  StreamSubscription<Position>? navigationPositionSubscription;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>?
   liveLocationSubscription;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>?
@@ -6040,6 +6354,10 @@ class _MapScreenState extends State<MapScreen> {
   CarSpot? selectedSpot;
   PoliceReportData? selectedPoliceReport;
   LatLng? currentUserLocation;
+  LatLng? displayedUserLocation;
+  LatLng? lastGpsUserLocation;
+  DateTime? lastGpsUserLocationAt;
+  double currentUserSpeedMetersPerSecond = 0;
   bool isLocatingUser = false;
   bool isAddingPoliceReport = false;
   bool isVotingPoliceReport = false;
@@ -6516,7 +6834,7 @@ class _MapScreenState extends State<MapScreen> {
   }
 
   Marker? get currentUserMarker {
-    final location = currentUserLocation;
+    final location = displayedUserLocation ?? currentUserLocation;
 
     if (location == null) {
       return null;
@@ -6526,18 +6844,12 @@ class _MapScreenState extends State<MapScreen> {
       point: location,
       width: 42,
       height: 42,
-      rotate: true,
+      rotate: false,
       child: Tooltip(
         message: 'Your location',
-        child: Transform.rotate(
-          angle: headingRadiansForMap(
-            currentUserHeadingDegrees,
-            currentMapRotationDegrees,
-          ),
-          child: CustomPaint(
-            painter: CurrentUserTrianglePainter(),
-            child: const SizedBox(width: 42, height: 42),
-          ),
+        child: CustomPaint(
+          painter: CurrentUserTrianglePainter(),
+          child: const SizedBox(width: 42, height: 42),
         ),
       ),
     );
@@ -7104,11 +7416,16 @@ class _MapScreenState extends State<MapScreen> {
 
     setState(() {
       currentUserLocation = location;
+      displayedUserLocation = location;
+      lastGpsUserLocation = location;
+      lastGpsUserLocationAt = DateTime.now();
       currentUserHeadingDegrees = heading;
+      currentUserSpeedMetersPerSecond = math.max(0, position.speed);
       isSharingLiveLocation = true;
       isTogglingLiveLocation = false;
     });
 
+    startNavigationTracking();
     updateFollowCamera(location, heading);
 
     liveLocationUploadTimer?.cancel();
@@ -7154,11 +7471,15 @@ class _MapScreenState extends State<MapScreen> {
 
     setState(() {
       currentUserLocation = location;
+      displayedUserLocation ??= location;
+      lastGpsUserLocation = location;
+      lastGpsUserLocationAt = DateTime.now();
       currentUserHeadingDegrees = heading;
+      currentUserSpeedMetersPerSecond = math.max(0, position.speed);
     });
 
     if (mapCenteredOnCurrentUser) {
-      updateFollowCamera(location, heading);
+      updateFollowCamera(displayedUserLocation ?? location, heading);
     }
   }
 
@@ -7341,6 +7662,8 @@ class _MapScreenState extends State<MapScreen> {
     liveLocationAutoStopTimer?.cancel();
     liveLocationSubscription?.cancel();
     policeReportSubscription?.cancel();
+    navigationPositionSubscription?.cancel();
+    navigationPredictionTimer?.cancel();
     reviewSpots.removeListener(refreshMap);
     mapController.dispose();
     super.dispose();
@@ -7357,6 +7680,88 @@ class _MapScreenState extends State<MapScreen> {
     // Intentionally do nothing on map open.
     // The map should open on Riga spots first. User location is requested only
     // after pressing the blue "find me" button or enabling live location.
+  }
+
+  void startNavigationTracking() {
+    navigationPositionSubscription ??=
+        Geolocator.getPositionStream(
+          locationSettings: const LocationSettings(
+            accuracy: LocationAccuracy.high,
+            distanceFilter: 0,
+          ),
+        ).listen(
+          handleNavigationPosition,
+          onError: (_) {
+            // Keep the map usable even if the high-frequency stream is unavailable.
+          },
+        );
+
+    navigationPredictionTimer ??= Timer.periodic(
+      const Duration(milliseconds: 120),
+      (_) => updatePredictedUserMarker(),
+    );
+  }
+
+  void handleNavigationPosition(Position position) {
+    if (!mounted) {
+      return;
+    }
+
+    final location = LatLng(position.latitude, position.longitude);
+    final heading = headingForNewUserLocation(location, position.heading);
+    final speed = position.speed.isFinite ? math.max(0.0, position.speed) : 0.0;
+
+    setState(() {
+      currentUserLocation = location;
+      displayedUserLocation ??= location;
+      lastGpsUserLocation = location;
+      lastGpsUserLocationAt = DateTime.now();
+      currentUserHeadingDegrees = heading;
+      currentUserSpeedMetersPerSecond = speed;
+    });
+
+    if (mapCenteredOnCurrentUser) {
+      updateFollowCamera(displayedUserLocation ?? location, heading);
+    }
+  }
+
+  void updatePredictedUserMarker() {
+    if (!mounted) {
+      return;
+    }
+
+    final gpsLocation = lastGpsUserLocation ?? currentUserLocation;
+    final gpsTime = lastGpsUserLocationAt;
+
+    if (gpsLocation == null || gpsTime == null) {
+      return;
+    }
+
+    final secondsSinceGps =
+        DateTime.now().difference(gpsTime).inMilliseconds / 1000.0;
+    final clampedSeconds = secondsSinceGps.clamp(0.0, 1.25).toDouble();
+    final clampedSpeed = currentUserSpeedMetersPerSecond
+        .clamp(0.0, 38.0)
+        .toDouble();
+    final predicted = projectLatLngMeters(
+      gpsLocation,
+      currentUserHeadingDegrees,
+      clampedSpeed * clampedSeconds,
+    );
+    final currentDisplay = displayedUserLocation ?? gpsLocation;
+    final distanceToGps = distanceBetweenLatLngMeters(
+      currentDisplay,
+      gpsLocation,
+    );
+    final nextDisplay = distanceToGps > 80
+        ? gpsLocation
+        : lerpLatLng(currentDisplay, predicted, 0.22);
+
+    setState(() => displayedUserLocation = nextDisplay);
+
+    if (mapCenteredOnCurrentUser) {
+      updateFollowCamera(nextDisplay, currentUserHeadingDegrees);
+    }
   }
 
   Future<Position?> getMapUserPosition({required bool showErrors}) async {
@@ -7471,7 +7876,11 @@ class _MapScreenState extends State<MapScreen> {
 
     setState(() {
       currentUserLocation = location;
+      displayedUserLocation = location;
+      lastGpsUserLocation = location;
+      lastGpsUserLocationAt = DateTime.now();
       currentUserHeadingDegrees = heading;
+      currentUserSpeedMetersPerSecond = math.max(0, position.speed);
       currentMapZoom = navigationZoom;
       currentMapRotationDegrees = heading;
       mapCenteredOnCurrentUser = true;
@@ -7480,6 +7889,7 @@ class _MapScreenState extends State<MapScreen> {
       isLocatingUser = false;
     });
 
+    startNavigationTracking();
     updateFollowCamera(location, heading);
   }
 
