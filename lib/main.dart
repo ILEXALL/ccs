@@ -306,9 +306,12 @@ final reviewSpots = ValueNotifier<List<CarSpot>>([]);
 final userSettings = ValueNotifier<UserSettingsData>(defaultUserSettings());
 final garageCars = ValueNotifier<List<GarageCar>>(defaultGarageCars());
 
+enum PhotoCropShape { rectangle, circle }
+
 Future<String?> pickPhotoFromPhone(
   BuildContext context, {
   double cropAspectRatio = 1,
+  PhotoCropShape cropShape = PhotoCropShape.rectangle,
 }) async {
   try {
     final path = await photoPickerChannel.invokeMethod<String>('pickPhoto');
@@ -323,6 +326,7 @@ Future<String?> pickPhotoFromPhone(
         builder: (_) => PhotoCropScreen(
           sourcePath: path,
           cropAspectRatio: cropAspectRatio,
+          cropShape: cropShape,
         ),
       ),
     );
@@ -380,11 +384,13 @@ Future<String?> pickPhotoFromPhone(
 class PhotoCropScreen extends StatefulWidget {
   final String sourcePath;
   final double cropAspectRatio;
+  final PhotoCropShape cropShape;
 
   const PhotoCropScreen({
     super.key,
     required this.sourcePath,
     required this.cropAspectRatio,
+    this.cropShape = PhotoCropShape.rectangle,
   });
 
   @override
@@ -612,14 +618,17 @@ class _PhotoCropScreenState extends State<PhotoCropScreen> {
               .toDouble();
           final frameMaxWidth = editorWidth - 34;
           final frameMaxHeight = editorHeight - 70;
+          final isCircleCrop = widget.cropShape == PhotoCropShape.circle;
           cropWidth = frameMaxWidth;
-          final cropRatio = widget.cropAspectRatio <= 0
+          final cropRatio = isCircleCrop
+              ? 1.0
+              : widget.cropAspectRatio <= 0
               ? 1.0
               : widget.cropAspectRatio;
           cropHeight = cropWidth / cropRatio;
           if (cropHeight > frameMaxHeight) {
             cropHeight = frameMaxHeight;
-            cropWidth = cropHeight * widget.cropAspectRatio;
+            cropWidth = cropHeight * cropRatio;
           }
           final minZoom = minZoomForLayout();
           final maxZoom = math.max(3.0, minZoom * 3);
@@ -735,34 +744,64 @@ class _PhotoCropScreenState extends State<PhotoCropScreen> {
                               width: cropWidth,
                               height: cropHeight,
                               decoration: BoxDecoration(
-                                borderRadius: BorderRadius.circular(12),
+                                shape: isCircleCrop
+                                    ? BoxShape.circle
+                                    : BoxShape.rectangle,
+                                borderRadius: isCircleCrop
+                                    ? null
+                                    : BorderRadius.circular(12),
                                 border: Border.all(color: blue, width: 2),
                               ),
-                              child: Stack(
-                                children: [
-                                  Center(
-                                    child: Container(
-                                      width: cropWidth,
-                                      height: 1,
-                                      color: Colors.white.withValues(
-                                        alpha: 0.22,
-                                      ),
+                              child: isCircleCrop
+                                  ? const SizedBox.shrink()
+                                  : Stack(
+                                      children: [
+                                        Center(
+                                          child: Container(
+                                            width: cropWidth,
+                                            height: 1,
+                                            color: Colors.white.withValues(
+                                              alpha: 0.22,
+                                            ),
+                                          ),
+                                        ),
+                                        Center(
+                                          child: Container(
+                                            width: 1,
+                                            height: cropHeight,
+                                            color: Colors.white.withValues(
+                                              alpha: 0.22,
+                                            ),
+                                          ),
+                                        ),
+                                      ],
                                     ),
-                                  ),
-                                  Center(
-                                    child: Container(
-                                      width: 1,
-                                      height: cropHeight,
-                                      color: Colors.white.withValues(
-                                        alpha: 0.22,
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
                             ),
                           ),
                         ),
+                        if (isCircleCrop)
+                          Positioned(
+                            left: cropLeft,
+                            top: cropTop,
+                            child: IgnorePointer(
+                              child: Container(
+                                width: cropWidth,
+                                height: cropHeight,
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: Colors.black.withValues(
+                                        alpha: 0.36,
+                                      ),
+                                      blurRadius: 18,
+                                      spreadRadius: -6,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
                       ],
                     ),
                   ),
@@ -1444,6 +1483,17 @@ String imageExtensionForPath(String path) {
   return 'jpg';
 }
 
+
+String safeR2Path(String value) {
+  final clean = value
+      .trim()
+      .replaceAll('\\', '/')
+      .replaceAll(RegExp(r'^/+'), '')
+      .replaceAll(RegExp(r'/+'), '/');
+
+  return clean.replaceAll(RegExp(r'[^a-zA-Z0-9_./-]'), '_');
+}
+
 Future<List<int>> compressedJpegBytesFromFile(
   String localPhotoPath, {
   int maxLongSide = r2SpotPhotoMaxLongSide,
@@ -1539,7 +1589,7 @@ Future<String> uploadImageBytesToR2({
   String contentType = 'image/jpeg',
 }) async {
   final presignData = await postJsonToUrl(r2PresignUploadUrl, {
-    'path': r2Path,
+    'path': safeR2Path(r2Path),
     'contentType': contentType,
   });
 
@@ -1625,6 +1675,7 @@ class UserSettingsData {
   final bool likeNotifications;
   final bool commentNotifications;
   final bool newSpotNotifications;
+  final bool newMessageNotifications;
   final bool publicProfile;
   final bool showSavedSpots;
   final bool showGarage;
@@ -1637,6 +1688,7 @@ class UserSettingsData {
     required this.likeNotifications,
     required this.commentNotifications,
     required this.newSpotNotifications,
+    this.newMessageNotifications = true,
     required this.publicProfile,
     required this.showSavedSpots,
     required this.showGarage,
@@ -1666,6 +1718,10 @@ class UserSettingsData {
         data['newSpotNotifications'],
         defaults.newSpotNotifications,
       ),
+      newMessageNotifications: boolFromFirebase(
+        data['newMessageNotifications'],
+        defaults.newMessageNotifications,
+      ),
       publicProfile: boolFromFirebase(
         data['publicProfile'],
         defaults.publicProfile,
@@ -1687,11 +1743,57 @@ class UserSettingsData {
       'likeNotifications': likeNotifications,
       'commentNotifications': commentNotifications,
       'newSpotNotifications': newSpotNotifications,
+      'newMessageNotifications': newMessageNotifications,
       'publicProfile': publicProfile,
       'showSavedSpots': showSavedSpots,
       'showGarage': showGarage,
     };
   }
+
+  UserSettingsData copyWith({
+    String? instagram,
+    String? tiktok,
+    String? telegram,
+    bool? reviewNotifications,
+    bool? likeNotifications,
+    bool? commentNotifications,
+    bool? newSpotNotifications,
+    bool? newMessageNotifications,
+    bool? publicProfile,
+    bool? showSavedSpots,
+    bool? showGarage,
+  }) {
+    return UserSettingsData(
+      instagram: instagram ?? this.instagram,
+      tiktok: tiktok ?? this.tiktok,
+      telegram: telegram ?? this.telegram,
+      reviewNotifications: reviewNotifications ?? this.reviewNotifications,
+      likeNotifications: likeNotifications ?? this.likeNotifications,
+      commentNotifications: commentNotifications ?? this.commentNotifications,
+      newSpotNotifications: newSpotNotifications ?? this.newSpotNotifications,
+      newMessageNotifications: newMessageNotifications ?? this.newMessageNotifications,
+      publicProfile: publicProfile ?? this.publicProfile,
+      showSavedSpots: showSavedSpots ?? this.showSavedSpots,
+      showGarage: showGarage ?? this.showGarage,
+    );
+  }
+}
+
+
+Future<void> saveCurrentUserSettings(UserSettingsData settings) async {
+  final firebaseUser = FirebaseAuth.instance.currentUser;
+
+  if (firebaseUser == null) {
+    userSettings.value = settings;
+    return;
+  }
+
+  userSettings.value = settings;
+
+  await usersCollection().doc(firebaseUser.uid).set({
+    'settings': settings.toFirebase(),
+    'updatedAt': FieldValue.serverTimestamp(),
+  }, SetOptions(merge: true));
 }
 
 UserSettingsData defaultUserSettings() {
@@ -1703,6 +1805,7 @@ UserSettingsData defaultUserSettings() {
     likeNotifications: true,
     commentNotifications: false,
     newSpotNotifications: true,
+    newMessageNotifications: true,
     publicProfile: true,
     showSavedSpots: false,
     showGarage: true,
@@ -2233,6 +2336,14 @@ friendLocationNotificationsCollection() {
   return FirebaseFirestore.instance.collection('friend_location_notifications');
 }
 
+CollectionReference<Map<String, dynamic>> chatsCollection() {
+  return FirebaseFirestore.instance.collection('chats');
+}
+
+CollectionReference<Map<String, dynamic>> chatMessagesCollection(String chatId) {
+  return chatsCollection().doc(chatId).collection('messages');
+}
+
 String friendshipIdFor(String firstUid, String secondUid) {
   final ids = [firstUid, secondUid]..sort();
   return '${ids[0]}_${ids[1]}';
@@ -2557,6 +2668,318 @@ Future<List<String>> loadCurrentFriendUids() async {
       .map((doc) => friendUidFromFriendshipData(doc.data(), firebaseUser.uid))
       .where((uid) => uid.trim().isNotEmpty)
       .toList();
+}
+
+Future<List<FriendUserData>> loadCurrentFriendUsers() async {
+  final friendUids = await loadCurrentFriendUids();
+  final friends = <FriendUserData>[];
+
+  for (final uid in friendUids) {
+    final snapshot = await usersCollection().doc(uid).get();
+    if (snapshot.exists) {
+      final user = FriendUserData.fromFirestore(snapshot);
+      if (user.canAppearInUserLists) {
+        friends.add(user);
+      }
+    }
+  }
+
+  friends.sort((a, b) => a.username.compareTo(b.username));
+  return friends;
+}
+
+String directChatIdFor(String firstUid, String secondUid) {
+  final ids = [firstUid, secondUid]..sort();
+  return 'direct_${ids[0]}_${ids[1]}';
+}
+
+
+Future<void> openMessageToUserFromContext(
+  BuildContext context,
+  FriendUserData user,
+) async {
+  try {
+    final chatId = await createOrOpenDirectChat(user);
+    final chat = ChatThreadData(
+      id: chatId,
+      isGroup: false,
+      name: '',
+      memberIds: [currentUser.uid, user.uid],
+      memberUsernames: [currentUser.username, user.username],
+      memberPhotoUrls: [currentUser.photoUrl ?? '', user.photoUrl ?? ''],
+      lastMessage: '',
+      updatedAtMillis: DateTime.now().millisecondsSinceEpoch,
+    );
+
+    if (!context.mounted) {
+      return;
+    }
+
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => ChatConversationScreen(chat: chat)),
+    );
+  } catch (error) {
+    if (!context.mounted) {
+      return;
+    }
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        backgroundColor: Colors.redAccent,
+        content: Text(
+          'Could not open chat: $error',
+          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+        ),
+      ),
+    );
+  }
+}
+
+class ChatThreadData {
+  final String id;
+  final bool isGroup;
+  final String name;
+  final String photoUrl;
+  final String description;
+  final List<String> memberIds;
+  final List<String> memberUsernames;
+  final List<String> memberPhotoUrls;
+  final String lastMessage;
+  final String avatarUrl;
+  final int updatedAtMillis;
+
+  const ChatThreadData({
+    required this.id,
+    required this.isGroup,
+    required this.name,
+    this.photoUrl = '',
+    this.description = '',
+    required this.memberIds,
+    required this.memberUsernames,
+    this.memberPhotoUrls = const [],
+    required this.lastMessage,
+    this.avatarUrl = '',
+    required this.updatedAtMillis,
+  });
+
+  factory ChatThreadData.fromFirestore(
+    DocumentSnapshot<Map<String, dynamic>> doc,
+  ) {
+    final data = doc.data() ?? {};
+
+    return ChatThreadData(
+      id: doc.id,
+      isGroup: data['isGroup'] == true,
+      name: stringFromFirebase(data['name'], ''),
+      photoUrl: stringFromFirebase(data['photoUrl'], ''),
+      description: stringFromFirebase(data['description'], ''),
+      memberIds: stringListFromFirebase(data['memberIds'], const []),
+      memberUsernames: stringListFromFirebase(
+        data['memberUsernames'],
+        const [],
+      ),
+      memberPhotoUrls: stringListFromFirebase(
+        data['memberPhotoUrls'],
+        const [],
+      ),
+      lastMessage: stringFromFirebase(data['lastMessage'], ''),
+      avatarUrl: stringFromFirebase(data['avatarUrl'], ''),
+      updatedAtMillis: timestampMillisFromFirebase(data['updatedAt']),
+    );
+  }
+
+  String titleForCurrentUser(String currentUid) {
+    if (isGroup) {
+      return name.trim().isEmpty ? 'Group chat' : name.trim();
+    }
+
+    for (var index = 0; index < memberIds.length; index++) {
+      if (memberIds[index] == currentUid) {
+        continue;
+      }
+
+      if (index < memberUsernames.length &&
+          memberUsernames[index].trim().isNotEmpty) {
+        return '@${memberUsernames[index]}';
+      }
+
+      return 'Direct chat';
+    }
+
+    return 'Direct chat';
+  }
+
+  String subtitleForCurrentUser(String currentUid) {
+    if (lastMessage.trim().isNotEmpty) {
+      return lastMessage.trim();
+    }
+
+    if (isGroup) {
+      return description.trim().isNotEmpty
+          ? description.trim()
+          : '${memberIds.length} members';
+    }
+
+    return 'No messages yet';
+  }
+
+  String directPhotoUrlForCurrentUser(String currentUid) {
+    if (isGroup) {
+      return avatarUrl;
+    }
+
+    for (var index = 0; index < memberIds.length; index++) {
+      if (memberIds[index] == currentUid) {
+        continue;
+      }
+
+      if (index < memberPhotoUrls.length) {
+        return memberPhotoUrls[index];
+      }
+    }
+
+    return '';
+  }
+}
+
+class ChatMessageData {
+  final String id;
+  final String senderUid;
+  final String senderUsername;
+  final String text;
+  final int createdAtMillis;
+
+  const ChatMessageData({
+    required this.id,
+    required this.senderUid,
+    required this.senderUsername,
+    required this.text,
+    required this.createdAtMillis,
+  });
+
+  factory ChatMessageData.fromFirestore(
+    DocumentSnapshot<Map<String, dynamic>> doc,
+  ) {
+    final data = doc.data() ?? {};
+
+    return ChatMessageData(
+      id: doc.id,
+      senderUid: stringFromFirebase(data['senderUid'], ''),
+      senderUsername: stringFromFirebase(data['senderUsername'], 'ccs_driver'),
+      text: stringFromFirebase(data['text'], ''),
+      createdAtMillis: timestampMillisFromFirebase(data['createdAt']),
+    );
+  }
+}
+
+Future<String> createOrOpenDirectChat(FriendUserData user) async {
+  final firebaseUser = FirebaseAuth.instance.currentUser;
+
+  if (firebaseUser == null) {
+    throw FirebaseException(
+      plugin: 'cloud_firestore',
+      code: 'not-logged-in',
+      message: 'Log in before opening chat.',
+    );
+  }
+
+  final chatId = directChatIdFor(firebaseUser.uid, user.uid);
+  final memberIds = [firebaseUser.uid, user.uid];
+  final memberUsernames = [currentUser.username, user.username];
+
+  await chatsCollection().doc(chatId).set({
+    'isGroup': false,
+    'name': '',
+    'memberIds': memberIds,
+    'memberUsernames': memberUsernames,
+    'memberPhotoUrls': [currentUser.photoUrl ?? '', user.photoUrl ?? ''],
+    'photoUrl': '',
+    'updatedAt': FieldValue.serverTimestamp(),
+    'createdAt': FieldValue.serverTimestamp(),
+  }, SetOptions(merge: true));
+
+  return chatId;
+}
+
+Future<String> createGroupChat({
+  required String name,
+  required List<FriendUserData> users,
+}) async {
+  final firebaseUser = FirebaseAuth.instance.currentUser;
+
+  if (firebaseUser == null) {
+    throw FirebaseException(
+      plugin: 'cloud_firestore',
+      code: 'not-logged-in',
+      message: 'Log in before creating chat.',
+    );
+  }
+
+  final uniqueUsers = <String, FriendUserData>{
+    for (final user in users) user.uid: user,
+  }.values.toList();
+  final memberIds = [firebaseUser.uid, ...uniqueUsers.map((user) => user.uid)];
+  final memberUsernames = [
+    currentUser.username,
+    ...uniqueUsers.map((user) => user.username),
+  ];
+  final fallbackName = uniqueUsers
+      .map((user) => user.username)
+      .where((username) => username.trim().isNotEmpty)
+      .take(3)
+      .join(', ');
+  final doc = chatsCollection().doc();
+
+  await doc.set({
+    'isGroup': true,
+    'name': name.trim().isEmpty ? fallbackName : name.trim(),
+    'memberIds': memberIds,
+    'memberUsernames': memberUsernames,
+    'memberPhotoUrls': [currentUser.photoUrl ?? '', ...uniqueUsers.map((user) => user.photoUrl ?? '')],
+    'photoUrl': '',
+    'description': '',
+    'lastMessage': '',
+    'updatedAt': FieldValue.serverTimestamp(),
+    'createdAt': FieldValue.serverTimestamp(),
+  });
+
+  return doc.id;
+}
+
+Future<void> sendChatMessage({
+  required String chatId,
+  required String text,
+}) async {
+  final firebaseUser = FirebaseAuth.instance.currentUser;
+
+  if (firebaseUser == null) {
+    throw FirebaseException(
+      plugin: 'cloud_firestore',
+      code: 'not-logged-in',
+      message: 'Log in before sending messages.',
+    );
+  }
+
+  final cleanText = text.trim();
+
+  if (cleanText.isEmpty) {
+    return;
+  }
+
+  await chatMessagesCollection(chatId).add({
+    'senderUid': firebaseUser.uid,
+    'senderUsername': currentUser.username,
+    'text': cleanText,
+    'createdAt': FieldValue.serverTimestamp(),
+  });
+
+  await chatsCollection().doc(chatId).set({
+    'lastMessage': cleanText,
+    'lastSenderUid': firebaseUser.uid,
+    'lastSenderUsername': currentUser.username,
+    'updatedAt': FieldValue.serverTimestamp(),
+  }, SetOptions(merge: true));
 }
 
 Future<LiveLocationData?> loadCurrentLiveLocationForUser(String uid) async {
@@ -4101,7 +4524,7 @@ class _MainScreenState extends State<MainScreen> {
     ExploreScreen(),
     MapScreen(),
     AddSpotScreen(),
-    SavedScreen(),
+    ChatScreen(),
     ProfileScreen(),
   ];
 
@@ -4353,8 +4776,8 @@ class _MainScreenState extends State<MainScreen> {
             label: 'Add Spot',
           ),
           BottomNavigationBarItem(
-            icon: Icon(Icons.bookmark_border),
-            label: 'Saved',
+            icon: Icon(Icons.chat_bubble_outline),
+            label: 'Chat',
           ),
           BottomNavigationBarItem(
             icon: Icon(Icons.person_outline),
@@ -4393,6 +4816,25 @@ class ExploreScreen extends StatefulWidget {
 class _ExploreScreenState extends State<ExploreScreen> {
   ExploreSortMode selectedMode = ExploreSortMode.trending;
   final Set<String> enabledCategoryFilters = {...spotCategoryOptions};
+  bool showSavedOnly = false;
+
+  @override
+  void initState() {
+    super.initState();
+    savedSpots.addListener(refreshSavedFilter);
+  }
+
+  @override
+  void dispose() {
+    savedSpots.removeListener(refreshSavedFilter);
+    super.dispose();
+  }
+
+  void refreshSavedFilter() {
+    if (mounted && showSavedOnly) {
+      setState(() {});
+    }
+  }
 
   List<CarSpot> sortedSpots(List<CarSpot> spots) {
     final list = [...spots];
@@ -4434,7 +4876,15 @@ class _ExploreScreenState extends State<ExploreScreen> {
     }
 
     return approvedPublicSpots().where((spot) {
-      return spot.categories.any(enabledCategoryFilters.contains);
+      if (!spot.categories.any(enabledCategoryFilters.contains)) {
+        return false;
+      }
+
+      if (!showSavedOnly) {
+        return true;
+      }
+
+      return savedSpots.value.any((saved) => isSameSpot(saved, spot));
     }).toList();
   }
 
@@ -4636,6 +5086,30 @@ class _ExploreScreenState extends State<ExploreScreen> {
     );
   }
 
+  Widget savedFilterChip() {
+    return Padding(
+      padding: const EdgeInsets.only(right: 8),
+      child: FilterChip(
+        label: const Text('Saved'),
+        avatar: Icon(
+          showSavedOnly ? Icons.bookmark : Icons.bookmark_border,
+          color: showSavedOnly ? Colors.white : Colors.white70,
+          size: 18,
+        ),
+        selected: showSavedOnly,
+        showCheckmark: false,
+        onSelected: (value) => setState(() => showSavedOnly = value),
+        selectedColor: blue,
+        backgroundColor: Colors.white.withValues(alpha: 0.07),
+        side: BorderSide(color: showSavedOnly ? blue : Colors.white12),
+        labelStyle: TextStyle(
+          color: showSavedOnly ? Colors.white : Colors.white70,
+          fontWeight: showSavedOnly ? FontWeight.w800 : FontWeight.w600,
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return ValueListenableBuilder<List<CarSpot>>(
@@ -4691,7 +5165,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'Explore',
+                          'Spots',
                           style: TextStyle(
                             color: Colors.white,
                             fontSize: 34,
@@ -4700,7 +5174,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
                         ),
                         SizedBox(height: 6),
                         Text(
-                          'Approved car spots for shoots, reels, and night drives.',
+                          'Approved car spots',
                           style: TextStyle(color: Colors.white54, height: 1.35),
                         ),
                       ],
@@ -4736,6 +5210,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
                     sortChip(ExploreSortMode.newest),
                     sortChip(ExploreSortMode.popular),
                     sortChip(ExploreSortMode.meet),
+                    savedFilterChip(),
                   ],
                 ),
               ),
@@ -4743,10 +5218,14 @@ class _ExploreScreenState extends State<ExploreScreen> {
               if (groupedSpots.isEmpty)
                 EmptyStateCard(
                   icon: Icons.explore,
-                  title: approvedPublicSpots().isEmpty
+                  title: showSavedOnly
+                      ? 'No saved spots yet'
+                      : approvedPublicSpots().isEmpty
                       ? 'No spots here yet'
                       : 'No spots match your filters',
-                  text: approvedPublicSpots().isEmpty
+                  text: showSavedOnly
+                      ? 'Tap the bookmark on a spot to keep it here.'
+                      : approvedPublicSpots().isEmpty
                       ? 'Approved spots will appear here after moderation.'
                       : 'Open filters and enable more categories to see more spots.',
                 )
@@ -5171,6 +5650,7 @@ class ExploreSpotStatsRow extends StatelessWidget {
                       : Icons.chat_bubble_outline,
                   count: commentCount,
                   color: commented ? blue : inactiveColor,
+                  onTap: () => showSpotCommentComposer(context, spot),
                 );
               },
             );
@@ -5179,6 +5659,178 @@ class ExploreSpotStatsRow extends StatelessWidget {
       ],
     );
   }
+}
+
+Future<void> showSpotCommentComposer(
+  BuildContext context,
+  CarSpot spot,
+) async {
+  final controller = TextEditingController();
+  var isSaving = false;
+
+  await showModalBottomSheet<void>(
+    context: context,
+    backgroundColor: panel,
+    isScrollControlled: true,
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+    ),
+    builder: (modalContext) {
+      return StatefulBuilder(
+        builder: (context, setSheetState) {
+          Future<void> submitComment() async {
+            final comment = controller.text.trim();
+
+            if (comment.isEmpty) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  backgroundColor: Colors.redAccent,
+                  content: Text(
+                    'Write a comment first.',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              );
+              return;
+            }
+
+            setSheetState(() => isSaving = true);
+
+            try {
+              await saveSpotReview(spot: spot, comment: comment);
+
+              if (!modalContext.mounted) {
+                return;
+              }
+
+              Navigator.pop(modalContext);
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  backgroundColor: blue,
+                  content: Text(
+                    'Comment posted.',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              );
+            } catch (error) {
+              if (!modalContext.mounted) {
+                return;
+              }
+
+              final code = error is FirebaseException
+                  ? error.code
+                  : error.toString();
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  backgroundColor: Colors.redAccent,
+                  content: Text(
+                    'Could not save comment: $code',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              );
+            } finally {
+              if (modalContext.mounted) {
+                setSheetState(() => isSaving = false);
+              }
+            }
+          }
+
+          return SafeArea(
+            child: Padding(
+              padding: EdgeInsets.fromLTRB(
+                18,
+                14,
+                18,
+                18 + MediaQuery.of(context).viewInsets.bottom,
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          'Comment ${spot.name}',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 20,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                      ),
+                      IconButton(
+                        onPressed: () => Navigator.pop(modalContext),
+                        icon: const Icon(Icons.close, color: Colors.white70),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: controller,
+                    autofocus: true,
+                    minLines: 3,
+                    maxLines: 5,
+                    style: const TextStyle(color: Colors.white),
+                    decoration: InputDecoration(
+                      hintText: 'Write a comment',
+                      hintStyle: const TextStyle(color: Colors.white38),
+                      filled: true,
+                      fillColor: Colors.white.withValues(alpha: 0.06),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(16),
+                        borderSide: const BorderSide(color: Colors.white12),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(16),
+                        borderSide: const BorderSide(color: Colors.white12),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(16),
+                        borderSide: const BorderSide(color: blue),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  SizedBox(
+                    width: double.infinity,
+                    height: 50,
+                    child: ElevatedButton.icon(
+                      onPressed: isSaving ? null : submitComment,
+                      icon: Icon(isSaving ? Icons.hourglass_top : Icons.send),
+                      label: Text(isSaving ? 'Posting...' : 'Post Comment'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: blue,
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      );
+    },
+  );
+
+  controller.dispose();
 }
 
 class CurrentUserTrianglePainter extends CustomPainter {
@@ -5485,7 +6137,8 @@ class _MapScreenState extends State<MapScreen> {
     final showFullIcons = currentMapZoom >= fullSpotIconMinZoom;
 
     return visibleSpots.map((spot) {
-      final markerColor = spotColorForSpot(spot);
+      final closedNow = spotIsClosedNow(spot);
+      final markerColor = closedNow ? Colors.grey.shade500 : spotColorForSpot(spot);
       final markerSize = showFullIcons ? 70.0 : 26.0;
       final markerWidth = showFullIcons ? 122.0 : markerSize;
       final markerHeight = showFullIcons ? 112.0 : markerSize;
@@ -5513,7 +6166,9 @@ class _MapScreenState extends State<MapScreen> {
                           overflow: TextOverflow.ellipsis,
                           textAlign: TextAlign.center,
                           style: TextStyle(
-                            color: Colors.white.withValues(alpha: 0.74),
+                            color: closedNow
+                                ? Colors.white.withValues(alpha: 0.46)
+                                : Colors.white.withValues(alpha: 0.74),
                             fontSize: 10,
                             fontWeight: FontWeight.w800,
                             letterSpacing: 0.2,
@@ -5530,13 +6185,32 @@ class _MapScreenState extends State<MapScreen> {
                     SizedBox(
                       width: markerSize,
                       height: markerSize,
-                      child: Image.asset(
-                        spotIconAssetPathForSpot(spot),
-                        fit: BoxFit.contain,
-                        errorBuilder: (context, error, stackTrace) {
-                          return CompactSpotMapPoint(color: markerColor);
-                        },
-                      ),
+                      child: closedNow
+                          ? ColorFiltered(
+                              colorFilter: ColorFilter.mode(
+                                markerColor,
+                                BlendMode.srcATop,
+                              ),
+                              child: Opacity(
+                                opacity: 0.58,
+                                child: Image.asset(
+                                  spotIconAssetPathForSpot(spot),
+                                  fit: BoxFit.contain,
+                                  errorBuilder: (context, error, stackTrace) {
+                                    return CompactSpotMapPoint(
+                                      color: markerColor,
+                                    );
+                                  },
+                                ),
+                              ),
+                            )
+                          : Image.asset(
+                              spotIconAssetPathForSpot(spot),
+                              fit: BoxFit.contain,
+                              errorBuilder: (context, error, stackTrace) {
+                                return CompactSpotMapPoint(color: markerColor);
+                              },
+                            ),
                     ),
                   ],
                 )
@@ -8454,6 +9128,15 @@ SpotBusinessStatus businessStatusForSpot(CarSpot spot) {
     icon: Icons.close,
     color: Colors.redAccent,
   );
+}
+
+bool spotIsClosedNow(CarSpot spot) {
+  if (!spot.supportsContacts || !spot.hasOpeningHours) {
+    return false;
+  }
+
+  final status = businessStatusForSpot(spot);
+  return status.title == 'Closed now' || status.title == 'Closed today';
 }
 
 class SpotBusinessStatusCard extends StatelessWidget {
@@ -12018,10 +12701,1653 @@ class SavedScreen extends StatelessWidget {
   }
 }
 
+const pinnedChatIdsPreferenceKey = 'pinned_chat_ids_v1';
+
+Future<List<String>> loadPinnedChatIds() async {
+  final prefs = await SharedPreferences.getInstance();
+  return prefs.getStringList(pinnedChatIdsPreferenceKey) ?? <String>[];
+}
+
+Future<void> savePinnedChatIds(List<String> ids) async {
+  final prefs = await SharedPreferences.getInstance();
+  await prefs.setStringList(pinnedChatIdsPreferenceKey, ids.take(6).toList());
+}
+
+
+Widget chatAvatarWidget(ChatThreadData chat, String currentUid) {
+  final photoUrl = chat.directPhotoUrlForCurrentUser(currentUid);
+
+  if (!chat.isGroup && isNetworkUrl(photoUrl)) {
+    return ClipOval(
+      child: Image.network(
+        photoUrl,
+        width: 46,
+        height: 46,
+        fit: BoxFit.cover,
+        errorBuilder: (_, _, _) => const Icon(Icons.person_outline, color: blue),
+      ),
+    );
+  }
+
+  if (chat.isGroup && isNetworkUrl(chat.avatarUrl)) {
+    return ClipOval(
+      child: Image.network(
+        chat.avatarUrl,
+        width: 46,
+        height: 46,
+        fit: BoxFit.cover,
+        errorBuilder: (_, _, _) => const Icon(Icons.groups, color: blue),
+      ),
+    );
+  }
+
+  return Icon(
+    chat.isGroup ? Icons.groups : Icons.person_outline,
+    color: blue,
+  );
+}
+
+class ChatScreen extends StatefulWidget {
+  const ChatScreen({super.key});
+
+  @override
+  State<ChatScreen> createState() => _ChatScreenState();
+}
+
+class _ChatScreenState extends State<ChatScreen> {
+  List<String> pinnedChatIds = const [];
+  bool showGroupsTab = false;
+
+  @override
+  void initState() {
+    super.initState();
+    loadPins();
+  }
+
+  Future<void> loadPins() async {
+    final ids = await loadPinnedChatIds();
+    if (mounted) {
+      setState(() => pinnedChatIds = ids);
+    }
+  }
+
+  Future<void> openNewChat(BuildContext context) async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const NewChatScreen()),
+    );
+    loadPins();
+  }
+
+  Future<void> openChatManager(
+    BuildContext context,
+    List<ChatThreadData> chats,
+  ) async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ChatManageScreen(
+          chats: chats,
+          currentPinnedIds: pinnedChatIds,
+        ),
+      ),
+    );
+    loadPins();
+  }
+
+  List<ChatThreadData> sortedChats(List<ChatThreadData> chats) {
+    final pinnedSet = pinnedChatIds.toSet();
+    chats.sort((a, b) {
+      final aPinned = pinnedSet.contains(a.id);
+      final bPinned = pinnedSet.contains(b.id);
+
+      if (aPinned != bPinned) {
+        return aPinned ? -1 : 1;
+      }
+
+      if (aPinned && bPinned) {
+        return pinnedChatIds.indexOf(a.id).compareTo(pinnedChatIds.indexOf(b.id));
+      }
+
+      return b.updatedAtMillis.compareTo(a.updatedAtMillis);
+    });
+    return chats;
+  }
+
+  Widget sectionTitle(String title, int count) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Row(
+        children: [
+          Text(
+            title,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 20,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          const SizedBox(width: 8),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+            decoration: BoxDecoration(
+              color: blue.withValues(alpha: 0.16),
+              borderRadius: BorderRadius.circular(999),
+            ),
+            child: Text(
+              '$count',
+              style: const TextStyle(
+                color: blue,
+                fontSize: 12,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget chatSection({
+    required String title,
+    required String emptyText,
+    required List<ChatThreadData> chats,
+    required String currentUid,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: panel.withValues(alpha: 0.58),
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: Colors.white12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          sectionTitle(title, chats.length),
+          if (chats.isEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 12),
+              child: Text(
+                emptyText,
+                style: const TextStyle(color: Colors.white54, height: 1.35),
+              ),
+            )
+          else
+            for (final chat in chats) ...[
+              ChatThreadTile(
+                chat: chat,
+                currentUid: currentUid,
+                pinned: pinnedChatIds.contains(chat.id),
+              ),
+              const SizedBox(height: 10),
+            ],
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final firebaseUser = FirebaseAuth.instance.currentUser;
+
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        title: const Text('CCS'),
+        backgroundColor: Colors.black,
+        foregroundColor: blue,
+      ),
+      floatingActionButton: firebaseUser == null
+          ? null
+          : StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+              stream: chatsCollection()
+                  .where('memberIds', arrayContains: firebaseUser.uid)
+                  .snapshots(),
+              builder: (context, snapshot) {
+                final chats = snapshot.data?.docs
+                        .map((doc) => ChatThreadData.fromFirestore(doc))
+                        .toList() ??
+                    <ChatThreadData>[];
+
+                return FloatingActionButton(
+                  onPressed: () => openChatManager(context, chats),
+                  backgroundColor: blue,
+                  foregroundColor: Colors.white,
+                  child: const Icon(Icons.tune),
+                );
+              },
+            ),
+      body: firebaseUser == null
+          ? const Padding(
+              padding: EdgeInsets.fromLTRB(20, 18, 20, 28),
+              child: EmptyStateCard(
+                icon: Icons.chat_bubble_outline,
+                title: 'Log in required',
+                text: 'Log in before using chat.',
+              ),
+            )
+          : StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+              stream: chatsCollection()
+                  .where('memberIds', arrayContains: firebaseUser.uid)
+                  .snapshots(),
+              builder: (context, snapshot) {
+                final chats = snapshot.data?.docs
+                        .map((doc) => ChatThreadData.fromFirestore(doc))
+                        .toList() ??
+                    <ChatThreadData>[];
+                final directChats = sortedChats(
+                  chats.where((chat) => !chat.isGroup).toList(),
+                );
+                final groupChats = sortedChats(
+                  chats.where((chat) => chat.isGroup).toList(),
+                );
+
+                return ListView(
+                  padding: const EdgeInsets.fromLTRB(20, 18, 20, 92),
+                  children: [
+                    Row(
+                      children: [
+                        const Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Chat',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 34,
+                                  fontWeight: FontWeight.w900,
+                                ),
+                              ),
+                              SizedBox(height: 6),
+                              Text(
+                                'Messages with friends and groups',
+                                style: TextStyle(
+                                  color: Colors.white54,
+                                  height: 1.35,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        IconButton.filled(
+                          onPressed: () => openNewChat(context),
+                          style: IconButton.styleFrom(
+                            backgroundColor: blue,
+                            foregroundColor: Colors.white,
+                          ),
+                          icon: const Icon(Icons.add),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 18),
+                    SizedBox(
+                      width: double.infinity,
+                      child: SegmentedButton<bool>(
+                        segments: const [
+                          ButtonSegment<bool>(
+                            value: false,
+                            icon: Icon(Icons.person_outline),
+                            label: Text('Chats'),
+                          ),
+                          ButtonSegment<bool>(
+                            value: true,
+                            icon: Icon(Icons.groups),
+                            label: Text('Groups'),
+                          ),
+                        ],
+                        selected: {showGroupsTab},
+                        onSelectionChanged: (value) {
+                          setState(() => showGroupsTab = value.first);
+                        },
+                        style: ButtonStyle(
+                          foregroundColor: WidgetStateProperty.resolveWith(
+                            (states) => states.contains(WidgetState.selected)
+                                ? Colors.white
+                                : Colors.white70,
+                          ),
+                          backgroundColor: WidgetStateProperty.resolveWith(
+                            (states) => states.contains(WidgetState.selected)
+                                ? blue
+                                : panel,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 18),
+                    if (snapshot.connectionState == ConnectionState.waiting)
+                      const Center(
+                        child: Padding(
+                          padding: EdgeInsets.all(24),
+                          child: CircularProgressIndicator(color: blue),
+                        ),
+                      )
+                    else if (chats.isEmpty)
+                      const EmptyStateCard(
+                        icon: Icons.chat_bubble_outline,
+                        title: 'No chats yet',
+                        text: 'Start a chat with a friend or create a group.',
+                      )
+                    else if (!showGroupsTab)
+                      chatSection(
+                        title: 'Chats',
+                        emptyText: 'No direct chats yet.',
+                        chats: directChats,
+                        currentUid: firebaseUser.uid,
+                      )
+                    else
+                      chatSection(
+                        title: 'Groups',
+                        emptyText: 'No groups yet.',
+                        chats: groupChats,
+                        currentUid: firebaseUser.uid,
+                      ),
+                  ],
+                );
+              },
+            ),
+    );
+  }
+}
+
+class ChatThreadTile extends StatelessWidget {
+  final ChatThreadData chat;
+  final String currentUid;
+  final bool pinned;
+
+  const ChatThreadTile({
+    super.key,
+    required this.chat,
+    required this.currentUid,
+    this.pinned = false,
+  });
+
+  String? otherUserId() {
+    if (chat.isGroup) {
+      return null;
+    }
+
+    for (final uid in chat.memberIds) {
+      if (uid != currentUid && uid.trim().isNotEmpty) {
+        return uid;
+      }
+    }
+
+    return null;
+  }
+
+  Widget directAvatar(String uid) {
+    return FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      future: usersCollection().doc(uid).get(),
+      builder: (context, snapshot) {
+        if (snapshot.hasData && snapshot.data!.exists) {
+          final user = FriendUserData.fromFirestore(snapshot.data!);
+          return UserAvatarCircle(user: user, size: 46);
+        }
+
+        return const UserAvatarFallback(size: 46, icon: Icons.person_outline);
+      },
+    );
+  }
+
+  Widget avatar() {
+    if (chat.isGroup) {
+      final photoUrl = chat.photoUrl.trim();
+      if (isNetworkUrl(photoUrl)) {
+        return ClipOval(
+          child: Image.network(
+            photoUrl,
+            width: 46,
+            height: 46,
+            fit: BoxFit.cover,
+            errorBuilder: (_, _, _) => const UserAvatarFallback(
+              size: 46,
+              icon: Icons.groups,
+            ),
+          ),
+        );
+      }
+
+      return const UserAvatarFallback(size: 46, icon: Icons.groups);
+    }
+
+    final uid = otherUserId();
+    return uid == null
+        ? const UserAvatarFallback(size: 46, icon: Icons.person_outline)
+        : directAvatar(uid);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final title = chat.titleForCurrentUser(currentUid);
+    final subtitle = chat.subtitleForCurrentUser(currentUid);
+
+    return InkWell(
+      onTap: () {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => ChatConversationScreen(chat: chat),
+          ),
+        );
+      },
+      borderRadius: BorderRadius.circular(18),
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: panel,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(
+            color: pinned ? blue.withValues(alpha: 0.75) : Colors.white12,
+            width: pinned ? 1.4 : 1,
+          ),
+        ),
+        child: Row(
+          children: [
+            avatar(),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      if (pinned) ...[
+                        const Icon(Icons.push_pin, color: blue, size: 14),
+                        const SizedBox(width: 4),
+                      ],
+                      Expanded(
+                        child: Text(
+                          title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 16,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    subtitle,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(color: Colors.white54),
+                  ),
+                ],
+              ),
+            ),
+            const Icon(Icons.chevron_right, color: Colors.white38),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class UserAvatarFallback extends StatelessWidget {
+  final double size;
+  final IconData icon;
+
+  const UserAvatarFallback({
+    super.key,
+    required this.size,
+    required this.icon,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        color: blue.withValues(alpha: 0.16),
+        shape: BoxShape.circle,
+        border: Border.all(color: blue.withValues(alpha: 0.45)),
+      ),
+      child: Icon(icon, color: blue, size: size * 0.5),
+    );
+  }
+}
+
+class UserAvatarCircle extends StatelessWidget {
+  final FriendUserData user;
+  final double size;
+
+  const UserAvatarCircle({
+    super.key,
+    required this.user,
+    this.size = 44,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        color: blue.withValues(alpha: 0.16),
+        shape: BoxShape.circle,
+        border: Border.all(color: blue.withValues(alpha: 0.45)),
+      ),
+      child: ClipOval(
+        child: localFileExists(user.avatarPath)
+            ? Image.file(File(user.avatarPath!), fit: BoxFit.cover)
+            : isNetworkUrl(user.photoUrl)
+                ? Image.network(
+                    user.photoUrl!,
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, _, _) => Center(
+                      child: Text(
+                        user.username.substring(0, 1).toUpperCase(),
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    ),
+                  )
+                : Center(
+                    child: Text(
+                      user.username.substring(0, 1).toUpperCase(),
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ),
+      ),
+    );
+  }
+}
+
+class ChatManageScreen extends StatefulWidget {
+  final List<ChatThreadData> chats;
+  final List<String> currentPinnedIds;
+
+  const ChatManageScreen({
+    super.key,
+    required this.chats,
+    required this.currentPinnedIds,
+  });
+
+  @override
+  State<ChatManageScreen> createState() => _ChatManageScreenState();
+}
+
+class _ChatManageScreenState extends State<ChatManageScreen> {
+  late List<String> pinnedIds;
+
+  @override
+  void initState() {
+    super.initState();
+    pinnedIds = [...widget.currentPinnedIds];
+  }
+
+  Future<void> togglePin(ChatThreadData chat) async {
+    final sameTypePinned = pinnedIds
+        .where((id) => widget.chats.any((item) => item.id == id && item.isGroup == chat.isGroup))
+        .toList();
+
+    setState(() {
+      if (pinnedIds.contains(chat.id)) {
+        pinnedIds.remove(chat.id);
+      } else {
+        if (sameTypePinned.length >= 3) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              backgroundColor: Colors.redAccent,
+              content: Text(
+                chat.isGroup
+                    ? 'You can pin up to 3 groups.'
+                    : 'You can pin up to 3 direct chats.',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          );
+          return;
+        }
+        pinnedIds.add(chat.id);
+      }
+    });
+
+    await savePinnedChatIds(pinnedIds);
+  }
+
+  Future<void> movePinned(String chatId, int direction) async {
+    final index = pinnedIds.indexOf(chatId);
+    if (index < 0) {
+      return;
+    }
+
+    final newIndex = (index + direction).clamp(0, pinnedIds.length - 1).toInt();
+    if (newIndex == index) {
+      return;
+    }
+
+    setState(() {
+      final id = pinnedIds.removeAt(index);
+      pinnedIds.insert(newIndex, id);
+    });
+
+    await savePinnedChatIds(pinnedIds);
+  }
+
+  Widget section(String title, List<ChatThreadData> chats) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: panel,
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: Colors.white12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 20,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          const SizedBox(height: 12),
+          if (chats.isEmpty)
+            const Text(
+              'Nothing here yet.',
+              style: TextStyle(color: Colors.white54),
+            )
+          else
+            for (final chat in chats) ...[
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      chat.titleForCurrentUser(
+                        FirebaseAuth.instance.currentUser?.uid ?? currentUser.uid,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: 'Move up',
+                    onPressed: pinnedIds.contains(chat.id)
+                        ? () => movePinned(chat.id, -1)
+                        : null,
+                    icon: const Icon(Icons.keyboard_arrow_up),
+                  ),
+                  IconButton(
+                    tooltip: 'Move down',
+                    onPressed: pinnedIds.contains(chat.id)
+                        ? () => movePinned(chat.id, 1)
+                        : null,
+                    icon: const Icon(Icons.keyboard_arrow_down),
+                  ),
+                  IconButton(
+                    tooltip: pinnedIds.contains(chat.id) ? 'Unpin' : 'Pin',
+                    onPressed: () => togglePin(chat),
+                    icon: Icon(
+                      pinnedIds.contains(chat.id)
+                          ? Icons.push_pin
+                          : Icons.push_pin_outlined,
+                      color: pinnedIds.contains(chat.id) ? blue : Colors.white54,
+                    ),
+                  ),
+                ],
+              ),
+              const Divider(color: Colors.white10),
+            ],
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final directChats = widget.chats.where((chat) => !chat.isGroup).toList();
+    final groupChats = widget.chats.where((chat) => chat.isGroup).toList();
+
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        title: const Text('Edit Chat View'),
+        backgroundColor: Colors.black,
+        foregroundColor: blue,
+      ),
+      body: ListView(
+        padding: const EdgeInsets.fromLTRB(20, 18, 20, 28),
+        children: [
+          const Text(
+            'Pin up to 3 direct chats and 3 groups. Use arrows to change pinned order.',
+            style: TextStyle(color: Colors.white54, height: 1.35),
+          ),
+          const SizedBox(height: 18),
+          section('Direct chats', directChats),
+          const SizedBox(height: 16),
+          section('Groups', groupChats),
+        ],
+      ),
+    );
+  }
+}
+
+class NewChatScreen extends StatefulWidget {
+  const NewChatScreen({super.key});
+
+  @override
+  State<NewChatScreen> createState() => _NewChatScreenState();
+}
+
+class _NewChatScreenState extends State<NewChatScreen> {
+  final searchController = TextEditingController();
+  final groupNameController = TextEditingController();
+  final Set<String> selectedUserIds = {};
+  bool groupMode = false;
+  String searchText = '';
+  bool isCreating = false;
+
+  @override
+  void initState() {
+    super.initState();
+    searchController.addListener(() {
+      setState(() => searchText = searchController.text);
+    });
+  }
+
+  @override
+  void dispose() {
+    searchController.dispose();
+    groupNameController.dispose();
+    super.dispose();
+  }
+
+  bool matchesSearch(FriendUserData user) {
+    final query = searchText.trim().toLowerCase();
+
+    if (query.isEmpty) {
+      return true;
+    }
+
+    return user.username.toLowerCase().contains(query) ||
+        user.name.toLowerCase().contains(query) ||
+        user.email.toLowerCase().contains(query);
+  }
+
+  Future<void> openDirectChat(FriendUserData user) async {
+    setState(() => isCreating = true);
+
+    try {
+      final chatId = await createOrOpenDirectChat(user);
+      final chat = ChatThreadData(
+        id: chatId,
+        isGroup: false,
+        name: '',
+        memberIds: [currentUser.uid, user.uid],
+        memberUsernames: [currentUser.username, user.username],
+        lastMessage: '',
+        updatedAtMillis: DateTime.now().millisecondsSinceEpoch,
+      );
+
+      if (!mounted) {
+        return;
+      }
+
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (_) => ChatConversationScreen(chat: chat)),
+      );
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: Colors.redAccent,
+          content: Text(
+            'Could not open chat: $error',
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => isCreating = false);
+      }
+    }
+  }
+
+  Future<void> createGroup(List<FriendUserData> friends) async {
+    final selected = friends
+        .where((user) => selectedUserIds.contains(user.uid))
+        .toList();
+
+    if (selected.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          backgroundColor: Colors.redAccent,
+          content: Text(
+            'Pick at least one friend for a group.',
+            style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+          ),
+        ),
+      );
+      return;
+    }
+
+    setState(() => isCreating = true);
+
+    try {
+      final chatId = await createGroupChat(
+        name: groupNameController.text,
+        users: selected,
+      );
+      final groupName = groupNameController.text.trim().isEmpty
+          ? selected.map((user) => user.username).take(3).join(', ')
+          : groupNameController.text.trim();
+      final chat = ChatThreadData(
+        id: chatId,
+        isGroup: true,
+        name: groupName,
+        memberIds: [currentUser.uid, ...selected.map((user) => user.uid)],
+        memberUsernames: [
+          currentUser.username,
+          ...selected.map((user) => user.username),
+        ],
+        lastMessage: '',
+        updatedAtMillis: DateTime.now().millisecondsSinceEpoch,
+      );
+
+      if (!mounted) {
+        return;
+      }
+
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (_) => ChatConversationScreen(chat: chat)),
+      );
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: Colors.redAccent,
+          content: Text(
+            'Could not create group: $error',
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => isCreating = false);
+      }
+    }
+  }
+
+  Widget userAvatar(FriendUserData user) {
+    return UserAvatarCircle(user: user, size: 44);
+  }
+
+  Widget friendTile(FriendUserData user) {
+    final selected = selectedUserIds.contains(user.uid);
+
+    return InkWell(
+      onTap: isCreating
+          ? null
+          : groupMode
+          ? () {
+              setState(() {
+                if (selected) {
+                  selectedUserIds.remove(user.uid);
+                } else {
+                  selectedUserIds.add(user.uid);
+                }
+              });
+            }
+          : () => openDirectChat(user),
+      borderRadius: BorderRadius.circular(18),
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 10),
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: panel,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(
+            color: selected ? blue : Colors.white12,
+            width: selected ? 1.4 : 1,
+          ),
+        ),
+        child: Row(
+          children: [
+            userAvatar(user),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '@${user.username}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    user.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(color: Colors.white54),
+                  ),
+                ],
+              ),
+            ),
+            if (groupMode)
+              Checkbox(
+                value: selected,
+                onChanged: (_) {
+                  setState(() {
+                    if (selected) {
+                      selectedUserIds.remove(user.uid);
+                    } else {
+                      selectedUserIds.add(user.uid);
+                    }
+                  });
+                },
+                activeColor: blue,
+                checkColor: Colors.white,
+                side: const BorderSide(color: Colors.white38),
+              )
+            else
+              const Icon(Icons.chevron_right, color: Colors.white38),
+          ],
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        title: const Text('New Chat'),
+        backgroundColor: Colors.black,
+        foregroundColor: blue,
+      ),
+      body: FutureBuilder<List<FriendUserData>>(
+        future: loadCurrentFriendUsers(),
+        builder: (context, snapshot) {
+          final friends =
+              snapshot.data?.where(matchesSearch).toList() ??
+              const <FriendUserData>[];
+
+          return ListView(
+            padding: const EdgeInsets.fromLTRB(20, 18, 20, 28),
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: SegmentedButton<bool>(
+                      segments: const [
+                        ButtonSegment(
+                          value: false,
+                          icon: Icon(Icons.person_outline),
+                          label: Text('Direct'),
+                        ),
+                        ButtonSegment(
+                          value: true,
+                          icon: Icon(Icons.groups),
+                          label: Text('Group'),
+                        ),
+                      ],
+                      selected: {groupMode},
+                      onSelectionChanged: (value) {
+                        setState(() {
+                          groupMode = value.first;
+                          selectedUserIds.clear();
+                        });
+                      },
+                      style: ButtonStyle(
+                        foregroundColor: WidgetStateProperty.resolveWith(
+                          (states) => states.contains(WidgetState.selected)
+                              ? Colors.white
+                              : Colors.white70,
+                        ),
+                        backgroundColor: WidgetStateProperty.resolveWith(
+                          (states) => states.contains(WidgetState.selected)
+                              ? blue
+                              : panel,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 14),
+              _CcsTextField(
+                controller: searchController,
+                label: 'Find friend',
+                hint: '@username',
+                icon: Icons.search,
+              ),
+              if (groupMode) ...[
+                const SizedBox(height: 12),
+                _CcsTextField(
+                  controller: groupNameController,
+                  label: 'Group name',
+                  hint: 'Night drive crew',
+                  icon: Icons.groups,
+                ),
+                const SizedBox(height: 12),
+                SizedBox(
+                  height: 50,
+                  child: ElevatedButton.icon(
+                    onPressed: isCreating ? null : () => createGroup(friends),
+                    icon: Icon(isCreating ? Icons.hourglass_top : Icons.check),
+                    label: Text(
+                      selectedUserIds.isEmpty
+                          ? 'Create Group'
+                          : 'Create Group (${selectedUserIds.length + 1})',
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: blue,
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+              const SizedBox(height: 18),
+              if (snapshot.connectionState == ConnectionState.waiting)
+                const Center(
+                  child: Padding(
+                    padding: EdgeInsets.all(24),
+                    child: CircularProgressIndicator(color: blue),
+                  ),
+                )
+              else if (friends.isEmpty)
+                const EmptyStateCard(
+                  icon: Icons.group_outlined,
+                  title: 'No friends found',
+                  text: 'Add friends first, then start a chat here.',
+                )
+              else
+                for (final friend in friends) friendTile(friend),
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
+
+class GroupSettingsScreen extends StatefulWidget {
+  final ChatThreadData chat;
+
+  const GroupSettingsScreen({super.key, required this.chat});
+
+  @override
+  State<GroupSettingsScreen> createState() => _GroupSettingsScreenState();
+}
+
+class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
+  late final TextEditingController nameController;
+  late final TextEditingController descriptionController;
+  bool isSaving = false;
+  String photoUrl = '';
+
+  @override
+  void initState() {
+    super.initState();
+    nameController = TextEditingController(text: widget.chat.name);
+    descriptionController = TextEditingController(text: widget.chat.description);
+    photoUrl = widget.chat.photoUrl;
+  }
+
+  @override
+  void dispose() {
+    nameController.dispose();
+    descriptionController.dispose();
+    super.dispose();
+  }
+
+  Future<void> pickGroupAvatar() async {
+    final path = await pickPhotoFromPhone(
+      context,
+      cropAspectRatio: 1,
+      cropShape: PhotoCropShape.circle,
+    );
+
+    if (path == null || path.trim().isEmpty) {
+      return;
+    }
+
+    setState(() => isSaving = true);
+
+    try {
+      final uploadedUrl = await uploadImageToR2(
+        r2Path: 'users/${currentUser.uid}/group_${safeR2Path(widget.chat.id)}_avatar_${DateTime.now().millisecondsSinceEpoch}.jpg',
+        localPhotoPath: path,
+        maxLongSide: r2AvatarPhotoMaxLongSide,
+      );
+
+      await chatsCollection().doc(widget.chat.id).set({
+        'photoUrl': uploadedUrl,
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+
+      if (mounted) {
+        setState(() => photoUrl = uploadedUrl);
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: Colors.redAccent,
+            content: Text(
+              'Could not update group photo: $error',
+              style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => isSaving = false);
+      }
+    }
+  }
+
+  Future<void> saveGroup() async {
+    final name = nameController.text.trim();
+    final description = descriptionController.text.trim();
+
+    setState(() => isSaving = true);
+
+    try {
+      await chatsCollection().doc(widget.chat.id).set({
+        'name': name.isEmpty ? widget.chat.name : name,
+        'description': description,
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+
+      if (mounted) {
+        Navigator.pop(context);
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: Colors.redAccent,
+            content: Text(
+              'Could not update group: $error',
+              style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => isSaving = false);
+      }
+    }
+  }
+
+  Widget avatarPreview() {
+    if (isNetworkUrl(photoUrl)) {
+      return ClipOval(
+        child: Image.network(
+          photoUrl,
+          width: 96,
+          height: 96,
+          fit: BoxFit.cover,
+          errorBuilder: (_, _, _) => const UserAvatarFallback(
+            size: 96,
+            icon: Icons.groups,
+          ),
+        ),
+      );
+    }
+
+    return const UserAvatarFallback(size: 96, icon: Icons.groups);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        title: const Text('Group Settings'),
+        backgroundColor: Colors.black,
+        foregroundColor: blue,
+        actions: [
+          IconButton(
+            tooltip: 'Save',
+            onPressed: isSaving ? null : saveGroup,
+            icon: Icon(isSaving ? Icons.hourglass_top : Icons.check),
+          ),
+        ],
+      ),
+      body: ListView(
+        padding: const EdgeInsets.fromLTRB(20, 18, 20, 28),
+        children: [
+          Center(
+            child: InkWell(
+              onTap: isSaving ? null : pickGroupAvatar,
+              borderRadius: BorderRadius.circular(999),
+              child: Stack(
+                alignment: Alignment.bottomRight,
+                children: [
+                  avatarPreview(),
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: const BoxDecoration(
+                      color: blue,
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      Icons.camera_alt,
+                      color: Colors.white,
+                      size: 18,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 22),
+          _CcsTextField(
+            controller: nameController,
+            label: 'Group name',
+            hint: 'Night drive crew',
+            icon: Icons.groups,
+          ),
+          const SizedBox(height: 12),
+          _CcsTextField(
+            controller: descriptionController,
+            label: 'Group description',
+            hint: 'What is this group about?',
+            icon: Icons.info_outline,
+          ),
+          const SizedBox(height: 18),
+          SizedBox(
+            height: 52,
+            child: ElevatedButton.icon(
+              onPressed: isSaving ? null : saveGroup,
+              icon: Icon(isSaving ? Icons.hourglass_top : Icons.check),
+              label: const Text('Save Group'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: blue,
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(18),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class ChatConversationScreen extends StatefulWidget {
+  final ChatThreadData chat;
+
+  const ChatConversationScreen({super.key, required this.chat});
+
+  @override
+  State<ChatConversationScreen> createState() => _ChatConversationScreenState();
+}
+
+class _ChatConversationScreenState extends State<ChatConversationScreen> {
+  final messageController = TextEditingController();
+  bool isSending = false;
+
+  @override
+  void dispose() {
+    messageController.dispose();
+    super.dispose();
+  }
+
+  Future<void> sendMessage() async {
+    final text = messageController.text.trim();
+
+    if (text.isEmpty || isSending) {
+      return;
+    }
+
+    setState(() => isSending = true);
+
+    try {
+      await sendChatMessage(chatId: widget.chat.id, text: text);
+      messageController.clear();
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: Colors.redAccent,
+          content: Text(
+            'Could not send message: $error',
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => isSending = false);
+      }
+    }
+  }
+
+
+  String? otherUserId(String currentUid) {
+    if (widget.chat.isGroup) {
+      return null;
+    }
+
+    for (final uid in widget.chat.memberIds) {
+      if (uid != currentUid && uid.trim().isNotEmpty) {
+        return uid;
+      }
+    }
+
+    return null;
+  }
+
+  String otherUsername(String currentUid) {
+    for (var index = 0; index < widget.chat.memberIds.length; index++) {
+      final uid = widget.chat.memberIds[index];
+      if (uid == currentUid) {
+        continue;
+      }
+
+      if (index < widget.chat.memberUsernames.length) {
+        return widget.chat.memberUsernames[index];
+      }
+    }
+
+    return '';
+  }
+
+  void openChatUserProfile(String currentUid) {
+    final uid = otherUserId(currentUid);
+
+    if (uid == null) {
+      return;
+    }
+
+    openUserProfile(
+      context,
+      uid: uid,
+      fallbackUsername: otherUsername(currentUid),
+    );
+  }
+
+  Widget messageBubble(ChatMessageData message, String currentUid) {
+    final mine = message.senderUid == currentUid;
+
+    return Align(
+      alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
+      child: Container(
+        constraints: const BoxConstraints(maxWidth: 280),
+        margin: const EdgeInsets.only(bottom: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        decoration: BoxDecoration(
+          color: mine ? blue : panel,
+          borderRadius: BorderRadius.only(
+            topLeft: const Radius.circular(16),
+            topRight: const Radius.circular(16),
+            bottomLeft: Radius.circular(mine ? 16 : 5),
+            bottomRight: Radius.circular(mine ? 5 : 16),
+          ),
+          border: mine ? null : Border.all(color: Colors.white12),
+        ),
+        child: Column(
+          crossAxisAlignment: mine
+              ? CrossAxisAlignment.end
+              : CrossAxisAlignment.start,
+          children: [
+            if (!mine && widget.chat.isGroup) ...[
+              Text(
+                '@${message.senderUsername}',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: blue,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              const SizedBox(height: 4),
+            ],
+            Text(
+              message.text,
+              style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w600,
+                height: 1.25,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final firebaseUser = FirebaseAuth.instance.currentUser;
+    final currentUid = firebaseUser?.uid ?? currentUser.uid;
+    final title = widget.chat.titleForCurrentUser(currentUid);
+
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        title: widget.chat.isGroup
+            ? InkWell(
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => GroupSettingsScreen(chat: widget.chat),
+                    ),
+                  );
+                },
+                borderRadius: BorderRadius.circular(12),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 6),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Flexible(child: Text(title)),
+                    ],
+                  ),
+                ),
+              )
+            : InkWell(
+                onTap: () => openChatUserProfile(currentUid),
+                borderRadius: BorderRadius.circular(12),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 2,
+                    vertical: 6,
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Flexible(child: Text(title)),
+                    ],
+                  ),
+                ),
+              ),
+        backgroundColor: Colors.black,
+        foregroundColor: blue,
+        actions: widget.chat.isGroup
+            ? [
+                IconButton(
+                  tooltip: 'Group settings',
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => GroupSettingsScreen(chat: widget.chat),
+                      ),
+                    );
+                  },
+                  icon: const Icon(Icons.tune),
+                ),
+              ]
+            : [
+                IconButton(
+                  tooltip: 'Open profile',
+                  onPressed: () => openChatUserProfile(currentUid),
+                  icon: const Icon(Icons.account_circle_outlined),
+                ),
+              ],
+      ),
+      body: Column(
+        children: [
+          Expanded(
+            child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+              stream: chatMessagesCollection(widget.chat.id)
+                  .orderBy('createdAt')
+                  .snapshots(),
+              builder: (context, snapshot) {
+                final messages =
+                    snapshot.data?.docs
+                        .map((doc) => ChatMessageData.fromFirestore(doc))
+                        .where((message) => message.text.trim().isNotEmpty)
+                        .toList() ??
+                    const <ChatMessageData>[];
+
+                if (messages.isEmpty) {
+                  return const Padding(
+                    padding: EdgeInsets.all(20),
+                    child: EmptyStateCard(
+                      icon: Icons.chat_bubble_outline,
+                      title: 'No messages yet',
+                      text: 'Send the first message.',
+                    ),
+                  );
+                }
+
+                return ListView(
+                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+                  children: [
+                    for (final message in messages)
+                      messageBubble(message, currentUid),
+                  ],
+                );
+              },
+            ),
+          ),
+          SafeArea(
+            top: false,
+            child: Container(
+              padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+              decoration: const BoxDecoration(
+                color: panel,
+                border: Border(top: BorderSide(color: Colors.white12)),
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: messageController,
+                      minLines: 1,
+                      maxLines: 4,
+                      style: const TextStyle(color: Colors.white),
+                      decoration: InputDecoration(
+                        hintText: 'Message',
+                        hintStyle: const TextStyle(color: Colors.white38),
+                        filled: true,
+                        fillColor: Colors.white.withValues(alpha: 0.06),
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 12,
+                        ),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(18),
+                          borderSide: const BorderSide(color: Colors.white12),
+                        ),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(18),
+                          borderSide: const BorderSide(color: Colors.white12),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(18),
+                          borderSide: const BorderSide(color: blue),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  IconButton.filled(
+                    onPressed: isSending ? null : sendMessage,
+                    style: IconButton.styleFrom(
+                      backgroundColor: blue,
+                      foregroundColor: Colors.white,
+                    ),
+                    icon: Icon(isSending ? Icons.hourglass_top : Icons.send),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class UserProfileData {
   final String username;
   final String cityCountry;
   final String bio;
+  final String instagram;
+  final String tiktok;
+  final String telegram;
   final String? avatarPath;
   final String? photoUrl;
 
@@ -12029,15 +14355,23 @@ class UserProfileData {
     required this.username,
     required this.cityCountry,
     required this.bio,
+    required this.instagram,
+    required this.tiktok,
+    required this.telegram,
     this.avatarPath,
     this.photoUrl,
   });
 
   factory UserProfileData.fromCurrentUser() {
+    final settings = userSettings.value;
+
     return UserProfileData(
       username: currentUser.username,
       cityCountry: '${currentUser.city}, ${currentUser.country}',
       bio: currentUser.bio,
+      instagram: settings.instagram,
+      tiktok: settings.tiktok,
+      telegram: settings.telegram,
       avatarPath: currentUser.avatarPath,
       photoUrl: currentUser.photoUrl,
     );
@@ -12316,6 +14650,13 @@ Future<void> saveProfileToFirebase(UserProfileData profile) async {
     country: cityCountry[1],
   );
 
+  final nextSettings = userSettings.value.copyWith(
+    instagram: profile.instagram.trim(),
+    tiktok: profile.tiktok.trim(),
+    telegram: profile.telegram.trim(),
+  );
+  userSettings.value = nextSettings;
+
   await saveCurrentUserFields({
     'username': cleanUsername,
     'usernameKey': usernameKey(cleanUsername),
@@ -12324,6 +14665,7 @@ Future<void> saveProfileToFirebase(UserProfileData profile) async {
     'avatarPath': nextAvatarPath,
     'city': cityCountry[0],
     'country': cityCountry[1],
+    'settings': nextSettings.toFirebase(),
   });
 }
 
@@ -12377,6 +14719,33 @@ Future<void> saveSettingsToFirebase(UserSettingsData settings) async {
   userSettings.value = settings;
 
   await saveCurrentUserFields({'settings': settings.toFirebase()});
+}
+
+
+Widget profileMessageButton(BuildContext context, FriendUserData user) {
+  if (user.uid == currentUser.uid) {
+    return const SizedBox.shrink();
+  }
+
+  return Padding(
+    padding: const EdgeInsets.fromLTRB(0, 14, 0, 0),
+    child: SizedBox(
+      width: double.infinity,
+      height: 52,
+      child: ElevatedButton.icon(
+        onPressed: () => openMessageToUserFromContext(context, user),
+        icon: const Icon(Icons.chat_bubble_outline),
+        label: const Text('Message'),
+        style: ElevatedButton.styleFrom(
+          backgroundColor: blue,
+          foregroundColor: Colors.white,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(18),
+          ),
+        ),
+      ),
+    ),
+  );
 }
 
 class ProfileScreen extends StatefulWidget {
@@ -12685,6 +15054,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 _GarageCard(car: cars[i], onEdit: () => editGarage(i)),
                 const SizedBox(height: 16),
               ],
+              ValueListenableBuilder<List<CarSpot>>(
+                valueListenable: savedSpots,
+                builder: (context, saved, _) {
+                  return _ProfileSavedSpotsPreview(spots: saved);
+                },
+              ),
+              const SizedBox(height: 16),
               _ProfileSubmissionsPreview(spots: spots),
               const SizedBox(height: 16),
               _ProfileActionTile(
@@ -12851,6 +15227,85 @@ class PublicUserProfileScreen extends StatelessWidget {
     );
   }
 
+  Widget messageButton(BuildContext context, PublicUserProfileData profile) {
+    if (profile.uid == currentUser.uid) {
+      return const SizedBox.shrink();
+    }
+
+    final user = FriendUserData(
+      uid: profile.uid,
+      username: profile.username,
+      name: profile.name,
+      email: profile.email,
+      photoUrl: profile.photoUrl,
+      avatarPath: profile.avatarPath,
+      verified: profile.verified,
+      role: profile.role,
+      banned: false,
+      deleted: false,
+    );
+
+    return SizedBox(
+      width: double.infinity,
+      height: 52,
+      child: ElevatedButton.icon(
+        onPressed: () async {
+          try {
+            final chatId = await createOrOpenDirectChat(user);
+            final chat = ChatThreadData(
+              id: chatId,
+              isGroup: false,
+              name: '',
+              photoUrl: '',
+              memberIds: [currentUser.uid, user.uid],
+              memberUsernames: [currentUser.username, user.username],
+              memberPhotoUrls: [currentUser.photoUrl ?? '', user.photoUrl ?? ''],
+              lastMessage: '',
+              updatedAtMillis: DateTime.now().millisecondsSinceEpoch,
+            );
+
+            if (!context.mounted) {
+              return;
+            }
+
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => ChatConversationScreen(chat: chat),
+              ),
+            );
+          } catch (error) {
+            if (!context.mounted) {
+              return;
+            }
+
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                backgroundColor: Colors.redAccent,
+                content: Text(
+                  'Could not open chat: $error',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            );
+          }
+        },
+        icon: const Icon(Icons.chat_bubble_outline),
+        label: const Text('Message'),
+        style: ElevatedButton.styleFrom(
+          backgroundColor: blue,
+          foregroundColor: Colors.white,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(18),
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget socialLinks(PublicUserProfileData profile) {
     final settings = profile.settings;
 
@@ -12895,7 +15350,7 @@ class PublicUserProfileScreen extends StatelessWidget {
     );
   }
 
-  Widget profileBody(PublicUserProfileData profile) {
+  Widget profileBody(BuildContext context, PublicUserProfileData profile) {
     final visibleGarage = profile.settings.showGarage
         ? profile.garage
         : const <GarageCar>[];
@@ -12904,6 +15359,8 @@ class PublicUserProfileScreen extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(20, 18, 20, 28),
       children: [
         profileHeader(profile),
+        const SizedBox(height: 12),
+        messageButton(context, profile),
         const SizedBox(height: 16),
         Row(
           children: [
@@ -13008,7 +15465,7 @@ class PublicUserProfileScreen extends StatelessWidget {
             );
           }
 
-          return profileBody(profile);
+          return profileBody(context, profile);
         },
       ),
     );
@@ -14591,6 +17048,115 @@ class _ProfileSubmissionsPreview extends StatelessWidget {
   }
 }
 
+class _ProfileSavedSpotsPreview extends StatelessWidget {
+  final List<CarSpot> spots;
+
+  const _ProfileSavedSpotsPreview({required this.spots});
+
+  @override
+  Widget build(BuildContext context) {
+    final visibleSpots = spots.take(3).toList();
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: panel,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: Colors.white12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Expanded(
+                child: Text(
+                  'Saved Spots',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+              Text(
+                '${spots.length}',
+                style: const TextStyle(
+                  color: blue,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            spots.isEmpty
+                ? 'Saved spots will appear here.'
+                : 'Your bookmarked car spots.',
+            style: const TextStyle(color: Colors.white54),
+          ),
+          if (visibleSpots.isNotEmpty) ...[
+            const SizedBox(height: 14),
+            for (final spot in visibleSpots) ...[
+              InkWell(
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => SpotDetailScreen(spot: spot),
+                    ),
+                  );
+                },
+                borderRadius: BorderRadius.circular(14),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  child: Row(
+                    children: [
+                      SpotPhoto(
+                        spot: spot,
+                        width: 54,
+                        height: 54,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              spot.name,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              spot.cityCountry,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(color: Colors.white54),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const Icon(Icons.chevron_right, color: Colors.white38),
+                    ],
+                  ),
+                ),
+              ),
+              if (spot != visibleSpots.last)
+                Divider(color: Colors.white.withValues(alpha: 0.08)),
+            ],
+          ],
+        ],
+      ),
+    );
+  }
+}
+
 class _ProfileActionTile extends StatelessWidget {
   final IconData icon;
   final String title;
@@ -14672,6 +17238,9 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   late final TextEditingController usernameController;
   late final TextEditingController cityController;
   late final TextEditingController bioController;
+  late final TextEditingController instagramController;
+  late final TextEditingController tiktokController;
+  late final TextEditingController telegramController;
   String? avatarPath;
   Timer? usernameAvailabilityDebounce;
   UsernameAvailability usernameAvailability = UsernameAvailability.unchanged;
@@ -14687,6 +17256,9 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     usernameController = TextEditingController(text: widget.profile.username);
     cityController = TextEditingController(text: widget.profile.cityCountry);
     bioController = TextEditingController(text: widget.profile.bio);
+    instagramController = TextEditingController(text: widget.profile.instagram);
+    tiktokController = TextEditingController(text: widget.profile.tiktok);
+    telegramController = TextEditingController(text: widget.profile.telegram);
     avatarPath = widget.profile.avatarPath;
     usernameController.addListener(queueUsernameAvailabilityCheck);
   }
@@ -14698,6 +17270,9 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     usernameController.dispose();
     cityController.dispose();
     bioController.dispose();
+    instagramController.dispose();
+    tiktokController.dispose();
+    telegramController.dispose();
     super.dispose();
   }
 
@@ -14740,7 +17315,8 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   Future<void> chooseAvatar() async {
     final path = await pickPhotoFromPhone(
       context,
-      cropAspectRatio: garagePhotoAspectRatio,
+      cropAspectRatio: 1,
+      cropShape: PhotoCropShape.circle,
     );
 
     if (!mounted || path == null) {
@@ -14779,6 +17355,9 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         bio: bioController.text.trim().isEmpty
             ? 'Find. Drive. Shoot.'
             : bioController.text.trim(),
+        instagram: instagramController.text.trim(),
+        tiktok: tiktokController.text.trim(),
+        telegram: telegramController.text.trim(),
         avatarPath: avatarPath,
         photoUrl: widget.profile.photoUrl,
       ),
@@ -14890,11 +17469,45 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
               ),
               const SizedBox(height: 14),
               _CcsTextField(
+                controller: cityController,
+                label: 'Base',
+                hint: 'Riga, Latvia',
+                icon: Icons.location_city,
+              ),
+              const SizedBox(height: 14),
+              _CcsTextField(
                 controller: bioController,
                 label: 'About you',
                 hint: 'Short description',
                 icon: Icons.notes,
                 maxLines: 4,
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          _AddSpotSection(
+            title: 'Social links',
+            children: [
+              _CcsTextField(
+                controller: instagramController,
+                label: 'Instagram',
+                hint: 'https://instagram.com/...',
+                icon: Icons.camera_alt,
+                keyboardType: TextInputType.url,
+              ),
+              _CcsTextField(
+                controller: tiktokController,
+                label: 'TikTok',
+                hint: 'https://tiktok.com/@...',
+                icon: Icons.music_note,
+                keyboardType: TextInputType.url,
+              ),
+              _CcsTextField(
+                controller: telegramController,
+                label: 'Telegram',
+                hint: 'https://t.me/...',
+                icon: Icons.send,
+                keyboardType: TextInputType.url,
               ),
             ],
           ),
@@ -15235,6 +17848,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   late bool likeNotifications;
   late bool commentNotifications;
   late bool newSpotNotifications;
+  late bool newMessageNotifications;
   late bool publicProfile;
   late bool showSavedSpots;
   late bool showGarage;
@@ -15250,6 +17864,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     likeNotifications = settings.likeNotifications;
     commentNotifications = settings.commentNotifications;
     newSpotNotifications = settings.newSpotNotifications;
+    newMessageNotifications = settings.newMessageNotifications;
     publicProfile = settings.publicProfile;
     showSavedSpots = settings.showSavedSpots;
     showGarage = settings.showGarage;
@@ -15272,6 +17887,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       likeNotifications: likeNotifications,
       commentNotifications: commentNotifications,
       newSpotNotifications: newSpotNotifications,
+      newMessageNotifications: newMessageNotifications,
       publicProfile: publicProfile,
       showSavedSpots: showSavedSpots,
       showGarage: showGarage,
@@ -15326,33 +17942,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
         padding: const EdgeInsets.fromLTRB(20, 18, 20, 28),
         children: [
           _AddSpotSection(
-            title: 'Social links',
-            children: [
-              _CcsTextField(
-                controller: instagramController,
-                label: 'Instagram',
-                hint: 'https://instagram.com/...',
-                icon: Icons.camera_alt,
-                keyboardType: TextInputType.url,
-              ),
-              _CcsTextField(
-                controller: tiktokController,
-                label: 'TikTok',
-                hint: 'https://tiktok.com/@...',
-                icon: Icons.music_note,
-                keyboardType: TextInputType.url,
-              ),
-              _CcsTextField(
-                controller: telegramController,
-                label: 'Telegram',
-                hint: 'https://t.me/...',
-                icon: Icons.send,
-                keyboardType: TextInputType.url,
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          _AddSpotSection(
             title: 'Notifications',
             children: [
               _SettingsSwitchTile(
@@ -15385,6 +17974,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 value: newSpotNotifications,
                 onChanged: (value) =>
                     setState(() => newSpotNotifications = value),
+              ),
+              _SettingsSwitchTile(
+                icon: Icons.mark_chat_unread,
+                title: 'Messages',
+                subtitle: 'New direct and group messages',
+                value: newMessageNotifications,
+                onChanged: (value) =>
+                    setState(() => newMessageNotifications = value),
               ),
             ],
           ),
