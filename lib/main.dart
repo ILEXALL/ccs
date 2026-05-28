@@ -35,6 +35,7 @@ const int r2SpotPhotoMaxLongSide = 1280;
 const int r2AvatarPhotoMaxLongSide = 768;
 const int r2GaragePhotoMaxLongSide = 1280;
 const int r2JpegQuality = 76;
+const double garagePhotoAspectRatio = 1.45;
 
 String? googleSignInSetupError;
 bool firebaseReady = false;
@@ -305,9 +306,26 @@ final reviewSpots = ValueNotifier<List<CarSpot>>([]);
 final userSettings = ValueNotifier<UserSettingsData>(defaultUserSettings());
 final garageCars = ValueNotifier<List<GarageCar>>(defaultGarageCars());
 
-Future<String?> pickPhotoFromPhone(BuildContext context) async {
+Future<String?> pickPhotoFromPhone(
+  BuildContext context, {
+  double cropAspectRatio = 1,
+}) async {
   try {
-    return await photoPickerChannel.invokeMethod<String>('pickPhoto');
+    final path = await photoPickerChannel.invokeMethod<String>('pickPhoto');
+
+    if (!context.mounted || path == null || path.trim().isEmpty) {
+      return path;
+    }
+
+    return Navigator.push<String>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => PhotoCropScreen(
+          sourcePath: path,
+          cropAspectRatio: cropAspectRatio,
+        ),
+      ),
+    );
   } on PlatformException catch (error) {
     if (!context.mounted) {
       return null;
@@ -356,6 +374,452 @@ Future<String?> pickPhotoFromPhone(BuildContext context) async {
       );
     }
     return null;
+  }
+}
+
+class PhotoCropScreen extends StatefulWidget {
+  final String sourcePath;
+  final double cropAspectRatio;
+
+  const PhotoCropScreen({
+    super.key,
+    required this.sourcePath,
+    required this.cropAspectRatio,
+  });
+
+  @override
+  State<PhotoCropScreen> createState() => _PhotoCropScreenState();
+}
+
+class _PhotoCropScreenState extends State<PhotoCropScreen> {
+  double zoom = 1;
+  Offset offset = Offset.zero;
+  double editorWidth = 0;
+  double editorHeight = 0;
+  double cropWidth = 0;
+  double cropHeight = 0;
+  double gestureStartZoom = 1;
+  int? imageWidth;
+  int? imageHeight;
+  bool isSaving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    loadImageSize();
+  }
+
+  Future<void> loadImageSize() async {
+    try {
+      final bytes = await File(widget.sourcePath).readAsBytes();
+      final decoded = img.decodeImage(bytes);
+      final normalized = decoded == null ? null : img.bakeOrientation(decoded);
+
+      if (!mounted || normalized == null) {
+        return;
+      }
+
+      setState(() {
+        imageWidth = normalized.width;
+        imageHeight = normalized.height;
+      });
+    } catch (_) {}
+  }
+
+  double minZoomForLayout() {
+    final width = imageWidth;
+    final height = imageHeight;
+
+    if (width == null ||
+        height == null ||
+        editorWidth <= 0 ||
+        editorHeight <= 0 ||
+        cropWidth <= 0 ||
+        cropHeight <= 0) {
+      return 1;
+    }
+
+    final baseScale = math.min(editorWidth / width, editorHeight / height);
+    return math.max(
+      1.0,
+      math.max(
+        cropWidth / (width * baseScale),
+        cropHeight / (height * baseScale),
+      ),
+    );
+  }
+
+  Offset clampedOffset(Offset value, {double? zoomValue}) {
+    final width = imageWidth;
+    final height = imageHeight;
+    final currentZoom = zoomValue ?? zoom;
+
+    if (width == null ||
+        height == null ||
+        editorWidth <= 0 ||
+        editorHeight <= 0 ||
+        cropWidth <= 0 ||
+        cropHeight <= 0) {
+      return value;
+    }
+
+    final baseScale = math.min(editorWidth / width, editorHeight / height);
+    final displayWidth = width * baseScale * currentZoom;
+    final displayHeight = height * baseScale * currentZoom;
+    final cropLeft = (editorWidth - cropWidth) / 2;
+    final cropTop = (editorHeight - cropHeight) / 2;
+    final cropRight = cropLeft + cropWidth;
+    final cropBottom = cropTop + cropHeight;
+    final minX = cropRight - (editorWidth + displayWidth) / 2;
+    final maxX = cropLeft - (editorWidth - displayWidth) / 2;
+    final minY = cropBottom - (editorHeight + displayHeight) / 2;
+    final maxY = cropTop - (editorHeight - displayHeight) / 2;
+
+    return Offset(
+      value.dx.clamp(minX, maxX).toDouble(),
+      value.dy.clamp(minY, maxY).toDouble(),
+    );
+  }
+
+  Future<void> saveCroppedPhoto() async {
+    if (isSaving) {
+      return;
+    }
+
+    setState(() => isSaving = true);
+
+    try {
+      final file = File(widget.sourcePath);
+      final bytes = await file.readAsBytes();
+      final decoded = img.decodeImage(bytes);
+
+      if (decoded == null) {
+        throw Exception('Could not read selected image.');
+      }
+
+      final normalized = img.bakeOrientation(decoded);
+      final width = normalized.width;
+      final height = normalized.height;
+      final hasLayout = editorWidth > 0 &&
+          editorHeight > 0 &&
+          cropWidth > 0 &&
+          cropHeight > 0;
+      final fallbackWidth = math.min(width, height);
+      final fallbackHeight = math.min(width, height);
+      final baseScale = hasLayout
+          ? math.min(editorWidth / width, editorHeight / height)
+          : 1.0;
+      final effectiveZoom = math.max(zoom, minZoomForLayout());
+      final totalScale = hasLayout ? baseScale * effectiveZoom : 1.0;
+      final cropPixelWidth = (hasLayout ? cropWidth / totalScale : fallbackWidth)
+          .round()
+          .clamp(1, width)
+          .toInt();
+      final cropPixelHeight =
+          (hasLayout ? cropHeight / totalScale : fallbackHeight)
+          .round()
+          .clamp(1, height)
+          .toInt();
+      final cropLeft = hasLayout ? (editorWidth - cropWidth) / 2 : 0.0;
+      final cropTop = hasLayout ? (editorHeight - cropHeight) / 2 : 0.0;
+      final imageLeft = hasLayout
+          ? (editorWidth - width * totalScale) / 2 + offset.dx
+          : (width - cropPixelWidth) / 2;
+      final imageTop = hasLayout
+          ? (editorHeight - height * totalScale) / 2 + offset.dy
+          : (height - cropPixelHeight) / 2;
+      final cropX = hasLayout
+          ? ((cropLeft - imageLeft) / totalScale)
+                .round()
+                .clamp(0, width - cropPixelWidth)
+                .toInt()
+          : ((width - cropPixelWidth) / 2).round();
+      final cropY = hasLayout
+          ? ((cropTop - imageTop) / totalScale)
+                .round()
+                .clamp(0, height - cropPixelHeight)
+                .toInt()
+          : ((height - cropPixelHeight) / 2).round();
+      final cropped = img.copyCrop(
+        normalized,
+        x: cropX,
+        y: cropY,
+        width: cropPixelWidth,
+        height: cropPixelHeight,
+      );
+      final directory = await Directory.systemTemp.createTemp('ccs_photo_');
+      final croppedPath =
+          '${directory.path}${Platform.pathSeparator}photo_${DateTime.now().millisecondsSinceEpoch}.jpg';
+      final croppedFile = File(croppedPath);
+
+      await croppedFile.writeAsBytes(img.encodeJpg(cropped, quality: 92));
+
+      if (mounted) {
+        Navigator.pop(context, croppedFile.path);
+      }
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: Colors.redAccent,
+          content: Text(
+            'Could not prepare photo: $error',
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => isSaving = false);
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        title: const Text('Adjust Photo'),
+        backgroundColor: Colors.black,
+        foregroundColor: blue,
+        actions: [
+          IconButton(
+            tooltip: 'Use photo',
+            onPressed: isSaving ? null : saveCroppedPhoto,
+            icon: isSaving
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.check),
+          ),
+        ],
+      ),
+      body: LayoutBuilder(
+        builder: (context, constraints) {
+          editorWidth = (constraints.maxWidth - 40).clamp(260, 520).toDouble();
+          editorHeight = math
+              .min(constraints.maxHeight * 0.58, 560)
+              .clamp(330, 560)
+              .toDouble();
+          final frameMaxWidth = editorWidth - 34;
+          final frameMaxHeight = editorHeight - 70;
+          cropWidth = frameMaxWidth;
+          final cropRatio = widget.cropAspectRatio <= 0
+              ? 1.0
+              : widget.cropAspectRatio;
+          cropHeight = cropWidth / cropRatio;
+          if (cropHeight > frameMaxHeight) {
+            cropHeight = frameMaxHeight;
+            cropWidth = cropHeight * widget.cropAspectRatio;
+          }
+          final minZoom = minZoomForLayout();
+          final maxZoom = math.max(3.0, minZoom * 3);
+          final effectiveZoom = zoom.clamp(minZoom, maxZoom).toDouble();
+          if ((zoom - effectiveZoom).abs() > 0.001) {
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (mounted) {
+                setState(() {
+                  zoom = effectiveZoom;
+                  offset = clampedOffset(offset, zoomValue: effectiveZoom);
+                });
+              }
+            });
+          }
+          offset = clampedOffset(offset, zoomValue: effectiveZoom);
+          final cropLeft = (editorWidth - cropWidth) / 2;
+          final cropTop = (editorHeight - cropHeight) / 2;
+          final cropRightWidth = editorWidth - cropLeft - cropWidth;
+          final cropBottomHeight = editorHeight - cropTop - cropHeight;
+
+          return Padding(
+            padding: const EdgeInsets.fromLTRB(20, 18, 20, 20),
+            child: Column(
+              children: [
+                Center(
+                  child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onScaleStart: (_) {
+                    gestureStartZoom = effectiveZoom;
+                  },
+                  onScaleUpdate: (details) {
+                    final nextZoom = (gestureStartZoom * details.scale)
+                        .clamp(minZoom, maxZoom)
+                        .toDouble();
+                    setState(() {
+                      zoom = nextZoom;
+                      offset = clampedOffset(
+                        offset + details.focalPointDelta,
+                        zoomValue: nextZoom,
+                      );
+                    });
+                  },
+                  child: Container(
+                    width: editorWidth,
+                    height: editorHeight,
+                    decoration: BoxDecoration(
+                      color: panel,
+                      borderRadius: BorderRadius.circular(18),
+                      border: Border.all(color: Colors.white12),
+                    ),
+                    clipBehavior: Clip.antiAlias,
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        Transform.translate(
+                          offset: offset,
+                          child: Transform.scale(
+                            scale: effectiveZoom,
+                            child: Image.file(
+                              File(widget.sourcePath),
+                              fit: BoxFit.contain,
+                              errorBuilder: (_, _, _) => const Center(
+                                child: Icon(
+                                  Icons.broken_image,
+                                  color: Colors.white38,
+                                  size: 44,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                        Positioned(
+                          left: 0,
+                          top: 0,
+                          right: 0,
+                          height: cropTop,
+                          child: ColoredBox(
+                            color: Colors.black.withValues(alpha: 0.55),
+                          ),
+                        ),
+                        Positioned(
+                          left: 0,
+                          top: cropTop,
+                          width: cropLeft,
+                          height: cropHeight,
+                          child: ColoredBox(
+                            color: Colors.black.withValues(alpha: 0.55),
+                          ),
+                        ),
+                        Positioned(
+                          right: 0,
+                          top: cropTop,
+                          width: cropRightWidth,
+                          height: cropHeight,
+                          child: ColoredBox(
+                            color: Colors.black.withValues(alpha: 0.55),
+                          ),
+                        ),
+                        Positioned(
+                          left: 0,
+                          right: 0,
+                          bottom: 0,
+                          height: cropBottomHeight,
+                          child: ColoredBox(
+                            color: Colors.black.withValues(alpha: 0.55),
+                          ),
+                        ),
+                        Positioned(
+                          left: cropLeft,
+                          top: cropTop,
+                          child: IgnorePointer(
+                            child: Container(
+                              width: cropWidth,
+                              height: cropHeight,
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(color: blue, width: 2),
+                              ),
+                              child: Stack(
+                                children: [
+                                  Center(
+                                    child: Container(
+                                      width: cropWidth,
+                                      height: 1,
+                                      color: Colors.white.withValues(
+                                        alpha: 0.22,
+                                      ),
+                                    ),
+                                  ),
+                                  Center(
+                                    child: Container(
+                                      width: 1,
+                                      height: cropHeight,
+                                      color: Colors.white.withValues(
+                                        alpha: 0.22,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                ),
+              const SizedBox(height: 22),
+              Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: panel,
+                  borderRadius: BorderRadius.circular(18),
+                  border: Border.all(color: Colors.white12),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.zoom_out, color: Colors.white54),
+                    Expanded(
+                      child: Slider(
+                        value: effectiveZoom,
+                        min: minZoom,
+                        max: maxZoom,
+                        activeColor: blue,
+                        inactiveColor: Colors.white24,
+                        onChanged: (value) {
+                          setState(() {
+                            zoom = value;
+                            offset = clampedOffset(offset, zoomValue: value);
+                          });
+                        },
+                      ),
+                    ),
+                    const Icon(Icons.zoom_in, color: Colors.white54),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 18),
+              SizedBox(
+                height: 54,
+                child: ElevatedButton.icon(
+                  onPressed: isSaving ? null : saveCroppedPhoto,
+                  icon: const Icon(Icons.check),
+                  label: Text(isSaving ? 'Saving...' : 'Use Photo'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: blue,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(18),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+            ),
+          );
+        },
+      ),
+    );
   }
 }
 
@@ -744,6 +1208,23 @@ Future<AppUser> saveFirebaseUser(
   final snapshot = await userRef.get();
   final data = snapshot.data();
   final isNewUser = !snapshot.exists;
+
+  if (!isNewUser && userBanIsActive(data)) {
+    throw FirebaseException(
+      plugin: 'firebase_auth',
+      code: 'user-banned',
+      message: 'This account is banned.',
+    );
+  }
+
+  if (!isNewUser && data?['deleted'] == true) {
+    throw FirebaseException(
+      plugin: 'firebase_auth',
+      code: 'user-deleted',
+      message: 'This account was removed.',
+    );
+  }
+
   final role = isNewUser
       ? await defaultRoleForNewFirebaseUser()
       : roleFromFirebase(data?['role']);
@@ -1552,6 +2033,35 @@ Map<String, dynamic> mapFromFirebase(Object? value) {
   return <String, dynamic>{};
 }
 
+bool userBanIsActive(Map<String, dynamic>? data) {
+  if (data?['banned'] != true) {
+    return false;
+  }
+
+  final untilMillis = nullableTimestampMillisFromFirebase(data?['bannedUntil']);
+  return untilMillis == null ||
+      untilMillis > DateTime.now().millisecondsSinceEpoch;
+}
+
+String userBanLabel({
+  required bool banned,
+  required int? bannedUntilMillis,
+}) {
+  if (!banned) {
+    return 'Active';
+  }
+
+  if (bannedUntilMillis == null) {
+    return 'Banned';
+  }
+
+  if (bannedUntilMillis <= DateTime.now().millisecondsSinceEpoch) {
+    return 'Ban expired';
+  }
+
+  return 'Banned until ${formatShortDateTime(DateTime.fromMillisecondsSinceEpoch(bannedUntilMillis))}';
+}
+
 bool localFileExists(String? path) {
   if (path == null || path.trim().isEmpty) {
     return false;
@@ -1741,6 +2251,9 @@ class FriendUserData {
   final String? avatarPath;
   final bool verified;
   final UserRole role;
+  final bool banned;
+  final int? bannedUntilMillis;
+  final bool deleted;
 
   const FriendUserData({
     required this.uid,
@@ -1751,13 +2264,27 @@ class FriendUserData {
     this.avatarPath,
     required this.verified,
     required this.role,
+    required this.banned,
+    this.bannedUntilMillis,
+    required this.deleted,
   });
+
+  bool get banActive {
+    return banned &&
+        (bannedUntilMillis == null ||
+            bannedUntilMillis! > DateTime.now().millisecondsSinceEpoch);
+  }
+
+  bool get canAppearInUserLists => !deleted && !banActive;
 
   factory FriendUserData.fromFirestore(
     DocumentSnapshot<Map<String, dynamic>> doc,
   ) {
     final data = doc.data() ?? {};
     final role = roleFromFirebase(data['role']);
+    final bannedUntilMillis = nullableTimestampMillisFromFirebase(
+      data['bannedUntil'],
+    );
 
     return FriendUserData(
       uid: stringFromFirebase(data['uid'], doc.id),
@@ -1770,6 +2297,9 @@ class FriendUserData {
           : null,
       role: role,
       verified: role == UserRole.admin || data['verified'] == true,
+      banned: data['banned'] == true,
+      bannedUntilMillis: bannedUntilMillis,
+      deleted: data['deleted'] == true,
     );
   }
 }
@@ -4348,30 +4878,34 @@ class ExploreSpotCard extends StatelessWidget {
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Stack(
-              children: [
-                SpotPhoto(
-                  spot: spot,
-                  width: 136,
-                  height: 98,
-                  fit: BoxFit.cover,
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                Positioned(
-                  top: -4,
-                  right: -4,
-                  child: Transform.scale(
-                    scale: 0.72,
-                    alignment: Alignment.topRight,
-                    child: SaveSpotButton(spot: spot, compact: true),
+            SizedBox(
+              width: 136,
+              child: Column(
+                children: [
+                  Stack(
+                    children: [
+                      SpotPhoto(
+                        spot: spot,
+                        width: 136,
+                        height: 106,
+                        fit: BoxFit.cover,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      Positioned(
+                        top: -4,
+                        right: -4,
+                        child: Transform.scale(
+                          scale: 0.72,
+                          alignment: Alignment.topRight,
+                          child: SaveSpotButton(spot: spot, compact: true),
+                        ),
+                      ),
+                    ],
                   ),
-                ),
-                Positioned(
-                  left: 6,
-                  bottom: 6,
-                  child: ExploreSpotStatsRow(spot: spot, overlay: true),
-                ),
-              ],
+                  const SizedBox(height: 8),
+                  ExploreSpotStatsRow(spot: spot),
+                ],
+              ),
             ),
             const SizedBox(width: 10),
             Expanded(
@@ -4444,16 +4978,35 @@ class ExploreSpotCard extends StatelessWidget {
                       ),
                       const SizedBox(width: 4),
                       Expanded(
-                        child: Text(
-                          addedByText,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            color: Colors.white38,
-                            fontSize: 11,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
+                        child: spot.addedByUid.trim().isEmpty
+                            ? Text(
+                                addedByText,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  color: Colors.white38,
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              )
+                            : InkWell(
+                                onTap: () => openUserProfile(
+                                  context,
+                                  uid: spot.addedByUid,
+                                  fallbackUsername: spot.addedBy,
+                                ),
+                                borderRadius: BorderRadius.circular(999),
+                                child: Text(
+                                  'Added by @${spot.addedBy.replaceAll('@', '')}',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    color: blue,
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
+                              ),
                       ),
                     ],
                   ),
@@ -4504,31 +5057,57 @@ class ExploreSpotStatsRow extends StatelessWidget {
     required Color color,
     VoidCallback? onTap,
   }) {
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTap: onTap,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 3),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, color: color, size: 16),
-            const SizedBox(width: 4),
-            Text(
-              '$count',
-              style: TextStyle(
-                color: color,
-                fontSize: overlay ? 12 : 12,
-                fontWeight: FontWeight.w900,
-                shadows: overlay
-                    ? const [Shadow(color: Colors.black, blurRadius: 5)]
-                    : null,
-              ),
-            ),
-          ],
+    final content = Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, color: color, size: overlay ? 16 : 18),
+        const SizedBox(width: 5),
+        Text(
+          '$count',
+          style: TextStyle(
+            color: color,
+            fontSize: overlay ? 12 : 13,
+            fontWeight: FontWeight.w900,
+            shadows: overlay
+                ? const [Shadow(color: Colors.black, blurRadius: 5)]
+                : null,
+          ),
         ),
+      ],
+    );
+
+    if (overlay) {
+      return GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 3),
+          child: content,
+        ),
+      );
+    }
+
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(999),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.14),
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(color: color.withValues(alpha: 0.42)),
+        ),
+        child: content,
       ),
     );
+  }
+
+  Widget statsDivider() {
+    if (overlay) {
+      return const SizedBox(width: 5);
+    }
+
+    return const SizedBox(width: 7);
   }
 
   Stream<bool> currentUserCommentedStream() {
@@ -4575,7 +5154,7 @@ class ExploreSpotStatsRow extends StatelessWidget {
             );
           },
         ),
-        const SizedBox(width: 5),
+        statsDivider(),
         StreamBuilder<bool>(
           stream: currentUserCommentedStream(),
           builder: (context, commentedSnapshot) {
@@ -6535,11 +7114,24 @@ class PoliceReportMapCard extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(height: 2),
-                    Text(
-                      'Marked by @${report.username} • $timeLeftLabel',
-                      style: const TextStyle(
-                        color: Colors.white54,
-                        fontSize: 12,
+                    InkWell(
+                      onTap: report.uid.trim().isEmpty
+                          ? null
+                          : () => openUserProfile(
+                                context,
+                                uid: report.uid,
+                                fallbackUsername: report.username,
+                              ),
+                      borderRadius: BorderRadius.circular(999),
+                      child: Text(
+                        'Marked by @${report.username} - $timeLeftLabel',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: blue,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w800,
+                        ),
                       ),
                     ),
                   ],
@@ -7475,17 +8067,32 @@ class _SpotDetailScreenState extends State<SpotDetailScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  spot.name,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 32,
-                    fontWeight: FontWeight.w900,
-                  ),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    Expanded(
+                      child: Text(
+                        spot.name,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 32,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    ),
+                    if (spot.hasOwner) ...[
+                      const SizedBox(width: 10),
+                      SpotOwnerBadge(spot: spot),
+                    ],
+                  ],
                 ),
                 const SizedBox(height: 8),
                 Text(
                   spot.cityCountry,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
                     color: Colors.white70,
                     fontSize: 15,
@@ -7513,12 +8120,35 @@ class _SpotDetailScreenState extends State<SpotDetailScreen> {
                       const SizedBox(width: 14),
                     ],
                     Expanded(
-                      child: Text(
-                        'Added by ${spot.addedBy}',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(color: Colors.white54),
-                      ),
+                      child: spot.addedByUid.trim().isEmpty
+                          ? Text(
+                              'Added by ${spot.addedBy}',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(color: Colors.white54),
+                            )
+                          : InkWell(
+                              onTap: () => openUserProfile(
+                                context,
+                                uid: spot.addedByUid,
+                                fallbackUsername: spot.addedBy,
+                              ),
+                              borderRadius: BorderRadius.circular(999),
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 4,
+                                ),
+                                child: Text(
+                                  'Added by @${spot.addedBy.replaceAll('@', '')}',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    color: blue,
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
+                              ),
+                            ),
                     ),
                   ],
                 ),
@@ -7634,6 +8264,71 @@ class _SpotDetailScreenState extends State<SpotDetailScreen> {
           ),
         ],
       ),
+    );
+  }
+}
+
+class SpotOwnerBadge extends StatelessWidget {
+  final CarSpot spot;
+
+  const SpotOwnerBadge({super.key, required this.spot});
+
+  String get ownerLabel {
+    final username = spot.ownerUsername.trim();
+
+    if (username.isNotEmpty) {
+      final handle = username.startsWith('@') ? username : '@$username';
+      return 'Owner $handle';
+    }
+
+    return 'Owner';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final badge = ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 170),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+        decoration: BoxDecoration(
+          color: blue.withValues(alpha: 0.12),
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(color: blue.withValues(alpha: 0.55)),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.manage_accounts, color: blue, size: 15),
+            const SizedBox(width: 6),
+            Flexible(
+              child: Text(
+                ownerLabel,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    if (spot.ownerUid.trim().isEmpty) {
+      return badge;
+    }
+
+    return InkWell(
+      onTap: () => openUserProfile(
+        context,
+        uid: spot.ownerUid,
+        fallbackUsername: spot.ownerUsername,
+      ),
+      borderRadius: BorderRadius.circular(999),
+      child: badge,
     );
   }
 }
@@ -8647,13 +9342,26 @@ class SpotReviewCard extends StatelessWidget {
           Row(
             children: [
               Expanded(
-                child: Text(
-                  review.username,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w900,
+                child: InkWell(
+                  onTap: review.userId.trim().isEmpty
+                      ? null
+                      : () => openUserProfile(
+                            context,
+                            uid: review.userId,
+                            fallbackUsername: review.username,
+                          ),
+                  borderRadius: BorderRadius.circular(999),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 3),
+                    child: Text(
+                      '@${review.username.replaceAll('@', '')}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: blue,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
                   ),
                 ),
               ),
@@ -8910,7 +9618,6 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
   final phoneController = TextEditingController();
   final instagramController = TextEditingController();
   final emailController = TextEditingController();
-  final ownerController = TextEditingController();
   final addedByController = TextEditingController();
 
   final categoryOptions = spotCategoryOptions;
@@ -8925,6 +9632,7 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
   DateTime? temporaryStartsAt;
   DateTime? temporaryExpiresAt;
   Map<int, OpeningHoursData> openingHours = defaultServiceOpeningHours();
+  SpotOwnerAssignment? selectedOwner;
   bool isSubmitting = false;
 
   @override
@@ -8943,7 +9651,6 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
     phoneController.dispose();
     instagramController.dispose();
     emailController.dispose();
-    ownerController.dispose();
     addedByController.dispose();
     super.dispose();
   }
@@ -9290,33 +9997,10 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
     final location = selectedLocation!;
     final categories = [selectedCategory];
     final supportsContacts = spotCategorySupportsContacts(selectedCategory);
-    SpotOwnerAssignment? owner;
-
-    if (supportsContacts &&
-        currentUser.role == UserRole.admin &&
-        ownerController.text.trim().isNotEmpty) {
-      owner = await findSpotOwnerAssignment(ownerController.text.trim());
-
-      if (owner == null) {
-        if (!mounted) {
-          return;
-        }
-
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            backgroundColor: Colors.redAccent,
-            content: Text(
-              'Owner not found. Use username, email, or user ID.',
-              style: TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ),
-        );
-        return;
-      }
-    }
+    final owner =
+        supportsContacts && currentUser.role == UserRole.admin
+        ? selectedOwner
+        : null;
 
     final isAdminCreatedSpot = currentUser.role == UserRole.admin;
     final initialStatus = isAdminCreatedSpot
@@ -9643,11 +10327,10 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
                   keyboardType: TextInputType.emailAddress,
                 ),
                 if (currentUser.role == UserRole.admin)
-                  _CcsTextField(
-                    controller: ownerController,
-                    label: 'Spot owner',
-                    hint: '@username, email, or user ID',
-                    icon: Icons.manage_accounts,
+                  SpotOwnerSelector(
+                    selectedOwner: selectedOwner,
+                    onChanged: (owner) =>
+                        setState(() => selectedOwner = owner),
                   ),
               ],
             ),
@@ -10546,6 +11229,392 @@ class _CcsTextField extends StatelessWidget {
   }
 }
 
+class SpotOwnerSelector extends StatefulWidget {
+  final SpotOwnerAssignment? selectedOwner;
+  final ValueChanged<SpotOwnerAssignment?> onChanged;
+
+  const SpotOwnerSelector({
+    super.key,
+    required this.selectedOwner,
+    required this.onChanged,
+  });
+
+  @override
+  State<SpotOwnerSelector> createState() => _SpotOwnerSelectorState();
+}
+
+class _SpotOwnerSelectorState extends State<SpotOwnerSelector> {
+  final searchController = TextEditingController();
+  String searchText = '';
+  late bool isPicking;
+
+  @override
+  void initState() {
+    super.initState();
+    isPicking = widget.selectedOwner == null;
+  }
+
+  @override
+  void didUpdateWidget(covariant SpotOwnerSelector oldWidget) {
+    super.didUpdateWidget(oldWidget);
+
+    if (widget.selectedOwner == null && oldWidget.selectedOwner != null) {
+      isPicking = true;
+    } else if (widget.selectedOwner != null &&
+        oldWidget.selectedOwner?.uid != widget.selectedOwner?.uid) {
+      isPicking = false;
+    }
+  }
+
+  @override
+  void dispose() {
+    searchController.dispose();
+    super.dispose();
+  }
+
+  String userInitial(String username) {
+    final cleanUsername = username.trim();
+    return cleanUsername.isEmpty ? '?' : cleanUsername[0].toUpperCase();
+  }
+
+  bool userMatchesSearch(FriendUserData user) {
+    final query = searchText.trim().toLowerCase();
+
+    if (query.isEmpty) {
+      return true;
+    }
+
+    return user.username.toLowerCase().contains(query) ||
+        user.name.toLowerCase().contains(query) ||
+        user.email.toLowerCase().contains(query) ||
+        user.uid.toLowerCase().contains(query);
+  }
+
+  void selectOwner(FriendUserData user) {
+    widget.onChanged(
+      SpotOwnerAssignment(uid: user.uid, username: user.username),
+    );
+    searchController.clear();
+    setState(() {
+      searchText = '';
+      isPicking = false;
+    });
+    FocusScope.of(context).unfocus();
+  }
+
+  Widget avatarForUser(FriendUserData user) {
+    return Container(
+      width: 44,
+      height: 44,
+      decoration: BoxDecoration(
+        color: blue.withValues(alpha: 0.16),
+        shape: BoxShape.circle,
+        border: Border.all(color: blue.withValues(alpha: 0.45)),
+      ),
+      child: ClipOval(
+        child: localFileExists(user.avatarPath)
+            ? Image.file(File(user.avatarPath!), fit: BoxFit.cover)
+            : (user.photoUrl != null && user.photoUrl!.trim().isNotEmpty)
+            ? Image.network(
+                user.photoUrl!,
+                fit: BoxFit.cover,
+                errorBuilder: (_, _, _) => Center(
+                  child: Text(
+                    userInitial(user.username),
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ),
+              )
+            : Center(
+                child: Text(
+                  userInitial(user.username),
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+      ),
+    );
+  }
+
+  Widget ownerSearchField() {
+    return TextField(
+      controller: searchController,
+      textInputAction: TextInputAction.search,
+      onTap: () => setState(() => isPicking = true),
+      onChanged: (value) => setState(() {
+        searchText = value;
+        isPicking = true;
+      }),
+      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+      decoration: InputDecoration(
+        labelText: 'Spot owner',
+        hintText: widget.selectedOwner == null
+            ? 'Search nickname, name, or email'
+            : 'Search to change owner',
+        prefixIcon: const Icon(Icons.manage_accounts, color: blue),
+        suffixIcon: searchText.trim().isNotEmpty
+            ? IconButton(
+                icon: const Icon(Icons.close, color: Colors.white54),
+                onPressed: () {
+                  searchController.clear();
+                  setState(() => searchText = '');
+                },
+              )
+            : null,
+        labelStyle: const TextStyle(color: Colors.white60),
+        hintStyle: const TextStyle(color: Colors.white24),
+        filled: true,
+        fillColor: Colors.white.withValues(alpha: 0.06),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(16),
+          borderSide: const BorderSide(color: Colors.white12),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(16),
+          borderSide: const BorderSide(color: blue, width: 1.4),
+        ),
+      ),
+    );
+  }
+
+  Widget selectedOwnerCard() {
+    final owner = widget.selectedOwner;
+
+    if (owner == null) {
+      return const SizedBox.shrink();
+    }
+
+    final ownerLabel = owner.username.trim().isEmpty
+        ? owner.uid
+        : '@${owner.username}';
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: blue.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: blue.withValues(alpha: 0.45)),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color: blue.withValues(alpha: 0.18),
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(Icons.admin_panel_settings, color: blue),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Selected owner',
+                  style: TextStyle(
+                    color: Colors.white54,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  ownerLabel,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          IconButton(
+            tooltip: 'Remove owner',
+            onPressed: () {
+              widget.onChanged(null);
+              setState(() => isPicking = true);
+            },
+            icon: const Icon(Icons.person_remove, color: Colors.white70),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget ownerUserTile(FriendUserData user) {
+    final isSelected = widget.selectedOwner?.uid == user.uid;
+
+    return InkWell(
+      onTap: () => selectOwner(user),
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: isSelected
+              ? blue.withValues(alpha: 0.13)
+              : Colors.white.withValues(alpha: 0.05),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: isSelected
+                ? blue.withValues(alpha: 0.65)
+                : Colors.white10,
+          ),
+        ),
+        child: Row(
+          children: [
+            avatarForUser(user),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Flexible(
+                        child: Text(
+                          user.username,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                      ),
+                      if (user.verified) ...[
+                        const SizedBox(width: 5),
+                        const Icon(Icons.verified, color: blue, size: 15),
+                      ],
+                    ],
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    user.email.trim().isEmpty ? user.name : user.email,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(color: Colors.white54, fontSize: 12),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 10),
+            Icon(
+              isSelected ? Icons.check_circle : Icons.add_circle_outline,
+              color: isSelected ? blue : Colors.white38,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget ownerResults() {
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: usersCollection().orderBy('usernameKey').snapshots(),
+      builder: (context, snapshot) {
+        final users =
+            snapshot.data?.docs
+                .map((doc) => FriendUserData.fromFirestore(doc))
+                .where((user) => user.canAppearInUserLists)
+                .where(userMatchesSearch)
+                .toList() ??
+            const <FriendUserData>[];
+
+        if (snapshot.connectionState == ConnectionState.waiting &&
+            snapshot.data == null) {
+          return Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.05),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: Colors.white10),
+            ),
+            child: const Row(
+              children: [
+                SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+                SizedBox(width: 12),
+                Text(
+                  'Loading users...',
+                  style: TextStyle(color: Colors.white70),
+                ),
+              ],
+            ),
+          );
+        }
+
+        if (users.isEmpty) {
+          return Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.05),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: Colors.white10),
+            ),
+            child: const Row(
+              children: [
+                Icon(Icons.person_search, color: Colors.white38),
+                SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'No users found.',
+                    style: TextStyle(color: Colors.white54),
+                  ),
+                ),
+              ],
+            ),
+          );
+        }
+
+        return ConstrainedBox(
+          constraints: const BoxConstraints(maxHeight: 290),
+          child: ListView.separated(
+            padding: EdgeInsets.zero,
+            shrinkWrap: true,
+            itemCount: users.length,
+            separatorBuilder: (_, _) => const SizedBox(height: 8),
+            itemBuilder: (context, index) => ownerUserTile(users[index]),
+          ),
+        );
+      },
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final showResults = isPicking || searchText.trim().isNotEmpty;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        ownerSearchField(),
+        if (widget.selectedOwner != null) ...[
+          const SizedBox(height: 10),
+          selectedOwnerCard(),
+        ],
+        if (showResults) ...[
+          const SizedBox(height: 10),
+          ownerResults(),
+        ],
+      ],
+    );
+  }
+}
+
 class OpeningHoursEditor extends StatelessWidget {
   final Map<int, OpeningHoursData> openingHours;
   final ValueChanged<Map<int, OpeningHoursData>> onChanged;
@@ -11106,6 +12175,100 @@ List<GarageCar> garageCarsFromFirebase(Object? value) {
   return defaultGarageCars();
 }
 
+class PublicUserProfileData {
+  final String uid;
+  final String username;
+  final String name;
+  final String email;
+  final String? photoUrl;
+  final String? avatarPath;
+  final String bio;
+  final String city;
+  final String country;
+  final UserRole role;
+  final bool verified;
+  final UserSettingsData settings;
+  final List<GarageCar> garage;
+  final bool deleted;
+
+  const PublicUserProfileData({
+    required this.uid,
+    required this.username,
+    required this.name,
+    required this.email,
+    this.photoUrl,
+    this.avatarPath,
+    required this.bio,
+    required this.city,
+    required this.country,
+    required this.role,
+    required this.verified,
+    required this.settings,
+    required this.garage,
+    required this.deleted,
+  });
+
+  bool get canCurrentUserView {
+    return currentUser.role == UserRole.admin ||
+        currentUser.uid == uid ||
+        settings.publicProfile;
+  }
+
+  String get cityCountry {
+    final cleanCity = city.trim().isEmpty ? 'Riga' : city.trim();
+    final cleanCountry = country.trim().isEmpty ? 'Latvia' : country.trim();
+    return '$cleanCity, $cleanCountry';
+  }
+
+  factory PublicUserProfileData.fromFirestore(
+    DocumentSnapshot<Map<String, dynamic>> doc,
+  ) {
+    final data = doc.data() ?? {};
+    final role = roleFromFirebase(data['role']);
+
+    return PublicUserProfileData(
+      uid: stringFromFirebase(data['uid'], doc.id),
+      username: stringFromFirebase(data['username'], 'ccs_driver'),
+      name: stringFromFirebase(data['name'], 'CCS Driver'),
+      email: stringFromFirebase(data['email'], ''),
+      photoUrl: data['photoUrl'] is String ? data['photoUrl'] as String : null,
+      avatarPath: data['avatarPath'] is String
+          ? data['avatarPath'] as String
+          : null,
+      bio: stringFromFirebase(data['bio'], 'Find. Drive. Shoot.'),
+      city: stringFromFirebase(data['city'], 'Riga'),
+      country: stringFromFirebase(data['country'], 'Latvia'),
+      role: role,
+      verified: role == UserRole.admin || data['verified'] == true,
+      settings: UserSettingsData.fromFirebase(data['settings']),
+      garage: garageCarsFromFirebase(data['garage']),
+      deleted: data['deleted'] == true,
+    );
+  }
+}
+
+void openUserProfile(
+  BuildContext context, {
+  required String uid,
+  String fallbackUsername = '',
+}) {
+  final cleanUid = uid.trim();
+
+  if (cleanUid.isEmpty) {
+    return;
+  }
+
+  Navigator.push(
+    context,
+    MaterialPageRoute(
+      builder: (_) => PublicUserProfileScreen(
+        userId: cleanUid,
+        fallbackUsername: fallbackUsername,
+      ),
+    ),
+  );
+}
+
 List<String> splitCityCountry(String value) {
   final parts = value.split(',');
   final city = parts.isNotEmpty && parts.first.trim().isNotEmpty
@@ -11569,6 +12732,289 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 }
 
+class PublicUserProfileScreen extends StatelessWidget {
+  final String userId;
+  final String fallbackUsername;
+
+  const PublicUserProfileScreen({
+    super.key,
+    required this.userId,
+    this.fallbackUsername = '',
+  });
+
+  Widget avatar(PublicUserProfileData profile) {
+    Widget fallback() {
+      final initial = profile.username.trim().isEmpty
+          ? 'C'
+          : profile.username.trim()[0].toUpperCase();
+
+      return Center(
+        child: Text(
+          initial,
+          style: const TextStyle(
+            color: blue,
+            fontSize: 30,
+            fontWeight: FontWeight.w900,
+          ),
+        ),
+      );
+    }
+
+    return Container(
+      width: 86,
+      height: 86,
+      decoration: BoxDecoration(
+        color: blue.withValues(alpha: 0.18),
+        shape: BoxShape.circle,
+        border: Border.all(color: blue.withValues(alpha: 0.5)),
+      ),
+      child: ClipOval(
+        child: localFileExists(profile.avatarPath)
+            ? Image.file(File(profile.avatarPath!), fit: BoxFit.cover)
+            : isNetworkUrl(profile.photoUrl)
+            ? Image.network(
+                profile.photoUrl!,
+                fit: BoxFit.cover,
+                errorBuilder: (_, _, _) => fallback(),
+              )
+            : fallback(),
+      ),
+    );
+  }
+
+  Widget profileHeader(PublicUserProfileData profile) {
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: panel,
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: Colors.white12),
+      ),
+      child: Row(
+        children: [
+          avatar(profile),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Flexible(
+                      child: Text(
+                        profile.username,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 25,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    ),
+                    if (profile.verified) ...[
+                      const SizedBox(width: 7),
+                      const Icon(Icons.verified, color: blue, size: 19),
+                    ],
+                  ],
+                ),
+                const SizedBox(height: 5),
+                Text(
+                  profile.bio,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(color: Colors.white54, height: 1.3),
+                ),
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    const Icon(Icons.location_on, color: blue, size: 16),
+                    const SizedBox(width: 4),
+                    Expanded(
+                      child: Text(
+                        profile.cityCountry,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Colors.white70,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget socialLinks(PublicUserProfileData profile) {
+    final settings = profile.settings;
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: panel,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: Colors.white12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Social links',
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 18,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          const SizedBox(height: 12),
+          _SocialLinkRow(
+            icon: Icons.camera_alt,
+            label: 'Instagram',
+            value: settings.instagram,
+          ),
+          const SizedBox(height: 10),
+          _SocialLinkRow(
+            icon: Icons.music_note,
+            label: 'TikTok',
+            value: settings.tiktok,
+          ),
+          const SizedBox(height: 10),
+          _SocialLinkRow(
+            icon: Icons.send,
+            label: 'Telegram',
+            value: settings.telegram,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget profileBody(PublicUserProfileData profile) {
+    final visibleGarage = profile.settings.showGarage
+        ? profile.garage
+        : const <GarageCar>[];
+
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(20, 18, 20, 28),
+      children: [
+        profileHeader(profile),
+        const SizedBox(height: 16),
+        Row(
+          children: [
+            Expanded(
+              child: _ProfileStatTile(
+                icon: Icons.directions_car,
+                value: '${visibleGarage.length}',
+                label: 'Cars',
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: _ProfileStatTile(
+                icon: Icons.location_on,
+                value: profile.city.trim().isEmpty ? 'Riga' : profile.city,
+                label: 'Base',
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: _ProfileStatTile(
+                icon: profile.verified ? Icons.verified : Icons.person,
+                value: profile.verified ? 'Yes' : 'No',
+                label: 'Verified',
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
+        socialLinks(profile),
+        const SizedBox(height: 16),
+        if (visibleGarage.isEmpty)
+          const EmptyStateCard(
+            icon: Icons.directions_car,
+            title: 'No garage shared',
+            text: 'This driver has not shared car builds yet.',
+          )
+        else
+          for (final car in visibleGarage) ...[
+            _GarageCard(car: car),
+            const SizedBox(height: 16),
+          ],
+      ],
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final title = fallbackUsername.trim().isEmpty
+        ? 'Profile'
+        : '@${fallbackUsername.replaceAll('@', '')}';
+
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        title: Text(title),
+        backgroundColor: Colors.black,
+        foregroundColor: blue,
+      ),
+      body: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+        stream: usersCollection().doc(userId).snapshots(),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting &&
+              !snapshot.hasData) {
+            return const Center(child: CircularProgressIndicator());
+          }
+
+          final doc = snapshot.data;
+
+          if (doc == null || !doc.exists) {
+            return const Padding(
+              padding: EdgeInsets.all(20),
+              child: EmptyStateCard(
+                icon: Icons.person_off,
+                title: 'Profile not found',
+                text: 'This user profile is not available anymore.',
+              ),
+            );
+          }
+
+          final profile = PublicUserProfileData.fromFirestore(doc);
+
+          if (profile.deleted) {
+            return const Padding(
+              padding: EdgeInsets.all(20),
+              child: EmptyStateCard(
+                icon: Icons.person_off,
+                title: 'Profile deleted',
+                text: 'This user profile is not available anymore.',
+              ),
+            );
+          }
+
+          if (!profile.canCurrentUserView) {
+            return const Padding(
+              padding: EdgeInsets.all(20),
+              child: EmptyStateCard(
+                icon: Icons.lock,
+                title: 'Private profile',
+                text: 'This driver keeps their profile private.',
+              ),
+            );
+          }
+
+          return profileBody(profile);
+        },
+      ),
+    );
+  }
+}
+
 class FriendsScreen extends StatefulWidget {
   const FriendsScreen({super.key});
 
@@ -11741,65 +13187,70 @@ class _FriendsScreenState extends State<FriendsScreen> {
     required FriendUserData user,
     required String subtitle,
     required Widget trailing,
+    VoidCallback? onTap,
   }) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 10),
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: panel,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: Colors.white12),
-      ),
-      child: Row(
-        children: [
-          userAvatar(
-            username: user.username,
-            photoUrl: user.photoUrl,
-            avatarPath: user.avatarPath,
-            verified: user.verified,
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Flexible(
-                      child: Text(
-                        user.username,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 16,
-                          fontWeight: FontWeight.w900,
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(18),
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 10),
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: panel,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: Colors.white12),
+        ),
+        child: Row(
+          children: [
+            userAvatar(
+              username: user.username,
+              photoUrl: user.photoUrl,
+              avatarPath: user.avatarPath,
+              verified: user.verified,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Flexible(
+                        child: Text(
+                          user.username,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 16,
+                            fontWeight: FontWeight.w900,
+                          ),
                         ),
                       ),
-                    ),
-                    if (user.role == UserRole.admin) ...[
-                      const SizedBox(width: 6),
-                      const Icon(
-                        Icons.admin_panel_settings,
-                        color: blue,
-                        size: 15,
-                      ),
+                      if (user.role == UserRole.admin) ...[
+                        const SizedBox(width: 6),
+                        const Icon(
+                          Icons.admin_panel_settings,
+                          color: blue,
+                          size: 15,
+                        ),
+                      ],
                     ],
-                  ],
-                ),
-                const SizedBox(height: 3),
-                Text(
-                  subtitle,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(color: Colors.white54, fontSize: 12),
-                ),
-              ],
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    subtitle,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(color: Colors.white54, fontSize: 12),
+                  ),
+                ],
+              ),
             ),
-          ),
-          const SizedBox(width: 10),
-          trailing,
-        ],
+            const SizedBox(width: 10),
+            trailing,
+          ],
+        ),
       ),
     );
   }
@@ -11875,13 +13326,18 @@ class _FriendsScreenState extends State<FriendsScreen> {
                 builder: (context, userSnapshot) {
                   final user = userSnapshot.data;
 
-                  if (user == null) {
+                  if (user == null || !user.canAppearInUserLists) {
                     return const SizedBox.shrink();
                   }
 
                   return friendUserTile(
                     user: user,
                     subtitle: user.name,
+                    onTap: () => openUserProfile(
+                      context,
+                      uid: user.uid,
+                      fallbackUsername: user.username,
+                    ),
                     trailing: actionButton(
                       label: 'Remove',
                       color: Colors.redAccent,
@@ -12125,6 +13581,7 @@ class _FriendsScreenState extends State<FriendsScreen> {
             final users =
                 snapshot.data?.docs
                     .map((doc) => FriendUserData.fromFirestore(doc))
+                    .where((user) => user.canAppearInUserLists)
                     .where((user) => user.uid != firebaseUser.uid)
                     .where((user) {
                       if (searchText.isEmpty) {
@@ -12162,6 +13619,11 @@ class _FriendsScreenState extends State<FriendsScreen> {
                       return friendUserTile(
                         user: user,
                         subtitle: user.name,
+                        onTap: () => openUserProfile(
+                          context,
+                          uid: user.uid,
+                          fallbackUsername: user.username,
+                        ),
                         trailing: incoming
                             ? actionButton(
                                 label: 'Accept',
@@ -12501,9 +13963,8 @@ class _GarageGalleryHeaderState extends State<_GarageGalleryHeader> {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          SizedBox(
-            height: 176,
-            width: double.infinity,
+          AspectRatio(
+            aspectRatio: garagePhotoAspectRatio,
             child: Stack(
               fit: StackFit.expand,
               children: [
@@ -12520,7 +13981,7 @@ class _GarageGalleryHeaderState extends State<_GarageGalleryHeader> {
                       end: Alignment.bottomCenter,
                       colors: [
                         Colors.transparent,
-                        Colors.black.withValues(alpha: 0.86),
+                        Colors.black.withValues(alpha: 0.72),
                       ],
                     ),
                   ),
@@ -12549,30 +14010,22 @@ class _GarageGalleryHeaderState extends State<_GarageGalleryHeader> {
                 Positioned(
                   left: 16,
                   right: 16,
-                  bottom: 16,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        'Garage',
-                        style: TextStyle(
-                          color: Colors.white70,
-                          fontSize: 13,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
+                  bottom: 14,
+                  child: Align(
+                    alignment: Alignment.bottomLeft,
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 270),
+                      child: Text(
                         widget.car.name,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
                           color: Colors.white,
-                          fontSize: 27,
+                          fontSize: 18,
                           fontWeight: FontWeight.w900,
                         ),
                       ),
-                    ],
+                    ),
                   ),
                 ),
               ],
@@ -12592,7 +14045,7 @@ class _GarageGalleryHeaderState extends State<_GarageGalleryHeader> {
                         onLongPress: () => openGallery(index),
                         child: AnimatedContainer(
                           duration: const Duration(milliseconds: 160),
-                          height: 58,
+                          height: 70,
                           decoration: BoxDecoration(
                             borderRadius: BorderRadius.circular(14),
                             border: Border.all(
@@ -12707,9 +14160,9 @@ class _GaragePhotoGalleryScreenState extends State<GaragePhotoGalleryScreen> {
 
 class _GarageCard extends StatelessWidget {
   final GarageCar car;
-  final VoidCallback onEdit;
+  final VoidCallback? onEdit;
 
-  const _GarageCard({required this.car, required this.onEdit});
+  const _GarageCard({required this.car, this.onEdit});
 
   @override
   Widget build(BuildContext context) {
@@ -12732,23 +14185,25 @@ class _GarageCard extends StatelessWidget {
                   car.description,
                   style: const TextStyle(color: Colors.white70, height: 1.35),
                 ),
-                const SizedBox(height: 16),
-                SizedBox(
-                  width: double.infinity,
-                  height: 44,
-                  child: ElevatedButton.icon(
-                    onPressed: onEdit,
-                    icon: const Icon(Icons.edit, size: 18),
-                    label: const Text('Edit Garage'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: blue,
-                      foregroundColor: Colors.white,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(15),
+                if (onEdit != null) ...[
+                  const SizedBox(height: 16),
+                  SizedBox(
+                    width: double.infinity,
+                    height: 44,
+                    child: ElevatedButton.icon(
+                      onPressed: onEdit,
+                      icon: const Icon(Icons.edit, size: 18),
+                      label: const Text('Edit Garage'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: blue,
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(15),
+                        ),
                       ),
                     ),
                   ),
-                ),
+                ],
               ],
             ),
           ),
@@ -12824,30 +14279,43 @@ class _SocialLinkRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Icon(icon, color: blue, size: 19),
-        const SizedBox(width: 10),
-        SizedBox(
-          width: 82,
-          child: Text(
-            label,
-            style: const TextStyle(
-              color: Colors.white,
-              fontWeight: FontWeight.w800,
+    final hasValue = value.trim().isNotEmpty;
+
+    return InkWell(
+      onTap: hasValue ? () => launchExternalUrl(context, value) : null,
+      borderRadius: BorderRadius.circular(12),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 5),
+        child: Row(
+          children: [
+            Icon(icon, color: blue, size: 19),
+            const SizedBox(width: 10),
+            SizedBox(
+              width: 82,
+              child: Text(
+                label,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
             ),
-          ),
+            Expanded(
+              child: Text(
+                hasValue ? value : 'Not added yet',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.right,
+                style: TextStyle(color: hasValue ? blue : Colors.white54),
+              ),
+            ),
+            if (hasValue) ...[
+              const SizedBox(width: 8),
+              const Icon(Icons.open_in_new, color: Colors.white38, size: 15),
+            ],
+          ],
         ),
-        Expanded(
-          child: Text(
-            value.isEmpty ? 'Not added yet' : value,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            textAlign: TextAlign.right,
-            style: const TextStyle(color: Colors.white54),
-          ),
-        ),
-      ],
+      ),
     );
   }
 }
@@ -13270,7 +14738,10 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   }
 
   Future<void> chooseAvatar() async {
-    final path = await pickPhotoFromPhone(context);
+    final path = await pickPhotoFromPhone(
+      context,
+      cropAspectRatio: garagePhotoAspectRatio,
+    );
 
     if (!mounted || path == null) {
       return;
@@ -14014,6 +15485,9 @@ class AdminUserData {
   final String email;
   final UserRole role;
   final bool verified;
+  final bool banned;
+  final int? bannedUntilMillis;
+  final bool deleted;
 
   const AdminUserData({
     required this.uid,
@@ -14022,12 +15496,36 @@ class AdminUserData {
     required this.email,
     required this.role,
     required this.verified,
+    required this.banned,
+    this.bannedUntilMillis,
+    required this.deleted,
   });
+
+  bool get banActive {
+    return banned &&
+        (bannedUntilMillis == null ||
+            bannedUntilMillis! > DateTime.now().millisecondsSinceEpoch);
+  }
+
+  String get statusLabel {
+    if (deleted) {
+      return 'Deleted';
+    }
+
+    return userBanLabel(
+      banned: banned,
+      bannedUntilMillis: bannedUntilMillis,
+    );
+  }
 
   factory AdminUserData.fromFirestore(
     DocumentSnapshot<Map<String, dynamic>> doc,
   ) {
     final data = doc.data() ?? {};
+    final bannedUntilMillis = nullableTimestampMillisFromFirebase(
+      data['bannedUntil'],
+    );
+
     return AdminUserData(
       uid: stringFromFirebase(data['uid'], doc.id),
       username: stringFromFirebase(data['username'], 'ccs_driver'),
@@ -14037,6 +15535,9 @@ class AdminUserData {
       verified:
           roleFromFirebase(data['role']) == UserRole.admin ||
           data['verified'] == true,
+      banned: data['banned'] == true,
+      bannedUntilMillis: bannedUntilMillis,
+      deleted: data['deleted'] == true,
     );
   }
 }
@@ -14097,6 +15598,7 @@ class AdminVerifiedUsersScreen extends StatelessWidget {
           final users =
               snapshot.data?.docs
                   .map((doc) => AdminUserData.fromFirestore(doc))
+                  .where((user) => !user.deleted)
                   .toList() ??
               const <AdminUserData>[];
 
@@ -14198,6 +15700,428 @@ class AdminVerifiedUsersScreen extends StatelessWidget {
                       ],
                     ),
                   ),
+                  const SizedBox(height: 10),
+                ],
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
+class AdminUsersScreen extends StatelessWidget {
+  const AdminUsersScreen({super.key});
+
+  Future<bool> canManageUser(BuildContext context, AdminUserData user) async {
+    if (user.uid == currentUser.uid) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          backgroundColor: Colors.redAccent,
+          content: Text(
+            'You cannot manage your own admin account here.',
+            style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+          ),
+        ),
+      );
+      return false;
+    }
+
+    if (user.role == UserRole.admin) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          backgroundColor: Colors.redAccent,
+          content: Text(
+            'Admin accounts cannot be banned or deleted here.',
+            style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+          ),
+        ),
+      );
+      return false;
+    }
+
+    return true;
+  }
+
+  Future<void> banUser(
+    BuildContext context,
+    AdminUserData user, {
+    Duration? duration,
+  }) async {
+    if (!await canManageUser(context, user)) {
+      return;
+    }
+
+    final bannedUntil = duration == null
+        ? null
+        : Timestamp.fromDate(DateTime.now().add(duration));
+
+    try {
+      await usersCollection().doc(user.uid).set({
+        'banned': true,
+        'bannedUntil': bannedUntil,
+        'bannedByUid': currentUser.uid,
+        'bannedBy': currentUser.username,
+        'bannedAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: Colors.redAccent,
+            content: Text(
+              duration == null ? 'User banned.' : 'User temporarily banned.',
+              style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        );
+      }
+    } catch (error) {
+      showAdminActionError(context, message: 'Could not ban user', error: error);
+    }
+  }
+
+  Future<void> unbanUser(BuildContext context, AdminUserData user) async {
+    if (!await canManageUser(context, user)) {
+      return;
+    }
+
+    try {
+      await usersCollection().doc(user.uid).set({
+        'banned': false,
+        'bannedUntil': FieldValue.delete(),
+        'unbannedByUid': currentUser.uid,
+        'unbannedBy': currentUser.username,
+        'unbannedAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            backgroundColor: blue,
+            content: Text(
+              'User unbanned.',
+              style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+            ),
+          ),
+        );
+      }
+    } catch (error) {
+      showAdminActionError(
+        context,
+        message: 'Could not unban user',
+        error: error,
+      );
+    }
+  }
+
+  Future<void> deleteUser(BuildContext context, AdminUserData user) async {
+    if (!await canManageUser(context, user)) {
+      return;
+    }
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          backgroundColor: panel,
+          title: const Text('Delete user?'),
+          content: Text(
+            'This will remove @${user.username} from the users list.',
+            style: const TextStyle(color: Colors.white70),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text(
+                'Delete',
+                style: TextStyle(color: Colors.redAccent),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirmed != true) {
+      return;
+    }
+
+    try {
+      await usersCollection().doc(user.uid).set({
+        'deleted': true,
+        'banned': true,
+        'bannedUntil': null,
+        'publicProfile': false,
+        'photoUrl': '',
+        'avatarPath': null,
+        'bio': 'Profile removed.',
+        'garage': <Object>[],
+        'settings': const UserSettingsData(
+          instagram: '',
+          tiktok: '',
+          telegram: '',
+          reviewNotifications: false,
+          likeNotifications: false,
+          commentNotifications: false,
+          newSpotNotifications: false,
+          publicProfile: false,
+          showSavedSpots: false,
+          showGarage: false,
+        ).toFirebase(),
+        'deletedByUid': currentUser.uid,
+        'deletedBy': currentUser.username,
+        'deletedAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            backgroundColor: Colors.redAccent,
+            content: Text(
+              'User deleted.',
+              style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+            ),
+          ),
+        );
+      }
+    } catch (error) {
+      showAdminActionError(
+        context,
+        message: 'Could not delete user',
+        error: error,
+      );
+    }
+  }
+
+  void handleUserAction(
+    BuildContext context,
+    AdminUserData user,
+    String action,
+  ) {
+    switch (action) {
+      case 'open':
+        openUserProfile(
+          context,
+          uid: user.uid,
+          fallbackUsername: user.username,
+        );
+        break;
+      case 'ban_1d':
+        banUser(context, user, duration: const Duration(days: 1));
+        break;
+      case 'ban_7d':
+        banUser(context, user, duration: const Duration(days: 7));
+        break;
+      case 'ban_30d':
+        banUser(context, user, duration: const Duration(days: 30));
+        break;
+      case 'ban_forever':
+        banUser(context, user);
+        break;
+      case 'unban':
+        unbanUser(context, user);
+        break;
+      case 'delete':
+        deleteUser(context, user);
+        break;
+    }
+  }
+
+  Widget userTile(BuildContext context, AdminUserData user) {
+    final statusColor = user.banActive
+        ? Colors.redAccent
+        : user.verified
+        ? blue
+        : Colors.white54;
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: panel,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: Colors.white12),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 44,
+            height: 44,
+            decoration: BoxDecoration(
+              color: statusColor.withValues(alpha: 0.16),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(
+              user.banActive
+                  ? Icons.block
+                  : user.verified
+                  ? Icons.verified
+                  : Icons.person_outline,
+              color: statusColor,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: InkWell(
+              onTap: () => openUserProfile(
+                context,
+                uid: user.uid,
+                fallbackUsername: user.username,
+              ),
+              borderRadius: BorderRadius.circular(12),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 4),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Flexible(
+                          child: Text(
+                            user.username,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                        ),
+                        if (user.role == UserRole.admin) ...[
+                          const SizedBox(width: 6),
+                          const _SmallTag(
+                            label: 'Admin',
+                            icon: Icons.admin_panel_settings,
+                          ),
+                        ],
+                      ],
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      user.email.isEmpty ? user.name : user.email,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(color: Colors.white54),
+                    ),
+                    const SizedBox(height: 5),
+                    Text(
+                      user.statusLabel,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: statusColor,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          PopupMenuButton<String>(
+            color: panel,
+            iconColor: Colors.white70,
+            onSelected: (action) => handleUserAction(context, user, action),
+            itemBuilder: (context) => [
+              const PopupMenuItem(
+                value: 'open',
+                child: Text('Open profile'),
+              ),
+              const PopupMenuDivider(),
+              const PopupMenuItem(
+                value: 'ban_1d',
+                child: Text('Ban 1 day'),
+              ),
+              const PopupMenuItem(
+                value: 'ban_7d',
+                child: Text('Ban 7 days'),
+              ),
+              const PopupMenuItem(
+                value: 'ban_30d',
+                child: Text('Ban 30 days'),
+              ),
+              const PopupMenuItem(
+                value: 'ban_forever',
+                child: Text('Ban forever'),
+              ),
+              if (user.banned)
+                const PopupMenuItem(
+                  value: 'unban',
+                  child: Text('Unban'),
+                ),
+              const PopupMenuDivider(),
+              const PopupMenuItem(
+                value: 'delete',
+                child: Text(
+                  'Delete user',
+                  style: TextStyle(color: Colors.redAccent),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        title: const Text('Users'),
+        backgroundColor: Colors.black,
+        foregroundColor: blue,
+      ),
+      body: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+        stream: usersCollection().orderBy('usernameKey').snapshots(),
+        builder: (context, snapshot) {
+          final users =
+              snapshot.data?.docs
+                  .map((doc) => AdminUserData.fromFirestore(doc))
+                  .where((user) => !user.deleted)
+                  .toList() ??
+              const <AdminUserData>[];
+
+          return ListView(
+            padding: const EdgeInsets.fromLTRB(20, 18, 20, 28),
+            children: [
+              const Text(
+                'Users',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 34,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                users.isEmpty
+                    ? 'No users yet.'
+                    : '${users.length} user${users.length == 1 ? '' : 's'} in Firebase.',
+                style: const TextStyle(color: Colors.white54, height: 1.35),
+              ),
+              const SizedBox(height: 18),
+              if (users.isEmpty)
+                const EmptyStateCard(
+                  icon: Icons.people_outline,
+                  title: 'No users yet',
+                  text: 'Users will appear here after they sign in.',
+                )
+              else
+                for (final user in users) ...[
+                  userTile(context, user),
                   const SizedBox(height: 10),
                 ],
             ],
@@ -14431,6 +16355,18 @@ class _AdminReviewScreenState extends State<AdminReviewScreen> {
               ),
               const SizedBox(height: 16),
               _ProfileActionTile(
+                icon: Icons.people_alt,
+                title: 'Users',
+                subtitle: 'Open profiles, ban, unban, or delete users',
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const AdminUsersScreen()),
+                  );
+                },
+              ),
+              const SizedBox(height: 10),
+              _ProfileActionTile(
                 icon: Icons.verified_user,
                 title: 'Verified Users',
                 subtitle: 'Grant or remove verified status',
@@ -14533,12 +16469,30 @@ class AdminSpotTile extends StatelessWidget {
                       _AdminStatusBadge(status: spot.status),
                       const SizedBox(width: 8),
                       Expanded(
-                        child: Text(
-                          'Added by ${spot.addedBy}',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(color: Colors.white38),
-                        ),
+                        child: spot.addedByUid.trim().isEmpty
+                            ? Text(
+                                'Added by ${spot.addedBy}',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(color: Colors.white38),
+                              )
+                            : InkWell(
+                                onTap: () => openUserProfile(
+                                  context,
+                                  uid: spot.addedByUid,
+                                  fallbackUsername: spot.addedBy,
+                                ),
+                                borderRadius: BorderRadius.circular(999),
+                                child: Text(
+                                  'Added by @${spot.addedBy.replaceAll('@', '')}',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    color: blue,
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
+                              ),
                       ),
                     ],
                   ),
@@ -14651,12 +16605,12 @@ class _AdminEditSpotScreenState extends State<AdminEditSpotScreen> {
   late final TextEditingController phoneController;
   late final TextEditingController instagramController;
   late final TextEditingController emailController;
-  late final TextEditingController ownerController;
   late String selectedCategory;
   late bool verifiedOnlySpot;
   late final List<String> existingPhotoUrls;
   final List<String> newPhotoPaths = [];
   late Map<int, OpeningHoursData> openingHours;
+  SpotOwnerAssignment? selectedOwner;
   bool isSaving = false;
 
   int get totalPhotoCount => existingPhotoUrls.length + newPhotoPaths.length;
@@ -14673,11 +16627,15 @@ class _AdminEditSpotScreenState extends State<AdminEditSpotScreen> {
       text: widget.spot.contactInstagram,
     );
     emailController = TextEditingController(text: widget.spot.contactEmail);
-    ownerController = TextEditingController(
-      text: widget.spot.ownerUsername.isNotEmpty
-          ? widget.spot.ownerUsername
-          : widget.spot.ownerUid,
-    );
+    if (widget.spot.ownerUid.isNotEmpty ||
+        widget.spot.ownerUsername.isNotEmpty) {
+      selectedOwner = SpotOwnerAssignment(
+        uid: widget.spot.ownerUid,
+        username: widget.spot.ownerUsername.isNotEmpty
+            ? widget.spot.ownerUsername
+            : widget.spot.ownerUid,
+      );
+    }
     selectedCategory = primarySpotCategory(widget.spot);
     verifiedOnlySpot = widget.spot.verifiedOnly;
     openingHours = widget.spot.openingHours.isEmpty
@@ -14709,7 +16667,6 @@ class _AdminEditSpotScreenState extends State<AdminEditSpotScreen> {
     phoneController.dispose();
     instagramController.dispose();
     emailController.dispose();
-    ownerController.dispose();
     super.dispose();
   }
 
@@ -14765,30 +16722,7 @@ class _AdminEditSpotScreenState extends State<AdminEditSpotScreen> {
     final cleanInstagram = instagramController.text.trim();
     final cleanEmail = emailController.text.trim();
     final supportsContacts = spotCategorySupportsContacts(selectedCategory);
-    SpotOwnerAssignment? owner;
-
-    if (supportsContacts && ownerController.text.trim().isNotEmpty) {
-      owner = await findSpotOwnerAssignment(
-        ownerController.text.trim(),
-        currentOwner: SpotOwnerAssignment(
-          uid: widget.spot.ownerUid,
-          username: widget.spot.ownerUsername,
-        ),
-      );
-
-      if (owner == null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            backgroundColor: Colors.redAccent,
-            content: Text(
-              'Owner not found. Use username, email, or user ID.',
-              style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
-            ),
-          ),
-        );
-        return;
-      }
-    }
+    final owner = supportsContacts ? selectedOwner : null;
 
     if (firebaseUser == null) {
       showAdminActionError(
@@ -15069,11 +17003,9 @@ class _AdminEditSpotScreenState extends State<AdminEditSpotScreen> {
                   icon: Icons.email_outlined,
                   keyboardType: TextInputType.emailAddress,
                 ),
-                _CcsTextField(
-                  controller: ownerController,
-                  label: 'Spot owner',
-                  hint: '@username, email, or user ID',
-                  icon: Icons.manage_accounts,
+                SpotOwnerSelector(
+                  selectedOwner: selectedOwner,
+                  onChanged: (owner) => setState(() => selectedOwner = owner),
                 ),
               ],
             ),
@@ -15336,12 +17268,30 @@ class AdminSpotReviewScreen extends StatelessWidget {
               _AdminStatusBadge(status: spot.status),
               const Spacer(),
               Flexible(
-                child: Text(
-                  'Added by ${spot.addedBy}',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(color: Colors.white54),
-                ),
+                child: spot.addedByUid.trim().isEmpty
+                    ? Text(
+                        'Added by ${spot.addedBy}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(color: Colors.white54),
+                      )
+                    : InkWell(
+                        onTap: () => openUserProfile(
+                          context,
+                          uid: spot.addedByUid,
+                          fallbackUsername: spot.addedBy,
+                        ),
+                        borderRadius: BorderRadius.circular(999),
+                        child: Text(
+                          'Added by @${spot.addedBy.replaceAll('@', '')}',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: blue,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ),
               ),
             ],
           ),
