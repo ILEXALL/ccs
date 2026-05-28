@@ -113,6 +113,134 @@ const spotCategoryOptions = [
   'Food',
 ];
 
+const contactEnabledSpotCategories = {
+  'Service',
+  'Detailing',
+  'Wash',
+  'Store',
+  'Food',
+};
+
+bool spotCategorySupportsContacts(String category) {
+  return contactEnabledSpotCategories.contains(category.trim());
+}
+
+const weekdayLabels = {
+  1: 'Monday',
+  2: 'Tuesday',
+  3: 'Wednesday',
+  4: 'Thursday',
+  5: 'Friday',
+  6: 'Saturday',
+  7: 'Sunday',
+};
+
+class OpeningHoursData {
+  final bool isOpen;
+  final String opensAt;
+  final String closesAt;
+
+  const OpeningHoursData({
+    required this.isOpen,
+    required this.opensAt,
+    required this.closesAt,
+  });
+
+  OpeningHoursData copyWith({
+    bool? isOpen,
+    String? opensAt,
+    String? closesAt,
+  }) {
+    return OpeningHoursData(
+      isOpen: isOpen ?? this.isOpen,
+      opensAt: opensAt ?? this.opensAt,
+      closesAt: closesAt ?? this.closesAt,
+    );
+  }
+
+  factory OpeningHoursData.fromFirebase(Object? value) {
+    final data = mapFromFirebase(value);
+
+    return OpeningHoursData(
+      isOpen: data['isOpen'] == true,
+      opensAt: stringFromFirebase(data['opensAt'], '08:00'),
+      closesAt: stringFromFirebase(data['closesAt'], '20:00'),
+    );
+  }
+
+  Map<String, Object?> toFirebase() {
+    return {
+      'isOpen': isOpen,
+      'opensAt': opensAt,
+      'closesAt': closesAt,
+    };
+  }
+}
+
+Map<int, OpeningHoursData> defaultServiceOpeningHours() {
+  return {
+    for (var weekday = 1; weekday <= 7; weekday++)
+      weekday: OpeningHoursData(
+        isOpen: weekday <= DateTime.friday,
+        opensAt: '08:00',
+        closesAt: '20:00',
+      ),
+  };
+}
+
+Map<int, OpeningHoursData> openingHoursFromFirebase(Object? value) {
+  final data = mapFromFirebase(value);
+  final openingHours = <int, OpeningHoursData>{};
+
+  for (final entry in data.entries) {
+    final weekday = int.tryParse(entry.key);
+    if (weekday == null ||
+        weekday < DateTime.monday ||
+        weekday > DateTime.sunday) {
+      continue;
+    }
+
+    openingHours[weekday] = OpeningHoursData.fromFirebase(entry.value);
+  }
+
+  return openingHours;
+}
+
+Map<String, Object?> openingHoursToFirebase(
+  Map<int, OpeningHoursData> openingHours,
+) {
+  return {
+    for (final entry in openingHours.entries)
+      '${entry.key}': entry.value.toFirebase(),
+  };
+}
+
+int? minutesFromClockText(String value) {
+  final parts = value.trim().split(':');
+  if (parts.length != 2) {
+    return null;
+  }
+
+  final hour = int.tryParse(parts[0]);
+  final minute = int.tryParse(parts[1]);
+  if (hour == null ||
+      minute == null ||
+      hour < 0 ||
+      hour > 23 ||
+      minute < 0 ||
+      minute > 59) {
+    return null;
+  }
+
+  return hour * 60 + minute;
+}
+
+String clockTextFromTimeOfDay(TimeOfDay value) {
+  final hour = value.hour.toString().padLeft(2, '0');
+  final minute = value.minute.toString().padLeft(2, '0');
+  return '$hour:$minute';
+}
+
 const spotCategoryIconAssets = {
   'Stance': 'assets/spot_icons/stance.png',
   'Drift': 'assets/spot_icons/drift.png',
@@ -1112,6 +1240,12 @@ class CarSpot {
   final List<String> photoUrls;
   final String? localPhotoPath;
   final String reelLink;
+  final String contactPhone;
+  final String contactInstagram;
+  final String contactEmail;
+  final Map<int, OpeningHoursData> openingHours;
+  final String ownerUid;
+  final String ownerUsername;
   final String bestTime;
   final String parking;
   final String roadQuality;
@@ -1141,6 +1275,12 @@ class CarSpot {
     this.photoUrls = const [],
     this.localPhotoPath,
     required this.reelLink,
+    this.contactPhone = '',
+    this.contactInstagram = '',
+    this.contactEmail = '',
+    this.openingHours = const {},
+    this.ownerUid = '',
+    this.ownerUsername = '',
     required this.bestTime,
     required this.parking,
     required this.roadQuality,
@@ -1171,6 +1311,12 @@ class CarSpot {
     List<String>? photoUrls,
     String? localPhotoPath,
     String? reelLink,
+    String? contactPhone,
+    String? contactInstagram,
+    String? contactEmail,
+    Map<int, OpeningHoursData>? openingHours,
+    String? ownerUid,
+    String? ownerUsername,
     String? bestTime,
     String? parking,
     String? roadQuality,
@@ -1200,6 +1346,12 @@ class CarSpot {
       photoUrls: photoUrls ?? this.photoUrls,
       localPhotoPath: localPhotoPath ?? this.localPhotoPath,
       reelLink: reelLink ?? this.reelLink,
+      contactPhone: contactPhone ?? this.contactPhone,
+      contactInstagram: contactInstagram ?? this.contactInstagram,
+      contactEmail: contactEmail ?? this.contactEmail,
+      openingHours: openingHours ?? this.openingHours,
+      ownerUid: ownerUid ?? this.ownerUid,
+      ownerUsername: ownerUsername ?? this.ownerUsername,
       bestTime: bestTime ?? this.bestTime,
       parking: parking ?? this.parking,
       roadQuality: roadQuality ?? this.roadQuality,
@@ -1221,6 +1373,19 @@ class CarSpot {
 
   bool get hasTemporaryWindow =>
       isTemporary && startsAtMillis != null && expiresAtMillis != null;
+
+  bool get supportsContacts => categories.any(spotCategorySupportsContacts);
+
+  bool get hasOwner => ownerUid.trim().isNotEmpty;
+
+  bool get hasOpeningHours => openingHours.isNotEmpty;
+
+  bool get hasContactInfo =>
+      supportsContacts &&
+      (contactPhone.trim().isNotEmpty ||
+          contactInstagram.trim().isNotEmpty ||
+          contactEmail.trim().isNotEmpty ||
+          openingHours.isNotEmpty);
 
   bool get isExpired {
     final expiresAt = expiresAtMillis;
@@ -1279,6 +1444,12 @@ class CarSpot {
       photoUrl: stringFromFirebase(data['photoUrl'], ''),
       photoUrls: stringListFromFirebase(data['photoUrls'], const []),
       reelLink: stringFromFirebase(data['reelLink'], ''),
+      contactPhone: stringFromFirebase(data['contactPhone'], ''),
+      contactInstagram: stringFromFirebase(data['contactInstagram'], ''),
+      contactEmail: stringFromFirebase(data['contactEmail'], ''),
+      openingHours: openingHoursFromFirebase(data['openingHours']),
+      ownerUid: stringFromFirebase(data['ownerUid'], ''),
+      ownerUsername: stringFromFirebase(data['ownerUsername'], ''),
       bestTime: stringFromFirebase(data['bestTime'], 'Not reviewed'),
       parking: stringFromFirebase(data['parking'], 'Not reviewed'),
       roadQuality: stringFromFirebase(data['roadQuality'], 'Not reviewed'),
@@ -1395,6 +1566,70 @@ bool localFileExists(String? path) {
 
 CollectionReference<Map<String, dynamic>> usersCollection() {
   return FirebaseFirestore.instance.collection('users');
+}
+
+class SpotOwnerAssignment {
+  final String uid;
+  final String username;
+
+  const SpotOwnerAssignment({required this.uid, required this.username});
+}
+
+Future<SpotOwnerAssignment?> findSpotOwnerAssignment(
+  String rawInput, {
+  SpotOwnerAssignment? currentOwner,
+}) async {
+  final input = rawInput.trim();
+
+  if (input.isEmpty) {
+    return null;
+  }
+
+  final cleanInput = input.startsWith('@') ? input.substring(1) : input;
+
+  if (currentOwner != null &&
+      currentOwner.uid.isNotEmpty &&
+      (cleanInput == currentOwner.uid ||
+          usernameKey(cleanInput) == usernameKey(currentOwner.username))) {
+    return currentOwner;
+  }
+
+  final byUid = await usersCollection().doc(cleanInput).get();
+  if (byUid.exists) {
+    final data = byUid.data() ?? {};
+    return SpotOwnerAssignment(
+      uid: byUid.id,
+      username: stringFromFirebase(data['username'], byUid.id),
+    );
+  }
+
+  final byUsername = await usersCollection()
+      .where('usernameKey', isEqualTo: usernameKey(cleanInput))
+      .limit(1)
+      .get();
+  if (byUsername.docs.isNotEmpty) {
+    final doc = byUsername.docs.first;
+    final data = doc.data();
+    return SpotOwnerAssignment(
+      uid: doc.id,
+      username: stringFromFirebase(data['username'], doc.id),
+    );
+  }
+
+  final byEmail = await usersCollection()
+      .where('email', isEqualTo: input)
+      .limit(1)
+      .get();
+  if (byEmail.docs.isNotEmpty) {
+    final doc = byEmail.docs.first;
+    final data = doc.data();
+    return SpotOwnerAssignment(
+      uid: doc.id,
+      username: stringFromFirebase(data['username'], doc.id),
+    );
+  }
+
+  return null;
 }
 
 CollectionReference<Map<String, dynamic>> liveLocationsCollection() {
@@ -1959,6 +2194,12 @@ bool get currentUserCanUseVerifiedOnlySpots {
   return currentUser.role == UserRole.admin || currentUser.verified;
 }
 
+bool currentUserCanManageSpotBusiness(CarSpot spot) {
+  return spot.supportsContacts &&
+      (currentUser.role == UserRole.admin ||
+          (spot.ownerUid.isNotEmpty && spot.ownerUid == currentUser.uid));
+}
+
 Future<String> detectCityCountryForCoordinates(LatLng coordinates) async {
   try {
     final placemarks = await placemarkFromCoordinates(
@@ -2003,6 +2244,21 @@ double normalizedHeadingDegrees(double value, {double fallback = 0}) {
 double headingRadiansForMap(double headingDegrees, double mapRotationDegrees) {
   return (headingDegrees - mapRotationDegrees) * math.pi / 180;
 }
+
+double bearingBetweenLatLngDegrees(LatLng from, LatLng to) {
+  final lat1 = from.latitude * math.pi / 180;
+  final lat2 = to.latitude * math.pi / 180;
+  final deltaLng = (to.longitude - from.longitude) * math.pi / 180;
+
+  final y = math.sin(deltaLng) * math.cos(lat2);
+  final x =
+      math.cos(lat1) * math.sin(lat2) -
+      math.sin(lat1) * math.cos(lat2) * math.cos(deltaLng);
+  final bearing = math.atan2(y, x) * 180 / math.pi;
+
+  return normalizedHeadingDegrees(bearing + 360);
+}
+
 
 Future<void> createMeetSpotNotificationsForNearbyUsers(CarSpot spot) async {
   if (spot.id.trim().isEmpty || !spot.categories.contains('Meet')) {
@@ -2274,7 +2530,7 @@ Future<String> uploadGarageCarPhoto({
   final timestamp = DateTime.now().millisecondsSinceEpoch;
   final r2Path = photoIndex == 0
       ? 'garage/$userId/car_${carIndex}_cover.jpg'
-      : 'garage/$userId/car_${carIndex}/photo_${photoIndex + 1}_$timestamp.jpg';
+      : 'garage/$userId/car_$carIndex/photo_${photoIndex + 1}_$timestamp.jpg';
 
   return uploadImageToR2(
     r2Path: r2Path,
@@ -2303,6 +2559,12 @@ Map<String, Object?> spotToFirestoreData(
     'photoUrl': spot.photoUrl,
     'photoUrls': spot.photoUrls,
     'reelLink': spot.reelLink,
+    'contactPhone': spot.contactPhone,
+    'contactInstagram': spot.contactInstagram,
+    'contactEmail': spot.contactEmail,
+    'openingHours': openingHoursToFirebase(spot.openingHours),
+    'ownerUid': spot.ownerUid,
+    'ownerUsername': spot.ownerUsername,
     'bestTime': spot.bestTime,
     'parking': spot.parking,
     'roadQuality': spot.roadQuality,
@@ -3551,7 +3813,10 @@ class _MainScreenState extends State<MainScreen> {
         backgroundColor: panel,
         type: BottomNavigationBarType.fixed,
         items: const [
-          BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Explore'),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.location_on),
+            label: 'Spots',
+          ),
           BottomNavigationBarItem(icon: Icon(Icons.map), label: 'Map'),
           BottomNavigationBarItem(
             icon: Icon(Icons.add_circle_outline),
@@ -3999,7 +4264,10 @@ class ExploreCategoryHeader extends StatelessWidget {
             color: color,
             shape: BoxShape.circle,
             boxShadow: [
-              BoxShadow(color: color.withValues(alpha: 0.45), blurRadius: 12),
+              BoxShadow(
+                color: color.withValues(alpha: 0.45),
+                blurRadius: 12,
+              ),
             ],
           ),
         ),
@@ -4016,7 +4284,10 @@ class ExploreCategoryHeader extends StatelessWidget {
         ),
         Text(
           '$count',
-          style: TextStyle(color: color, fontWeight: FontWeight.w900),
+          style: TextStyle(
+            color: color,
+            fontWeight: FontWeight.w900,
+          ),
         ),
       ],
     );
@@ -4030,10 +4301,10 @@ class ExploreSpotCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final visibleCategories = <String>[
+    final visibleCategories = <String>{
       for (final category in spot.categories)
         if (category.trim().isNotEmpty) category.trim(),
-    ].toSet().take(3).toList();
+    }.take(3).toList();
 
     final tagWidgets = <Widget>[
       if (spot.isTemporary)
@@ -4382,8 +4653,9 @@ class MapScreen extends StatefulWidget {
 }
 
 class _MapScreenState extends State<MapScreen> {
+  // Default map view: open Riga area first, do not auto-jump to the user.
   static const rigaCenter = LatLng(56.9496, 24.1052);
-  static const rigaZoom = 12.2;
+  static const rigaZoom = 11.25;
   static const fullSpotIconMinZoom = 10;
   static const navigationZoom = 16.35;
 
@@ -4416,6 +4688,7 @@ class _MapScreenState extends State<MapScreen> {
   double currentMapZoom = rigaZoom;
   double currentMapRotationDegrees = 0;
   double currentUserHeadingDegrees = 0;
+  LatLng? previousUserLocationForHeading;
   bool mapCenteredOnCurrentUser = false;
 
   @override
@@ -4433,7 +4706,6 @@ class _MapScreenState extends State<MapScreen> {
     startLiveLocationSync();
     loadFriendLiveLocationUids();
     startPoliceReportSync();
-    loadInitialUserLocation();
   }
 
   void refreshMap() {
@@ -4667,7 +4939,10 @@ class _MapScreenState extends State<MapScreen> {
                             fontWeight: FontWeight.w800,
                             letterSpacing: 0.2,
                             shadows: const [
-                              Shadow(color: Colors.black, blurRadius: 5),
+                              Shadow(
+                                color: Colors.black,
+                                blurRadius: 5,
+                              ),
                             ],
                           ),
                         ),
@@ -4865,9 +5140,15 @@ class _MapScreenState extends State<MapScreen> {
       rotate: true,
       child: Tooltip(
         message: 'Your location',
-        child: CustomPaint(
-          painter: CurrentUserTrianglePainter(),
-          child: const SizedBox(width: 42, height: 42),
+        child: Transform.rotate(
+          angle: headingRadiansForMap(
+            currentUserHeadingDegrees,
+            currentMapRotationDegrees,
+          ),
+          child: CustomPaint(
+            painter: CurrentUserTrianglePainter(),
+            child: const SizedBox(width: 42, height: 42),
+          ),
         ),
       ),
     );
@@ -5419,17 +5700,18 @@ class _MapScreenState extends State<MapScreen> {
       return;
     }
 
-    await writeLiveLocation(position, renewWindow: true);
+    final location = LatLng(position.latitude, position.longitude);
+    final heading = headingForNewUserLocation(location, position.heading);
+
+    await writeLiveLocation(
+      position,
+      renewWindow: true,
+      headingDegrees: heading,
+    );
 
     if (!mounted) {
       return;
     }
-
-    final location = LatLng(position.latitude, position.longitude);
-    final heading = normalizedHeadingDegrees(
-      position.heading,
-      fallback: currentUserHeadingDegrees,
-    );
 
     setState(() {
       currentUserLocation = location;
@@ -5442,7 +5724,7 @@ class _MapScreenState extends State<MapScreen> {
 
     liveLocationUploadTimer?.cancel();
     liveLocationUploadTimer = Timer.periodic(
-      const Duration(seconds: 15),
+      const Duration(seconds: 3),
       (_) => uploadLatestLiveLocation(),
     );
 
@@ -5468,17 +5750,18 @@ class _MapScreenState extends State<MapScreen> {
       return;
     }
 
-    await writeLiveLocation(position, renewWindow: false);
+    final location = LatLng(position.latitude, position.longitude);
+    final heading = headingForNewUserLocation(location, position.heading);
+
+    await writeLiveLocation(
+      position,
+      renewWindow: false,
+      headingDegrees: heading,
+    );
 
     if (!mounted) {
       return;
     }
-
-    final location = LatLng(position.latitude, position.longitude);
-    final heading = normalizedHeadingDegrees(
-      position.heading,
-      fallback: currentUserHeadingDegrees,
-    );
 
     setState(() {
       currentUserLocation = location;
@@ -5493,6 +5776,7 @@ class _MapScreenState extends State<MapScreen> {
   Future<void> writeLiveLocation(
     Position position, {
     required bool renewWindow,
+    double? headingDegrees,
   }) async {
     final firebaseUser = FirebaseAuth.instance.currentUser;
 
@@ -5519,7 +5803,7 @@ class _MapScreenState extends State<MapScreen> {
       'role': roleName(currentUser.role),
       'verified': currentUser.verified,
       'heading': normalizedHeadingDegrees(
-        position.heading,
+        headingDegrees ?? position.heading,
         fallback: currentUserHeadingDegrees,
       ),
       'lat': position.latitude,
@@ -5574,17 +5858,18 @@ class _MapScreenState extends State<MapScreen> {
       return;
     }
 
-    await writeLiveLocation(position, renewWindow: true);
+    final location = LatLng(position.latitude, position.longitude);
+    final heading = headingForNewUserLocation(location, position.heading);
+
+    await writeLiveLocation(
+      position,
+      renewWindow: true,
+      headingDegrees: heading,
+    );
 
     if (!mounted) {
       return;
     }
-
-    final location = LatLng(position.latitude, position.longitude);
-    final heading = normalizedHeadingDegrees(
-      position.heading,
-      fallback: currentUserHeadingDegrees,
-    );
 
     setState(() {
       isSharingLiveLocation = true;
@@ -5680,11 +5965,9 @@ class _MapScreenState extends State<MapScreen> {
   }
 
   void loadInitialUserLocation() {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) {
-        moveToCurrentLocation(showErrors: false);
-      }
-    });
+    // Intentionally do nothing on map open.
+    // The map should open on Riga spots first. User location is requested only
+    // after pressing the blue "find me" button or enabling live location.
   }
 
   Future<Position?> getMapUserPosition({required bool showErrors}) async {
@@ -5740,6 +6023,35 @@ class _MapScreenState extends State<MapScreen> {
     );
   }
 
+  double headingForNewUserLocation(LatLng nextLocation, double rawHeading) {
+    final previousLocation = previousUserLocationForHeading ?? currentUserLocation;
+    final normalizedRawHeading = normalizedHeadingDegrees(
+      rawHeading,
+      fallback: currentUserHeadingDegrees,
+    );
+
+    if (previousLocation == null) {
+      previousUserLocationForHeading = nextLocation;
+      return normalizedRawHeading;
+    }
+
+    final distanceMeters = distanceBetweenLatLngMeters(
+      previousLocation,
+      nextLocation,
+    );
+
+    previousUserLocationForHeading = nextLocation;
+
+    // GPS heading is often 0 or frozen on some Android devices.
+    // Bearing between the previous and new coordinates makes the car icon turn
+    // correctly instead of visually driving sideways.
+    if (distanceMeters >= 3) {
+      return bearingBetweenLatLngDegrees(previousLocation, nextLocation);
+    }
+
+    return normalizedRawHeading;
+  }
+
   void updateFollowCamera(LatLng location, double headingDegrees) {
     currentMapZoom = navigationZoom;
     currentMapRotationDegrees = headingDegrees;
@@ -5765,10 +6077,7 @@ class _MapScreenState extends State<MapScreen> {
     }
 
     final location = LatLng(position.latitude, position.longitude);
-    final heading = normalizedHeadingDegrees(
-      position.heading,
-      fallback: currentUserHeadingDegrees,
-    );
+    final heading = headingForNewUserLocation(location, position.heading);
 
     setState(() {
       currentUserLocation = location;
@@ -5796,10 +6105,8 @@ class _MapScreenState extends State<MapScreen> {
           FlutterMap(
             mapController: mapController,
             options: MapOptions(
-              initialCenter: currentUserLocation ?? rigaCenter,
-              initialZoom: currentUserLocation == null
-                  ? rigaZoom
-                  : navigationZoom,
+              initialCenter: rigaCenter,
+              initialZoom: rigaZoom,
               initialRotation: currentMapRotationDegrees,
               minZoom: 4,
               maxZoom: 18,
@@ -6137,7 +6444,7 @@ class _MapHeader extends StatelessWidget {
                       scale: 0.74,
                       child: Switch(
                         value: isSharingLiveLocation,
-                        activeColor: blue,
+                        activeThumbColor: blue,
                         onChanged: isBusy ? null : onShareChanged,
                       ),
                     ),
@@ -6970,9 +7277,7 @@ class _SpotPhotoCarouselState extends State<SpotPhotoCarousel> {
                         decoration: BoxDecoration(
                           borderRadius: BorderRadius.circular(14),
                           border: Border.all(
-                            color: currentIndex == index
-                                ? blue
-                                : Colors.white24,
+                            color: currentIndex == index ? blue : Colors.white24,
                             width: currentIndex == index ? 2.2 : 1,
                           ),
                           boxShadow: currentIndex == index
@@ -6989,7 +7294,10 @@ class _SpotPhotoCarouselState extends State<SpotPhotoCarousel> {
                         child: Stack(
                           fit: StackFit.expand,
                           children: [
-                            spotPhotoImage(sources[index], fit: BoxFit.cover),
+                            spotPhotoImage(
+                              sources[index],
+                              fit: BoxFit.cover,
+                            ),
                             if (currentIndex == index)
                               Container(
                                 decoration: BoxDecoration(
@@ -7001,7 +7309,8 @@ class _SpotPhotoCarouselState extends State<SpotPhotoCarousel> {
                       ),
                     ),
                   ),
-                  if (index != sources.length - 1) const SizedBox(width: 8),
+                  if (index != sources.length - 1)
+                    const SizedBox(width: 8),
                 ],
               ],
             ),
@@ -7177,7 +7486,10 @@ class _SpotDetailScreenState extends State<SpotDetailScreen> {
                 const SizedBox(height: 8),
                 Text(
                   spot.cityCountry,
-                  style: const TextStyle(color: Colors.white70, fontSize: 15),
+                  style: const TextStyle(
+                    color: Colors.white70,
+                    fontSize: 15,
+                  ),
                 ),
                 const SizedBox(height: 18),
                 SpotDetailEngagementPanel(
@@ -7237,6 +7549,45 @@ class _SpotDetailScreenState extends State<SpotDetailScreen> {
                 SaveSpotButton(spot: spot),
                 const SizedBox(height: 12),
                 SpotRouteActions(spot: spot),
+                if (spot.supportsContacts) ...[
+                  const SizedBox(height: 24),
+                  SpotBusinessStatusCard(spot: spot),
+                ],
+                if (currentUserCanManageSpotBusiness(spot)) ...[
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: () async {
+                        final updatedSpot = await Navigator.push<CarSpot>(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) =>
+                                ServiceSpotBusinessEditScreen(spot: spot),
+                          ),
+                        );
+
+                        if (updatedSpot != null && mounted) {
+                          setState(() => spot = updatedSpot);
+                        }
+                      },
+                      icon: const Icon(Icons.edit_note),
+                      label: const Text('Edit Service Info'),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: blue,
+                        side: const BorderSide(color: blue),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                      ),
+                    ),
+                  ),
+                ],
+                if (spot.hasContactInfo) ...[
+                  const SizedBox(height: 24),
+                  SpotContactSection(spot: spot),
+                ],
                 const SizedBox(height: 24),
                 const Text(
                   'Video link',
@@ -7282,6 +7633,305 @@ class _SpotDetailScreenState extends State<SpotDetailScreen> {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+Future<void> launchContactUri(BuildContext context, Uri uri) async {
+  final opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
+
+  if (!opened && context.mounted) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        backgroundColor: Colors.redAccent,
+        content: Text(
+          'Could not open this contact.',
+          style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+        ),
+      ),
+    );
+  }
+}
+
+Uri instagramContactUri(String value) {
+  final trimmed = value.trim();
+  final parsed = Uri.tryParse(trimmed);
+
+  if (parsed != null && parsed.hasScheme) {
+    return parsed;
+  }
+
+  var handle = trimmed.startsWith('@') ? trimmed.substring(1) : trimmed;
+  handle = handle.replaceFirst(RegExp(r'^(www\.)?instagram\.com/?'), '');
+  handle = handle.replaceAll(RegExp(r'^/+'), '');
+
+  return Uri.https('instagram.com', handle.isEmpty ? '/' : '/$handle');
+}
+
+class SpotBusinessStatus {
+  final String title;
+  final String subtitle;
+  final IconData icon;
+  final Color color;
+
+  const SpotBusinessStatus({
+    required this.title,
+    required this.subtitle,
+    required this.icon,
+    required this.color,
+  });
+}
+
+String nextOpeningLabel(Map<int, OpeningHoursData> openingHours, int weekday) {
+  for (var offset = 1; offset <= 7; offset++) {
+    final nextWeekday = ((weekday - 1 + offset) % 7) + 1;
+    final nextDay = openingHours[nextWeekday];
+    if (nextDay != null && nextDay.isOpen) {
+      return '${weekdayLabels[nextWeekday] ?? 'Next day'} at ${nextDay.opensAt}';
+    }
+  }
+
+  return 'No upcoming opening hours';
+}
+
+SpotBusinessStatus businessStatusForSpot(CarSpot spot) {
+  if (spot.openingHours.isEmpty) {
+    return const SpotBusinessStatus(
+      title: 'Hours not added',
+      subtitle: 'The owner has not added opening hours yet.',
+      icon: Icons.schedule,
+      color: Colors.white54,
+    );
+  }
+
+  final now = DateTime.now();
+  final today = spot.openingHours[now.weekday];
+  final weekdayName = weekdayLabels[now.weekday] ?? 'Today';
+
+  if (today == null || !today.isOpen) {
+    return SpotBusinessStatus(
+      title: 'Closed today',
+      subtitle: '$weekdayName is marked as closed.',
+      icon: Icons.close,
+      color: Colors.redAccent,
+    );
+  }
+
+  final opensAt = minutesFromClockText(today.opensAt);
+  final closesAt = minutesFromClockText(today.closesAt);
+  final nowMinutes = now.hour * 60 + now.minute;
+
+  if (opensAt == null || closesAt == null) {
+    return const SpotBusinessStatus(
+      title: 'Hours need update',
+      subtitle: 'Opening hours are not formatted correctly.',
+      icon: Icons.error_outline,
+      color: Colors.orangeAccent,
+    );
+  }
+
+  final isOpenNow = closesAt > opensAt
+      ? nowMinutes >= opensAt && nowMinutes < closesAt
+      : nowMinutes >= opensAt || nowMinutes < closesAt;
+
+  if (isOpenNow) {
+    return SpotBusinessStatus(
+      title: 'Open now',
+      subtitle: 'Today ${today.opensAt} - ${today.closesAt}',
+      icon: Icons.check,
+      color: Colors.greenAccent,
+    );
+  }
+
+  if (closesAt > opensAt && nowMinutes < opensAt) {
+    return SpotBusinessStatus(
+      title: 'Closed now',
+      subtitle: 'Opens today at ${today.opensAt}',
+      icon: Icons.close,
+      color: Colors.redAccent,
+    );
+  }
+
+  return SpotBusinessStatus(
+    title: 'Closed now',
+    subtitle: 'Opens ${nextOpeningLabel(spot.openingHours, now.weekday)}',
+    icon: Icons.close,
+    color: Colors.redAccent,
+  );
+}
+
+class SpotBusinessStatusCard extends StatelessWidget {
+  final CarSpot spot;
+
+  const SpotBusinessStatusCard({super.key, required this.spot});
+
+  @override
+  Widget build(BuildContext context) {
+    final status = businessStatusForSpot(spot);
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: panel,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: status.color.withValues(alpha: 0.45)),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 36,
+            height: 36,
+            decoration: BoxDecoration(
+              color: status.color.withValues(alpha: 0.15),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(status.icon, color: status.color, size: 20),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  status.title,
+                  style: TextStyle(
+                    color: status.color,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  status.subtitle,
+                  style: const TextStyle(color: Colors.white60),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class SpotContactSection extends StatelessWidget {
+  final CarSpot spot;
+
+  const SpotContactSection({super.key, required this.spot});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Contacts',
+          style: TextStyle(
+            color: Colors.white,
+            fontSize: 18,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+        const SizedBox(height: 10),
+        Container(
+          decoration: BoxDecoration(
+            color: panel,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: Colors.white12),
+          ),
+          child: Column(
+            children: [
+              if (spot.contactPhone.trim().isNotEmpty)
+                _SpotContactTile(
+                  icon: Icons.phone,
+                  label: 'Phone',
+                  value: spot.contactPhone,
+                  onTap: () => launchContactUri(
+                    context,
+                    Uri(scheme: 'tel', path: spot.contactPhone.trim()),
+                  ),
+                ),
+              if (spot.contactInstagram.trim().isNotEmpty)
+                _SpotContactTile(
+                  icon: Icons.alternate_email,
+                  label: 'Instagram',
+                  value: spot.contactInstagram,
+                  onTap: () => launchContactUri(
+                    context,
+                    instagramContactUri(spot.contactInstagram),
+                  ),
+                ),
+              if (spot.contactEmail.trim().isNotEmpty)
+                _SpotContactTile(
+                  icon: Icons.email_outlined,
+                  label: 'Email',
+                  value: spot.contactEmail,
+                  onTap: () => launchContactUri(
+                    context,
+                    Uri(scheme: 'mailto', path: spot.contactEmail.trim()),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _SpotContactTile extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String value;
+  final VoidCallback onTap;
+
+  const _SpotContactTile({
+    required this.icon,
+    required this.label,
+    required this.value,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        child: Row(
+          children: [
+            Icon(icon, color: blue, size: 21),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    label,
+                    style: const TextStyle(
+                      color: Colors.white54,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    value,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 10),
+            const Icon(Icons.open_in_new, color: Colors.white38, size: 18),
+          ],
+        ),
       ),
     );
   }
@@ -8188,7 +8838,7 @@ class _SpotCategoryDropdown extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return DropdownButtonFormField<String>(
-      value: value,
+      initialValue: value,
       dropdownColor: panel,
       iconEnabledColor: blue,
       decoration: InputDecoration(
@@ -8257,6 +8907,10 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
   final addressController = TextEditingController();
   final descriptionController = TextEditingController();
   final reelController = TextEditingController();
+  final phoneController = TextEditingController();
+  final instagramController = TextEditingController();
+  final emailController = TextEditingController();
+  final ownerController = TextEditingController();
   final addedByController = TextEditingController();
 
   final categoryOptions = spotCategoryOptions;
@@ -8270,6 +8924,7 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
   bool isTemporarySpot = false;
   DateTime? temporaryStartsAt;
   DateTime? temporaryExpiresAt;
+  Map<int, OpeningHoursData> openingHours = defaultServiceOpeningHours();
   bool isSubmitting = false;
 
   @override
@@ -8285,6 +8940,10 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
     addressController.dispose();
     descriptionController.dispose();
     reelController.dispose();
+    phoneController.dispose();
+    instagramController.dispose();
+    emailController.dispose();
+    ownerController.dispose();
     addedByController.dispose();
     super.dispose();
   }
@@ -8630,6 +9289,35 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
 
     final location = selectedLocation!;
     final categories = [selectedCategory];
+    final supportsContacts = spotCategorySupportsContacts(selectedCategory);
+    SpotOwnerAssignment? owner;
+
+    if (supportsContacts &&
+        currentUser.role == UserRole.admin &&
+        ownerController.text.trim().isNotEmpty) {
+      owner = await findSpotOwnerAssignment(ownerController.text.trim());
+
+      if (owner == null) {
+        if (!mounted) {
+          return;
+        }
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            backgroundColor: Colors.redAccent,
+            content: Text(
+              'Owner not found. Use username, email, or user ID.',
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        );
+        return;
+      }
+    }
+
     final isAdminCreatedSpot = currentUser.role == UserRole.admin;
     final initialStatus = isAdminCreatedSpot
         ? SpotStatus.approved
@@ -8654,10 +9342,14 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
       categories: categories,
       rating: isAdminCreatedSpot ? 4.5 : 0,
       photoUrl: '',
-      localPhotoPath: selectedPhotoPaths.isEmpty
-          ? null
-          : selectedPhotoPaths.first,
+      localPhotoPath: selectedPhotoPaths.isEmpty ? null : selectedPhotoPaths.first,
       reelLink: reelController.text.trim(),
+      contactPhone: supportsContacts ? phoneController.text.trim() : '',
+      contactInstagram: supportsContacts ? instagramController.text.trim() : '',
+      contactEmail: supportsContacts ? emailController.text.trim() : '',
+      openingHours: supportsContacts ? openingHours : const {},
+      ownerUid: supportsContacts ? (owner?.uid ?? '') : '',
+      ownerUsername: supportsContacts ? (owner?.username ?? '') : '',
       bestTime: 'Not reviewed',
       parking: 'Not reviewed',
       roadQuality: 'Not reviewed',
@@ -8925,6 +9617,52 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
             ],
           ),
           const SizedBox(height: 16),
+          if (spotCategorySupportsContacts(selectedCategory)) ...[
+            _AddSpotSection(
+              title: 'Contacts',
+              children: [
+                _CcsTextField(
+                  controller: phoneController,
+                  label: 'Phone',
+                  hint: '+371 20 000 000',
+                  icon: Icons.phone,
+                  keyboardType: TextInputType.phone,
+                ),
+                _CcsTextField(
+                  controller: instagramController,
+                  label: 'Instagram',
+                  hint: '@ccs.lv or https://instagram.com/ccs.lv',
+                  icon: Icons.alternate_email,
+                  keyboardType: TextInputType.url,
+                ),
+                _CcsTextField(
+                  controller: emailController,
+                  label: 'Email',
+                  hint: 'hello@ccs.lv',
+                  icon: Icons.email_outlined,
+                  keyboardType: TextInputType.emailAddress,
+                ),
+                if (currentUser.role == UserRole.admin)
+                  _CcsTextField(
+                    controller: ownerController,
+                    label: 'Spot owner',
+                    hint: '@username, email, or user ID',
+                    icon: Icons.manage_accounts,
+                  ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            _AddSpotSection(
+              title: 'Opening hours',
+              children: [
+                OpeningHoursEditor(
+                  openingHours: openingHours,
+                  onChanged: (value) => setState(() => openingHours = value),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+          ],
           _AddSpotSection(
             title: 'Media',
             children: [
@@ -8990,6 +9728,7 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
     );
   }
 }
+
 
 class _PendingBadge extends StatelessWidget {
   final SpotStatus status;
@@ -9160,7 +9899,10 @@ class _SubmittedSpotTile extends StatelessWidget {
                     children: [
                       _PendingBadge(status: spot.status),
                       for (final category in spot.categories.take(2))
-                        _SmallTag(label: category, icon: Icons.local_offer),
+                        _SmallTag(
+                          label: category,
+                          icon: Icons.local_offer,
+                        ),
                     ],
                   ),
                 ],
@@ -9804,6 +10546,356 @@ class _CcsTextField extends StatelessWidget {
   }
 }
 
+class OpeningHoursEditor extends StatelessWidget {
+  final Map<int, OpeningHoursData> openingHours;
+  final ValueChanged<Map<int, OpeningHoursData>> onChanged;
+
+  const OpeningHoursEditor({
+    super.key,
+    required this.openingHours,
+    required this.onChanged,
+  });
+
+  OpeningHoursData dayData(int weekday) {
+    return openingHours[weekday] ??
+        const OpeningHoursData(
+          isOpen: false,
+          opensAt: '08:00',
+          closesAt: '20:00',
+        );
+  }
+
+  void updateDay(int weekday, OpeningHoursData value) {
+    onChanged({...openingHours, weekday: value});
+  }
+
+  Future<void> pickTime({
+    required BuildContext context,
+    required int weekday,
+    required bool opensAt,
+  }) async {
+    final day = dayData(weekday);
+    final currentValue = opensAt ? day.opensAt : day.closesAt;
+    final currentMinutes = minutesFromClockText(currentValue) ?? 8 * 60;
+    final picked = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay(
+        hour: currentMinutes ~/ 60,
+        minute: currentMinutes % 60,
+      ),
+      builder: (context, child) {
+        return Theme(data: ThemeData.dark(), child: child!);
+      },
+    );
+
+    if (picked == null) {
+      return;
+    }
+
+    final nextTime = clockTextFromTimeOfDay(picked);
+    updateDay(
+      weekday,
+      opensAt ? day.copyWith(opensAt: nextTime) : day.copyWith(closesAt: nextTime),
+    );
+  }
+
+  Widget timeButton({
+    required BuildContext context,
+    required int weekday,
+    required bool opensAt,
+    required String value,
+  }) {
+    return OutlinedButton.icon(
+      onPressed: () => pickTime(
+        context: context,
+        weekday: weekday,
+        opensAt: opensAt,
+      ),
+      icon: Icon(opensAt ? Icons.login : Icons.logout, size: 16),
+      label: Text(value),
+      style: OutlinedButton.styleFrom(
+        foregroundColor: Colors.white,
+        side: const BorderSide(color: Colors.white24),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        for (var weekday = DateTime.monday; weekday <= DateTime.sunday; weekday++)
+          Padding(
+            padding: EdgeInsets.only(
+              bottom: weekday == DateTime.sunday ? 0 : 10,
+            ),
+            child: Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.06),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: Colors.white12),
+              ),
+              child: Column(
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          weekdayLabels[weekday] ?? 'Day',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ),
+                      Switch(
+                        value: dayData(weekday).isOpen,
+                        activeThumbColor: blue,
+                        onChanged: (value) => updateDay(
+                          weekday,
+                          dayData(weekday).copyWith(isOpen: value),
+                        ),
+                      ),
+                    ],
+                  ),
+                  if (dayData(weekday).isOpen) ...[
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: timeButton(
+                            context: context,
+                            weekday: weekday,
+                            opensAt: true,
+                            value: dayData(weekday).opensAt,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: timeButton(
+                            context: context,
+                            weekday: weekday,
+                            opensAt: false,
+                            value: dayData(weekday).closesAt,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ] else
+                    const Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        'Closed',
+                        style: TextStyle(color: Colors.white54),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class ServiceSpotBusinessEditScreen extends StatefulWidget {
+  final CarSpot spot;
+
+  const ServiceSpotBusinessEditScreen({super.key, required this.spot});
+
+  @override
+  State<ServiceSpotBusinessEditScreen> createState() =>
+      _ServiceSpotBusinessEditScreenState();
+}
+
+class _ServiceSpotBusinessEditScreenState
+    extends State<ServiceSpotBusinessEditScreen> {
+  late final TextEditingController phoneController;
+  late final TextEditingController instagramController;
+  late final TextEditingController emailController;
+  late Map<int, OpeningHoursData> openingHours;
+  bool isSaving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    phoneController = TextEditingController(text: widget.spot.contactPhone);
+    instagramController = TextEditingController(
+      text: widget.spot.contactInstagram,
+    );
+    emailController = TextEditingController(text: widget.spot.contactEmail);
+    openingHours = widget.spot.openingHours.isEmpty
+        ? defaultServiceOpeningHours()
+        : {...widget.spot.openingHours};
+  }
+
+  @override
+  void dispose() {
+    phoneController.dispose();
+    instagramController.dispose();
+    emailController.dispose();
+    super.dispose();
+  }
+
+  Future<void> saveBusinessInfo() async {
+    if (isSaving) {
+      return;
+    }
+
+    if (!currentUserCanManageSpotBusiness(widget.spot)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          backgroundColor: Colors.redAccent,
+          content: Text(
+            'Only the assigned owner or an admin can edit this spot.',
+            style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+          ),
+        ),
+      );
+      return;
+    }
+
+    setState(() => isSaving = true);
+
+    try {
+      final updatedSpot = widget.spot.copyWith(
+        contactPhone: phoneController.text.trim(),
+        contactInstagram: instagramController.text.trim(),
+        contactEmail: emailController.text.trim(),
+        openingHours: openingHours,
+      );
+
+      await spotsCollection().doc(widget.spot.id).update({
+        'contactPhone': updatedSpot.contactPhone,
+        'contactInstagram': updatedSpot.contactInstagram,
+        'contactEmail': updatedSpot.contactEmail,
+        'openingHours': openingHoursToFirebase(updatedSpot.openingHours),
+        'businessEditedBy': currentUser.username,
+        'businessEditedByUid': currentUser.uid,
+        'businessEditedAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+
+      reviewSpots.value = reviewSpots.value
+          .map((item) => isSameSpot(item, widget.spot) ? updatedSpot : item)
+          .toList();
+      submittedSpots.value = submittedSpots.value
+          .map((item) => isSameSpot(item, widget.spot) ? updatedSpot : item)
+          .toList();
+      savedSpots.value = savedSpots.value
+          .map((item) => isSameSpot(item, widget.spot) ? updatedSpot : item)
+          .toList();
+
+      if (!mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          backgroundColor: blue,
+          content: Text(
+            'Service info updated.',
+            style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+          ),
+        ),
+      );
+      Navigator.pop(context, updatedSpot);
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: Colors.redAccent,
+          content: Text(
+            'Could not update service info: $error',
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => isSaving = false);
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        title: const Text('Service Info'),
+        backgroundColor: Colors.black,
+        foregroundColor: blue,
+      ),
+      body: ListView(
+        padding: const EdgeInsets.fromLTRB(20, 18, 20, 28),
+        children: [
+          _AddSpotSection(
+            title: 'Contacts',
+            children: [
+              _CcsTextField(
+                controller: phoneController,
+                label: 'Phone',
+                hint: '+371 20 000 000',
+                icon: Icons.phone,
+                keyboardType: TextInputType.phone,
+              ),
+              _CcsTextField(
+                controller: instagramController,
+                label: 'Instagram',
+                hint: '@ccs.lv or https://instagram.com/ccs.lv',
+                icon: Icons.alternate_email,
+                keyboardType: TextInputType.url,
+              ),
+              _CcsTextField(
+                controller: emailController,
+                label: 'Email',
+                hint: 'hello@ccs.lv',
+                icon: Icons.email_outlined,
+                keyboardType: TextInputType.emailAddress,
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          _AddSpotSection(
+            title: 'Opening hours',
+            children: [
+              OpeningHoursEditor(
+                openingHours: openingHours,
+                onChanged: (value) => setState(() => openingHours = value),
+              ),
+            ],
+          ),
+          const SizedBox(height: 22),
+          SizedBox(
+            height: 54,
+            child: ElevatedButton.icon(
+              onPressed: isSaving ? null : saveBusinessInfo,
+              icon: Icon(isSaving ? Icons.hourglass_top : Icons.save),
+              label: Text(isSaving ? 'Saving...' : 'Save Service Info'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: blue,
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(18),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class SavedScreen extends StatelessWidget {
   const SavedScreen({super.key});
 
@@ -9935,8 +11027,7 @@ class GarageCar {
     List<String>? photoPaths,
   }) {
     final nextPhotoPaths = photoPaths ?? this.photoPaths;
-    final nextPhotoPath =
-        photoPath ??
+    final nextPhotoPath = photoPath ??
         (nextPhotoPaths.isNotEmpty ? nextPhotoPaths.first : this.photoPath);
 
     return GarageCar(
@@ -9991,6 +11082,7 @@ class GarageCar {
     };
   }
 }
+
 
 List<GarageCar> defaultGarageCars() {
   return const [
@@ -10116,6 +11208,7 @@ Future<void> saveGarageToFirebase(List<GarageCar> cars) async {
     'garage': uploadedCars.map((car) => car.toFirebase()).toList(),
   });
 }
+
 
 Future<void> saveSettingsToFirebase(UserSettingsData settings) async {
   userSettings.value = settings;
@@ -10613,7 +11706,7 @@ class _FriendsScreenState extends State<FriendsScreen> {
                 ? Image.network(
                     photoUrl,
                     fit: BoxFit.cover,
-                    errorBuilder: (_, __, ___) => Center(
+                    errorBuilder: (_, _, _) => Center(
                       child: Text(
                         username.substring(0, 1).toUpperCase(),
                         style: const TextStyle(
@@ -11366,6 +12459,7 @@ class _ProfileStatTile extends StatelessWidget {
   }
 }
 
+
 class _GarageGalleryHeader extends StatefulWidget {
   final GarageCar car;
 
@@ -11388,8 +12482,10 @@ class _GarageGalleryHeaderState extends State<_GarageGalleryHeader> {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) =>
-            GaragePhotoGalleryScreen(car: widget.car, initialIndex: index),
+        builder: (_) => GaragePhotoGalleryScreen(
+          car: widget.car,
+          initialIndex: index,
+        ),
       ),
     );
   }
@@ -11415,10 +12511,7 @@ class _GarageGalleryHeaderState extends State<_GarageGalleryHeader> {
                   onTap: () => openGallery(currentIndex),
                   child: photos.isEmpty
                       ? const _GaragePhotoFallback()
-                      : garagePhotoImage(
-                          photos[currentIndex],
-                          fit: BoxFit.cover,
-                        ),
+                      : garagePhotoImage(photos[currentIndex], fit: BoxFit.cover),
                 ),
                 Container(
                   decoration: BoxDecoration(
@@ -11437,10 +12530,7 @@ class _GarageGalleryHeaderState extends State<_GarageGalleryHeader> {
                     top: 12,
                     right: 12,
                     child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 9,
-                        vertical: 5,
-                      ),
+                      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
                       decoration: BoxDecoration(
                         color: Colors.black.withValues(alpha: 0.65),
                         borderRadius: BorderRadius.circular(999),
@@ -11506,9 +12596,7 @@ class _GarageGalleryHeaderState extends State<_GarageGalleryHeader> {
                           decoration: BoxDecoration(
                             borderRadius: BorderRadius.circular(14),
                             border: Border.all(
-                              color: currentIndex == index
-                                  ? blue
-                                  : Colors.white24,
+                              color: currentIndex == index ? blue : Colors.white24,
                               width: currentIndex == index ? 2.2 : 1,
                             ),
                             boxShadow: currentIndex == index
@@ -11525,10 +12613,7 @@ class _GarageGalleryHeaderState extends State<_GarageGalleryHeader> {
                           child: Stack(
                             fit: StackFit.expand,
                             children: [
-                              garagePhotoImage(
-                                photos[index],
-                                fit: BoxFit.cover,
-                              ),
+                              garagePhotoImage(photos[index], fit: BoxFit.cover),
                               if (currentIndex == index)
                                 Container(
                                   decoration: BoxDecoration(
@@ -11562,8 +12647,7 @@ class GaragePhotoGalleryScreen extends StatefulWidget {
   });
 
   @override
-  State<GaragePhotoGalleryScreen> createState() =>
-      _GaragePhotoGalleryScreenState();
+  State<GaragePhotoGalleryScreen> createState() => _GaragePhotoGalleryScreenState();
 }
 
 class _GaragePhotoGalleryScreenState extends State<GaragePhotoGalleryScreen> {
@@ -11573,10 +12657,7 @@ class _GaragePhotoGalleryScreenState extends State<GaragePhotoGalleryScreen> {
   @override
   void initState() {
     super.initState();
-    currentIndex = widget.initialIndex.clamp(
-      0,
-      widget.car.galleryPhotos.length - 1,
-    );
+    currentIndex = widget.initialIndex.clamp(0, widget.car.galleryPhotos.length - 1);
     controller = PageController(initialPage: currentIndex);
   }
 
@@ -11595,13 +12676,8 @@ class _GaragePhotoGalleryScreenState extends State<GaragePhotoGalleryScreen> {
       appBar: AppBar(
         backgroundColor: Colors.black,
         title: Text(
-          photos.isEmpty
-              ? widget.car.name
-              : '${widget.car.name}  ${currentIndex + 1}/${photos.length}',
-          style: const TextStyle(
-            color: Colors.white,
-            fontWeight: FontWeight.w800,
-          ),
+          photos.isEmpty ? widget.car.name : '${widget.car.name}  ${currentIndex + 1}/${photos.length}',
+          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800),
         ),
       ),
       body: photos.isEmpty
@@ -11681,6 +12757,7 @@ class _GarageCard extends StatelessWidget {
     );
   }
 }
+
 
 class _ProfileSocialLinksSection extends StatelessWidget {
   const _ProfileSocialLinksSection();
@@ -11894,6 +12971,7 @@ Widget garagePhotoImage(
   return const _GaragePhotoFallback();
 }
 
+
 class _GaragePhotoFallback extends StatelessWidget {
   const _GaragePhotoFallback();
 
@@ -11969,9 +13047,12 @@ class _ProfileSubmissionsPreview extends StatelessWidget {
     final summary = spots.isEmpty
         ? 'No spots created yet.'
         : [
-            if (pendingCount > 0) '$pendingCount pending review',
-            if (liveCount > 0) '$liveCount live',
-            if (rejectedCount > 0) '$rejectedCount rejected',
+            if (pendingCount > 0)
+              '$pendingCount pending review',
+            if (liveCount > 0)
+              '$liveCount live',
+            if (rejectedCount > 0)
+              '$rejectedCount rejected',
           ].join(' • ');
 
     return Container(
@@ -11993,7 +13074,10 @@ class _ProfileSubmissionsPreview extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 8),
-          Text(summary, style: const TextStyle(color: Colors.white54)),
+          Text(
+            summary,
+            style: const TextStyle(color: Colors.white54),
+          ),
           if (latest != null) ...[
             const SizedBox(height: 14),
             Row(
@@ -12276,8 +13360,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                               },
                             )
                           : (isNetworkUrl(avatarPath) ||
-                                (currentUser.photoUrl?.trim().isNotEmpty ??
-                                    false))
+                                (currentUser.photoUrl?.trim().isNotEmpty ?? false))
                           ? Image.network(
                               isNetworkUrl(avatarPath)
                                   ? avatarPath!
@@ -12291,11 +13374,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                                 );
                               },
                             )
-                          : const Icon(
-                              Icons.add_a_photo,
-                              color: blue,
-                              size: 34,
-                            ),
+                          : const Icon(Icons.add_a_photo, color: blue, size: 34),
                     ),
                   ),
                 ),
@@ -12394,9 +13473,7 @@ class _EditGarageScreenState extends State<EditGarageScreen> {
           car?.description ??
           'Short description about your car, setup, and what content you shoot.',
     );
-    photoPaths = [
-      ...(car?.galleryPhotos ?? const <String>[]),
-    ].take(maxGaragePhotos).toList();
+    photoPaths = [...(car?.galleryPhotos ?? const <String>[])].take(maxGaragePhotos).toList();
   }
 
   @override
@@ -12417,9 +13494,7 @@ class _EditGarageScreenState extends State<EditGarageScreen> {
       return;
     }
 
-    setState(
-      () => photoPaths = [...photoPaths, path].take(maxGaragePhotos).toList(),
-    );
+    setState(() => photoPaths = [...photoPaths, path].take(maxGaragePhotos).toList());
   }
 
   void removeCarPhoto(int index) {
@@ -12671,6 +13746,7 @@ class _GaragePhotoPickerField extends StatelessWidget {
     );
   }
 }
+
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -13113,7 +14189,7 @@ class AdminVerifiedUsersScreen extends StatelessWidget {
                         ),
                         Switch(
                           value: user.verified,
-                          activeColor: blue,
+                          activeThumbColor: blue,
                           onChanged: user.role == UserRole.admin
                               ? null
                               : (value) =>
@@ -13542,6 +14618,7 @@ class _AdminStatusBadge extends StatelessWidget {
   }
 }
 
+
 Future<void> openAdminEditSpot(
   BuildContext context,
   CarSpot spot, {
@@ -13571,10 +14648,15 @@ class _AdminEditSpotScreenState extends State<AdminEditSpotScreen> {
   late final TextEditingController cityController;
   late final TextEditingController descriptionController;
   late final TextEditingController reelController;
+  late final TextEditingController phoneController;
+  late final TextEditingController instagramController;
+  late final TextEditingController emailController;
+  late final TextEditingController ownerController;
   late String selectedCategory;
   late bool verifiedOnlySpot;
   late final List<String> existingPhotoUrls;
   final List<String> newPhotoPaths = [];
+  late Map<int, OpeningHoursData> openingHours;
   bool isSaving = false;
 
   int get totalPhotoCount => existingPhotoUrls.length + newPhotoPaths.length;
@@ -13584,12 +14666,23 @@ class _AdminEditSpotScreenState extends State<AdminEditSpotScreen> {
     super.initState();
     nameController = TextEditingController(text: widget.spot.name);
     cityController = TextEditingController(text: widget.spot.cityCountry);
-    descriptionController = TextEditingController(
-      text: widget.spot.description,
-    );
+    descriptionController = TextEditingController(text: widget.spot.description);
     reelController = TextEditingController(text: widget.spot.reelLink);
+    phoneController = TextEditingController(text: widget.spot.contactPhone);
+    instagramController = TextEditingController(
+      text: widget.spot.contactInstagram,
+    );
+    emailController = TextEditingController(text: widget.spot.contactEmail);
+    ownerController = TextEditingController(
+      text: widget.spot.ownerUsername.isNotEmpty
+          ? widget.spot.ownerUsername
+          : widget.spot.ownerUid,
+    );
     selectedCategory = primarySpotCategory(widget.spot);
     verifiedOnlySpot = widget.spot.verifiedOnly;
+    openingHours = widget.spot.openingHours.isEmpty
+        ? defaultServiceOpeningHours()
+        : {...widget.spot.openingHours};
     existingPhotoUrls = <String>[];
 
     void addExistingUrl(String value) {
@@ -13613,6 +14706,10 @@ class _AdminEditSpotScreenState extends State<AdminEditSpotScreen> {
     cityController.dispose();
     descriptionController.dispose();
     reelController.dispose();
+    phoneController.dispose();
+    instagramController.dispose();
+    emailController.dispose();
+    ownerController.dispose();
     super.dispose();
   }
 
@@ -13664,6 +14761,34 @@ class _AdminEditSpotScreenState extends State<AdminEditSpotScreen> {
     final cleanCity = cityController.text.trim();
     final cleanDescription = descriptionController.text.trim();
     final cleanReel = reelController.text.trim();
+    final cleanPhone = phoneController.text.trim();
+    final cleanInstagram = instagramController.text.trim();
+    final cleanEmail = emailController.text.trim();
+    final supportsContacts = spotCategorySupportsContacts(selectedCategory);
+    SpotOwnerAssignment? owner;
+
+    if (supportsContacts && ownerController.text.trim().isNotEmpty) {
+      owner = await findSpotOwnerAssignment(
+        ownerController.text.trim(),
+        currentOwner: SpotOwnerAssignment(
+          uid: widget.spot.ownerUid,
+          username: widget.spot.ownerUsername,
+        ),
+      );
+
+      if (owner == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            backgroundColor: Colors.redAccent,
+            content: Text(
+              'Owner not found. Use username, email, or user ID.',
+              style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+            ),
+          ),
+        );
+        return;
+      }
+    }
 
     if (firebaseUser == null) {
       showAdminActionError(
@@ -13724,6 +14849,12 @@ class _AdminEditSpotScreenState extends State<AdminEditSpotScreen> {
         description: cleanDescription,
         categories: [selectedCategory],
         reelLink: cleanReel,
+        contactPhone: supportsContacts ? cleanPhone : '',
+        contactInstagram: supportsContacts ? cleanInstagram : '',
+        contactEmail: supportsContacts ? cleanEmail : '',
+        openingHours: supportsContacts ? openingHours : const {},
+        ownerUid: supportsContacts ? (owner?.uid ?? '') : '',
+        ownerUsername: supportsContacts ? (owner?.username ?? '') : '',
         photoUrl: finalPhotoUrls.isEmpty ? '' : finalPhotoUrls.first,
         photoUrls: finalPhotoUrls,
         verifiedOnly: verifiedOnlySpot,
@@ -13735,6 +14866,12 @@ class _AdminEditSpotScreenState extends State<AdminEditSpotScreen> {
         'description': updatedSpot.description,
         'categories': updatedSpot.categories,
         'reelLink': updatedSpot.reelLink,
+        'contactPhone': updatedSpot.contactPhone,
+        'contactInstagram': updatedSpot.contactInstagram,
+        'contactEmail': updatedSpot.contactEmail,
+        'openingHours': openingHoursToFirebase(updatedSpot.openingHours),
+        'ownerUid': updatedSpot.ownerUid,
+        'ownerUsername': updatedSpot.ownerUsername,
         'photoUrl': updatedSpot.photoUrl,
         'photoUrls': updatedSpot.photoUrls,
         'verifiedOnly': updatedSpot.verifiedOnly,
@@ -13799,16 +14936,20 @@ class _AdminEditSpotScreenState extends State<AdminEditSpotScreen> {
             width: 88,
             height: 88,
             fit: BoxFit.cover,
-            errorBuilder: (_, _, _) =>
-                _SpotPhotoPlaceholder(width: 88, height: 88),
+            errorBuilder: (_, _, _) => _SpotPhotoPlaceholder(
+              width: 88,
+              height: 88,
+            ),
           )
         : Image.network(
             source,
             width: 88,
             height: 88,
             fit: BoxFit.cover,
-            errorBuilder: (_, _, _) =>
-                _SpotPhotoPlaceholder(width: 88, height: 88),
+            errorBuilder: (_, _, _) => _SpotPhotoPlaceholder(
+              width: 88,
+              height: 88,
+            ),
           );
 
     return Stack(
@@ -13903,6 +15044,51 @@ class _AdminEditSpotScreenState extends State<AdminEditSpotScreen> {
             ],
           ),
           const SizedBox(height: 16),
+          if (spotCategorySupportsContacts(selectedCategory)) ...[
+            _AddSpotSection(
+              title: 'Contacts',
+              children: [
+                _CcsTextField(
+                  controller: phoneController,
+                  label: 'Phone',
+                  hint: '+371 20 000 000',
+                  icon: Icons.phone,
+                  keyboardType: TextInputType.phone,
+                ),
+                _CcsTextField(
+                  controller: instagramController,
+                  label: 'Instagram',
+                  hint: '@ccs.lv or https://instagram.com/ccs.lv',
+                  icon: Icons.alternate_email,
+                  keyboardType: TextInputType.url,
+                ),
+                _CcsTextField(
+                  controller: emailController,
+                  label: 'Email',
+                  hint: 'hello@ccs.lv',
+                  icon: Icons.email_outlined,
+                  keyboardType: TextInputType.emailAddress,
+                ),
+                _CcsTextField(
+                  controller: ownerController,
+                  label: 'Spot owner',
+                  hint: '@username, email, or user ID',
+                  icon: Icons.manage_accounts,
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            _AddSpotSection(
+              title: 'Opening hours',
+              children: [
+                OpeningHoursEditor(
+                  openingHours: openingHours,
+                  onChanged: (value) => setState(() => openingHours = value),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+          ],
           _AddSpotSection(
             title: 'Category',
             children: [
@@ -13929,8 +15115,7 @@ class _AdminEditSpotScreenState extends State<AdminEditSpotScreen> {
                   subtitle:
                       'Only verified users and admins can see this spot after approval',
                   value: verifiedOnlySpot,
-                  onChanged: (value) =>
-                      setState(() => verifiedOnlySpot = value),
+                  onChanged: (value) => setState(() => verifiedOnlySpot = value),
                 ),
               ],
             ),
@@ -14008,11 +15193,7 @@ class _AdminEditSpotScreenState extends State<AdminEditSpotScreen> {
                   spacing: 10,
                   runSpacing: 10,
                   children: [
-                    for (
-                      var index = 0;
-                      index < existingPhotoUrls.length;
-                      index++
-                    )
+                    for (var index = 0; index < existingPhotoUrls.length; index++)
                       photoThumb(
                         index: index,
                         label: index == 0 ? 'Cover' : '${index + 1}',
@@ -14131,8 +15312,11 @@ class AdminSpotReviewScreen extends StatelessWidget {
         actions: [
           IconButton(
             tooltip: 'Edit spot',
-            onPressed: () =>
-                openAdminEditSpot(context, spot, popAfterSave: true),
+            onPressed: () => openAdminEditSpot(
+              context,
+              spot,
+              popAfterSave: true,
+            ),
             icon: const Icon(Icons.edit_outlined),
           ),
         ],
@@ -14236,8 +15420,11 @@ class AdminSpotReviewScreen extends StatelessWidget {
           SizedBox(
             width: double.infinity,
             child: ElevatedButton.icon(
-              onPressed: () =>
-                  openAdminEditSpot(context, spot, popAfterSave: true),
+              onPressed: () => openAdminEditSpot(
+                context,
+                spot,
+                popAfterSave: true,
+              ),
               icon: const Icon(Icons.edit_outlined),
               label: const Text('Edit Spot'),
               style: ElevatedButton.styleFrom(
