@@ -1,4 +1,4 @@
-import 'dart:async';
+﻿import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
@@ -147,11 +147,7 @@ class OpeningHoursData {
     required this.closesAt,
   });
 
-  OpeningHoursData copyWith({
-    bool? isOpen,
-    String? opensAt,
-    String? closesAt,
-  }) {
+  OpeningHoursData copyWith({bool? isOpen, String? opensAt, String? closesAt}) {
     return OpeningHoursData(
       isOpen: isOpen ?? this.isOpen,
       opensAt: opensAt ?? this.opensAt,
@@ -170,11 +166,7 @@ class OpeningHoursData {
   }
 
   Map<String, Object?> toFirebase() {
-    return {
-      'isOpen': isOpen,
-      'opensAt': opensAt,
-      'closesAt': closesAt,
-    };
+    return {'isOpen': isOpen, 'opensAt': opensAt, 'closesAt': closesAt};
   }
 }
 
@@ -320,10 +312,8 @@ Future<String?> pickPhotoFromPhone(
     return Navigator.push<String>(
       context,
       MaterialPageRoute(
-        builder: (_) => PhotoCropScreen(
-          sourcePath: path,
-          cropAspectRatio: cropAspectRatio,
-        ),
+        builder: (_) =>
+            PhotoCropScreen(sourcePath: path, cropAspectRatio: cropAspectRatio),
       ),
     );
   } on PlatformException catch (error) {
@@ -500,7 +490,8 @@ class _PhotoCropScreenState extends State<PhotoCropScreen> {
       final normalized = img.bakeOrientation(decoded);
       final width = normalized.width;
       final height = normalized.height;
-      final hasLayout = editorWidth > 0 &&
+      final hasLayout =
+          editorWidth > 0 &&
           editorHeight > 0 &&
           cropWidth > 0 &&
           cropHeight > 0;
@@ -511,15 +502,16 @@ class _PhotoCropScreenState extends State<PhotoCropScreen> {
           : 1.0;
       final effectiveZoom = math.max(zoom, minZoomForLayout());
       final totalScale = hasLayout ? baseScale * effectiveZoom : 1.0;
-      final cropPixelWidth = (hasLayout ? cropWidth / totalScale : fallbackWidth)
-          .round()
-          .clamp(1, width)
-          .toInt();
+      final cropPixelWidth =
+          (hasLayout ? cropWidth / totalScale : fallbackWidth)
+              .round()
+              .clamp(1, width)
+              .toInt();
       final cropPixelHeight =
           (hasLayout ? cropHeight / totalScale : fallbackHeight)
-          .round()
-          .clamp(1, height)
-          .toInt();
+              .round()
+              .clamp(1, height)
+              .toInt();
       final cropLeft = hasLayout ? (editorWidth - cropWidth) / 2 : 0.0;
       final cropTop = hasLayout ? (editorHeight - cropHeight) / 2 : 0.0;
       final imageLeft = hasLayout
@@ -646,175 +638,175 @@ class _PhotoCropScreenState extends State<PhotoCropScreen> {
               children: [
                 Center(
                   child: GestureDetector(
-                  behavior: HitTestBehavior.opaque,
-                  onScaleStart: (_) {
-                    gestureStartZoom = effectiveZoom;
-                  },
-                  onScaleUpdate: (details) {
-                    final nextZoom = (gestureStartZoom * details.scale)
-                        .clamp(minZoom, maxZoom)
-                        .toDouble();
-                    setState(() {
-                      zoom = nextZoom;
-                      offset = clampedOffset(
-                        offset + details.focalPointDelta,
-                        zoomValue: nextZoom,
-                      );
-                    });
-                  },
-                  child: Container(
-                    width: editorWidth,
-                    height: editorHeight,
-                    decoration: BoxDecoration(
-                      color: panel,
-                      borderRadius: BorderRadius.circular(18),
-                      border: Border.all(color: Colors.white12),
-                    ),
-                    clipBehavior: Clip.antiAlias,
-                    child: Stack(
-                      fit: StackFit.expand,
-                      children: [
-                        Transform.translate(
-                          offset: offset,
-                          child: Transform.scale(
-                            scale: effectiveZoom,
-                            child: Image.file(
-                              File(widget.sourcePath),
-                              fit: BoxFit.contain,
-                              errorBuilder: (_, _, _) => const Center(
-                                child: Icon(
-                                  Icons.broken_image,
-                                  color: Colors.white38,
-                                  size: 44,
+                    behavior: HitTestBehavior.opaque,
+                    onScaleStart: (_) {
+                      gestureStartZoom = effectiveZoom;
+                    },
+                    onScaleUpdate: (details) {
+                      final nextZoom = (gestureStartZoom * details.scale)
+                          .clamp(minZoom, maxZoom)
+                          .toDouble();
+                      setState(() {
+                        zoom = nextZoom;
+                        offset = clampedOffset(
+                          offset + details.focalPointDelta,
+                          zoomValue: nextZoom,
+                        );
+                      });
+                    },
+                    child: Container(
+                      width: editorWidth,
+                      height: editorHeight,
+                      decoration: BoxDecoration(
+                        color: panel,
+                        borderRadius: BorderRadius.circular(18),
+                        border: Border.all(color: Colors.white12),
+                      ),
+                      clipBehavior: Clip.antiAlias,
+                      child: Stack(
+                        fit: StackFit.expand,
+                        children: [
+                          Transform.translate(
+                            offset: offset,
+                            child: Transform.scale(
+                              scale: effectiveZoom,
+                              child: Image.file(
+                                File(widget.sourcePath),
+                                fit: BoxFit.contain,
+                                errorBuilder: (_, _, _) => const Center(
+                                  child: Icon(
+                                    Icons.broken_image,
+                                    color: Colors.white38,
+                                    size: 44,
+                                  ),
                                 ),
                               ),
                             ),
                           ),
-                        ),
-                        Positioned(
-                          left: 0,
-                          top: 0,
-                          right: 0,
-                          height: cropTop,
-                          child: ColoredBox(
-                            color: Colors.black.withValues(alpha: 0.55),
+                          Positioned(
+                            left: 0,
+                            top: 0,
+                            right: 0,
+                            height: cropTop,
+                            child: ColoredBox(
+                              color: Colors.black.withValues(alpha: 0.55),
+                            ),
                           ),
-                        ),
-                        Positioned(
-                          left: 0,
-                          top: cropTop,
-                          width: cropLeft,
-                          height: cropHeight,
-                          child: ColoredBox(
-                            color: Colors.black.withValues(alpha: 0.55),
+                          Positioned(
+                            left: 0,
+                            top: cropTop,
+                            width: cropLeft,
+                            height: cropHeight,
+                            child: ColoredBox(
+                              color: Colors.black.withValues(alpha: 0.55),
+                            ),
                           ),
-                        ),
-                        Positioned(
-                          right: 0,
-                          top: cropTop,
-                          width: cropRightWidth,
-                          height: cropHeight,
-                          child: ColoredBox(
-                            color: Colors.black.withValues(alpha: 0.55),
+                          Positioned(
+                            right: 0,
+                            top: cropTop,
+                            width: cropRightWidth,
+                            height: cropHeight,
+                            child: ColoredBox(
+                              color: Colors.black.withValues(alpha: 0.55),
+                            ),
                           ),
-                        ),
-                        Positioned(
-                          left: 0,
-                          right: 0,
-                          bottom: 0,
-                          height: cropBottomHeight,
-                          child: ColoredBox(
-                            color: Colors.black.withValues(alpha: 0.55),
+                          Positioned(
+                            left: 0,
+                            right: 0,
+                            bottom: 0,
+                            height: cropBottomHeight,
+                            child: ColoredBox(
+                              color: Colors.black.withValues(alpha: 0.55),
+                            ),
                           ),
-                        ),
-                        Positioned(
-                          left: cropLeft,
-                          top: cropTop,
-                          child: IgnorePointer(
-                            child: Container(
-                              width: cropWidth,
-                              height: cropHeight,
-                              decoration: BoxDecoration(
-                                borderRadius: BorderRadius.circular(12),
-                                border: Border.all(color: blue, width: 2),
-                              ),
-                              child: Stack(
-                                children: [
-                                  Center(
-                                    child: Container(
-                                      width: cropWidth,
-                                      height: 1,
-                                      color: Colors.white.withValues(
-                                        alpha: 0.22,
+                          Positioned(
+                            left: cropLeft,
+                            top: cropTop,
+                            child: IgnorePointer(
+                              child: Container(
+                                width: cropWidth,
+                                height: cropHeight,
+                                decoration: BoxDecoration(
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(color: blue, width: 2),
+                                ),
+                                child: Stack(
+                                  children: [
+                                    Center(
+                                      child: Container(
+                                        width: cropWidth,
+                                        height: 1,
+                                        color: Colors.white.withValues(
+                                          alpha: 0.22,
+                                        ),
                                       ),
                                     ),
-                                  ),
-                                  Center(
-                                    child: Container(
-                                      width: 1,
-                                      height: cropHeight,
-                                      color: Colors.white.withValues(
-                                        alpha: 0.22,
+                                    Center(
+                                      child: Container(
+                                        width: 1,
+                                        height: cropHeight,
+                                        color: Colors.white.withValues(
+                                          alpha: 0.22,
+                                        ),
                                       ),
                                     ),
-                                  ),
-                                ],
+                                  ],
+                                ),
                               ),
                             ),
                           ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                ),
-              const SizedBox(height: 22),
-              Container(
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(
-                  color: panel,
-                  borderRadius: BorderRadius.circular(18),
-                  border: Border.all(color: Colors.white12),
-                ),
-                child: Row(
-                  children: [
-                    const Icon(Icons.zoom_out, color: Colors.white54),
-                    Expanded(
-                      child: Slider(
-                        value: effectiveZoom,
-                        min: minZoom,
-                        max: maxZoom,
-                        activeColor: blue,
-                        inactiveColor: Colors.white24,
-                        onChanged: (value) {
-                          setState(() {
-                            zoom = value;
-                            offset = clampedOffset(offset, zoomValue: value);
-                          });
-                        },
+                        ],
                       ),
                     ),
-                    const Icon(Icons.zoom_in, color: Colors.white54),
-                  ],
+                  ),
                 ),
-              ),
-              const SizedBox(height: 18),
-              SizedBox(
-                height: 54,
-                child: ElevatedButton.icon(
-                  onPressed: isSaving ? null : saveCroppedPhoto,
-                  icon: const Icon(Icons.check),
-                  label: Text(isSaving ? 'Saving...' : 'Use Photo'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: blue,
-                    foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(18),
+                const SizedBox(height: 22),
+                Container(
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: panel,
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(color: Colors.white12),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.zoom_out, color: Colors.white54),
+                      Expanded(
+                        child: Slider(
+                          value: effectiveZoom,
+                          min: minZoom,
+                          max: maxZoom,
+                          activeColor: blue,
+                          inactiveColor: Colors.white24,
+                          onChanged: (value) {
+                            setState(() {
+                              zoom = value;
+                              offset = clampedOffset(offset, zoomValue: value);
+                            });
+                          },
+                        ),
+                      ),
+                      const Icon(Icons.zoom_in, color: Colors.white54),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 18),
+                SizedBox(
+                  height: 54,
+                  child: ElevatedButton.icon(
+                    onPressed: isSaving ? null : saveCroppedPhoto,
+                    icon: const Icon(Icons.check),
+                    label: Text(isSaving ? 'Saving...' : 'Use Photo'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: blue,
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(18),
+                      ),
                     ),
                   ),
                 ),
-              ),
-            ],
+              ],
             ),
           );
         },
@@ -2043,10 +2035,7 @@ bool userBanIsActive(Map<String, dynamic>? data) {
       untilMillis > DateTime.now().millisecondsSinceEpoch;
 }
 
-String userBanLabel({
-  required bool banned,
-  required int? bannedUntilMillis,
-}) {
+String userBanLabel({required bool banned, required int? bannedUntilMillis}) {
   if (!banned) {
     return 'Active';
   }
@@ -2788,7 +2777,6 @@ double bearingBetweenLatLngDegrees(LatLng from, LatLng to) {
 
   return normalizedHeadingDegrees(bearing + 360);
 }
-
 
 Future<void> createMeetSpotNotificationsForNearbyUsers(CarSpot spot) async {
   if (spot.id.trim().isEmpty || !spot.categories.contains('Meet')) {
@@ -4794,10 +4782,7 @@ class ExploreCategoryHeader extends StatelessWidget {
             color: color,
             shape: BoxShape.circle,
             boxShadow: [
-              BoxShadow(
-                color: color.withValues(alpha: 0.45),
-                blurRadius: 12,
-              ),
+              BoxShadow(color: color.withValues(alpha: 0.45), blurRadius: 12),
             ],
           ),
         ),
@@ -4814,10 +4799,7 @@ class ExploreCategoryHeader extends StatelessWidget {
         ),
         Text(
           '$count',
-          style: TextStyle(
-            color: color,
-            fontWeight: FontWeight.w900,
-          ),
+          style: TextStyle(color: color, fontWeight: FontWeight.w900),
         ),
       ],
     );
@@ -5518,10 +5500,7 @@ class _MapScreenState extends State<MapScreen> {
                             fontWeight: FontWeight.w800,
                             letterSpacing: 0.2,
                             shadows: const [
-                              Shadow(
-                                color: Colors.black,
-                                blurRadius: 5,
-                              ),
+                              Shadow(color: Colors.black, blurRadius: 5),
                             ],
                           ),
                         ),
@@ -6603,7 +6582,8 @@ class _MapScreenState extends State<MapScreen> {
   }
 
   double headingForNewUserLocation(LatLng nextLocation, double rawHeading) {
-    final previousLocation = previousUserLocationForHeading ?? currentUserLocation;
+    final previousLocation =
+        previousUserLocationForHeading ?? currentUserLocation;
     final normalizedRawHeading = normalizedHeadingDegrees(
       rawHeading,
       fallback: currentUserHeadingDegrees,
@@ -7118,10 +7098,10 @@ class PoliceReportMapCard extends StatelessWidget {
                       onTap: report.uid.trim().isEmpty
                           ? null
                           : () => openUserProfile(
-                                context,
-                                uid: report.uid,
-                                fallbackUsername: report.username,
-                              ),
+                              context,
+                              uid: report.uid,
+                              fallbackUsername: report.username,
+                            ),
                       borderRadius: BorderRadius.circular(999),
                       child: Text(
                         'Marked by @${report.username} - $timeLeftLabel',
@@ -7869,7 +7849,9 @@ class _SpotPhotoCarouselState extends State<SpotPhotoCarousel> {
                         decoration: BoxDecoration(
                           borderRadius: BorderRadius.circular(14),
                           border: Border.all(
-                            color: currentIndex == index ? blue : Colors.white24,
+                            color: currentIndex == index
+                                ? blue
+                                : Colors.white24,
                             width: currentIndex == index ? 2.2 : 1,
                           ),
                           boxShadow: currentIndex == index
@@ -7886,10 +7868,7 @@ class _SpotPhotoCarouselState extends State<SpotPhotoCarousel> {
                         child: Stack(
                           fit: StackFit.expand,
                           children: [
-                            spotPhotoImage(
-                              sources[index],
-                              fit: BoxFit.cover,
-                            ),
+                            spotPhotoImage(sources[index], fit: BoxFit.cover),
                             if (currentIndex == index)
                               Container(
                                 decoration: BoxDecoration(
@@ -7901,8 +7880,7 @@ class _SpotPhotoCarouselState extends State<SpotPhotoCarousel> {
                       ),
                     ),
                   ),
-                  if (index != sources.length - 1)
-                    const SizedBox(width: 8),
+                  if (index != sources.length - 1) const SizedBox(width: 8),
                 ],
               ],
             ),
@@ -8093,10 +8071,7 @@ class _SpotDetailScreenState extends State<SpotDetailScreen> {
                   spot.cityCountry,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: Colors.white70,
-                    fontSize: 15,
-                  ),
+                  style: const TextStyle(color: Colors.white70, fontSize: 15),
                 ),
                 const SizedBox(height: 18),
                 SpotDetailEngagementPanel(
@@ -9346,10 +9321,10 @@ class SpotReviewCard extends StatelessWidget {
                   onTap: review.userId.trim().isEmpty
                       ? null
                       : () => openUserProfile(
-                            context,
-                            uid: review.userId,
-                            fallbackUsername: review.username,
-                          ),
+                          context,
+                          uid: review.userId,
+                          fallbackUsername: review.username,
+                        ),
                   borderRadius: BorderRadius.circular(999),
                   child: Padding(
                     padding: const EdgeInsets.symmetric(vertical: 3),
@@ -9997,8 +9972,7 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
     final location = selectedLocation!;
     final categories = [selectedCategory];
     final supportsContacts = spotCategorySupportsContacts(selectedCategory);
-    final owner =
-        supportsContacts && currentUser.role == UserRole.admin
+    final owner = supportsContacts && currentUser.role == UserRole.admin
         ? selectedOwner
         : null;
 
@@ -10026,7 +10000,9 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
       categories: categories,
       rating: isAdminCreatedSpot ? 4.5 : 0,
       photoUrl: '',
-      localPhotoPath: selectedPhotoPaths.isEmpty ? null : selectedPhotoPaths.first,
+      localPhotoPath: selectedPhotoPaths.isEmpty
+          ? null
+          : selectedPhotoPaths.first,
       reelLink: reelController.text.trim(),
       contactPhone: supportsContacts ? phoneController.text.trim() : '',
       contactInstagram: supportsContacts ? instagramController.text.trim() : '',
@@ -10329,8 +10305,7 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
                 if (currentUser.role == UserRole.admin)
                   SpotOwnerSelector(
                     selectedOwner: selectedOwner,
-                    onChanged: (owner) =>
-                        setState(() => selectedOwner = owner),
+                    onChanged: (owner) => setState(() => selectedOwner = owner),
                   ),
               ],
             ),
@@ -10411,7 +10386,6 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
     );
   }
 }
-
 
 class _PendingBadge extends StatelessWidget {
   final SpotStatus status;
@@ -10582,10 +10556,7 @@ class _SubmittedSpotTile extends StatelessWidget {
                     children: [
                       _PendingBadge(status: spot.status),
                       for (final category in spot.categories.take(2))
-                        _SmallTag(
-                          label: category,
-                          icon: Icons.local_offer,
-                        ),
+                        _SmallTag(label: category, icon: Icons.local_offer),
                     ],
                   ),
                 ],
@@ -11464,9 +11435,7 @@ class _SpotOwnerSelectorState extends State<SpotOwnerSelector> {
               : Colors.white.withValues(alpha: 0.05),
           borderRadius: BorderRadius.circular(16),
           border: Border.all(
-            color: isSelected
-                ? blue.withValues(alpha: 0.65)
-                : Colors.white10,
+            color: isSelected ? blue.withValues(alpha: 0.65) : Colors.white10,
           ),
         ),
         child: Row(
@@ -11606,10 +11575,7 @@ class _SpotOwnerSelectorState extends State<SpotOwnerSelector> {
           const SizedBox(height: 10),
           selectedOwnerCard(),
         ],
-        if (showResults) ...[
-          const SizedBox(height: 10),
-          ownerResults(),
-        ],
+        if (showResults) ...[const SizedBox(height: 10), ownerResults()],
       ],
     );
   }
@@ -11664,7 +11630,9 @@ class OpeningHoursEditor extends StatelessWidget {
     final nextTime = clockTextFromTimeOfDay(picked);
     updateDay(
       weekday,
-      opensAt ? day.copyWith(opensAt: nextTime) : day.copyWith(closesAt: nextTime),
+      opensAt
+          ? day.copyWith(opensAt: nextTime)
+          : day.copyWith(closesAt: nextTime),
     );
   }
 
@@ -11675,11 +11643,8 @@ class OpeningHoursEditor extends StatelessWidget {
     required String value,
   }) {
     return OutlinedButton.icon(
-      onPressed: () => pickTime(
-        context: context,
-        weekday: weekday,
-        opensAt: opensAt,
-      ),
+      onPressed: () =>
+          pickTime(context: context, weekday: weekday, opensAt: opensAt),
       icon: Icon(opensAt ? Icons.login : Icons.logout, size: 16),
       label: Text(value),
       style: OutlinedButton.styleFrom(
@@ -11694,7 +11659,11 @@ class OpeningHoursEditor extends StatelessWidget {
   Widget build(BuildContext context) {
     return Column(
       children: [
-        for (var weekday = DateTime.monday; weekday <= DateTime.sunday; weekday++)
+        for (
+          var weekday = DateTime.monday;
+          weekday <= DateTime.sunday;
+          weekday++
+        )
           Padding(
             padding: EdgeInsets.only(
               bottom: weekday == DateTime.sunday ? 0 : 10,
@@ -12096,7 +12065,8 @@ class GarageCar {
     List<String>? photoPaths,
   }) {
     final nextPhotoPaths = photoPaths ?? this.photoPaths;
-    final nextPhotoPath = photoPath ??
+    final nextPhotoPath =
+        photoPath ??
         (nextPhotoPaths.isNotEmpty ? nextPhotoPaths.first : this.photoPath);
 
     return GarageCar(
@@ -12151,7 +12121,6 @@ class GarageCar {
     };
   }
 }
-
 
 List<GarageCar> defaultGarageCars() {
   return const [
@@ -12371,7 +12340,6 @@ Future<void> saveGarageToFirebase(List<GarageCar> cars) async {
     'garage': uploadedCars.map((car) => car.toFirebase()).toList(),
   });
 }
-
 
 Future<void> saveSettingsToFirebase(UserSettingsData settings) async {
   userSettings.value = settings;
@@ -13921,7 +13889,6 @@ class _ProfileStatTile extends StatelessWidget {
   }
 }
 
-
 class _GarageGalleryHeader extends StatefulWidget {
   final GarageCar car;
 
@@ -13944,10 +13911,8 @@ class _GarageGalleryHeaderState extends State<_GarageGalleryHeader> {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) => GaragePhotoGalleryScreen(
-          car: widget.car,
-          initialIndex: index,
-        ),
+        builder: (_) =>
+            GaragePhotoGalleryScreen(car: widget.car, initialIndex: index),
       ),
     );
   }
@@ -13972,7 +13937,10 @@ class _GarageGalleryHeaderState extends State<_GarageGalleryHeader> {
                   onTap: () => openGallery(currentIndex),
                   child: photos.isEmpty
                       ? const _GaragePhotoFallback()
-                      : garagePhotoImage(photos[currentIndex], fit: BoxFit.cover),
+                      : garagePhotoImage(
+                          photos[currentIndex],
+                          fit: BoxFit.cover,
+                        ),
                 ),
                 Container(
                   decoration: BoxDecoration(
@@ -13991,7 +13959,10 @@ class _GarageGalleryHeaderState extends State<_GarageGalleryHeader> {
                     top: 12,
                     right: 12,
                     child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 9,
+                        vertical: 5,
+                      ),
                       decoration: BoxDecoration(
                         color: Colors.black.withValues(alpha: 0.65),
                         borderRadius: BorderRadius.circular(999),
@@ -14049,7 +14020,9 @@ class _GarageGalleryHeaderState extends State<_GarageGalleryHeader> {
                           decoration: BoxDecoration(
                             borderRadius: BorderRadius.circular(14),
                             border: Border.all(
-                              color: currentIndex == index ? blue : Colors.white24,
+                              color: currentIndex == index
+                                  ? blue
+                                  : Colors.white24,
                               width: currentIndex == index ? 2.2 : 1,
                             ),
                             boxShadow: currentIndex == index
@@ -14066,7 +14039,10 @@ class _GarageGalleryHeaderState extends State<_GarageGalleryHeader> {
                           child: Stack(
                             fit: StackFit.expand,
                             children: [
-                              garagePhotoImage(photos[index], fit: BoxFit.cover),
+                              garagePhotoImage(
+                                photos[index],
+                                fit: BoxFit.cover,
+                              ),
                               if (currentIndex == index)
                                 Container(
                                   decoration: BoxDecoration(
@@ -14100,7 +14076,8 @@ class GaragePhotoGalleryScreen extends StatefulWidget {
   });
 
   @override
-  State<GaragePhotoGalleryScreen> createState() => _GaragePhotoGalleryScreenState();
+  State<GaragePhotoGalleryScreen> createState() =>
+      _GaragePhotoGalleryScreenState();
 }
 
 class _GaragePhotoGalleryScreenState extends State<GaragePhotoGalleryScreen> {
@@ -14110,7 +14087,10 @@ class _GaragePhotoGalleryScreenState extends State<GaragePhotoGalleryScreen> {
   @override
   void initState() {
     super.initState();
-    currentIndex = widget.initialIndex.clamp(0, widget.car.galleryPhotos.length - 1);
+    currentIndex = widget.initialIndex.clamp(
+      0,
+      widget.car.galleryPhotos.length - 1,
+    );
     controller = PageController(initialPage: currentIndex);
   }
 
@@ -14129,8 +14109,13 @@ class _GaragePhotoGalleryScreenState extends State<GaragePhotoGalleryScreen> {
       appBar: AppBar(
         backgroundColor: Colors.black,
         title: Text(
-          photos.isEmpty ? widget.car.name : '${widget.car.name}  ${currentIndex + 1}/${photos.length}',
-          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800),
+          photos.isEmpty
+              ? widget.car.name
+              : '${widget.car.name}  ${currentIndex + 1}/${photos.length}',
+          style: const TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.w800,
+          ),
         ),
       ),
       body: photos.isEmpty
@@ -14212,7 +14197,6 @@ class _GarageCard extends StatelessWidget {
     );
   }
 }
-
 
 class _ProfileSocialLinksSection extends StatelessWidget {
   const _ProfileSocialLinksSection();
@@ -14439,7 +14423,6 @@ Widget garagePhotoImage(
   return const _GaragePhotoFallback();
 }
 
-
 class _GaragePhotoFallback extends StatelessWidget {
   const _GaragePhotoFallback();
 
@@ -14515,12 +14498,9 @@ class _ProfileSubmissionsPreview extends StatelessWidget {
     final summary = spots.isEmpty
         ? 'No spots created yet.'
         : [
-            if (pendingCount > 0)
-              '$pendingCount pending review',
-            if (liveCount > 0)
-              '$liveCount live',
-            if (rejectedCount > 0)
-              '$rejectedCount rejected',
+            if (pendingCount > 0) '$pendingCount pending review',
+            if (liveCount > 0) '$liveCount live',
+            if (rejectedCount > 0) '$rejectedCount rejected',
           ].join(' • ');
 
     return Container(
@@ -14542,10 +14522,7 @@ class _ProfileSubmissionsPreview extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 8),
-          Text(
-            summary,
-            style: const TextStyle(color: Colors.white54),
-          ),
+          Text(summary, style: const TextStyle(color: Colors.white54)),
           if (latest != null) ...[
             const SizedBox(height: 14),
             Row(
@@ -14831,7 +14808,8 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                               },
                             )
                           : (isNetworkUrl(avatarPath) ||
-                                (currentUser.photoUrl?.trim().isNotEmpty ?? false))
+                                (currentUser.photoUrl?.trim().isNotEmpty ??
+                                    false))
                           ? Image.network(
                               isNetworkUrl(avatarPath)
                                   ? avatarPath!
@@ -14845,7 +14823,11 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                                 );
                               },
                             )
-                          : const Icon(Icons.add_a_photo, color: blue, size: 34),
+                          : const Icon(
+                              Icons.add_a_photo,
+                              color: blue,
+                              size: 34,
+                            ),
                     ),
                   ),
                 ),
@@ -14944,7 +14926,9 @@ class _EditGarageScreenState extends State<EditGarageScreen> {
           car?.description ??
           'Short description about your car, setup, and what content you shoot.',
     );
-    photoPaths = [...(car?.galleryPhotos ?? const <String>[])].take(maxGaragePhotos).toList();
+    photoPaths = [
+      ...(car?.galleryPhotos ?? const <String>[]),
+    ].take(maxGaragePhotos).toList();
   }
 
   @override
@@ -14965,7 +14949,9 @@ class _EditGarageScreenState extends State<EditGarageScreen> {
       return;
     }
 
-    setState(() => photoPaths = [...photoPaths, path].take(maxGaragePhotos).toList());
+    setState(
+      () => photoPaths = [...photoPaths, path].take(maxGaragePhotos).toList(),
+    );
   }
 
   void removeCarPhoto(int index) {
@@ -15217,7 +15203,6 @@ class _GaragePhotoPickerField extends StatelessWidget {
     );
   }
 }
-
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -15512,10 +15497,7 @@ class AdminUserData {
       return 'Deleted';
     }
 
-    return userBanLabel(
-      banned: banned,
-      bannedUntilMillis: bannedUntilMillis,
-    );
+    return userBanLabel(banned: banned, bannedUntilMillis: bannedUntilMillis);
   }
 
   factory AdminUserData.fromFirestore(
@@ -15781,7 +15763,11 @@ class AdminUsersScreen extends StatelessWidget {
         );
       }
     } catch (error) {
-      showAdminActionError(context, message: 'Could not ban user', error: error);
+      showAdminActionError(
+        context,
+        message: 'Could not ban user',
+        error: error,
+      );
     }
   }
 
@@ -15806,7 +15792,10 @@ class AdminUsersScreen extends StatelessWidget {
             backgroundColor: blue,
             content: Text(
               'User unbanned.',
-              style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w700,
+              ),
             ),
           ),
         );
@@ -15890,7 +15879,10 @@ class AdminUsersScreen extends StatelessWidget {
             backgroundColor: Colors.redAccent,
             content: Text(
               'User deleted.',
-              style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w700,
+              ),
             ),
           ),
         );
@@ -16034,32 +16026,17 @@ class AdminUsersScreen extends StatelessWidget {
             iconColor: Colors.white70,
             onSelected: (action) => handleUserAction(context, user, action),
             itemBuilder: (context) => [
-              const PopupMenuItem(
-                value: 'open',
-                child: Text('Open profile'),
-              ),
+              const PopupMenuItem(value: 'open', child: Text('Open profile')),
               const PopupMenuDivider(),
-              const PopupMenuItem(
-                value: 'ban_1d',
-                child: Text('Ban 1 day'),
-              ),
-              const PopupMenuItem(
-                value: 'ban_7d',
-                child: Text('Ban 7 days'),
-              ),
-              const PopupMenuItem(
-                value: 'ban_30d',
-                child: Text('Ban 30 days'),
-              ),
+              const PopupMenuItem(value: 'ban_1d', child: Text('Ban 1 day')),
+              const PopupMenuItem(value: 'ban_7d', child: Text('Ban 7 days')),
+              const PopupMenuItem(value: 'ban_30d', child: Text('Ban 30 days')),
               const PopupMenuItem(
                 value: 'ban_forever',
                 child: Text('Ban forever'),
               ),
               if (user.banned)
-                const PopupMenuItem(
-                  value: 'unban',
-                  child: Text('Unban'),
-                ),
+                const PopupMenuItem(value: 'unban', child: Text('Unban')),
               const PopupMenuDivider(),
               const PopupMenuItem(
                 value: 'delete',
@@ -16572,7 +16549,6 @@ class _AdminStatusBadge extends StatelessWidget {
   }
 }
 
-
 Future<void> openAdminEditSpot(
   BuildContext context,
   CarSpot spot, {
@@ -16620,7 +16596,9 @@ class _AdminEditSpotScreenState extends State<AdminEditSpotScreen> {
     super.initState();
     nameController = TextEditingController(text: widget.spot.name);
     cityController = TextEditingController(text: widget.spot.cityCountry);
-    descriptionController = TextEditingController(text: widget.spot.description);
+    descriptionController = TextEditingController(
+      text: widget.spot.description,
+    );
     reelController = TextEditingController(text: widget.spot.reelLink);
     phoneController = TextEditingController(text: widget.spot.contactPhone);
     instagramController = TextEditingController(
@@ -16870,20 +16848,16 @@ class _AdminEditSpotScreenState extends State<AdminEditSpotScreen> {
             width: 88,
             height: 88,
             fit: BoxFit.cover,
-            errorBuilder: (_, _, _) => _SpotPhotoPlaceholder(
-              width: 88,
-              height: 88,
-            ),
+            errorBuilder: (_, _, _) =>
+                _SpotPhotoPlaceholder(width: 88, height: 88),
           )
         : Image.network(
             source,
             width: 88,
             height: 88,
             fit: BoxFit.cover,
-            errorBuilder: (_, _, _) => _SpotPhotoPlaceholder(
-              width: 88,
-              height: 88,
-            ),
+            errorBuilder: (_, _, _) =>
+                _SpotPhotoPlaceholder(width: 88, height: 88),
           );
 
     return Stack(
@@ -17047,7 +17021,8 @@ class _AdminEditSpotScreenState extends State<AdminEditSpotScreen> {
                   subtitle:
                       'Only verified users and admins can see this spot after approval',
                   value: verifiedOnlySpot,
-                  onChanged: (value) => setState(() => verifiedOnlySpot = value),
+                  onChanged: (value) =>
+                      setState(() => verifiedOnlySpot = value),
                 ),
               ],
             ),
@@ -17125,7 +17100,11 @@ class _AdminEditSpotScreenState extends State<AdminEditSpotScreen> {
                   spacing: 10,
                   runSpacing: 10,
                   children: [
-                    for (var index = 0; index < existingPhotoUrls.length; index++)
+                    for (
+                      var index = 0;
+                      index < existingPhotoUrls.length;
+                      index++
+                    )
                       photoThumb(
                         index: index,
                         label: index == 0 ? 'Cover' : '${index + 1}',
@@ -17244,11 +17223,8 @@ class AdminSpotReviewScreen extends StatelessWidget {
         actions: [
           IconButton(
             tooltip: 'Edit spot',
-            onPressed: () => openAdminEditSpot(
-              context,
-              spot,
-              popAfterSave: true,
-            ),
+            onPressed: () =>
+                openAdminEditSpot(context, spot, popAfterSave: true),
             icon: const Icon(Icons.edit_outlined),
           ),
         ],
@@ -17370,11 +17346,8 @@ class AdminSpotReviewScreen extends StatelessWidget {
           SizedBox(
             width: double.infinity,
             child: ElevatedButton.icon(
-              onPressed: () => openAdminEditSpot(
-                context,
-                spot,
-                popAfterSave: true,
-              ),
+              onPressed: () =>
+                  openAdminEditSpot(context, spot, popAfterSave: true),
               icon: const Icon(Icons.edit_outlined),
               label: const Text('Edit Spot'),
               style: ElevatedButton.styleFrom(
