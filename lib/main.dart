@@ -84,7 +84,14 @@ class CCSApp extends StatelessWidget {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       title: 'CCS',
-      theme: ThemeData.dark(),
+      theme: ThemeData.dark().copyWith(
+        appBarTheme: const AppBarTheme(
+          backgroundColor: Colors.transparent,
+          surfaceTintColor: Colors.transparent,
+          elevation: 0,
+          scrolledUnderElevation: 0,
+        ),
+      ),
       home:
           firebaseReady &&
               rememberMeEnabled &&
@@ -98,6 +105,49 @@ class CCSApp extends StatelessWidget {
 const blue = Color(0xFF1565FF);
 const night = Color(0xFF050507);
 const panel = Color(0xFF101014);
+const panelGlass = Color(0xCC101014);
+const panelGlassSoft = Color(0xB0101014);
+const appMapBackgroundAsset = 'assets/bg_map.png';
+
+class AppMapBackground extends StatelessWidget {
+  const AppMapBackground({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        Image.asset(
+          appMapBackgroundAsset,
+          fit: BoxFit.cover,
+          errorBuilder: (context, error, stackTrace) {
+            return const ColoredBox(color: night);
+          },
+        ),
+        DecoratedBox(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [
+                Colors.black.withValues(alpha: 0.36),
+                Colors.black.withValues(alpha: 0.18),
+                Colors.black.withValues(alpha: 0.42),
+              ],
+            ),
+          ),
+        ),
+        BackdropFilter(
+          filter: ui.ImageFilter.blur(sigmaX: 0.6, sigmaY: 0.6),
+          child: ColoredBox(
+            color: Colors.black.withValues(alpha: 0.02),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 const photoPickerChannel = MethodChannel('ccs/photo_picker');
 
 const spotCategoryOptions = [
@@ -675,7 +725,7 @@ class _PhotoCropScreenState extends State<PhotoCropScreen> {
                     width: editorWidth,
                     height: editorHeight,
                     decoration: BoxDecoration(
-                      color: panel,
+                      color: panelGlass,
                       borderRadius: BorderRadius.circular(18),
                       border: Border.all(color: Colors.white12),
                     ),
@@ -811,7 +861,7 @@ class _PhotoCropScreenState extends State<PhotoCropScreen> {
               Container(
                 padding: const EdgeInsets.all(14),
                 decoration: BoxDecoration(
-                  color: panel,
+                  color: panelGlass,
                   borderRadius: BorderRadius.circular(18),
                   border: Border.all(color: Colors.white12),
                 ),
@@ -985,6 +1035,15 @@ String cleanProfileUsername(String value) {
 
 String usernameKey(String value) {
   return cleanProfileUsername(value).toLowerCase();
+}
+
+String displayUsername(String value) {
+  final cleanValue = cleanProfileUsername(value);
+  if (cleanValue.isNotEmpty) {
+    return cleanValue;
+  }
+
+  return value.trim().replaceAll('@', '');
 }
 
 String makeUsernameFromFirebaseUser(User user) {
@@ -1432,7 +1491,7 @@ Future<AppUser> signInWithTelegramAndSaveUser() async {
   currentUser = await saveFirebaseUser(
     firebaseUser,
     provider: 'telegram',
-    displayNameOverride: fullName.isEmpty ? '@$fallbackUsername' : fullName,
+    displayNameOverride: fullName.isEmpty ? '$fallbackUsername' : fullName,
     usernameOverride: fallbackUsername,
     emailOverride: '',
     photoUrlOverride: photoUrl.isEmpty ? null : photoUrl,
@@ -2801,7 +2860,7 @@ class ChatThreadData {
 
       if (index < memberUsernames.length &&
           memberUsernames[index].trim().isNotEmpty) {
-        return '@${memberUsernames[index]}';
+        return displayUsername(memberUsernames[index]);
       }
 
       return 'Direct chat';
@@ -2849,6 +2908,8 @@ class ChatMessageData {
   final String senderUsername;
   final String text;
   final int createdAtMillis;
+  final bool edited;
+  final int updatedAtMillis;
 
   const ChatMessageData({
     required this.id,
@@ -2856,6 +2917,8 @@ class ChatMessageData {
     required this.senderUsername,
     required this.text,
     required this.createdAtMillis,
+    this.edited = false,
+    this.updatedAtMillis = 0,
   });
 
   factory ChatMessageData.fromFirestore(
@@ -2869,6 +2932,8 @@ class ChatMessageData {
       senderUsername: stringFromFirebase(data['senderUsername'], 'ccs_driver'),
       text: stringFromFirebase(data['text'], ''),
       createdAtMillis: timestampMillisFromFirebase(data['createdAt']),
+      edited: data['edited'] == true,
+      updatedAtMillis: timestampMillisFromFirebase(data['updatedAt']),
     );
   }
 }
@@ -2978,6 +3043,84 @@ Future<void> sendChatMessage({
     'lastMessage': cleanText,
     'lastSenderUid': firebaseUser.uid,
     'lastSenderUsername': currentUser.username,
+    'updatedAt': FieldValue.serverTimestamp(),
+  }, SetOptions(merge: true));
+}
+
+
+Future<void> editChatMessage({
+  required String chatId,
+  required ChatMessageData message,
+  required String text,
+}) async {
+  final firebaseUser = FirebaseAuth.instance.currentUser;
+
+  if (firebaseUser == null || firebaseUser.uid != message.senderUid) {
+    throw FirebaseException(
+      plugin: 'cloud_firestore',
+      code: 'permission-denied',
+      message: 'You can edit only your own messages.',
+    );
+  }
+
+  final cleanText = text.trim();
+
+  if (cleanText.isEmpty) {
+    throw FirebaseException(
+      plugin: 'cloud_firestore',
+      code: 'empty-message',
+      message: 'Message cannot be empty.',
+    );
+  }
+
+  await chatMessagesCollection(chatId).doc(message.id).set({
+    'text': cleanText,
+    'edited': true,
+    'updatedAt': FieldValue.serverTimestamp(),
+  }, SetOptions(merge: true));
+
+  await chatsCollection().doc(chatId).set({
+    'lastMessage': cleanText,
+    'lastSenderUid': firebaseUser.uid,
+    'lastSenderUsername': currentUser.username,
+    'updatedAt': FieldValue.serverTimestamp(),
+  }, SetOptions(merge: true));
+}
+
+Future<void> deleteChatMessage({
+  required String chatId,
+  required ChatMessageData message,
+}) async {
+  final firebaseUser = FirebaseAuth.instance.currentUser;
+
+  if (firebaseUser == null || firebaseUser.uid != message.senderUid) {
+    throw FirebaseException(
+      plugin: 'cloud_firestore',
+      code: 'permission-denied',
+      message: 'You can delete only your own messages.',
+    );
+  }
+
+  await chatMessagesCollection(chatId).doc(message.id).delete();
+
+  final latestSnapshot = await chatMessagesCollection(chatId)
+      .orderBy('createdAt', descending: true)
+      .limit(1)
+      .get();
+  final latestText = latestSnapshot.docs.isEmpty
+      ? ''
+      : stringFromFirebase(latestSnapshot.docs.first.data()['text'], '');
+  final latestSenderUid = latestSnapshot.docs.isEmpty
+      ? ''
+      : stringFromFirebase(latestSnapshot.docs.first.data()['senderUid'], '');
+  final latestSenderUsername = latestSnapshot.docs.isEmpty
+      ? ''
+      : stringFromFirebase(latestSnapshot.docs.first.data()['senderUsername'], '');
+
+  await chatsCollection().doc(chatId).set({
+    'lastMessage': latestText,
+    'lastSenderUid': latestSenderUid,
+    'lastSenderUsername': latestSenderUsername,
     'updatedAt': FieldValue.serverTimestamp(),
   }, SetOptions(merge: true));
 }
@@ -4634,7 +4777,7 @@ class _MainScreenState extends State<MainScreen> {
             if (mounted) {
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
-                  backgroundColor: panel,
+                  backgroundColor: panelGlass,
                   content: Text(
                     message,
                     style: const TextStyle(
@@ -4757,13 +4900,24 @@ class _MainScreenState extends State<MainScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: screens[index],
+      backgroundColor: Colors.black,
+      extendBody: false,
+      body: Stack(
+        fit: StackFit.expand,
+        children: [
+          const AppMapBackground(),
+          IndexedStack(
+            index: index,
+            children: screens,
+          ),
+        ],
+      ),
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: index,
         onTap: (value) => setState(() => index = value),
         selectedItemColor: blue,
         unselectedItemColor: Colors.white54,
-        backgroundColor: panel,
+        backgroundColor: panelGlass,
         type: BottomNavigationBarType.fixed,
         items: const [
           BottomNavigationBarItem(
@@ -4910,7 +5064,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
 
     await showModalBottomSheet<void>(
       context: context,
-      backgroundColor: panel,
+      backgroundColor: panelGlass,
       isScrollControlled: true,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(26)),
@@ -5120,10 +5274,10 @@ class _ExploreScreenState extends State<ExploreScreen> {
         final selectedCount = enabledCategoryFilters.length;
 
         return Scaffold(
-          backgroundColor: Colors.black,
+          backgroundColor: Colors.transparent,
           appBar: AppBar(
             title: const Text('CCS'),
-            backgroundColor: Colors.black,
+            backgroundColor: Colors.transparent,
             foregroundColor: blue,
             actions: [
               Padding(
@@ -5340,7 +5494,7 @@ class ExploreSpotCard extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.all(8),
         decoration: BoxDecoration(
-          color: panel,
+          color: panelGlass,
           borderRadius: BorderRadius.circular(16),
           border: Border.all(
             color: categoryColor.withValues(alpha: 0.85),
@@ -5476,7 +5630,7 @@ class ExploreSpotCard extends StatelessWidget {
                                 ),
                                 borderRadius: BorderRadius.circular(999),
                                 child: Text(
-                                  'Added by @${spot.addedBy.replaceAll('@', '')}',
+                                  'Added by ${displayUsername(spot.addedBy)}',
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                   style: const TextStyle(
@@ -5670,7 +5824,7 @@ Future<void> showSpotCommentComposer(
 
   await showModalBottomSheet<void>(
     context: context,
-    backgroundColor: panel,
+    backgroundColor: panelGlass,
     isScrollControlled: true,
     shape: const RoundedRectangleBorder(
       borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
@@ -5977,7 +6131,7 @@ class _MapScreenState extends State<MapScreen> {
 
     await showModalBottomSheet<void>(
       context: context,
-      backgroundColor: panel,
+      backgroundColor: panelGlass,
       isScrollControlled: true,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(26)),
@@ -6253,7 +6407,7 @@ class _MapScreenState extends State<MapScreen> {
             });
           },
           child: Tooltip(
-            message: 'Police marked by @${report.username}',
+            message: 'Police marked by ${displayUsername(report.username)}',
             child: Container(
               decoration: BoxDecoration(
                 color: Colors.redAccent.withValues(alpha: 0.18),
@@ -6275,7 +6429,7 @@ class _MapScreenState extends State<MapScreen> {
                   width: 34,
                   height: 34,
                   decoration: BoxDecoration(
-                    color: panel,
+                    color: panelGlass,
                     shape: BoxShape.circle,
                     border: Border.all(color: Colors.redAccent, width: 2),
                   ),
@@ -6325,14 +6479,14 @@ class _MapScreenState extends State<MapScreen> {
 
   String liveLocationTooltipMessage(LiveLocationData location) {
     if (liveLocationIsFriend(location)) {
-      return '@${location.username} is your friend and is sharing live location';
+      return '${displayUsername(location.username)} is your friend and is sharing live location';
     }
 
     if (location.verified) {
-      return '@${location.username} is verified and is sharing live location';
+      return '${displayUsername(location.username)} is verified and is sharing live location';
     }
 
-    return '@${location.username} is sharing live location';
+    return '${displayUsername(location.username)} is sharing live location';
   }
 
   List<Marker> get liveLocationMarkers {
@@ -6446,7 +6600,7 @@ class _MapScreenState extends State<MapScreen> {
   Future<void> showAddMapReportSheet() async {
     final selected = await showModalBottomSheet<String>(
       context: context,
-      backgroundColor: panel,
+      backgroundColor: panelGlass,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
@@ -6647,8 +6801,8 @@ class _MapScreenState extends State<MapScreen> {
     mapController.move(location, 15.5);
 
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        backgroundColor: panel,
+      SnackBar(
+        backgroundColor: panelGlass,
         content: Text(
           'Police marked on the map for 2 hours.',
           style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
@@ -6701,8 +6855,8 @@ class _MapScreenState extends State<MapScreen> {
 
     if (distance > policeReportVoteRadiusMeters) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          backgroundColor: panel,
+        SnackBar(
+          backgroundColor: panelGlass,
           content: Text(
             'Get closer to this police mark before confirming it.',
             style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
@@ -6715,8 +6869,8 @@ class _MapScreenState extends State<MapScreen> {
     if (report.uid == firebaseUser.uid &&
         !isPoliceReportCreatorCooldownOver(report)) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          backgroundColor: panel,
+        SnackBar(
+          backgroundColor: panelGlass,
           content: Text(
             'You created this mark. You can confirm it later if you drive by this spot again.',
             style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
@@ -6797,8 +6951,8 @@ class _MapScreenState extends State<MapScreen> {
       });
 
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          backgroundColor: panel,
+        SnackBar(
+          backgroundColor: panelGlass,
           content: Text(
             'Police mark removed from the map.',
             style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
@@ -6808,7 +6962,7 @@ class _MapScreenState extends State<MapScreen> {
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          backgroundColor: panel,
+          backgroundColor: panelGlass,
           content: Text(
             stillThere
                 ? 'Thanks. Police mark confirmed.'
@@ -6982,8 +7136,8 @@ class _MapScreenState extends State<MapScreen> {
     );
 
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        backgroundColor: panel,
+      SnackBar(
+        backgroundColor: panelGlass,
         content: Text(
           'Live location sharing is on for 1 hour.',
           style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
@@ -7147,7 +7301,7 @@ class _MapScreenState extends State<MapScreen> {
       barrierDismissible: true,
       builder: (context) {
         return AlertDialog(
-          backgroundColor: panel,
+          backgroundColor: panelGlass,
           title: const Text(
             'Continue sharing?',
             style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900),
@@ -7186,8 +7340,8 @@ class _MapScreenState extends State<MapScreen> {
       await stopLiveLocationSharing();
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          backgroundColor: panel,
+        SnackBar(
+          backgroundColor: panelGlass,
           content: Text(
             'No answer. Live location will stop automatically in 10 minutes.',
             style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
@@ -7352,7 +7506,7 @@ class _MapScreenState extends State<MapScreen> {
     final policeReport = selectedPoliceReport;
 
     return Scaffold(
-      backgroundColor: Colors.black,
+      backgroundColor: Colors.transparent,
       body: Stack(
         children: [
           FlutterMap(
@@ -7431,7 +7585,7 @@ class _MapScreenState extends State<MapScreen> {
             child: FloatingActionButton.small(
               heroTag: 'add_map_report',
               onPressed: isAddingPoliceReport ? null : showAddMapReportSheet,
-              backgroundColor: panel,
+              backgroundColor: panelGlass,
               foregroundColor: Colors.white,
               child: isAddingPoliceReport
                   ? const SizedBox(
@@ -7517,7 +7671,7 @@ class MapFilterButton extends StatelessWidget {
     final label = allEnabled ? 'Filters' : 'Filters $enabledCount/$totalCount';
 
     return Material(
-      color: panel.withValues(alpha: 0.94),
+      color: panelGlass,
       borderRadius: BorderRadius.circular(18),
       child: InkWell(
         onTap: onTap,
@@ -7657,7 +7811,7 @@ class _MapHeader extends StatelessWidget {
                   vertical: 7,
                 ),
                 decoration: BoxDecoration(
-                  color: panel,
+                  color: panelGlass,
                   borderRadius: BorderRadius.circular(12),
                   border: Border.all(color: Colors.white12),
                 ),
@@ -7676,7 +7830,7 @@ class _MapHeader extends StatelessWidget {
                 decoration: BoxDecoration(
                   color: isSharingLiveLocation
                       ? blue.withValues(alpha: 0.18)
-                      : panel.withValues(alpha: 0.92),
+                      : panelGlass,
                   borderRadius: BorderRadius.circular(999),
                   border: Border.all(
                     color: isSharingLiveLocation ? blue : Colors.white12,
@@ -7798,7 +7952,7 @@ class PoliceReportMapCard extends StatelessWidget {
                               ),
                       borderRadius: BorderRadius.circular(999),
                       child: Text(
-                        'Marked by @${report.username} - $timeLeftLabel',
+                        'Marked by ${displayUsername(report.username)} - $timeLeftLabel',
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
@@ -7899,7 +8053,7 @@ class SpotMapCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: panel.withValues(alpha: 0.96),
+        color: panelGlass,
         borderRadius: BorderRadius.circular(24),
         border: Border.all(color: Colors.white12),
         boxShadow: [
@@ -8119,7 +8273,7 @@ class SavedSpotTile extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-          color: panel,
+          color: panelGlass,
           borderRadius: BorderRadius.circular(18),
           border: Border.all(color: Colors.white12),
         ),
@@ -8191,7 +8345,7 @@ class EmptyStateCard extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
-        color: panel,
+        color: panelGlass,
         borderRadius: BorderRadius.circular(20),
         border: Border.all(color: Colors.white12),
       ),
@@ -8625,7 +8779,7 @@ class _SpotPhotoGalleryScreenState extends State<SpotPhotoGalleryScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.black,
+      backgroundColor: Colors.transparent,
       body: Stack(
         children: [
           if (sources.isEmpty)
@@ -8727,10 +8881,10 @@ class _SpotDetailScreenState extends State<SpotDetailScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.black,
+      backgroundColor: Colors.transparent,
       appBar: AppBar(
         title: const Text('Spot'),
-        backgroundColor: Colors.black,
+        backgroundColor: Colors.transparent,
         foregroundColor: blue,
       ),
       body: ListView(
@@ -8813,7 +8967,7 @@ class _SpotDetailScreenState extends State<SpotDetailScreen> {
                                   vertical: 4,
                                 ),
                                 child: Text(
-                                  'Added by @${spot.addedBy.replaceAll('@', '')}',
+                                  'Added by ${displayUsername(spot.addedBy)}',
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                   style: const TextStyle(
@@ -8909,7 +9063,7 @@ class _SpotDetailScreenState extends State<SpotDetailScreen> {
                     width: double.infinity,
                     padding: const EdgeInsets.all(14),
                     decoration: BoxDecoration(
-                      color: panel,
+                      color: panelGlass,
                       borderRadius: BorderRadius.circular(16),
                       border: Border.all(color: Colors.white12),
                     ),
@@ -8951,7 +9105,7 @@ class SpotOwnerBadge extends StatelessWidget {
     final username = spot.ownerUsername.trim();
 
     if (username.isNotEmpty) {
-      final handle = username.startsWith('@') ? username : '@$username';
+      final handle = displayUsername(username);
       return 'Owner $handle';
     }
 
@@ -9152,7 +9306,7 @@ class SpotBusinessStatusCard extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: panel,
+        color: panelGlass,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: status.color.withValues(alpha: 0.45)),
       ),
@@ -9214,7 +9368,7 @@ class SpotContactSection extends StatelessWidget {
         const SizedBox(height: 10),
         Container(
           decoration: BoxDecoration(
-            color: panel,
+            color: panelGlass,
             borderRadius: BorderRadius.circular(16),
             border: Border.all(color: Colors.white12),
           ),
@@ -9405,7 +9559,7 @@ class _SpotDetailEngagementPanelState extends State<SpotDetailEngagementPanel> {
       width: double.infinity,
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: panel,
+        color: panelGlass,
         borderRadius: BorderRadius.circular(18),
         border: Border.all(color: Colors.white12),
       ),
@@ -9580,7 +9734,7 @@ class _SpotRouteActionsState extends State<SpotRouteActions> {
       width: double.infinity,
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: panel,
+        color: panelGlass,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: Colors.white12),
       ),
@@ -9754,7 +9908,7 @@ class _SpotReviewsSectionState extends State<SpotReviewsSection> {
               width: double.infinity,
               padding: const EdgeInsets.all(14),
               decoration: BoxDecoration(
-                color: panel,
+                color: panelGlass,
                 borderRadius: BorderRadius.circular(18),
                 border: Border.all(color: Colors.white12),
               ),
@@ -9813,7 +9967,7 @@ class _SpotReviewsSectionState extends State<SpotReviewsSection> {
                 width: double.infinity,
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
-                  color: panel,
+                  color: panelGlass,
                   borderRadius: BorderRadius.circular(18),
                   border: Border.all(color: Colors.white12),
                 ),
@@ -9847,7 +10001,7 @@ class SpotReviewCard extends StatelessWidget {
       context: context,
       builder: (context) {
         return AlertDialog(
-          backgroundColor: panel,
+          backgroundColor: panelGlass,
           title: const Text(
             'Edit comment',
             style: TextStyle(color: Colors.white),
@@ -9942,7 +10096,7 @@ class SpotReviewCard extends StatelessWidget {
       context: context,
       builder: (context) {
         return AlertDialog(
-          backgroundColor: panel,
+          backgroundColor: panelGlass,
           title: const Text(
             'Delete comment',
             style: TextStyle(color: Colors.white),
@@ -10015,7 +10169,7 @@ class SpotReviewCard extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: panel,
+        color: panelGlass,
         borderRadius: BorderRadius.circular(18),
         border: Border.all(color: Colors.white12),
       ),
@@ -10037,7 +10191,7 @@ class SpotReviewCard extends StatelessWidget {
                   child: Padding(
                     padding: const EdgeInsets.symmetric(vertical: 3),
                     child: Text(
-                      '@${review.username.replaceAll('@', '')}',
+                      displayUsername(review.username),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
@@ -10381,7 +10535,7 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
       context: context,
       builder: (dialogContext) {
         return AlertDialog(
-          backgroundColor: panel,
+          backgroundColor: panelGlass,
           title: const Text('Find exact address'),
           content: TextField(
             controller: addressController,
@@ -10828,10 +10982,10 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.black,
+      backgroundColor: Colors.transparent,
       appBar: AppBar(
         title: const Text('CCS'),
-        backgroundColor: Colors.black,
+        backgroundColor: Colors.transparent,
         foregroundColor: blue,
       ),
       body: ListView(
@@ -10840,7 +10994,7 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
           Container(
             padding: const EdgeInsets.all(18),
             decoration: BoxDecoration(
-              color: panel,
+              color: panelGlass,
               borderRadius: BorderRadius.circular(20),
               border: Border.all(color: Colors.white12),
             ),
@@ -11155,7 +11309,7 @@ class _MySubmissionsSection extends StatelessWidget {
         return Container(
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
-            color: panel,
+            color: panelGlass,
             borderRadius: BorderRadius.circular(20),
             border: Border.all(color: Colors.white12),
           ),
@@ -11455,10 +11609,10 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
     final hasLocation = pickedLocation != null;
 
     return Scaffold(
-      backgroundColor: Colors.black,
+      backgroundColor: Colors.transparent,
       appBar: AppBar(
         title: const Text('Choose Location'),
-        backgroundColor: Colors.black,
+        backgroundColor: Colors.transparent,
         foregroundColor: blue,
       ),
       body: Stack(
@@ -11519,7 +11673,7 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
             child: Container(
               padding: const EdgeInsets.all(14),
               decoration: BoxDecoration(
-                color: panel.withValues(alpha: 0.96),
+                color: panelGlass,
                 borderRadius: BorderRadius.circular(22),
                 border: Border.all(color: Colors.white12),
                 boxShadow: [
@@ -11836,7 +11990,7 @@ class _AddSpotSection extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: panel,
+        color: panelGlass,
         borderRadius: BorderRadius.circular(20),
         border: Border.all(color: Colors.white12),
       ),
@@ -11887,8 +12041,10 @@ class _CcsTextField extends StatelessWidget {
   Widget build(BuildContext context) {
     return TextField(
       controller: controller,
+      minLines: maxLines > 1 ? 3 : 1,
       maxLines: maxLines,
-      keyboardType: keyboardType,
+      keyboardType: maxLines > 1 ? TextInputType.multiline : keyboardType,
+      textInputAction: maxLines > 1 ? TextInputAction.newline : TextInputAction.done,
       readOnly: readOnly,
       style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
       decoration: InputDecoration(
@@ -12581,10 +12737,10 @@ class _ServiceSpotBusinessEditScreenState
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.black,
+      backgroundColor: Colors.transparent,
       appBar: AppBar(
         title: const Text('Service Info'),
-        backgroundColor: Colors.black,
+        backgroundColor: Colors.transparent,
         foregroundColor: blue,
       ),
       body: ListView(
@@ -12654,10 +12810,10 @@ class SavedScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.black,
+      backgroundColor: Colors.transparent,
       appBar: AppBar(
         title: const Text('CCS'),
-        backgroundColor: Colors.black,
+        backgroundColor: Colors.transparent,
         foregroundColor: blue,
       ),
       body: ValueListenableBuilder<List<CarSpot>>(
@@ -12892,10 +13048,10 @@ class _ChatScreenState extends State<ChatScreen> {
     final firebaseUser = FirebaseAuth.instance.currentUser;
 
     return Scaffold(
-      backgroundColor: Colors.black,
+      backgroundColor: Colors.transparent,
       appBar: AppBar(
         title: const Text('CCS'),
-        backgroundColor: Colors.black,
+        backgroundColor: Colors.transparent,
         foregroundColor: blue,
       ),
       floatingActionButton: firebaseUser == null
@@ -13136,7 +13292,7 @@ class ChatThreadTile extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
-          color: panel,
+          color: panelGlass,
           borderRadius: BorderRadius.circular(18),
           border: Border.all(
             color: pinned ? blue.withValues(alpha: 0.75) : Colors.white12,
@@ -13344,7 +13500,7 @@ class _ChatManageScreenState extends State<ChatManageScreen> {
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: panel,
+        color: panelGlass,
         borderRadius: BorderRadius.circular(22),
         border: Border.all(color: Colors.white12),
       ),
@@ -13421,10 +13577,10 @@ class _ChatManageScreenState extends State<ChatManageScreen> {
     final groupChats = widget.chats.where((chat) => chat.isGroup).toList();
 
     return Scaffold(
-      backgroundColor: Colors.black,
+      backgroundColor: Colors.transparent,
       appBar: AppBar(
         title: const Text('Edit Chat View'),
-        backgroundColor: Colors.black,
+        backgroundColor: Colors.transparent,
         foregroundColor: blue,
       ),
       body: ListView(
@@ -13632,7 +13788,7 @@ class _NewChatScreenState extends State<NewChatScreen> {
         margin: const EdgeInsets.only(bottom: 10),
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-          color: panel,
+          color: panelGlass,
           borderRadius: BorderRadius.circular(18),
           border: Border.all(
             color: selected ? blue : Colors.white12,
@@ -13648,7 +13804,7 @@ class _NewChatScreenState extends State<NewChatScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    '@${user.username}',
+                    displayUsername(user.username),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
@@ -13693,10 +13849,10 @@ class _NewChatScreenState extends State<NewChatScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.black,
+      backgroundColor: Colors.transparent,
       appBar: AppBar(
         title: const Text('New Chat'),
-        backgroundColor: Colors.black,
+        backgroundColor: Colors.transparent,
         foregroundColor: blue,
       ),
       body: FutureBuilder<List<FriendUserData>>(
@@ -13949,10 +14105,10 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.black,
+      backgroundColor: Colors.transparent,
       appBar: AppBar(
         title: const Text('Group Settings'),
-        backgroundColor: Colors.black,
+        backgroundColor: Colors.transparent,
         foregroundColor: blue,
         actions: [
           IconButton(
@@ -14020,6 +14176,59 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class ChatTitleAvatar extends StatelessWidget {
+  final String photoUrl;
+  final String title;
+
+  const ChatTitleAvatar({
+    super.key,
+    required this.photoUrl,
+    required this.title,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final firstLetter = title.trim().isEmpty
+        ? '?'
+        : title.trim().substring(0, 1).toUpperCase();
+
+    if (isNetworkUrl(photoUrl)) {
+      return ClipOval(
+        child: Image.network(
+          photoUrl,
+          width: 34,
+          height: 34,
+          fit: BoxFit.cover,
+          errorBuilder: (_, _, _) => UserAvatarFallback(
+            size: 34,
+            icon: Icons.person,
+          ),
+        ),
+      );
+    }
+
+    return Container(
+      width: 34,
+      height: 34,
+      decoration: BoxDecoration(
+        color: blue.withValues(alpha: 0.16),
+        shape: BoxShape.circle,
+        border: Border.all(color: blue.withValues(alpha: 0.45)),
+      ),
+      child: Center(
+        child: Text(
+          firstLetter,
+          style: const TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.w900,
+            fontSize: 14,
+          ),
+        ),
       ),
     );
   }
@@ -14124,12 +14333,193 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
     );
   }
 
+  Future<void> showOwnMessageActions(ChatMessageData message) async {
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: panelGlass,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (context) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(18, 12, 18, 20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ListTile(
+                  leading: const Icon(Icons.edit, color: blue),
+                  title: const Text(
+                    'Edit message',
+                    style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800),
+                  ),
+                  onTap: () => Navigator.pop(context, 'edit'),
+                ),
+                ListTile(
+                  leading: const Icon(Icons.delete_outline, color: Colors.redAccent),
+                  title: const Text(
+                    'Delete message',
+                    style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800),
+                  ),
+                  onTap: () => Navigator.pop(context, 'delete'),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+
+    if (!mounted || action == null) {
+      return;
+    }
+
+    if (action == 'edit') {
+      await showEditMessageDialog(message);
+    } else if (action == 'delete') {
+      await confirmDeleteMessage(message);
+    }
+  }
+
+  Future<void> showEditMessageDialog(ChatMessageData message) async {
+    final controller = TextEditingController(text: message.text);
+
+    final updatedText = await showDialog<String>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          backgroundColor: panelGlass,
+          title: const Text(
+            'Edit message',
+            style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900),
+          ),
+          content: TextField(
+            controller: controller,
+            autofocus: true,
+            minLines: 2,
+            maxLines: 5,
+            keyboardType: TextInputType.multiline,
+            textInputAction: TextInputAction.newline,
+            style: const TextStyle(color: Colors.white),
+            decoration: InputDecoration(
+              hintText: 'Message',
+              hintStyle: const TextStyle(color: Colors.white38),
+              filled: true,
+              fillColor: Colors.white.withValues(alpha: 0.06),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(16),
+                borderSide: const BorderSide(color: Colors.white12),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(16),
+                borderSide: const BorderSide(color: blue),
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(context, controller.text),
+              style: ElevatedButton.styleFrom(backgroundColor: blue),
+              child: const Text('Save', style: TextStyle(color: Colors.white)),
+            ),
+          ],
+        );
+      },
+    );
+
+    controller.dispose();
+
+    if (!mounted || updatedText == null || updatedText.trim() == message.text.trim()) {
+      return;
+    }
+
+    try {
+      await editChatMessage(
+        chatId: widget.chat.id,
+        message: message,
+        text: updatedText,
+      );
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: Colors.redAccent,
+          content: Text(
+            'Could not edit message: $error',
+            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+          ),
+        ),
+      );
+    }
+  }
+
+  Future<void> confirmDeleteMessage(ChatMessageData message) async {
+    final shouldDelete = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          backgroundColor: panelGlass,
+          title: const Text(
+            'Delete message?',
+            style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900),
+          ),
+          content: const Text(
+            'This message will be deleted from the chat.',
+            style: TextStyle(color: Colors.white70),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(context, true),
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
+              child: const Text('Delete', style: TextStyle(color: Colors.white)),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (!mounted || shouldDelete != true) {
+      return;
+    }
+
+    try {
+      await deleteChatMessage(chatId: widget.chat.id, message: message);
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: Colors.redAccent,
+          content: Text(
+            'Could not delete message: $error',
+            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+          ),
+        ),
+      );
+    }
+  }
+
   Widget messageBubble(ChatMessageData message, String currentUid) {
     final mine = message.senderUid == currentUid;
 
-    return Align(
-      alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
-      child: Container(
+    return GestureDetector(
+      onLongPress: mine ? () => showOwnMessageActions(message) : null,
+      child: Align(
+        alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
+        child: Container(
         constraints: const BoxConstraints(maxWidth: 280),
         margin: const EdgeInsets.only(bottom: 10),
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
@@ -14150,7 +14540,7 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
           children: [
             if (!mine && widget.chat.isGroup) ...[
               Text(
-                '@${message.senderUsername}',
+                displayUsername(message.senderUsername),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(
@@ -14169,8 +14559,20 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
                 height: 1.25,
               ),
             ),
+            if (message.edited) ...[
+              const SizedBox(height: 4),
+              Text(
+                'edited',
+                style: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.58),
+                  fontSize: 10,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
           ],
         ),
+      ),
       ),
     );
   }
@@ -14180,9 +14582,10 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
     final firebaseUser = FirebaseAuth.instance.currentUser;
     final currentUid = firebaseUser?.uid ?? currentUser.uid;
     final title = widget.chat.titleForCurrentUser(currentUid);
+    final chatPhotoUrl = widget.chat.directPhotoUrlForCurrentUser(currentUid);
 
     return Scaffold(
-      backgroundColor: Colors.black,
+      backgroundColor: Colors.transparent,
       appBar: AppBar(
         title: widget.chat.isGroup
             ? InkWell(
@@ -14200,6 +14603,10 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
+                      if (!widget.chat.isGroup) ...[
+                        ChatTitleAvatar(photoUrl: chatPhotoUrl, title: title),
+                        const SizedBox(width: 10),
+                      ],
                       Flexible(child: Text(title)),
                     ],
                   ),
@@ -14216,12 +14623,16 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
+                      if (!widget.chat.isGroup) ...[
+                        ChatTitleAvatar(photoUrl: chatPhotoUrl, title: title),
+                        const SizedBox(width: 10),
+                      ],
                       Flexible(child: Text(title)),
                     ],
                   ),
                 ),
               ),
-        backgroundColor: Colors.black,
+        backgroundColor: Colors.transparent,
         foregroundColor: blue,
         actions: widget.chat.isGroup
             ? [
@@ -14287,7 +14698,7 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
             child: Container(
               padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
               decoration: const BoxDecoration(
-                color: panel,
+                color: panelGlass,
                 border: Border(top: BorderSide(color: Colors.white12)),
               ),
               child: Row(
@@ -14297,6 +14708,8 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
                       controller: messageController,
                       minLines: 1,
                       maxLines: 4,
+                      keyboardType: TextInputType.multiline,
+                      textInputAction: TextInputAction.newline,
                       style: const TextStyle(color: Colors.white),
                       decoration: InputDecoration(
                         hintText: 'Message',
@@ -15002,10 +15415,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.black,
+      backgroundColor: Colors.transparent,
       appBar: AppBar(
         title: const Text('CCS'),
-        backgroundColor: Colors.black,
+        backgroundColor: Colors.transparent,
         foregroundColor: blue,
       ),
       body: ValueListenableBuilder<List<CarSpot>>(
@@ -15162,7 +15575,7 @@ class PublicUserProfileScreen extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
-        color: panel,
+        color: panelGlass,
         borderRadius: BorderRadius.circular(22),
         border: Border.all(color: Colors.white12),
       ),
@@ -15312,7 +15725,7 @@ class PublicUserProfileScreen extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: panel,
+        color: panelGlass,
         borderRadius: BorderRadius.circular(20),
         border: Border.all(color: Colors.white12),
       ),
@@ -15414,10 +15827,10 @@ class PublicUserProfileScreen extends StatelessWidget {
         : '@${fallbackUsername.replaceAll('@', '')}';
 
     return Scaffold(
-      backgroundColor: Colors.black,
+      backgroundColor: Colors.transparent,
       appBar: AppBar(
         title: Text(title),
-        backgroundColor: Colors.black,
+        backgroundColor: Colors.transparent,
         foregroundColor: blue,
       ),
       body: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
@@ -15653,7 +16066,7 @@ class _FriendsScreenState extends State<FriendsScreen> {
         margin: const EdgeInsets.only(bottom: 10),
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-          color: panel,
+          color: panelGlass,
           borderRadius: BorderRadius.circular(18),
           border: Border.all(color: Colors.white12),
         ),
@@ -15860,7 +16273,7 @@ class _FriendsScreenState extends State<FriendsScreen> {
                     margin: const EdgeInsets.only(bottom: 10),
                     padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
-                      color: panel,
+                      color: panelGlass,
                       borderRadius: BorderRadius.circular(18),
                       border: Border.all(color: Colors.white12),
                     ),
@@ -15945,7 +16358,7 @@ class _FriendsScreenState extends State<FriendsScreen> {
                     margin: const EdgeInsets.only(bottom: 10),
                     padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
-                      color: panel,
+                      color: panelGlass,
                       borderRadius: BorderRadius.circular(18),
                       border: Border.all(color: Colors.white12),
                     ),
@@ -16144,10 +16557,10 @@ class _FriendsScreenState extends State<FriendsScreen> {
     return DefaultTabController(
       length: 3,
       child: Scaffold(
-        backgroundColor: Colors.black,
+        backgroundColor: Colors.transparent,
         appBar: AppBar(
           title: const Text('Friends'),
-          backgroundColor: Colors.black,
+          backgroundColor: Colors.transparent,
           foregroundColor: blue,
           bottom: const TabBar(
             indicatorColor: blue,
@@ -16195,7 +16608,7 @@ class _ProfileHeader extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
-        color: panel,
+        color: panelGlass,
         borderRadius: BorderRadius.circular(22),
         border: Border.all(color: Colors.white12),
       ),
@@ -16346,7 +16759,7 @@ class _ProfileStatTile extends StatelessWidget {
       height: 104,
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: panel,
+        color: panelGlass,
         borderRadius: BorderRadius.circular(18),
         border: Border.all(color: Colors.white12),
       ),
@@ -16582,9 +16995,9 @@ class _GaragePhotoGalleryScreenState extends State<GaragePhotoGalleryScreen> {
     final photos = widget.car.galleryPhotos;
 
     return Scaffold(
-      backgroundColor: Colors.black,
+      backgroundColor: Colors.transparent,
       appBar: AppBar(
-        backgroundColor: Colors.black,
+        backgroundColor: Colors.transparent,
         title: Text(
           photos.isEmpty ? widget.car.name : '${widget.car.name}  ${currentIndex + 1}/${photos.length}',
           style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800),
@@ -16625,7 +17038,7 @@ class _GarageCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       decoration: BoxDecoration(
-        color: panel,
+        color: panelGlass,
         borderRadius: BorderRadius.circular(22),
         border: Border.all(color: Colors.white12),
       ),
@@ -16682,7 +17095,7 @@ class _ProfileSocialLinksSection extends StatelessWidget {
         return Container(
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
-            color: panel,
+            color: panelGlass,
             borderRadius: BorderRadius.circular(20),
             border: Border.all(color: Colors.white12),
           ),
@@ -16919,7 +17332,7 @@ class _ProfileStyleSection extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: panel,
+        color: panelGlass,
         borderRadius: BorderRadius.circular(20),
         border: Border.all(color: Colors.white12),
       ),
@@ -16983,7 +17396,7 @@ class _ProfileSubmissionsPreview extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: panel,
+        color: panelGlass,
         borderRadius: BorderRadius.circular(20),
         border: Border.all(color: Colors.white12),
       ),
@@ -17060,7 +17473,7 @@ class _ProfileSavedSpotsPreview extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: panel,
+        color: panelGlass,
         borderRadius: BorderRadius.circular(20),
         border: Border.all(color: Colors.white12),
       ),
@@ -17180,7 +17593,7 @@ class _ProfileActionTile extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
-          color: panel,
+          color: panelGlass,
           borderRadius: BorderRadius.circular(18),
           border: Border.all(color: Colors.white12),
         ),
@@ -17367,10 +17780,10 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.black,
+      backgroundColor: Colors.transparent,
       appBar: AppBar(
         title: const Text('Edit Profile'),
-        backgroundColor: Colors.black,
+        backgroundColor: Colors.transparent,
         foregroundColor: blue,
       ),
       body: ListView(
@@ -17379,7 +17792,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
           Container(
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
-              color: panel,
+              color: panelGlass,
               borderRadius: BorderRadius.circular(20),
               border: Border.all(color: Colors.white12),
             ),
@@ -17616,10 +18029,10 @@ class _EditGarageScreenState extends State<EditGarageScreen> {
     final isEditing = widget.car != null;
 
     return Scaffold(
-      backgroundColor: Colors.black,
+      backgroundColor: Colors.transparent,
       appBar: AppBar(
         title: Text(isEditing ? 'Edit Garage' : 'Add Car'),
-        backgroundColor: Colors.black,
+        backgroundColor: Colors.transparent,
         foregroundColor: blue,
       ),
       body: ListView(
@@ -17932,10 +18345,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.black,
+      backgroundColor: Colors.transparent,
       appBar: AppBar(
         title: const Text('Settings'),
-        backgroundColor: Colors.black,
+        backgroundColor: Colors.transparent,
         foregroundColor: blue,
       ),
       body: ListView(
@@ -18183,10 +18596,10 @@ class AdminVerifiedUsersScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.black,
+      backgroundColor: Colors.transparent,
       appBar: AppBar(
         title: const Text('Verified Users'),
-        backgroundColor: Colors.black,
+        backgroundColor: Colors.transparent,
         foregroundColor: blue,
       ),
       body: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
@@ -18227,7 +18640,7 @@ class AdminVerifiedUsersScreen extends StatelessWidget {
                   Container(
                     padding: const EdgeInsets.all(14),
                     decoration: BoxDecoration(
-                      color: panel,
+                      color: panelGlass,
                       borderRadius: BorderRadius.circular(18),
                       border: Border.all(color: Colors.white12),
                     ),
@@ -18426,10 +18839,10 @@ class AdminUsersScreen extends StatelessWidget {
       context: context,
       builder: (dialogContext) {
         return AlertDialog(
-          backgroundColor: panel,
+          backgroundColor: panelGlass,
           title: const Text('Delete user?'),
           content: Text(
-            'This will remove @${user.username} from the users list.',
+            'This will remove ${displayUsername(user.username)} from the users list.',
             style: const TextStyle(color: Colors.white70),
           ),
           actions: [
@@ -18545,7 +18958,7 @@ class AdminUsersScreen extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: panel,
+        color: panelGlass,
         borderRadius: BorderRadius.circular(18),
         border: Border.all(color: Colors.white12),
       ),
@@ -18627,7 +19040,7 @@ class AdminUsersScreen extends StatelessWidget {
             ),
           ),
           PopupMenuButton<String>(
-            color: panel,
+            color: panelGlass,
             iconColor: Colors.white70,
             onSelected: (action) => handleUserAction(context, user, action),
             itemBuilder: (context) => [
@@ -18675,10 +19088,10 @@ class AdminUsersScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.black,
+      backgroundColor: Colors.transparent,
       appBar: AppBar(
         title: const Text('Users'),
-        backgroundColor: Colors.black,
+        backgroundColor: Colors.transparent,
         foregroundColor: blue,
       ),
       body: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
@@ -18794,7 +19207,7 @@ Future<bool> confirmDeleteSpot(BuildContext context, CarSpot spot) async {
     context: context,
     builder: (dialogContext) {
       return AlertDialog(
-        backgroundColor: panel,
+        backgroundColor: panelGlass,
         title: const Text('Delete spot?'),
         content: Text(
           'This will remove "${spot.name}" from Firebase.',
@@ -18920,10 +19333,10 @@ class _AdminReviewScreenState extends State<AdminReviewScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.black,
+      backgroundColor: Colors.transparent,
       appBar: AppBar(
         title: const Text('Admin Panel'),
-        backgroundColor: Colors.black,
+        backgroundColor: Colors.transparent,
         foregroundColor: blue,
       ),
       body: ValueListenableBuilder<List<CarSpot>>(
@@ -19026,7 +19439,7 @@ class AdminSpotTile extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-          color: panel,
+          color: panelGlass,
           borderRadius: BorderRadius.circular(18),
           border: Border.all(color: Colors.white12),
         ),
@@ -19081,7 +19494,7 @@ class AdminSpotTile extends StatelessWidget {
                                 ),
                                 borderRadius: BorderRadius.circular(999),
                                 child: Text(
-                                  'Added by @${spot.addedBy.replaceAll('@', '')}',
+                                  'Added by ${displayUsername(spot.addedBy)}',
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                   style: const TextStyle(
@@ -19534,10 +19947,10 @@ class _AdminEditSpotScreenState extends State<AdminEditSpotScreen> {
     final canAddMore = totalPhotoCount < maxSpotGalleryPhotos;
 
     return Scaffold(
-      backgroundColor: Colors.black,
+      backgroundColor: Colors.transparent,
       appBar: AppBar(
         title: const Text('Edit Spot'),
-        backgroundColor: Colors.black,
+        backgroundColor: Colors.transparent,
         foregroundColor: blue,
       ),
       body: ListView(
@@ -19833,10 +20246,10 @@ class AdminSpotReviewScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.black,
+      backgroundColor: Colors.transparent,
       appBar: AppBar(
         title: const Text('Manage Spot'),
-        backgroundColor: Colors.black,
+        backgroundColor: Colors.transparent,
         foregroundColor: blue,
         actions: [
           IconButton(
@@ -19880,7 +20293,7 @@ class AdminSpotReviewScreen extends StatelessWidget {
                         ),
                         borderRadius: BorderRadius.circular(999),
                         child: Text(
-                          'Added by @${spot.addedBy.replaceAll('@', '')}',
+                          'Added by ${displayUsername(spot.addedBy)}',
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: const TextStyle(
@@ -20018,10 +20431,10 @@ class AppPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.black,
+      backgroundColor: Colors.transparent,
       appBar: AppBar(
         title: const Text('CCS'),
-        backgroundColor: Colors.black,
+        backgroundColor: Colors.transparent,
         foregroundColor: blue,
       ),
       body: Center(
