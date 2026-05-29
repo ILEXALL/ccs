@@ -4605,6 +4605,23 @@ class _CcsWordmark extends StatelessWidget {
   }
 }
 
+class CcsAppBarLogo extends StatelessWidget {
+  const CcsAppBarLogo({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 22,
+      child: Image.asset(
+        'assets/ccs_logo.png',
+        fit: BoxFit.contain,
+        alignment: Alignment.centerLeft,
+        filterQuality: FilterQuality.high,
+      ),
+    );
+  }
+}
+
 class _SplashIntroItem extends StatelessWidget {
   final Animation<double> animation;
   final Animation<double> fadeAnimation;
@@ -5580,7 +5597,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
         return Scaffold(
           backgroundColor: Colors.transparent,
           appBar: AppBar(
-            title: const Text('CCS'),
+            title: const CcsAppBarLogo(),
             backgroundColor: Colors.transparent,
             foregroundColor: blue,
             actions: [
@@ -6391,6 +6408,8 @@ class _MapScreenState extends State<MapScreen> {
   static const rigaZoom = 11.25;
   static const fullSpotIconMinZoom = 10;
   static const navigationZoom = 16.35;
+  static const Duration liveLocationUploadInterval = Duration(seconds: 10);
+  static const double liveLocationMinimumUploadDistanceMeters = 100;
 
   final mapController = MapController();
   Timer? temporarySpotRefreshTimer;
@@ -6409,6 +6428,7 @@ class _MapScreenState extends State<MapScreen> {
   LatLng? currentUserLocation;
   LatLng? displayedUserLocation;
   LatLng? lastGpsUserLocation;
+  LatLng? lastUploadedLiveLocation;
   DateTime? lastGpsUserLocationAt;
   double currentUserSpeedMetersPerSecond = 0;
   bool isLocatingUser = false;
@@ -6429,6 +6449,24 @@ class _MapScreenState extends State<MapScreen> {
   double currentUserHeadingDegrees = 0;
   LatLng? previousUserLocationForHeading;
   bool mapCenteredOnCurrentUser = false;
+
+  double scaledMapIconValue({
+    required double zoom,
+    required double minZoom,
+    required double maxZoom,
+    required double minValue,
+    required double maxValue,
+  }) {
+    if (maxZoom <= minZoom) {
+      return maxValue;
+    }
+
+    final progress = ((zoom - minZoom) / (maxZoom - minZoom))
+        .clamp(0.0, 1.0)
+        .toDouble();
+    final easedProgress = Curves.easeOutCubic.transform(progress);
+    return minValue + (maxValue - minValue) * easedProgress;
+  }
 
   @override
   void initState() {
@@ -6643,15 +6681,50 @@ class _MapScreenState extends State<MapScreen> {
 
   List<Marker> get markers {
     final showFullIcons = currentMapZoom >= fullSpotIconMinZoom;
+    final compactMarkerSize = scaledMapIconValue(
+      zoom: currentMapZoom,
+      minZoom: 4,
+      maxZoom: fullSpotIconMinZoom.toDouble(),
+      minValue: 15,
+      maxValue: 24,
+    );
+    final fullMarkerSize = scaledMapIconValue(
+      zoom: currentMapZoom,
+      minZoom: fullSpotIconMinZoom.toDouble(),
+      maxZoom: 16,
+      minValue: 46,
+      maxValue: 70,
+    );
+    final fullMarkerWidth = scaledMapIconValue(
+      zoom: currentMapZoom,
+      minZoom: fullSpotIconMinZoom.toDouble(),
+      maxZoom: 16,
+      minValue: 96,
+      maxValue: 122,
+    );
+    final fullMarkerHeight = scaledMapIconValue(
+      zoom: currentMapZoom,
+      minZoom: fullSpotIconMinZoom.toDouble(),
+      maxZoom: 16,
+      minValue: 84,
+      maxValue: 112,
+    );
+    final labelFontSize = scaledMapIconValue(
+      zoom: currentMapZoom,
+      minZoom: fullSpotIconMinZoom.toDouble(),
+      maxZoom: 16,
+      minValue: 8.2,
+      maxValue: 10,
+    );
 
     return visibleSpots.map((spot) {
       final closedNow = spotIsClosedNow(spot);
       final markerColor = closedNow
           ? Colors.grey.shade500
           : spotColorForSpot(spot);
-      final markerSize = showFullIcons ? 70.0 : 26.0;
-      final markerWidth = showFullIcons ? 122.0 : markerSize;
-      final markerHeight = showFullIcons ? 112.0 : markerSize;
+      final markerSize = showFullIcons ? fullMarkerSize : compactMarkerSize;
+      final markerWidth = showFullIcons ? fullMarkerWidth : markerSize;
+      final markerHeight = showFullIcons ? fullMarkerHeight : markerSize;
 
       return Marker(
         point: spot.coordinates,
@@ -6679,7 +6752,7 @@ class _MapScreenState extends State<MapScreen> {
                             color: closedNow
                                 ? Colors.white.withValues(alpha: 0.46)
                                 : Colors.white.withValues(alpha: 0.74),
-                            fontSize: 10,
+                            fontSize: labelFontSize,
                             fontWeight: FontWeight.w800,
                             letterSpacing: 0.2,
                             shadows: const [
@@ -7471,6 +7544,7 @@ class _MapScreenState extends State<MapScreen> {
       currentUserLocation = location;
       displayedUserLocation = location;
       lastGpsUserLocation = location;
+      lastUploadedLiveLocation = location;
       lastGpsUserLocationAt = DateTime.now();
       currentUserHeadingDegrees = heading;
       currentUserSpeedMetersPerSecond = math.max(0, position.speed);
@@ -7483,7 +7557,7 @@ class _MapScreenState extends State<MapScreen> {
 
     liveLocationUploadTimer?.cancel();
     liveLocationUploadTimer = Timer.periodic(
-      const Duration(seconds: 3),
+      liveLocationUploadInterval,
       (_) => uploadLatestLiveLocation(),
     );
 
@@ -7511,6 +7585,29 @@ class _MapScreenState extends State<MapScreen> {
 
     final location = LatLng(position.latitude, position.longitude);
     final heading = headingForNewUserLocation(location, position.heading);
+    final lastUploadedLocation = lastUploadedLiveLocation;
+    final movedSinceLastUpload = lastUploadedLocation == null
+        ? liveLocationMinimumUploadDistanceMeters
+        : const Distance().as(LengthUnit.Meter, lastUploadedLocation, location);
+
+    // Keep local navigation smooth, but do not write GPS noise to Firebase.
+    // A user is considered standing still while they remain inside a 100m
+    // radius from the last uploaded live-location point.
+    if (movedSinceLastUpload < liveLocationMinimumUploadDistanceMeters) {
+      setState(() {
+        currentUserLocation = location;
+        displayedUserLocation ??= location;
+        lastGpsUserLocation = location;
+        lastGpsUserLocationAt = DateTime.now();
+        currentUserHeadingDegrees = heading;
+        currentUserSpeedMetersPerSecond = math.max(0, position.speed);
+      });
+
+      if (mapCenteredOnCurrentUser) {
+        updateFollowCamera(displayedUserLocation ?? location, heading);
+      }
+      return;
+    }
 
     await writeLiveLocation(
       position,
@@ -7526,6 +7623,7 @@ class _MapScreenState extends State<MapScreen> {
       currentUserLocation = location;
       displayedUserLocation ??= location;
       lastGpsUserLocation = location;
+      lastUploadedLiveLocation = location;
       lastGpsUserLocationAt = DateTime.now();
       currentUserHeadingDegrees = heading;
       currentUserSpeedMetersPerSecond = math.max(0, position.speed);
@@ -7603,6 +7701,7 @@ class _MapScreenState extends State<MapScreen> {
       liveLocationPromptAt = null;
       liveLocationExpiresAt = null;
       liveLocationPromptOpen = false;
+      lastUploadedLiveLocation = null;
       liveLocations = liveLocations
           .where((location) => location.uid != firebaseUser?.uid)
           .toList();
@@ -7637,6 +7736,7 @@ class _MapScreenState extends State<MapScreen> {
     setState(() {
       isSharingLiveLocation = true;
       currentUserLocation = location;
+      lastUploadedLiveLocation = location;
       currentUserHeadingDegrees = heading;
     });
 
@@ -8005,7 +8105,6 @@ class _MapScreenState extends State<MapScreen> {
                 Padding(
                   padding: const EdgeInsets.fromLTRB(16, 12, 16, 10),
                   child: _MapHeader(
-                    approvedCount: visibleSpots.length,
                     isSharingLiveLocation: isSharingLiveLocation,
                     isBusy: isTogglingLiveLocation,
                     onShareChanged: toggleLiveLocationSharing,
@@ -8194,13 +8293,11 @@ class CompactSpotMapPoint extends StatelessWidget {
 }
 
 class _MapHeader extends StatelessWidget {
-  final int approvedCount;
   final bool isSharingLiveLocation;
   final bool isBusy;
   final ValueChanged<bool> onShareChanged;
 
   const _MapHeader({
-    required this.approvedCount,
     required this.isSharingLiveLocation,
     required this.isBusy,
     required this.onShareChanged,
@@ -8228,83 +8325,48 @@ class _MapHeader extends StatelessWidget {
           ),
           const SizedBox(width: 12),
           const Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'CCS Map',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 18,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-                SizedBox(height: 2),
-                Text(
-                  'Approved Riga car spots',
-                  style: TextStyle(color: Colors.white54, fontSize: 12),
-                ),
-              ],
+            child: Text(
+              'Approved spots',
+              style: TextStyle(
+                color: Colors.white70,
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+              ),
             ),
           ),
           const SizedBox(width: 10),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 7,
-                ),
-                decoration: BoxDecoration(
-                  color: panelGlass,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.white12),
-                ),
-                child: Text(
-                  '$approvedCount spots',
-                  style: const TextStyle(
+          Container(
+            padding: const EdgeInsets.only(left: 10),
+            decoration: BoxDecoration(
+              color: isSharingLiveLocation
+                  ? blue.withValues(alpha: 0.18)
+                  : panelGlass,
+              borderRadius: BorderRadius.circular(999),
+              border: Border.all(
+                color: isSharingLiveLocation ? blue : Colors.white12,
+              ),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text(
+                  'Share live location',
+                  style: TextStyle(
                     color: Colors.white70,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w800,
                   ),
                 ),
-              ),
-              const SizedBox(height: 8),
-              Container(
-                padding: const EdgeInsets.only(left: 10),
-                decoration: BoxDecoration(
-                  color: isSharingLiveLocation
-                      ? blue.withValues(alpha: 0.18)
-                      : panelGlass,
-                  borderRadius: BorderRadius.circular(999),
-                  border: Border.all(
-                    color: isSharingLiveLocation ? blue : Colors.white12,
+                Transform.scale(
+                  scale: 0.74,
+                  child: Switch(
+                    value: isSharingLiveLocation,
+                    activeThumbColor: blue,
+                    onChanged: isBusy ? null : onShareChanged,
                   ),
                 ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Text(
-                      'Share live location',
-                      style: TextStyle(
-                        color: Colors.white70,
-                        fontSize: 11,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                    Transform.scale(
-                      scale: 0.74,
-                      child: Switch(
-                        value: isSharingLiveLocation,
-                        activeThumbColor: blue,
-                        onChanged: isBusy ? null : onShareChanged,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
+              ],
+            ),
           ),
         ],
       ),
@@ -11431,7 +11493,7 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
     return Scaffold(
       backgroundColor: Colors.transparent,
       appBar: AppBar(
-        title: const Text('CCS'),
+        title: const CcsAppBarLogo(),
         backgroundColor: Colors.transparent,
         foregroundColor: blue,
       ),
@@ -13254,7 +13316,7 @@ class SavedScreen extends StatelessWidget {
     return Scaffold(
       backgroundColor: Colors.transparent,
       appBar: AppBar(
-        title: const Text('CCS'),
+        title: const CcsAppBarLogo(),
         backgroundColor: Colors.transparent,
         foregroundColor: blue,
       ),
@@ -13489,7 +13551,7 @@ class _ChatScreenState extends State<ChatScreen> {
     return Scaffold(
       backgroundColor: Colors.transparent,
       appBar: AppBar(
-        title: const Text('CCS'),
+        title: const CcsAppBarLogo(),
         backgroundColor: Colors.transparent,
         foregroundColor: blue,
       ),
@@ -15873,7 +15935,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     return Scaffold(
       backgroundColor: Colors.transparent,
       appBar: AppBar(
-        title: const Text('CCS'),
+        title: const CcsAppBarLogo(),
         backgroundColor: Colors.transparent,
         foregroundColor: blue,
       ),
@@ -20897,7 +20959,7 @@ class AppPage extends StatelessWidget {
     return Scaffold(
       backgroundColor: Colors.transparent,
       appBar: AppBar(
-        title: const Text('CCS'),
+        title: const CcsAppBarLogo(),
         backgroundColor: Colors.transparent,
         foregroundColor: blue,
       ),
