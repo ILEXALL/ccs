@@ -9200,11 +9200,6 @@ class SpotMapCard extends StatelessWidget {
                         label: spot.temporaryTimeLabel,
                         icon: Icons.event,
                       ),
-                    _SmallTag(label: spot.bestTime, icon: Icons.dark_mode),
-                    _SmallTag(
-                      label: spot.lowCarFriendly ? 'Low car OK' : 'Careful',
-                      icon: Icons.speed,
-                    ),
                   ],
                 ),
                 const SizedBox(height: 12),
@@ -11675,6 +11670,7 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
   LatLng? selectedLocation;
   String detectedCityCountry = 'Choose location to detect city/country';
   bool isDetectingCityCountry = false;
+  bool isUsingCurrentLocation = false;
   final List<String> selectedPhotoPaths = [];
   bool verifiedOnlySpot = false;
   bool isTemporarySpot = false;
@@ -11859,6 +11855,168 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
     }
   }
 
+  Future<void> useCurrentLocation() async {
+    FocusScope.of(context).unfocus();
+
+    if (isUsingCurrentLocation) {
+      return;
+    }
+
+    final previousDetectedCityCountry = detectedCityCountry;
+
+    setState(() {
+      isUsingCurrentLocation = true;
+      isDetectingCityCountry = true;
+      detectedCityCountry = 'Getting current location...';
+    });
+
+    void restoreLocationState() {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        isUsingCurrentLocation = false;
+        isDetectingCityCountry = false;
+        detectedCityCountry = selectedLocation == null
+            ? 'Choose location to detect city/country'
+            : previousDetectedCityCountry;
+      });
+    }
+
+    try {
+      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+
+      if (!mounted) {
+        return;
+      }
+
+      if (!serviceEnabled) {
+        restoreLocationState();
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            backgroundColor: Colors.redAccent,
+            content: Text(
+              'Turn on phone location to use your current position.',
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        );
+        return;
+      }
+
+      var permission = await Geolocator.checkPermission();
+
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+
+      if (!mounted) {
+        return;
+      }
+
+      if (permission == LocationPermission.denied ||
+          permission == LocationPermission.deniedForever) {
+        restoreLocationState();
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            backgroundColor: Colors.redAccent,
+            content: Text(
+              'Location permission is needed to use your current position.',
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        );
+        return;
+      }
+
+      final position = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+        ),
+      );
+
+      if (!mounted) {
+        return;
+      }
+
+      final location = LatLng(position.latitude, position.longitude);
+
+      try {
+        final placemarks = await placemarkFromCoordinates(
+          position.latitude,
+          position.longitude,
+        );
+
+        if (mounted && placemarks.isNotEmpty) {
+          final place = placemarks.first;
+          final addressParts =
+              [place.street, place.subLocality, place.locality, place.country]
+                  .whereType<String>()
+                  .map((value) => value.trim())
+                  .where((value) => value.isNotEmpty)
+                  .toList();
+
+          if (addressParts.isNotEmpty) {
+            addressController.text = addressParts.join(', ');
+          }
+        }
+      } catch (_) {
+        // Address text is optional. The coordinates are enough to create a spot.
+      }
+
+      await applySelectedLocation(location);
+
+      if (!mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          backgroundColor: blue,
+          content: Text(
+            'Current location selected for this spot.',
+            style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+          ),
+        ),
+      );
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        isDetectingCityCountry = false;
+        detectedCityCountry = selectedLocation == null
+            ? 'Choose location to detect city/country'
+            : previousDetectedCityCountry;
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: Colors.redAccent,
+          content: Text(
+            'Could not use current location. $error',
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => isUsingCurrentLocation = false);
+      }
+    }
+  }
+
   Future<void> choosePhoto() async {
     FocusScope.of(context).unfocus();
 
@@ -11955,6 +12113,32 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
     setState(() => temporaryExpiresAt = value);
   }
 
+  void resetSpotFormAfterSubmit() {
+    nameController.clear();
+    cityController.clear();
+    addressController.clear();
+    descriptionController.clear();
+    reelController.clear();
+    phoneController.clear();
+    instagramController.clear();
+    emailController.clear();
+    addedByController.text = currentUser.username;
+
+    setState(() {
+      selectedCategory = 'Photo';
+      selectedLocation = null;
+      detectedCityCountry = 'Choose location to detect city/country';
+      isDetectingCityCountry = false;
+      selectedPhotoPaths.clear();
+      verifiedOnlySpot = false;
+      isTemporarySpot = false;
+      temporaryStartsAt = null;
+      temporaryExpiresAt = null;
+      openingHours = defaultServiceOpeningHours();
+      selectedOwner = null;
+    });
+  }
+
   Future<void> submitSpot() async {
     FocusScope.of(context).unfocus();
 
@@ -11977,12 +12161,70 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
       return;
     }
 
+    final cleanSpotName = nameController.text.trim();
+    final cleanDescription = descriptionController.text.trim();
+    final allowedSpotNamePattern = RegExp(
+      r"^[A-Za-z0-9ĀāČčĒēĢģĪīĶķĻļŅņŠšŪūŽž .,'’&()\/-]+$",
+    );
+
+    if (cleanSpotName.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          backgroundColor: Colors.redAccent,
+          content: Text(
+            'Spot name is required.',
+            style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+          ),
+        ),
+      );
+      return;
+    }
+
+    if (!allowedSpotNamePattern.hasMatch(cleanSpotName)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          backgroundColor: Colors.redAccent,
+          content: Text(
+            'Spot name can use only English or Latvian letters, numbers, spaces, and simple punctuation.',
+            style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+          ),
+        ),
+      );
+      return;
+    }
+
     if (selectedLocation == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           backgroundColor: Colors.redAccent,
           content: Text(
-            'Choose the spot location on the map or find exact address first.',
+            'Location is required. Pin it on the map, find exact address, or use current location first.',
+            style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+          ),
+        ),
+      );
+      return;
+    }
+
+    if (cleanDescription.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          backgroundColor: Colors.redAccent,
+          content: Text(
+            'Description is required.',
+            style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+          ),
+        ),
+      );
+      return;
+    }
+
+    if (selectedPhotoPaths.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          backgroundColor: Colors.redAccent,
+          content: Text(
+            'Upload at least 1 photo before creating the spot.',
             style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
           ),
         ),
@@ -12058,9 +12300,7 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
 
     var newSpot = CarSpot(
       id: spotRef.id,
-      name: nameController.text.trim().isEmpty
-          ? 'Untitled spot'
-          : nameController.text.trim(),
+      name: cleanSpotName,
       cityCountry:
           detectedCityCountry.trim().isEmpty ||
               detectedCityCountry == 'Choose location to detect city/country' ||
@@ -12068,9 +12308,7 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
           ? 'Unknown location'
           : detectedCityCountry.trim(),
       coordinates: location,
-      description: descriptionController.text.trim().isEmpty
-          ? 'Submitted community car spot.'
-          : descriptionController.text.trim(),
+      description: cleanDescription,
       categories: categories,
       rating: isAdminCreatedSpot ? 4.5 : 0,
       photoUrl: '',
@@ -12151,6 +12389,8 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
       if (!mounted) {
         return;
       }
+
+      resetSpotFormAfterSubmit();
 
       final message = isAdminCreatedSpot
           ? 'Admin spot added. It is live now.'
@@ -12281,6 +12521,18 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
                     ? 'Type an address and place the pin automatically'
                     : 'Current pin: $detectedCityCountry',
                 onTap: findExactAddress,
+              ),
+              const SizedBox(height: 10),
+              _LocationPickerField(
+                title: 'Use current location',
+                icon: Icons.my_location,
+                hasLocation: selectedLocation != null,
+                subtitle: isUsingCurrentLocation
+                    ? 'Getting your GPS position...'
+                    : selectedLocation == null
+                    ? 'Use your phone GPS position'
+                    : 'Replace pin with your current GPS position',
+                onTap: useCurrentLocation,
               ),
               _CcsTextField(
                 controller: descriptionController,
@@ -18699,6 +18951,16 @@ class _GarageGalleryHeaderState extends State<_GarageGalleryHeader> {
                     ),
                   ),
                 ),
+                Positioned.fill(
+                  child: Material(
+                    color: Colors.transparent,
+                    child: InkWell(
+                      onTap: () => openGallery(currentIndex),
+                      splashColor: Colors.white10,
+                      highlightColor: Colors.white.withValues(alpha: 0.04),
+                    ),
+                  ),
+                ),
               ],
             ),
           ),
@@ -18805,9 +19067,10 @@ class _GaragePhotoGalleryScreenState extends State<GaragePhotoGalleryScreen> {
     final photos = widget.car.galleryPhotos;
 
     return Scaffold(
-      backgroundColor: Colors.transparent,
+      backgroundColor: Colors.black,
       appBar: AppBar(
         backgroundColor: Colors.transparent,
+        foregroundColor: Colors.white,
         title: Text(
           photos.isEmpty
               ? widget.car.name
@@ -19060,13 +19323,26 @@ class _GarageCarPhotoState extends State<GarageCarPhoto> {
     return Stack(
       fit: StackFit.expand,
       children: [
-        PageView.builder(
-          controller: controller,
-          itemCount: photos.length,
-          onPageChanged: (index) => setState(() => currentIndex = index),
-          itemBuilder: (context, index) {
-            return garagePhotoImage(photos[index], fit: BoxFit.cover);
+        GestureDetector(
+          onTap: () {
+            Navigator.push(
+              context,
+              appPageRoute(
+                builder: (_) => GaragePhotoGalleryScreen(
+                  car: widget.car,
+                  initialIndex: currentIndex,
+                ),
+              ),
+            );
           },
+          child: PageView.builder(
+            controller: controller,
+            itemCount: photos.length,
+            onPageChanged: (index) => setState(() => currentIndex = index),
+            itemBuilder: (context, index) {
+              return garagePhotoImage(photos[index], fit: BoxFit.cover);
+            },
+          ),
         ),
         if (photos.length > 1)
           Positioned(
@@ -20009,13 +20285,30 @@ class _GaragePhotoPickerField extends StatelessWidget {
               for (var index = 0; index < photoPaths.length; index++)
                 Stack(
                   children: [
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(14),
-                      child: garagePhotoImage(
-                        photoPaths[index],
-                        width: 88,
-                        height: 88,
-                        fit: BoxFit.cover,
+                    GestureDetector(
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          appPageRoute(
+                            builder: (_) => GaragePhotoGalleryScreen(
+                              car: GarageCar(
+                                name: 'Garage photos',
+                                description: '',
+                                photoPaths: photoPaths,
+                              ),
+                              initialIndex: index,
+                            ),
+                          ),
+                        );
+                      },
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(14),
+                        child: garagePhotoImage(
+                          photoPaths[index],
+                          width: 88,
+                          height: 88,
+                          fit: BoxFit.cover,
+                        ),
                       ),
                     ),
                     Positioned(
