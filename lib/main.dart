@@ -981,6 +981,7 @@ Future<void> saveRememberMePreference(bool value) async {
 
 Future<void> signOutCurrentAccount() async {
   await saveRememberMePreference(false);
+  await updateCurrentUserOnlinePresence(isOnline: false);
   await spotSyncSubscription?.cancel();
   spotSyncSubscription = null;
 
@@ -1384,6 +1385,8 @@ Future<AppUser> saveFirebaseUser(
     'garage': garage.map((car) => car.toFirebase()).toList(),
     'provider': provider,
     'telegramUsername': telegramUsername,
+    'isOnline': true,
+    'lastSeenAt': FieldValue.serverTimestamp(),
     'updatedAt': FieldValue.serverTimestamp(),
   };
 
@@ -2426,6 +2429,10 @@ class FriendUserData {
   final bool banned;
   final int? bannedUntilMillis;
   final bool deleted;
+  final bool isOnline;
+  final int lastSeenAtMillis;
+  final bool isSharingLiveLocation;
+  final int? liveLocationExpiresAtMillis;
 
   const FriendUserData({
     required this.uid,
@@ -2439,7 +2446,18 @@ class FriendUserData {
     required this.banned,
     this.bannedUntilMillis,
     required this.deleted,
+    this.isOnline = false,
+    this.lastSeenAtMillis = 0,
+    this.isSharingLiveLocation = false,
+    this.liveLocationExpiresAtMillis,
   });
+
+  bool get appearsOnline => userAppearsOnlineFromPresence(
+    isOnline: isOnline,
+    lastSeenAtMillis: lastSeenAtMillis,
+    isSharingLiveLocation: isSharingLiveLocation,
+    liveLocationExpiresAtMillis: liveLocationExpiresAtMillis,
+  );
 
   bool get banActive {
     return banned &&
@@ -2472,6 +2490,12 @@ class FriendUserData {
       banned: data['banned'] == true,
       bannedUntilMillis: bannedUntilMillis,
       deleted: data['deleted'] == true,
+      isOnline: data['isOnline'] == true,
+      lastSeenAtMillis: timestampMillisFromFirebase(data['lastSeenAt']),
+      isSharingLiveLocation: data['isSharingLiveLocation'] == true,
+      liveLocationExpiresAtMillis: nullableTimestampMillisFromFirebase(
+        data['liveLocationExpiresAt'],
+      ),
     );
   }
 }
@@ -2745,7 +2769,16 @@ Future<List<FriendUserData>> loadCurrentFriendUsers() async {
     }
   }
 
-  friends.sort((a, b) => a.username.compareTo(b.username));
+  friends.sort((a, b) {
+    final onlineCompare = b.appearsOnline.toString().compareTo(
+      a.appearsOnline.toString(),
+    );
+    if (onlineCompare != 0) {
+      return onlineCompare;
+    }
+
+    return a.username.toLowerCase().compareTo(b.username.toLowerCase());
+  });
   return friends;
 }
 
@@ -3614,6 +3647,50 @@ Future<void> saveCurrentUserFields(Map<String, Object?> data) async {
     ...data,
     'updatedAt': FieldValue.serverTimestamp(),
   }, SetOptions(merge: true));
+}
+
+const int onlinePresenceFreshMillis = 2 * 60 * 1000;
+
+bool isOnlinePresenceFresh(int lastSeenAtMillis) {
+  if (lastSeenAtMillis <= 0) {
+    return false;
+  }
+
+  return DateTime.now().millisecondsSinceEpoch - lastSeenAtMillis <=
+      onlinePresenceFreshMillis;
+}
+
+bool liveLocationShareIsFresh(int? expiresAtMillis) {
+  return expiresAtMillis != null &&
+      expiresAtMillis > DateTime.now().millisecondsSinceEpoch;
+}
+
+bool userAppearsOnlineFromPresence({
+  required bool isOnline,
+  required int lastSeenAtMillis,
+  required bool isSharingLiveLocation,
+  required int? liveLocationExpiresAtMillis,
+}) {
+  return (isOnline && isOnlinePresenceFresh(lastSeenAtMillis)) ||
+      (isSharingLiveLocation &&
+          liveLocationShareIsFresh(liveLocationExpiresAtMillis));
+}
+
+Future<void> updateCurrentUserOnlinePresence({required bool isOnline}) async {
+  final firebaseUser = FirebaseAuth.instance.currentUser;
+
+  if (firebaseUser == null) {
+    return;
+  }
+
+  try {
+    await usersCollection().doc(firebaseUser.uid).set({
+      'isOnline': isOnline,
+      'lastSeenAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+  } catch (_) {
+    // Presence should never block the app if Firebase temporarily fails.
+  }
 }
 
 CollectionReference<Map<String, dynamic>> spotsCollection() {
@@ -4985,7 +5062,7 @@ class MainScreen extends StatefulWidget {
   State<MainScreen> createState() => _MainScreenState();
 }
 
-class _MainScreenState extends State<MainScreen> {
+class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   int index = 0;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>?
   meetNotificationSubscription;
@@ -4994,6 +5071,7 @@ class _MainScreenState extends State<MainScreen> {
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>?
   friendLocationNotificationSubscription;
   Timer? friendLocationCheckTimer;
+  Timer? onlinePresenceRefreshTimer;
   bool isCheckingFriendLocationNotifications = false;
 
   final screens = const [
@@ -5007,10 +5085,27 @@ class _MainScreenState extends State<MainScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    updateCurrentUserOnlinePresence(isOnline: true);
+    onlinePresenceRefreshTimer = Timer.periodic(const Duration(seconds: 20), (
+      _,
+    ) {
+      updateCurrentUserOnlinePresence(isOnline: true);
+    });
     startMeetNotificationListener();
     startAdminNotificationListener();
     startFriendLocationNotificationListener();
     startFriendLocationNotificationChecks();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      updateCurrentUserOnlinePresence(isOnline: true);
+    } else if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.detached) {
+      updateCurrentUserOnlinePresence(isOnline: false);
+    }
   }
 
   void startMeetNotificationListener() {
@@ -5223,6 +5318,9 @@ class _MainScreenState extends State<MainScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    onlinePresenceRefreshTimer?.cancel();
+    updateCurrentUserOnlinePresence(isOnline: false);
     meetNotificationSubscription?.cancel();
     adminNotificationSubscription?.cancel();
     friendLocationNotificationSubscription?.cancel();
@@ -7650,6 +7748,13 @@ class _MapScreenState extends State<MapScreen> {
       'updatedAt': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
 
+    await usersCollection().doc(firebaseUser.uid).set({
+      'isSharingLiveLocation': true,
+      'liveLocationExpiresAt': Timestamp.fromDate(expiresAt),
+      'lastSeenAt': FieldValue.serverTimestamp(),
+      'isOnline': true,
+    }, SetOptions(merge: true));
+
     if (mounted) {
       scheduleLiveLocationTimers();
     }
@@ -7664,6 +7769,10 @@ class _MapScreenState extends State<MapScreen> {
 
     if (firebaseUser != null) {
       await liveLocationsCollection().doc(firebaseUser.uid).delete();
+      await usersCollection().doc(firebaseUser.uid).set({
+        'isSharingLiveLocation': false,
+        'liveLocationExpiresAt': null,
+      }, SetOptions(merge: true));
     }
 
     if (!mounted) {
@@ -14286,11 +14395,40 @@ class _NewChatScreenState extends State<NewChatScreen> {
                     ),
                   ),
                   const SizedBox(height: 3),
-                  Text(
-                    user.name,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(color: Colors.white54),
+                  Row(
+                    children: [
+                      Container(
+                        width: 7,
+                        height: 7,
+                        decoration: BoxDecoration(
+                          color: user.appearsOnline
+                              ? Colors.greenAccent
+                              : Colors.white38,
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        user.appearsOnline ? 'online' : 'offline',
+                        style: TextStyle(
+                          color: user.appearsOnline
+                              ? Colors.greenAccent
+                              : Colors.white54,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w900,
+                          letterSpacing: 0.3,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          user.name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(color: Colors.white54),
+                        ),
+                      ),
+                    ],
                   ),
                 ],
               ),
@@ -15097,34 +15235,19 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
                   ),
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
-                    children: [
-                      if (!widget.chat.isGroup) ...[
-                        ChatTitleAvatar(photoUrl: chatPhotoUrl, title: title),
-                        const SizedBox(width: 10),
-                      ],
-                      Flexible(child: Text(title)),
-                    ],
+                    children: [Flexible(child: Text(title))],
                   ),
                 ),
               )
-            : InkWell(
-                onTap: () => openChatUserProfile(currentUid),
-                borderRadius: BorderRadius.circular(12),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 2,
-                    vertical: 6,
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      if (!widget.chat.isGroup) ...[
-                        ChatTitleAvatar(photoUrl: chatPhotoUrl, title: title),
-                        const SizedBox(width: 10),
-                      ],
-                      Flexible(child: Text(title)),
-                    ],
-                  ),
+            : Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 6),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    ChatTitleAvatar(photoUrl: chatPhotoUrl, title: title),
+                    const SizedBox(width: 10),
+                    Flexible(child: Text(title)),
+                  ],
                 ),
               ),
         backgroundColor: Colors.transparent,
@@ -15432,6 +15555,10 @@ class PublicUserProfileData {
   final UserSettingsData settings;
   final List<GarageCar> garage;
   final bool deleted;
+  final bool isOnline;
+  final int lastSeenAtMillis;
+  final bool isSharingLiveLocation;
+  final int? liveLocationExpiresAtMillis;
 
   const PublicUserProfileData({
     required this.uid,
@@ -15448,12 +15575,51 @@ class PublicUserProfileData {
     required this.settings,
     required this.garage,
     required this.deleted,
+    this.isOnline = false,
+    this.lastSeenAtMillis = 0,
+    this.isSharingLiveLocation = false,
+    this.liveLocationExpiresAtMillis,
   });
 
   bool get canCurrentUserView {
     return currentUser.role == UserRole.admin ||
         currentUser.uid == uid ||
         settings.publicProfile;
+  }
+
+  bool get appearsOnline => userAppearsOnlineFromPresence(
+    isOnline: isOnline,
+    lastSeenAtMillis: lastSeenAtMillis,
+    isSharingLiveLocation: isSharingLiveLocation,
+    liveLocationExpiresAtMillis: liveLocationExpiresAtMillis,
+  );
+
+  PublicUserProfileData copyWith({
+    bool? isSharingLiveLocation,
+    int? liveLocationExpiresAtMillis,
+  }) {
+    return PublicUserProfileData(
+      uid: uid,
+      username: username,
+      name: name,
+      email: email,
+      photoUrl: photoUrl,
+      avatarPath: avatarPath,
+      bio: bio,
+      city: city,
+      country: country,
+      role: role,
+      verified: verified,
+      settings: settings,
+      garage: garage,
+      deleted: deleted,
+      isOnline: isOnline,
+      lastSeenAtMillis: lastSeenAtMillis,
+      isSharingLiveLocation:
+          isSharingLiveLocation ?? this.isSharingLiveLocation,
+      liveLocationExpiresAtMillis:
+          liveLocationExpiresAtMillis ?? this.liveLocationExpiresAtMillis,
+    );
   }
 
   String get cityCountry {
@@ -15485,6 +15651,12 @@ class PublicUserProfileData {
       settings: UserSettingsData.fromFirebase(data['settings']),
       garage: garageCarsFromFirebase(data['garage']),
       deleted: data['deleted'] == true,
+      isOnline: data['isOnline'] == true,
+      lastSeenAtMillis: timestampMillisFromFirebase(data['lastSeenAt']),
+      isSharingLiveLocation: data['isSharingLiveLocation'] == true,
+      liveLocationExpiresAtMillis: nullableTimestampMillisFromFirebase(
+        data['liveLocationExpiresAt'],
+      ),
     );
   }
 }
@@ -16100,7 +16272,46 @@ class PublicUserProfileScreen extends StatelessWidget {
                     ],
                   ],
                 ),
-                const SizedBox(height: 5),
+                const SizedBox(height: 7),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 9,
+                      height: 9,
+                      decoration: BoxDecoration(
+                        color: profile.appearsOnline
+                            ? Colors.greenAccent
+                            : Colors.white38,
+                        shape: BoxShape.circle,
+                        boxShadow: profile.appearsOnline
+                            ? [
+                                BoxShadow(
+                                  color: Colors.greenAccent.withValues(
+                                    alpha: 0.38,
+                                  ),
+                                  blurRadius: 9,
+                                  spreadRadius: 1,
+                                ),
+                              ]
+                            : const [],
+                      ),
+                    ),
+                    const SizedBox(width: 7),
+                    Text(
+                      profile.appearsOnline ? 'online' : 'offline',
+                      style: TextStyle(
+                        color: profile.appearsOnline
+                            ? Colors.greenAccent
+                            : Colors.white54,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: 0.4,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
                 Text(
                   profile.bio,
                   maxLines: 2,
@@ -16374,7 +16585,28 @@ class PublicUserProfileScreen extends StatelessWidget {
             );
           }
 
-          return profileBody(context, profile);
+          return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+            stream: liveLocationsCollection().doc(userId).snapshots(),
+            builder: (context, liveSnapshot) {
+              var isSharingLiveLocation = false;
+              final liveDoc = liveSnapshot.data;
+
+              int? liveLocationExpiresAtMillis;
+              if (liveDoc != null && liveDoc.exists) {
+                final liveLocation = LiveLocationData.fromFirestore(liveDoc);
+                isSharingLiveLocation = !liveLocation.isExpired;
+                liveLocationExpiresAtMillis = liveLocation.expiresAtMillis;
+              }
+
+              return profileBody(
+                context,
+                profile.copyWith(
+                  isSharingLiveLocation: isSharingLiveLocation,
+                  liveLocationExpiresAtMillis: liveLocationExpiresAtMillis,
+                ),
+              );
+            },
+          );
         },
       ),
     );
@@ -16604,11 +16836,43 @@ class _FriendsScreenState extends State<FriendsScreen> {
                     ],
                   ),
                   const SizedBox(height: 3),
-                  Text(
-                    subtitle,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(color: Colors.white54, fontSize: 12),
+                  Row(
+                    children: [
+                      Container(
+                        width: 7,
+                        height: 7,
+                        decoration: BoxDecoration(
+                          color: user.appearsOnline
+                              ? Colors.greenAccent
+                              : Colors.white38,
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        user.appearsOnline ? 'online' : 'offline',
+                        style: TextStyle(
+                          color: user.appearsOnline
+                              ? Colors.greenAccent
+                              : Colors.white54,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w900,
+                          letterSpacing: 0.3,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          subtitle,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Colors.white54,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ],
               ),
@@ -16668,35 +16932,34 @@ class _FriendsScreenState extends State<FriendsScreen> {
     }
 
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-      stream: friendshipsCollection()
-          .where('userIds', arrayContains: firebaseUser.uid)
-          .snapshots(),
-      builder: (context, snapshot) {
-        final docs = snapshot.data?.docs ?? const [];
+      stream: usersCollection().snapshots(),
+      builder: (context, _) {
+        return FutureBuilder<List<FriendUserData>>(
+          future: loadCurrentFriendUsers(),
+          builder: (context, snapshot) {
+            final friends = snapshot.data ?? const <FriendUserData>[];
 
-        if (docs.isEmpty) {
-          return const EmptyStateCard(
-            icon: Icons.group_outlined,
-            title: 'No friends yet',
-            text: 'Use Find Users to send your first friend request.',
-          );
-        }
-
-        return Column(
-          children: [
-            for (final doc in docs)
-              FutureBuilder<FriendUserData?>(
-                future: loadFriendUser(
-                  friendUidFromFriendshipData(doc.data(), firebaseUser.uid),
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return const Center(
+                child: Padding(
+                  padding: EdgeInsets.all(24),
+                  child: CircularProgressIndicator(color: blue),
                 ),
-                builder: (context, userSnapshot) {
-                  final user = userSnapshot.data;
+              );
+            }
 
-                  if (user == null || !user.canAppearInUserLists) {
-                    return const SizedBox.shrink();
-                  }
+            if (friends.isEmpty) {
+              return const EmptyStateCard(
+                icon: Icons.group_outlined,
+                title: 'No friends yet',
+                text: 'Use Find Users to send your first friend request.',
+              );
+            }
 
-                  return friendUserTile(
+            return Column(
+              children: [
+                for (final user in friends)
+                  friendUserTile(
                     user: user,
                     subtitle: user.name,
                     onTap: () => openUserProfile(
@@ -16710,10 +16973,10 @@ class _FriendsScreenState extends State<FriendsScreen> {
                       outlined: true,
                       onPressed: () => removeFriend(user),
                     ),
-                  );
-                },
-              ),
-          ],
+                  ),
+              ],
+            );
+          },
         );
       },
     );
@@ -16959,6 +17222,19 @@ class _FriendsScreenState extends State<FriendsScreen> {
                     })
                     .toList() ??
                 const <FriendUserData>[];
+
+            users.sort((a, b) {
+              final onlineCompare = b.appearsOnline.toString().compareTo(
+                a.appearsOnline.toString(),
+              );
+              if (onlineCompare != 0) {
+                return onlineCompare;
+              }
+
+              return a.username.toLowerCase().compareTo(
+                b.username.toLowerCase(),
+              );
+            });
 
             if (users.isEmpty) {
               return const EmptyStateCard(
