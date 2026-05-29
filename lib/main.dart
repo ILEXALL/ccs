@@ -6114,172 +6114,225 @@ class ExploreSpotStatsRow extends StatelessWidget {
 }
 
 Future<void> showSpotCommentComposer(BuildContext context, CarSpot spot) async {
-  final controller = TextEditingController();
-  var isSaving = false;
+  final messenger = ScaffoldMessenger.maybeOf(context);
 
   await showModalBottomSheet<void>(
     context: context,
     backgroundColor: panelGlass,
     isScrollControlled: true,
+    useSafeArea: true,
     shape: const RoundedRectangleBorder(
       borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
     ),
-    builder: (modalContext) {
-      return StatefulBuilder(
-        builder: (context, setSheetState) {
-          Future<void> submitComment() async {
-            final comment = controller.text.trim();
-
-            if (comment.isEmpty) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  backgroundColor: Colors.redAccent,
-                  content: Text(
-                    'Write a comment first.',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ),
-              );
-              return;
-            }
-
-            setSheetState(() => isSaving = true);
-
-            try {
-              await saveSpotReview(spot: spot, comment: comment);
-
-              if (!modalContext.mounted) {
-                return;
-              }
-
-              Navigator.pop(modalContext);
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  backgroundColor: blue,
-                  content: Text(
-                    'Comment posted.',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ),
-              );
-            } catch (error) {
-              if (!modalContext.mounted) {
-                return;
-              }
-
-              final code = error is FirebaseException
-                  ? error.code
-                  : error.toString();
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  backgroundColor: Colors.redAccent,
-                  content: Text(
-                    'Could not save comment: $code',
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ),
-              );
-            } finally {
-              if (modalContext.mounted) {
-                setSheetState(() => isSaving = false);
-              }
-            }
-          }
-
-          return SafeArea(
-            child: Padding(
-              padding: EdgeInsets.fromLTRB(
-                18,
-                14,
-                18,
-                18 + MediaQuery.of(context).viewInsets.bottom,
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          'Comment ${spot.name}',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 20,
-                            fontWeight: FontWeight.w900,
-                          ),
-                        ),
-                      ),
-                      IconButton(
-                        onPressed: () => Navigator.pop(modalContext),
-                        icon: const Icon(Icons.close, color: Colors.white70),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 10),
-                  TextField(
-                    controller: controller,
-                    autofocus: true,
-                    minLines: 3,
-                    maxLines: 5,
-                    style: const TextStyle(color: Colors.white),
-                    decoration: InputDecoration(
-                      hintText: 'Write a comment',
-                      hintStyle: const TextStyle(color: Colors.white38),
-                      filled: true,
-                      fillColor: Colors.white.withValues(alpha: 0.06),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(16),
-                        borderSide: const BorderSide(color: Colors.white12),
-                      ),
-                      enabledBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(16),
-                        borderSide: const BorderSide(color: Colors.white12),
-                      ),
-                      focusedBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(16),
-                        borderSide: const BorderSide(color: blue),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 14),
-                  SizedBox(
-                    width: double.infinity,
-                    height: 50,
-                    child: ElevatedButton.icon(
-                      onPressed: isSaving ? null : submitComment,
-                      icon: Icon(isSaving ? Icons.hourglass_top : Icons.send),
-                      label: Text(isSaving ? 'Posting...' : 'Post Comment'),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: blue,
-                        foregroundColor: Colors.white,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(16),
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          );
-        },
-      );
+    builder: (_) {
+      return _SpotCommentComposerSheet(spot: spot, messenger: messenger);
     },
   );
+}
 
-  controller.dispose();
+class _SpotCommentComposerSheet extends StatefulWidget {
+  final CarSpot spot;
+  final ScaffoldMessengerState? messenger;
+
+  const _SpotCommentComposerSheet({
+    required this.spot,
+    required this.messenger,
+  });
+
+  @override
+  State<_SpotCommentComposerSheet> createState() =>
+      _SpotCommentComposerSheetState();
+}
+
+class _SpotCommentComposerSheetState extends State<_SpotCommentComposerSheet> {
+  late final TextEditingController controller;
+  bool isSaving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    controller = TextEditingController();
+  }
+
+  @override
+  void dispose() {
+    controller.dispose();
+    super.dispose();
+  }
+
+  void showMessage(SnackBar snackBar) {
+    final messenger = widget.messenger;
+    if (messenger == null) {
+      return;
+    }
+
+    messenger.clearSnackBars();
+    messenger.showSnackBar(snackBar);
+  }
+
+  Future<void> submitComment() async {
+    final comment = controller.text.trim();
+
+    if (comment.isEmpty) {
+      showMessage(
+        const SnackBar(
+          backgroundColor: Colors.redAccent,
+          content: Text(
+            'Write a comment first.',
+            style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+          ),
+        ),
+      );
+      return;
+    }
+
+    if (isSaving) {
+      return;
+    }
+
+    FocusManager.instance.primaryFocus?.unfocus();
+
+    if (mounted) {
+      setState(() => isSaving = true);
+    }
+
+    try {
+      await saveSpotReview(spot: widget.spot, comment: comment);
+
+      if (!mounted) {
+        return;
+      }
+
+      Navigator.of(context).pop();
+
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        showMessage(
+          const SnackBar(
+            backgroundColor: blue,
+            content: Text(
+              'Comment posted.',
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        );
+      });
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      final code = error is FirebaseException ? error.code : error.toString();
+
+      showMessage(
+        SnackBar(
+          backgroundColor: Colors.redAccent,
+          content: Text(
+            'Could not save comment: $code',
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+      );
+
+      if (mounted) {
+        setState(() => isSaving = false);
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
+
+    return SafeArea(
+      top: false,
+      child: AnimatedPadding(
+        duration: const Duration(milliseconds: 180),
+        curve: Curves.easeOutCubic,
+        padding: EdgeInsets.fromLTRB(18, 14, 18, 18 + bottomInset),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'Comment ${widget.spot.name}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 20,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ),
+                IconButton(
+                  onPressed: isSaving
+                      ? null
+                      : () {
+                          FocusManager.instance.primaryFocus?.unfocus();
+                          Navigator.of(context).pop();
+                        },
+                  icon: const Icon(Icons.close, color: Colors.white70),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: controller,
+              autofocus: false,
+              minLines: 3,
+              maxLines: 5,
+              textInputAction: TextInputAction.newline,
+              style: const TextStyle(color: Colors.white),
+              decoration: InputDecoration(
+                hintText: 'Write a comment',
+                hintStyle: const TextStyle(color: Colors.white38),
+                filled: true,
+                fillColor: Colors.white.withValues(alpha: 0.06),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(16),
+                  borderSide: const BorderSide(color: Colors.white12),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(16),
+                  borderSide: const BorderSide(color: Colors.white12),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(16),
+                  borderSide: const BorderSide(color: blue),
+                ),
+              ),
+            ),
+            const SizedBox(height: 14),
+            SizedBox(
+              width: double.infinity,
+              height: 50,
+              child: ElevatedButton.icon(
+                onPressed: isSaving ? null : submitComment,
+                icon: Icon(isSaving ? Icons.hourglass_top : Icons.send),
+                label: Text(isSaving ? 'Posting...' : 'Post Comment'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: blue,
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 class CurrentUserTrianglePainter extends CustomPainter {
@@ -10213,6 +10266,11 @@ class _SpotReviewsSectionState extends State<SpotReviewsSection> {
       return;
     }
 
+    if (isSaving) {
+      return;
+    }
+
+    FocusManager.instance.primaryFocus?.unfocus();
     setState(() => isSaving = true);
 
     try {
