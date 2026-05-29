@@ -425,6 +425,16 @@ final savedSpots = ValueNotifier<List<CarSpot>>([]);
 final reviewSpots = ValueNotifier<List<CarSpot>>([]);
 final userSettings = ValueNotifier<UserSettingsData>(defaultUserSettings());
 final garageCars = ValueNotifier<List<GarageCar>>(defaultGarageCars());
+final mapFocusRequest = ValueNotifier<MapFocusRequest?>(null);
+
+class MapFocusRequest {
+  final String spotId;
+  final LatLng coordinates;
+  final int token;
+
+  MapFocusRequest({required this.spotId, required this.coordinates})
+    : token = DateTime.now().microsecondsSinceEpoch;
+}
 
 enum PhotoCropShape { rectangle, circle }
 
@@ -5379,6 +5389,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    mapFocusRequest.addListener(handleMapFocusRequest);
     updateCurrentUserOnlinePresence(isOnline: true);
     onlinePresenceRefreshTimer = Timer.periodic(const Duration(seconds: 20), (
       _,
@@ -5389,6 +5400,16 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     startAdminNotificationListener();
     startFriendLocationNotificationListener();
     startFriendLocationNotificationChecks();
+  }
+
+  void handleMapFocusRequest() {
+    if (mapFocusRequest.value == null || !mounted) {
+      return;
+    }
+
+    if (index != 1) {
+      setState(() => index = 1);
+    }
   }
 
   @override
@@ -5612,6 +5633,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    mapFocusRequest.removeListener(handleMapFocusRequest);
     onlinePresenceRefreshTimer?.cancel();
     updateCurrentUserOnlinePresence(isOnline: false);
     meetNotificationSubscription?.cancel();
@@ -6810,6 +6832,7 @@ class _MapScreenState extends State<MapScreen> {
   double currentUserHeadingDegrees = 0;
   LatLng? previousUserLocationForHeading;
   bool mapCenteredOnCurrentUser = false;
+  int? lastHandledMapFocusRequestToken;
 
   double scaledMapIconValue({
     required double zoom,
@@ -6833,6 +6856,7 @@ class _MapScreenState extends State<MapScreen> {
   void initState() {
     super.initState();
     reviewSpots.addListener(refreshMap);
+    mapFocusRequest.addListener(handleMapFocusRequest);
 
     // Temporary spots can become visible or expire just because time passes.
     // Firestore will not send a new snapshot at the start/end time, so the map
@@ -7415,6 +7439,39 @@ class _MapScreenState extends State<MapScreen> {
           child: const SizedBox(width: 42, height: 42),
         ),
       ),
+    );
+  }
+
+  void handleMapFocusRequest() {
+    final request = mapFocusRequest.value;
+
+    if (request == null || request.token == lastHandledMapFocusRequestToken) {
+      return;
+    }
+
+    lastHandledMapFocusRequestToken = request.token;
+    CarSpot? matchingSpot;
+    for (final spot in approvedPublicSpots()) {
+      if (spot.id == request.spotId) {
+        matchingSpot = spot;
+        break;
+      }
+    }
+
+    if (mounted) {
+      setState(() {
+        selectedSpot = matchingSpot;
+        selectedPoliceReport = null;
+        selectedLiveLocation = null;
+        mapCenteredOnCurrentUser = false;
+        currentMapZoom = 16.4;
+      });
+    }
+
+    mapController.moveAndRotate(
+      request.coordinates,
+      16.4,
+      currentMapRotationDegrees,
     );
   }
 
@@ -8361,6 +8418,7 @@ class _MapScreenState extends State<MapScreen> {
     navigationPositionSubscription?.cancel();
     navigationPredictionTimer?.cancel();
     reviewSpots.removeListener(refreshMap);
+    mapFocusRequest.removeListener(handleMapFocusRequest);
     mapController.dispose();
     super.dispose();
   }
@@ -10207,6 +10265,31 @@ class _SpotDetailScreenState extends State<SpotDetailScreen> {
                 ),
                 const SizedBox(height: 22),
                 SaveSpotButton(spot: spot),
+                const SizedBox(height: 12),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    onPressed: () {
+                      mapFocusRequest.value = MapFocusRequest(
+                        spotId: spot.id,
+                        coordinates: spot.coordinates,
+                      );
+                      Navigator.of(context).popUntil((route) => route.isFirst);
+                    },
+                    icon: const Icon(Icons.map_outlined),
+                    label: const Text('Show on map'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: blue,
+                      foregroundColor: Colors.white,
+                      elevation: 10,
+                      shadowColor: blue.withValues(alpha: 0.28),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                    ),
+                  ),
+                ),
                 const SizedBox(height: 12),
                 SpotRouteActions(spot: spot),
                 if (spot.supportsContacts) ...[
