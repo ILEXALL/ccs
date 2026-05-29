@@ -2552,17 +2552,18 @@ class FriendUserData {
   });
 
   bool get canSeeLiveLocationPresence {
-    final currentUid = FirebaseAuth.instance.currentUser?.uid ?? currentUser.uid;
+    final currentUid =
+        FirebaseAuth.instance.currentUser?.uid ?? currentUser.uid;
 
     return currentUid.trim().isNotEmpty &&
-        (uid == currentUid || liveLocationVisibleToUserIds.contains(currentUid));
+        (uid == currentUid ||
+            liveLocationVisibleToUserIds.contains(currentUid));
   }
 
   bool get appearsOnline => userAppearsOnlineFromPresence(
     isOnline: isOnline,
     lastSeenAtMillis: lastSeenAtMillis,
-    isSharingLiveLocation:
-        isSharingLiveLocation && canSeeLiveLocationPresence,
+    isSharingLiveLocation: isSharingLiveLocation && canSeeLiveLocationPresence,
     liveLocationExpiresAtMillis: liveLocationExpiresAtMillis,
   );
 
@@ -7195,14 +7196,14 @@ class _MapScreenState extends State<MapScreen> {
         point: report.coordinates,
         width: 62,
         height: 62,
-          child: GestureDetector(
-            onTap: () {
-              setState(() {
-                selectedPoliceReport = report;
-                selectedSpot = null;
-                selectedLiveLocation = null;
-              });
-            },
+        child: GestureDetector(
+          onTap: () {
+            setState(() {
+              selectedPoliceReport = report;
+              selectedSpot = null;
+              selectedLiveLocation = null;
+            });
+          },
           child: Tooltip(
             message: 'Police marked by ${displayUsername(report.username)}',
             child: Container(
