@@ -96,10 +96,7 @@ class CCSApp extends StatelessWidget {
       builder: (context, child) {
         return Stack(
           fit: StackFit.expand,
-          children: [
-            const AppMapBackground(),
-            if (child != null) child,
-          ],
+          children: [const AppMapBackground(), if (child != null) child],
         );
       },
       home:
@@ -206,10 +203,7 @@ class AppRouteBackground extends StatelessWidget {
   Widget build(BuildContext context) {
     return Stack(
       fit: StackFit.expand,
-      children: [
-        const AppMapBackground(),
-        child,
-      ],
+      children: [const AppMapBackground(), child],
     );
   }
 }
@@ -3018,8 +3012,7 @@ class ChatThreadData {
   String subtitleForCurrentUser(String currentUid) {
     if (lastMessage.trim().isNotEmpty) {
       if (isGroup) {
-        if (lastSenderUid.trim().isEmpty &&
-            lastSenderUsername.trim().isEmpty) {
+        if (lastSenderUid.trim().isEmpty && lastSenderUsername.trim().isEmpty) {
           return lastMessage.trim();
         }
 
@@ -8122,10 +8115,9 @@ class _MapScreenState extends State<MapScreen> {
 
     final nextVisibleToUserIds = uniqueNonEmptyStrings(
       visibleToUserIds ??
-          stringListFromFirebase(
-            existingData?['visibleToUserIds'],
-            [firebaseUser.uid],
-          ),
+          stringListFromFirebase(existingData?['visibleToUserIds'], [
+            firebaseUser.uid,
+          ]),
     );
     final nextVisibleToChatId =
         visibleToChatId ??
@@ -15923,7 +15915,8 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
   ) {
     final mine = message.senderUid == currentUid;
     final showSender = !mine && widget.chat.isGroup;
-    final sender = usersById[message.senderUid] ?? fallbackMessageSender(message);
+    final sender =
+        usersById[message.senderUid] ?? fallbackMessageSender(message);
     final bubble = Container(
       constraints: BoxConstraints(maxWidth: showSender ? 248 : 280),
       margin: const EdgeInsets.only(bottom: 10),
@@ -17202,9 +17195,7 @@ class PublicUserProfileScreen extends StatelessWidget {
 
             Navigator.push(
               context,
-              appPageRoute(
-                builder: (_) => ChatConversationScreen(chat: chat),
-              ),
+              appPageRoute(builder: (_) => ChatConversationScreen(chat: chat)),
             );
           } catch (error) {
             if (!context.mounted) {
