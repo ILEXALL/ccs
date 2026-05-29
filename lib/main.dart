@@ -2530,6 +2530,7 @@ class FriendUserData {
   final int lastSeenAtMillis;
   final bool isSharingLiveLocation;
   final int? liveLocationExpiresAtMillis;
+  final List<String> liveLocationVisibleToUserIds;
 
   const FriendUserData({
     required this.uid,
@@ -2547,12 +2548,21 @@ class FriendUserData {
     this.lastSeenAtMillis = 0,
     this.isSharingLiveLocation = false,
     this.liveLocationExpiresAtMillis,
+    this.liveLocationVisibleToUserIds = const [],
   });
+
+  bool get canSeeLiveLocationPresence {
+    final currentUid = FirebaseAuth.instance.currentUser?.uid ?? currentUser.uid;
+
+    return currentUid.trim().isNotEmpty &&
+        (uid == currentUid || liveLocationVisibleToUserIds.contains(currentUid));
+  }
 
   bool get appearsOnline => userAppearsOnlineFromPresence(
     isOnline: isOnline,
     lastSeenAtMillis: lastSeenAtMillis,
-    isSharingLiveLocation: isSharingLiveLocation,
+    isSharingLiveLocation:
+        isSharingLiveLocation && canSeeLiveLocationPresence,
     liveLocationExpiresAtMillis: liveLocationExpiresAtMillis,
   );
 
@@ -2592,6 +2602,10 @@ class FriendUserData {
       isSharingLiveLocation: data['isSharingLiveLocation'] == true,
       liveLocationExpiresAtMillis: nullableTimestampMillisFromFirebase(
         data['liveLocationExpiresAt'],
+      ),
+      liveLocationVisibleToUserIds: stringListFromFirebase(
+        data['liveLocationVisibleToUserIds'],
+        const [],
       ),
     );
   }
@@ -3274,10 +3288,15 @@ Future<void> shareChatLiveLocation(
     return;
   }
 
-  final visibleToUserIds = uniqueNonEmptyStrings([
-    firebaseUser.uid,
-    ...chat.memberIds,
-  ]);
+  final otherDirectUserId = chat.memberIds.firstWhere(
+    (uid) => uid.trim().isNotEmpty && uid != firebaseUser.uid,
+    orElse: () => '',
+  );
+  final visibleToUserIds = uniqueNonEmptyStrings(
+    chat.isGroup
+        ? [firebaseUser.uid, ...chat.memberIds]
+        : [firebaseUser.uid, otherDirectUserId],
+  );
 
   if (visibleToUserIds.length <= 1) {
     if (context.mounted) {
@@ -3329,6 +3348,7 @@ Future<void> shareChatLiveLocation(
   await usersCollection().doc(firebaseUser.uid).set({
     'isSharingLiveLocation': true,
     'liveLocationExpiresAt': Timestamp.fromDate(expiresAt),
+    'liveLocationVisibleToUserIds': visibleToUserIds,
     'lastSeenAt': FieldValue.serverTimestamp(),
     'isOnline': true,
   }, SetOptions(merge: true));
@@ -6764,6 +6784,7 @@ class _MapScreenState extends State<MapScreen> {
   final Set<String> enabledCategoryFilters = {...spotCategoryOptions};
   CarSpot? selectedSpot;
   PoliceReportData? selectedPoliceReport;
+  LiveLocationData? selectedLiveLocation;
   LatLng? currentUserLocation;
   LatLng? displayedUserLocation;
   LatLng? lastGpsUserLocation;
@@ -6832,6 +6853,7 @@ class _MapScreenState extends State<MapScreen> {
     setState(() {
       final spot = selectedSpot;
       final policeReport = selectedPoliceReport;
+      final liveLocation = selectedLiveLocation;
 
       if (spot != null && !spot.isVisibleNow) {
         selectedSpot = null;
@@ -6839,6 +6861,10 @@ class _MapScreenState extends State<MapScreen> {
 
       if (policeReport != null && !policeReport.isActive) {
         selectedPoliceReport = null;
+      }
+
+      if (liveLocation != null && liveLocation.isExpired) {
+        selectedLiveLocation = null;
       }
     });
   }
@@ -6991,6 +7017,7 @@ class _MapScreenState extends State<MapScreen> {
                               ..clear()
                               ..addAll(nextEnabledCategories);
                             selectedSpot = null;
+                            selectedLiveLocation = null;
                           });
                           Navigator.pop(context);
                         },
@@ -7071,7 +7098,11 @@ class _MapScreenState extends State<MapScreen> {
         height: markerHeight,
         child: GestureDetector(
           onTap: () {
-            setState(() => selectedSpot = spot);
+            setState(() {
+              selectedSpot = spot;
+              selectedPoliceReport = null;
+              selectedLiveLocation = null;
+            });
           },
           child: showFullIcons
               ? Stack(
@@ -7164,13 +7195,14 @@ class _MapScreenState extends State<MapScreen> {
         point: report.coordinates,
         width: 62,
         height: 62,
-        child: GestureDetector(
-          onTap: () {
-            setState(() {
-              selectedPoliceReport = report;
-              selectedSpot = null;
-            });
-          },
+          child: GestureDetector(
+            onTap: () {
+              setState(() {
+                selectedPoliceReport = report;
+                selectedSpot = null;
+                selectedLiveLocation = null;
+              });
+            },
           child: Tooltip(
             message: 'Police marked by ${displayUsername(report.username)}',
             child: Container(
@@ -7295,64 +7327,67 @@ class _MapScreenState extends State<MapScreen> {
             width: labelWidth,
             height: markerHeight,
             rotate: false,
-            child: Tooltip(
-              message: liveLocationTooltipMessage(location),
-              child: Stack(
-                alignment: Alignment.center,
-                children: [
-                  Positioned(
-                    top: 0,
-                    left: 0,
-                    right: 0,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 5,
-                        vertical: 2,
-                      ),
-                      decoration: BoxDecoration(
-                        color: Colors.black.withValues(alpha: 0.58),
-                        borderRadius: BorderRadius.circular(999),
-                        border: Border.all(
-                          color: Colors.white.withValues(alpha: 0.14),
-                        ),
-                      ),
-                      child: Text(
-                        displayUsername(location.username),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: labelFontSize,
-                          fontWeight: FontWeight.w900,
-                        ),
-                      ),
-                    ),
-                  ),
-                  Center(
-                    child: SizedBox(
-                      width: carIconSize,
-                      height: carIconSize,
-                      child: Transform.rotate(
-                        angle: headingRadiansForMap(
-                          location.headingDegrees,
-                          currentMapRotationDegrees,
-                        ),
-                        child: Image.asset(
-                          iconAsset,
-                          fit: BoxFit.contain,
-                          errorBuilder: (context, error, stackTrace) {
-                            return Icon(
-                              Icons.directions_car,
-                              color: fallbackColor,
-                              size: carIconSize * 0.82,
-                            );
-                          },
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: () {
+                setState(() {
+                  selectedLiveLocation = location;
+                  selectedSpot = null;
+                  selectedPoliceReport = null;
+                });
+              },
+              child: Tooltip(
+                message: liveLocationTooltipMessage(location),
+                child: Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    Positioned(
+                      top: 0,
+                      left: 2,
+                      right: 2,
+                      child: IgnorePointer(
+                        child: Text(
+                          displayUsername(location.username),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: Colors.white.withValues(alpha: 0.74),
+                            fontSize: labelFontSize,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: 0.2,
+                            shadows: const [
+                              Shadow(color: Colors.black, blurRadius: 5),
+                            ],
+                          ),
                         ),
                       ),
                     ),
-                  ),
-                ],
+                    Center(
+                      child: SizedBox(
+                        width: carIconSize,
+                        height: carIconSize,
+                        child: Transform.rotate(
+                          angle: headingRadiansForMap(
+                            location.headingDegrees,
+                            currentMapRotationDegrees,
+                          ),
+                          child: Image.asset(
+                            iconAsset,
+                            fit: BoxFit.contain,
+                            errorBuilder: (context, error, stackTrace) {
+                              return Icon(
+                                Icons.directions_car,
+                                color: fallbackColor,
+                                size: carIconSize * 0.82,
+                              );
+                            },
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
           );
@@ -7616,6 +7651,7 @@ class _MapScreenState extends State<MapScreen> {
       currentUserLocation = location;
       selectedSpot = null;
       selectedPoliceReport = newReport;
+      selectedLiveLocation = null;
       isAddingPoliceReport = false;
     });
 
@@ -7805,6 +7841,7 @@ class _MapScreenState extends State<MapScreen> {
     if (currentFirebaseUser == null) {
       setState(() {
         liveLocations = const [];
+        selectedLiveLocation = null;
         isSharingLiveLocation = false;
         liveLocationPromptAt = null;
         liveLocationExpiresAt = null;
@@ -7851,6 +7888,18 @@ class _MapScreenState extends State<MapScreen> {
 
             setState(() {
               liveLocations = visibleLocations;
+              final selectedUid = selectedLiveLocation?.uid;
+              selectedLiveLocation = selectedUid == null
+                  ? null
+                  : (() {
+                      for (final location in visibleLocations) {
+                        if (location.uid == selectedUid &&
+                            location.uid != firebaseUser?.uid) {
+                          return location;
+                        }
+                      }
+                      return null;
+                    })();
               if (ownLocation != null) {
                 isSharingLiveLocation = true;
                 liveLocationPromptAt = DateTime.fromMillisecondsSinceEpoch(
@@ -8156,6 +8205,9 @@ class _MapScreenState extends State<MapScreen> {
     await usersCollection().doc(firebaseUser.uid).set({
       'isSharingLiveLocation': true,
       'liveLocationExpiresAt': Timestamp.fromDate(expiresAt),
+      'liveLocationVisibleToUserIds': nextVisibleToUserIds.isEmpty
+          ? [firebaseUser.uid]
+          : nextVisibleToUserIds,
       'lastSeenAt': FieldValue.serverTimestamp(),
       'isOnline': true,
     }, SetOptions(merge: true));
@@ -8177,6 +8229,7 @@ class _MapScreenState extends State<MapScreen> {
       await usersCollection().doc(firebaseUser.uid).set({
         'isSharingLiveLocation': false,
         'liveLocationExpiresAt': null,
+        'liveLocationVisibleToUserIds': [],
       }, SetOptions(merge: true));
     }
 
@@ -8528,6 +8581,7 @@ class _MapScreenState extends State<MapScreen> {
       mapCenteredOnCurrentUser = true;
       selectedSpot = null;
       selectedPoliceReport = null;
+      selectedLiveLocation = null;
       isLocatingUser = false;
     });
 
@@ -8539,6 +8593,9 @@ class _MapScreenState extends State<MapScreen> {
   Widget build(BuildContext context) {
     final spot = selectedSpot;
     final policeReport = selectedPoliceReport;
+    final liveLocation = selectedLiveLocation;
+    final hasBottomCard =
+        spot != null || policeReport != null || liveLocation != null;
 
     return Scaffold(
       backgroundColor: Colors.transparent,
@@ -8576,6 +8633,7 @@ class _MapScreenState extends State<MapScreen> {
               onTap: (_, _) => setState(() {
                 selectedSpot = null;
                 selectedPoliceReport = null;
+                selectedLiveLocation = null;
               }),
             ),
             children: [
@@ -8615,7 +8673,7 @@ class _MapScreenState extends State<MapScreen> {
           ),
           Positioned(
             left: 16,
-            bottom: spot == null && policeReport == null ? 18 : 196,
+            bottom: hasBottomCard ? 196 : 18,
             child: FloatingActionButton.small(
               heroTag: 'add_map_report',
               onPressed: isAddingPoliceReport ? null : showAddMapReportSheet,
@@ -8635,7 +8693,7 @@ class _MapScreenState extends State<MapScreen> {
           ),
           Positioned(
             right: 16,
-            bottom: spot == null && policeReport == null ? 18 : 196,
+            bottom: hasBottomCard ? 196 : 18,
             child: FloatingActionButton.small(
               heroTag: 'current_location',
               onPressed: isLocatingUser ? null : () => moveToCurrentLocation(),
@@ -8679,6 +8737,21 @@ class _MapScreenState extends State<MapScreen> {
               child: SpotMapCard(
                 spot: spot,
                 onOpen: () => openSpotDetails(spot),
+              ),
+            ),
+          if (liveLocation != null)
+            Positioned(
+              left: 16,
+              right: 16,
+              bottom: 16,
+              child: LiveLocationMapCard(
+                location: liveLocation,
+                isFriend: liveLocationIsFriend(liveLocation),
+                onOpen: () => openUserProfile(
+                  context,
+                  uid: liveLocation.uid,
+                  fallbackUsername: liveLocation.username,
+                ),
               ),
             ),
         ],
@@ -9162,6 +9235,147 @@ class SpotMapCard extends StatelessWidget {
                     const SizedBox(width: 8),
                     SaveSpotButton(spot: spot, compact: true),
                   ],
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class LiveLocationMapCard extends StatelessWidget {
+  final LiveLocationData location;
+  final bool isFriend;
+  final VoidCallback onOpen;
+
+  const LiveLocationMapCard({
+    super.key,
+    required this.location,
+    required this.isFriend,
+    required this.onOpen,
+  });
+
+  FriendUserData get user {
+    return FriendUserData(
+      uid: location.uid,
+      username: location.username,
+      name: location.name,
+      email: '',
+      photoUrl: location.photoUrl,
+      verified: location.verified,
+      role: location.role,
+      banned: false,
+      deleted: false,
+      isOnline: true,
+      lastSeenAtMillis: location.updatedAtMillis,
+      isSharingLiveLocation: true,
+      liveLocationExpiresAtMillis: location.expiresAtMillis,
+      liveLocationVisibleToUserIds: location.visibleToUserIds,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final profileUser = user;
+    final updatedLabel = location.updatedAtMillis > 0
+        ? 'Updated ${formatShortDateTime(DateTime.fromMillisecondsSinceEpoch(location.updatedAtMillis))}'
+        : 'Live location';
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: panelGlass,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: Colors.white12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.4),
+            blurRadius: 28,
+            offset: const Offset(0, 12),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          UserAvatarCircle(user: profileUser, size: 84),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        displayUsername(location.username),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 18,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ),
+                    if (location.verified) ...[
+                      const SizedBox(width: 8),
+                      const Icon(Icons.verified, color: blue, size: 17),
+                    ],
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  updatedLabel,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(color: Colors.white54, fontSize: 12),
+                ),
+                const SizedBox(height: 10),
+                Wrap(
+                  spacing: 7,
+                  runSpacing: 7,
+                  children: [
+                    _SmallTag(
+                      label: isFriend ? 'Friend' : 'Driver',
+                      icon: isFriend ? Icons.people : Icons.person,
+                    ),
+                    const _SmallTag(label: 'Live now', icon: Icons.my_location),
+                    if (location.shareScope.trim().isNotEmpty)
+                      _SmallTag(
+                        label: location.shareScope == 'group'
+                            ? 'Group share'
+                            : location.shareScope == 'direct'
+                            ? 'Chat share'
+                            : 'Friends share',
+                        icon: Icons.lock_outline,
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                SizedBox(
+                  width: double.infinity,
+                  height: 38,
+                  child: ElevatedButton(
+                    onPressed: onOpen,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: blue,
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                    ),
+                    child: const Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.account_circle_outlined, size: 16),
+                        SizedBox(width: 8),
+                        Text('View Profile'),
+                      ],
+                    ),
+                  ),
                 ),
               ],
             ),
