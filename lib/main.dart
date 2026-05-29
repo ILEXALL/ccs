@@ -44,6 +44,7 @@ const rememberMeKey = 'remember_me';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await warmUpAppMapBackground();
 
   try {
     await Firebase.initializeApp(
@@ -117,6 +118,18 @@ const panel = Color(0xFF101014);
 const panelGlass = Color(0xCC101014);
 const panelGlassSoft = Color(0xB0101014);
 const appMapBackgroundAsset = 'assets/bg_map.png';
+ui.Image? appMapBackgroundImage;
+
+Future<void> warmUpAppMapBackground() async {
+  try {
+    final bytes = await rootBundle.load(appMapBackgroundAsset);
+    final codec = await ui.instantiateImageCodec(bytes.buffer.asUint8List());
+    final frame = await codec.getNextFrame();
+    appMapBackgroundImage = frame.image;
+  } catch (_) {
+    appMapBackgroundImage = null;
+  }
+}
 
 class AppMapBackground extends StatelessWidget {
   const AppMapBackground({super.key});
@@ -126,12 +139,10 @@ class AppMapBackground extends StatelessWidget {
     return Stack(
       fit: StackFit.expand,
       children: [
-        Image.asset(
-          appMapBackgroundAsset,
-          fit: BoxFit.cover,
-          errorBuilder: (context, error, stackTrace) {
-            return const ColoredBox(color: night);
-          },
+        const ColoredBox(color: night),
+        CustomPaint(
+          painter: AppMapBackgroundPainter(appMapBackgroundImage),
+          child: const SizedBox.expand(),
         ),
         DecoratedBox(
           decoration: BoxDecoration(
@@ -146,13 +157,76 @@ class AppMapBackground extends StatelessWidget {
             ),
           ),
         ),
-        BackdropFilter(
-          filter: ui.ImageFilter.blur(sigmaX: 0.6, sigmaY: 0.6),
-          child: ColoredBox(color: Colors.black.withValues(alpha: 0.02)),
-        ),
+        ColoredBox(color: Colors.black.withValues(alpha: 0.02)),
       ],
     );
   }
+}
+
+class AppMapBackgroundPainter extends CustomPainter {
+  final ui.Image? image;
+
+  const AppMapBackgroundPainter(this.image);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final image = this.image;
+    if (image == null || size.isEmpty) {
+      return;
+    }
+
+    final inputSize = Size(image.width.toDouble(), image.height.toDouble());
+    final outputRect = Offset.zero & size;
+    final fitted = applyBoxFit(BoxFit.cover, inputSize, size);
+    final sourceRect = Alignment.center.inscribe(
+      fitted.source,
+      Offset.zero & inputSize,
+    );
+    final destinationRect = Alignment.center.inscribe(
+      fitted.destination,
+      outputRect,
+    );
+    final paint = Paint()..filterQuality = FilterQuality.high;
+
+    canvas.drawImageRect(image, sourceRect, destinationRect, paint);
+  }
+
+  @override
+  bool shouldRepaint(AppMapBackgroundPainter oldDelegate) {
+    return oldDelegate.image != image;
+  }
+}
+
+class AppRouteBackground extends StatelessWidget {
+  final Widget child;
+
+  const AppRouteBackground({super.key, required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        const AppMapBackground(),
+        child,
+      ],
+    );
+  }
+}
+
+PageRoute<T> appPageRoute<T>({
+  required WidgetBuilder builder,
+  RouteSettings? settings,
+}) {
+  return PageRouteBuilder<T>(
+    settings: settings,
+    opaque: true,
+    transitionDuration: Duration.zero,
+    reverseTransitionDuration: Duration.zero,
+    pageBuilder: (context, animation, secondaryAnimation) {
+      return AppRouteBackground(child: builder(context));
+    },
+  );
 }
 
 const photoPickerChannel = MethodChannel('ccs/photo_picker');
@@ -374,7 +448,7 @@ Future<String?> pickPhotoFromPhone(
 
     return Navigator.push<String>(
       context,
-      MaterialPageRoute(
+      appPageRoute(
         builder: (_) => PhotoCropScreen(
           sourcePath: path,
           cropAspectRatio: cropAspectRatio,
@@ -2185,6 +2259,23 @@ List<String> stringListFromFirebase(Object? value, List<String> fallback) {
   return fallback;
 }
 
+List<String> uniqueNonEmptyStrings(Iterable<String> values) {
+  final seen = <String>{};
+  final result = <String>[];
+
+  for (final value in values) {
+    final cleanValue = value.trim();
+    if (cleanValue.isEmpty || seen.contains(cleanValue)) {
+      continue;
+    }
+
+    seen.add(cleanValue);
+    result.add(cleanValue);
+  }
+
+  return result;
+}
+
 bool boolFromFirebase(Object? value, bool fallback) {
   return value is bool ? value : fallback;
 }
@@ -2320,6 +2411,9 @@ class LiveLocationData {
   final bool verified;
   final double headingDegrees;
   final LatLng coordinates;
+  final List<String> visibleToUserIds;
+  final String visibleToChatId;
+  final String shareScope;
   final int promptAtMillis;
   final int expiresAtMillis;
   final int updatedAtMillis;
@@ -2333,6 +2427,9 @@ class LiveLocationData {
     required this.verified,
     this.headingDegrees = 0,
     required this.coordinates,
+    this.visibleToUserIds = const [],
+    this.visibleToChatId = '',
+    this.shareScope = '',
     required this.promptAtMillis,
     required this.expiresAtMillis,
     required this.updatedAtMillis,
@@ -2366,6 +2463,12 @@ class LiveLocationData {
         doubleFromFirebase(data['heading'], 0),
       ),
       coordinates: coordinates,
+      visibleToUserIds: stringListFromFirebase(
+        data['visibleToUserIds'],
+        const [],
+      ),
+      visibleToChatId: stringFromFirebase(data['visibleToChatId'], ''),
+      shareScope: stringFromFirebase(data['shareScope'], ''),
       promptAtMillis: timestampMillisFromFirebase(data['promptAt']),
       expiresAtMillis: timestampMillisFromFirebase(data['expiresAt']),
       updatedAtMillis: timestampMillisFromFirebase(data['updatedAt']),
@@ -2810,7 +2913,7 @@ Future<void> openMessageToUserFromContext(
 
     Navigator.push(
       context,
-      MaterialPageRoute(builder: (_) => ChatConversationScreen(chat: chat)),
+      appPageRoute(builder: (_) => ChatConversationScreen(chat: chat)),
     );
   } catch (error) {
     if (!context.mounted) {
@@ -2842,6 +2945,8 @@ class ChatThreadData {
   final List<String> memberUsernames;
   final List<String> memberPhotoUrls;
   final String lastMessage;
+  final String lastSenderUid;
+  final String lastSenderUsername;
   final String avatarUrl;
   final int updatedAtMillis;
 
@@ -2855,6 +2960,8 @@ class ChatThreadData {
     required this.memberUsernames,
     this.memberPhotoUrls = const [],
     required this.lastMessage,
+    this.lastSenderUid = '',
+    this.lastSenderUsername = '',
     this.avatarUrl = '',
     required this.updatedAtMillis,
   });
@@ -2880,6 +2987,8 @@ class ChatThreadData {
         const [],
       ),
       lastMessage: stringFromFirebase(data['lastMessage'], ''),
+      lastSenderUid: stringFromFirebase(data['lastSenderUid'], ''),
+      lastSenderUsername: stringFromFirebase(data['lastSenderUsername'], ''),
       avatarUrl: stringFromFirebase(data['avatarUrl'], ''),
       updatedAtMillis: timestampMillisFromFirebase(data['updatedAt']),
     );
@@ -2908,6 +3017,22 @@ class ChatThreadData {
 
   String subtitleForCurrentUser(String currentUid) {
     if (lastMessage.trim().isNotEmpty) {
+      if (isGroup) {
+        if (lastSenderUid.trim().isEmpty &&
+            lastSenderUsername.trim().isEmpty) {
+          return lastMessage.trim();
+        }
+
+        final sender = lastSenderUid == currentUid
+            ? 'You'
+            : displayUsername(
+                lastSenderUsername.trim().isEmpty
+                    ? 'ccs_driver'
+                    : lastSenderUsername,
+              );
+        return '$sender: ${lastMessage.trim()}';
+      }
+
       return lastMessage.trim();
     }
 
@@ -3087,6 +3212,159 @@ Future<void> sendChatMessage({
   }, SetOptions(merge: true));
 }
 
+Future<Position?> getChatSharePosition(BuildContext context) async {
+  final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+
+  if (!serviceEnabled) {
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          backgroundColor: Colors.redAccent,
+          content: Text(
+            'Turn on phone location first.',
+            style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+          ),
+        ),
+      );
+    }
+
+    return null;
+  }
+
+  var permission = await Geolocator.checkPermission();
+
+  if (permission == LocationPermission.denied) {
+    permission = await Geolocator.requestPermission();
+  }
+
+  if (permission == LocationPermission.denied ||
+      permission == LocationPermission.deniedForever) {
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          backgroundColor: Colors.redAccent,
+          content: Text(
+            'Location permission is needed to share your location.',
+            style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+          ),
+        ),
+      );
+    }
+
+    return null;
+  }
+
+  return Geolocator.getCurrentPosition(
+    locationSettings: const LocationSettings(accuracy: LocationAccuracy.high),
+  );
+}
+
+Future<void> shareChatLiveLocation(
+  BuildContext context,
+  ChatThreadData chat,
+) async {
+  final firebaseUser = FirebaseAuth.instance.currentUser;
+
+  if (firebaseUser == null) {
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          backgroundColor: Colors.redAccent,
+          content: Text(
+            'Log in before sharing your location.',
+            style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+          ),
+        ),
+      );
+    }
+
+    return;
+  }
+
+  final visibleToUserIds = uniqueNonEmptyStrings([
+    firebaseUser.uid,
+    ...chat.memberIds,
+  ]);
+
+  if (visibleToUserIds.length <= 1) {
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          backgroundColor: Colors.redAccent,
+          content: Text(
+            'This chat has no one to share location with.',
+            style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+          ),
+        ),
+      );
+    }
+
+    return;
+  }
+
+  final position = await getChatSharePosition(context);
+
+  if (position == null) {
+    return;
+  }
+
+  final now = DateTime.now();
+  final promptAt = now.add(const Duration(hours: 1));
+  final expiresAt = promptAt.add(const Duration(minutes: 10));
+  final chatTitle = chat.titleForCurrentUser(firebaseUser.uid);
+
+  await liveLocationsCollection().doc(firebaseUser.uid).set({
+    'uid': firebaseUser.uid,
+    'username': currentUser.username,
+    'name': currentUser.name,
+    'photoUrl': currentUser.photoUrl,
+    'role': roleName(currentUser.role),
+    'verified': currentUser.verified,
+    'heading': normalizedHeadingDegrees(position.heading),
+    'lat': position.latitude,
+    'lng': position.longitude,
+    'coordinates': GeoPoint(position.latitude, position.longitude),
+    'visibleToUserIds': visibleToUserIds,
+    'visibleToChatId': chat.id,
+    'visibleToChatName': chatTitle,
+    'shareScope': chat.isGroup ? 'group' : 'direct',
+    'promptAt': Timestamp.fromDate(promptAt),
+    'expiresAt': Timestamp.fromDate(expiresAt),
+    'updatedAt': FieldValue.serverTimestamp(),
+  }, SetOptions(merge: true));
+
+  await usersCollection().doc(firebaseUser.uid).set({
+    'isSharingLiveLocation': true,
+    'liveLocationExpiresAt': Timestamp.fromDate(expiresAt),
+    'lastSeenAt': FieldValue.serverTimestamp(),
+    'isOnline': true,
+  }, SetOptions(merge: true));
+
+  await sendChatMessage(
+    chatId: chat.id,
+    text: chat.isGroup
+        ? 'Shared live location with this group.'
+        : 'Shared live location with you.',
+  );
+
+  if (context.mounted) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        backgroundColor: panelGlass,
+        content: Text(
+          chat.isGroup
+              ? 'Location shared with this group for 1 hour.'
+              : 'Location shared with this chat for 1 hour.',
+          style: const TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 Future<void> editChatMessage({
   required String chatId,
   required ChatMessageData message,
@@ -3255,7 +3533,7 @@ Future<void> checkFriendLocationNotifications() async {
   }
 
   final activeLocations = await liveLocationsCollection()
-      .where('expiresAt', isGreaterThan: Timestamp.now())
+      .where('visibleToUserIds', arrayContains: firebaseUser.uid)
       .get();
 
   final friendUidSet = friendUids.toSet();
@@ -3265,6 +3543,7 @@ Future<void> checkFriendLocationNotifications() async {
         (location) =>
             friendUidSet.contains(location.uid) &&
             location.uid != firebaseUser.uid &&
+            location.visibleToUserIds.contains(firebaseUser.uid) &&
             !location.isExpired,
       )
       .toList();
@@ -4856,7 +5135,7 @@ class _LoginScreenState extends State<LoginScreen>
 
       Navigator.pushReplacement(
         context,
-        MaterialPageRoute(builder: (_) => const MainScreen()),
+        appPageRoute(builder: (_) => const MainScreen()),
       );
     } catch (error) {
       if (!mounted) {
@@ -4895,7 +5174,7 @@ class _LoginScreenState extends State<LoginScreen>
 
       Navigator.pushReplacement(
         context,
-        MaterialPageRoute(builder: (_) => const MainScreen()),
+        appPageRoute(builder: (_) => const MainScreen()),
       );
     } catch (error) {
       if (!mounted) {
@@ -5333,13 +5612,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     return Scaffold(
       backgroundColor: Colors.transparent,
       extendBody: false,
-      body: Stack(
-        fit: StackFit.expand,
-        children: [
-          const AppMapBackground(),
-          IndexedStack(index: index, children: screens),
-        ],
-      ),
+      body: IndexedStack(index: index, children: screens),
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: index,
         onTap: (value) => setState(() => index = value),
@@ -5875,7 +6148,7 @@ class ExploreSpotCard extends StatelessWidget {
       onTap: () {
         Navigator.push(
           context,
-          MaterialPageRoute(builder: (_) => SpotDetailScreen(spot: spot)),
+          appPageRoute(builder: (_) => SpotDetailScreen(spot: spot)),
         );
       },
       borderRadius: BorderRadius.circular(16),
@@ -6995,6 +7268,28 @@ class _MapScreenState extends State<MapScreen> {
         .where((location) => !location.isExpired)
         .where((location) => location.uid != firebaseUser?.uid)
         .map((location) {
+          final carIconSize = scaledMapIconValue(
+            zoom: currentMapZoom,
+            minZoom: 4,
+            maxZoom: 17,
+            minValue: 9,
+            maxValue: 34,
+          );
+          final labelWidth = scaledMapIconValue(
+            zoom: currentMapZoom,
+            minZoom: 4,
+            maxZoom: 17,
+            minValue: 58,
+            maxValue: 82,
+          );
+          final labelFontSize = scaledMapIconValue(
+            zoom: currentMapZoom,
+            minZoom: 4,
+            maxZoom: 17,
+            minValue: 7.8,
+            maxValue: 10.5,
+          );
+          final markerHeight = carIconSize + 36;
           final iconAsset = liveLocationCarIconAsset(location);
           final fallbackColor = liveLocationIsFriend(location)
               ? Colors.purpleAccent
@@ -7004,27 +7299,67 @@ class _MapScreenState extends State<MapScreen> {
 
           return Marker(
             point: location.coordinates,
-            width: 38,
-            height: 38,
-            rotate: true,
+            width: labelWidth,
+            height: markerHeight,
+            rotate: false,
             child: Tooltip(
               message: liveLocationTooltipMessage(location),
-              child: Transform.rotate(
-                angle: headingRadiansForMap(
-                  location.headingDegrees,
-                  currentMapRotationDegrees,
-                ),
-                child: Image.asset(
-                  iconAsset,
-                  fit: BoxFit.contain,
-                  errorBuilder: (context, error, stackTrace) {
-                    return Icon(
-                      Icons.directions_car,
-                      color: fallbackColor,
-                      size: 28,
-                    );
-                  },
-                ),
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  Positioned(
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 5,
+                        vertical: 2,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withValues(alpha: 0.58),
+                        borderRadius: BorderRadius.circular(999),
+                        border: Border.all(
+                          color: Colors.white.withValues(alpha: 0.14),
+                        ),
+                      ),
+                      child: Text(
+                        displayUsername(location.username),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: labelFontSize,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    ),
+                  ),
+                  Center(
+                    child: SizedBox(
+                      width: carIconSize,
+                      height: carIconSize,
+                      child: Transform.rotate(
+                        angle: headingRadiansForMap(
+                          location.headingDegrees,
+                          currentMapRotationDegrees,
+                        ),
+                        child: Image.asset(
+                          iconAsset,
+                          fit: BoxFit.contain,
+                          errorBuilder: (context, error, stackTrace) {
+                            return Icon(
+                              Icons.directions_car,
+                              color: fallbackColor,
+                              size: carIconSize * 0.82,
+                            );
+                          },
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
           );
@@ -7472,8 +7807,21 @@ class _MapScreenState extends State<MapScreen> {
 
   void startLiveLocationSync() {
     liveLocationSubscription?.cancel();
+    final currentFirebaseUser = FirebaseAuth.instance.currentUser;
+
+    if (currentFirebaseUser == null) {
+      setState(() {
+        liveLocations = const [];
+        isSharingLiveLocation = false;
+        liveLocationPromptAt = null;
+        liveLocationExpiresAt = null;
+      });
+      cancelLiveLocationTimers(keepUploadTimer: false);
+      return;
+    }
+
     liveLocationSubscription = liveLocationsCollection()
-        .where('expiresAt', isGreaterThan: Timestamp.now())
+        .where('visibleToUserIds', arrayContains: currentFirebaseUser.uid)
         .snapshots()
         .listen(
           (snapshot) {
@@ -7486,10 +7834,21 @@ class _MapScreenState extends State<MapScreen> {
                 .map((doc) => LiveLocationData.fromFirestore(doc))
                 .where((location) => !location.isExpired)
                 .toList();
+            final visibleLocations = locations.where((location) {
+              if (firebaseUser == null) {
+                return false;
+              }
+
+              if (location.uid == firebaseUser.uid) {
+                return true;
+              }
+
+              return location.visibleToUserIds.contains(firebaseUser.uid);
+            }).toList();
 
             LiveLocationData? ownLocation;
             if (firebaseUser != null) {
-              for (final location in locations) {
+              for (final location in visibleLocations) {
                 if (location.uid == firebaseUser.uid) {
                   ownLocation = location;
                   break;
@@ -7498,7 +7857,7 @@ class _MapScreenState extends State<MapScreen> {
             }
 
             setState(() {
-              liveLocations = locations;
+              liveLocations = visibleLocations;
               if (ownLocation != null) {
                 isSharingLiveLocation = true;
                 liveLocationPromptAt = DateTime.fromMillisecondsSinceEpoch(
@@ -7600,6 +7959,21 @@ class _MapScreenState extends State<MapScreen> {
       return;
     }
 
+    var friendUids = const <String>[];
+    try {
+      friendUids = await loadCurrentFriendUids();
+    } catch (_) {
+      friendUids = const <String>[];
+    }
+
+    if (!mounted) {
+      return;
+    }
+
+    final visibleToUserIds = uniqueNonEmptyStrings([
+      firebaseUser.uid,
+      ...friendUids,
+    ]);
     final location = LatLng(position.latitude, position.longitude);
     final heading = headingForNewUserLocation(location, position.heading);
 
@@ -7607,6 +7981,8 @@ class _MapScreenState extends State<MapScreen> {
       position,
       renewWindow: true,
       headingDegrees: heading,
+      visibleToUserIds: visibleToUserIds,
+      shareScope: 'friends',
     );
 
     if (!mounted) {
@@ -7711,6 +8087,10 @@ class _MapScreenState extends State<MapScreen> {
     Position position, {
     required bool renewWindow,
     double? headingDegrees,
+    List<String>? visibleToUserIds,
+    String? visibleToChatId,
+    String? visibleToChatName,
+    String? shareScope,
   }) async {
     final firebaseUser = FirebaseAuth.instance.currentUser;
 
@@ -7729,7 +8109,34 @@ class _MapScreenState extends State<MapScreen> {
     liveLocationPromptAt = promptAt;
     liveLocationExpiresAt = expiresAt;
 
-    await liveLocationsCollection().doc(firebaseUser.uid).set({
+    final docRef = liveLocationsCollection().doc(firebaseUser.uid);
+    Map<String, dynamic>? existingData;
+
+    if (visibleToUserIds == null ||
+        visibleToChatId == null ||
+        visibleToChatName == null ||
+        shareScope == null) {
+      final existingSnapshot = await docRef.get();
+      existingData = existingSnapshot.data();
+    }
+
+    final nextVisibleToUserIds = uniqueNonEmptyStrings(
+      visibleToUserIds ??
+          stringListFromFirebase(
+            existingData?['visibleToUserIds'],
+            [firebaseUser.uid],
+          ),
+    );
+    final nextVisibleToChatId =
+        visibleToChatId ??
+        stringFromFirebase(existingData?['visibleToChatId'], '');
+    final nextVisibleToChatName =
+        visibleToChatName ??
+        stringFromFirebase(existingData?['visibleToChatName'], '');
+    final nextShareScope =
+        shareScope ?? stringFromFirebase(existingData?['shareScope'], '');
+
+    await docRef.set({
       'uid': firebaseUser.uid,
       'username': currentUser.username,
       'name': currentUser.name,
@@ -7743,6 +8150,12 @@ class _MapScreenState extends State<MapScreen> {
       'lat': position.latitude,
       'lng': position.longitude,
       'coordinates': GeoPoint(position.latitude, position.longitude),
+      'visibleToUserIds': nextVisibleToUserIds.isEmpty
+          ? [firebaseUser.uid]
+          : nextVisibleToUserIds,
+      'visibleToChatId': nextVisibleToChatId,
+      'visibleToChatName': nextVisibleToChatName,
+      'shareScope': nextShareScope,
       'promptAt': Timestamp.fromDate(promptAt),
       'expiresAt': Timestamp.fromDate(expiresAt),
       'updatedAt': FieldValue.serverTimestamp(),
@@ -7909,7 +8322,7 @@ class _MapScreenState extends State<MapScreen> {
   void openSpotDetails(CarSpot spot) {
     Navigator.push(
       context,
-      MaterialPageRoute(builder: (_) => SpotDetailScreen(spot: spot)),
+      appPageRoute(builder: (_) => SpotDetailScreen(spot: spot)),
     );
   }
 
@@ -8858,7 +9271,7 @@ class SavedSpotTile extends StatelessWidget {
       onTap: () {
         Navigator.push(
           context,
-          MaterialPageRoute(builder: (_) => SpotDetailScreen(spot: spot)),
+          appPageRoute(builder: (_) => SpotDetailScreen(spot: spot)),
         );
       },
       borderRadius: BorderRadius.circular(18),
@@ -9207,7 +9620,7 @@ class _SpotPhotoCarouselState extends State<SpotPhotoCarousel> {
   void openGallery(int index) {
     Navigator.push(
       context,
-      MaterialPageRoute(
+      appPageRoute(
         builder: (_) =>
             SpotPhotoGalleryScreen(spot: widget.spot, initialIndex: index),
       ),
@@ -9606,7 +10019,7 @@ class _SpotDetailScreenState extends State<SpotDetailScreen> {
                       onPressed: () async {
                         final updatedSpot = await Navigator.push<CarSpot>(
                           context,
-                          MaterialPageRoute(
+                          appPageRoute(
                             builder: (_) =>
                                 ServiceSpotBusinessEditScreen(spot: spot),
                           ),
@@ -11108,7 +11521,7 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
 
     final location = await Navigator.push<LatLng>(
       context,
-      MaterialPageRoute(
+      appPageRoute(
         builder: (_) => LocationPickerScreen(initialLocation: selectedLocation),
       ),
     );
@@ -11961,7 +12374,7 @@ class _SubmittedSpotTile extends StatelessWidget {
       onTap: () {
         Navigator.push(
           context,
-          MaterialPageRoute(builder: (_) => SpotDetailScreen(spot: spot)),
+          appPageRoute(builder: (_) => SpotDetailScreen(spot: spot)),
         );
       },
       borderRadius: BorderRadius.circular(16),
@@ -13515,7 +13928,7 @@ class _ChatScreenState extends State<ChatScreen> {
   Future<void> openNewChat(BuildContext context) async {
     await Navigator.push(
       context,
-      MaterialPageRoute(builder: (_) => const NewChatScreen()),
+      appPageRoute(builder: (_) => const NewChatScreen()),
     );
     loadPins();
   }
@@ -13526,7 +13939,7 @@ class _ChatScreenState extends State<ChatScreen> {
   ) async {
     await Navigator.push(
       context,
-      MaterialPageRoute(
+      appPageRoute(
         builder: (_) =>
             ChatManageScreen(chats: chats, currentPinnedIds: pinnedChatIds),
       ),
@@ -13820,21 +14233,7 @@ class ChatThreadTile extends StatelessWidget {
     return null;
   }
 
-  Widget directAvatar(String uid) {
-    return FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-      future: usersCollection().doc(uid).get(),
-      builder: (context, snapshot) {
-        if (snapshot.hasData && snapshot.data!.exists) {
-          final user = FriendUserData.fromFirestore(snapshot.data!);
-          return UserAvatarCircle(user: user, size: 46);
-        }
-
-        return const UserAvatarFallback(size: 46, icon: Icons.person_outline);
-      },
-    );
-  }
-
-  Widget avatar() {
+  Widget avatar(FriendUserData? directUser) {
     if (chat.isGroup) {
       final photoUrl = chat.photoUrl.trim();
       if (isNetworkUrl(photoUrl)) {
@@ -13853,22 +14252,52 @@ class ChatThreadTile extends StatelessWidget {
       return const UserAvatarFallback(size: 46, icon: Icons.groups);
     }
 
-    final uid = otherUserId();
-    return uid == null
-        ? const UserAvatarFallback(size: 46, icon: Icons.person_outline)
-        : directAvatar(uid);
+    if (directUser != null) {
+      return UserAvatarCircle(user: directUser, size: 46);
+    }
+
+    return const UserAvatarFallback(size: 46, icon: Icons.person_outline);
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final title = chat.titleForCurrentUser(currentUid);
+  Widget subtitleLine(String subtitle, FriendUserData? directUser) {
+    if (!chat.isGroup) {
+      return Row(
+        children: [
+          OnlineStatusBadge(online: directUser?.appearsOnline ?? false),
+          if (subtitle.trim().isNotEmpty) ...[
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                subtitle,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(color: Colors.white54),
+              ),
+            ),
+          ],
+        ],
+      );
+    }
+
+    return Text(
+      subtitle,
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      style: const TextStyle(color: Colors.white54),
+    );
+  }
+
+  Widget tile(BuildContext context, FriendUserData? directUser) {
+    final title = !chat.isGroup && directUser != null
+        ? displayUsername(directUser.username)
+        : chat.titleForCurrentUser(currentUid);
     final subtitle = chat.subtitleForCurrentUser(currentUid);
 
     return InkWell(
       onTap: () {
         Navigator.push(
           context,
-          MaterialPageRoute(builder: (_) => ChatConversationScreen(chat: chat)),
+          appPageRoute(builder: (_) => ChatConversationScreen(chat: chat)),
         );
       },
       borderRadius: BorderRadius.circular(18),
@@ -13884,7 +14313,7 @@ class ChatThreadTile extends StatelessWidget {
         ),
         child: Row(
           children: [
-            avatar(),
+            avatar(directUser),
             const SizedBox(width: 12),
             Expanded(
               child: Column(
@@ -13911,12 +14340,7 @@ class ChatThreadTile extends StatelessWidget {
                     ],
                   ),
                   const SizedBox(height: 4),
-                  Text(
-                    subtitle,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(color: Colors.white54),
-                  ),
+                  subtitleLine(subtitle, directUser),
                 ],
               ),
             ),
@@ -13925,6 +14349,22 @@ class ChatThreadTile extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final uid = otherUserId();
+
+    if (!chat.isGroup && uid != null) {
+      return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+        stream: usersCollection().doc(uid).snapshots(),
+        builder: (context, snapshot) {
+          return tile(context, friendUserFromSnapshot(snapshot.data));
+        },
+      );
+    }
+
+    return tile(context, null);
   }
 }
 
@@ -13994,6 +14434,109 @@ class UserAvatarCircle extends StatelessWidget {
       ),
     );
   }
+}
+
+class OnlineStatusBadge extends StatelessWidget {
+  final bool online;
+  final double dotSize;
+  final double fontSize;
+
+  const OnlineStatusBadge({
+    super.key,
+    required this.online,
+    this.dotSize = 7,
+    this.fontSize = 11,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final color = online ? Colors.greenAccent : Colors.white38;
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: dotSize,
+          height: dotSize,
+          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+        ),
+        const SizedBox(width: 6),
+        Text(
+          online ? 'online' : 'offline',
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+            color: online ? Colors.greenAccent : Colors.white54,
+            fontSize: fontSize,
+            fontWeight: FontWeight.w900,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+FriendUserData? friendUserFromSnapshot(
+  DocumentSnapshot<Map<String, dynamic>>? snapshot,
+) {
+  if (snapshot == null || !snapshot.exists) {
+    return null;
+  }
+
+  return FriendUserData.fromFirestore(snapshot);
+}
+
+FriendUserData fallbackChatMember(ChatThreadData chat, String uid) {
+  final index = chat.memberIds.indexOf(uid);
+  final username = index >= 0 && index < chat.memberUsernames.length
+      ? chat.memberUsernames[index]
+      : 'ccs_driver';
+  final photoUrl = index >= 0 && index < chat.memberPhotoUrls.length
+      ? chat.memberPhotoUrls[index]
+      : '';
+
+  return FriendUserData(
+    uid: uid,
+    username: username.trim().isEmpty ? 'ccs_driver' : username,
+    name: displayUsername(username.trim().isEmpty ? 'ccs_driver' : username),
+    email: '',
+    photoUrl: photoUrl.trim().isEmpty ? null : photoUrl,
+    verified: false,
+    role: UserRole.user,
+    banned: false,
+    deleted: false,
+  );
+}
+
+List<FriendUserData> chatMembersFromSnapshot(
+  QuerySnapshot<Map<String, dynamic>> snapshot,
+  ChatThreadData chat,
+) {
+  final usersById = <String, FriendUserData>{
+    for (final doc in snapshot.docs) doc.id: FriendUserData.fromFirestore(doc),
+  };
+
+  return [
+    for (final uid in chat.memberIds)
+      usersById[uid] ?? fallbackChatMember(chat, uid),
+  ];
+}
+
+FriendUserData fallbackMessageSender(ChatMessageData message) {
+  final username = message.senderUsername.trim().isEmpty
+      ? 'ccs_driver'
+      : message.senderUsername;
+
+  return FriendUserData(
+    uid: message.senderUid,
+    username: username,
+    name: displayUsername(username),
+    email: '',
+    verified: false,
+    role: UserRole.user,
+    banned: false,
+    deleted: false,
+  );
 }
 
 class ChatManageScreen extends StatefulWidget {
@@ -14245,7 +14788,7 @@ class _NewChatScreenState extends State<NewChatScreen> {
 
       Navigator.pushReplacement(
         context,
-        MaterialPageRoute(builder: (_) => ChatConversationScreen(chat: chat)),
+        appPageRoute(builder: (_) => ChatConversationScreen(chat: chat)),
       );
     } catch (error) {
       if (!mounted) {
@@ -14318,7 +14861,7 @@ class _NewChatScreenState extends State<NewChatScreen> {
 
       Navigator.pushReplacement(
         context,
-        MaterialPageRoute(builder: (_) => ChatConversationScreen(chat: chat)),
+        appPageRoute(builder: (_) => ChatConversationScreen(chat: chat)),
       );
     } catch (error) {
       if (!mounted) {
@@ -14713,12 +15256,118 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
     return const UserAvatarFallback(size: 96, icon: Icons.groups);
   }
 
+  Widget memberTile(FriendUserData user) {
+    return InkWell(
+      onTap: () => openUserProfile(
+        context,
+        uid: user.uid,
+        fallbackUsername: user.username,
+      ),
+      borderRadius: BorderRadius.circular(16),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        child: Row(
+          children: [
+            UserAvatarCircle(user: user, size: 42),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Flexible(
+                        child: Text(
+                          displayUsername(user.username),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                      ),
+                      if (user.uid == currentUser.uid) ...[
+                        const SizedBox(width: 6),
+                        const Text(
+                          'you',
+                          style: TextStyle(
+                            color: Colors.white38,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  OnlineStatusBadge(online: user.appearsOnline),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget membersSection() {
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: usersCollection().snapshots(),
+      builder: (context, snapshot) {
+        final members = snapshot.hasData
+            ? chatMembersFromSnapshot(snapshot.data!, widget.chat)
+            : [
+                for (final uid in widget.chat.memberIds)
+                  fallbackChatMember(widget.chat, uid),
+              ];
+
+        return Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: panelGlass,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: Colors.white12),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  const Expanded(
+                    child: Text(
+                      'Members',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 18,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ),
+                  Text(
+                    '${members.length}',
+                    style: const TextStyle(
+                      color: blue,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              for (final member in members) memberTile(member),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.transparent,
       appBar: AppBar(
-        title: const Text('Group Settings'),
+        title: const Text('Group Info'),
         backgroundColor: Colors.transparent,
         foregroundColor: blue,
         actions: [
@@ -14770,6 +15419,8 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
             hint: 'What is this group about?',
             icon: Icons.info_outline,
           ),
+          const SizedBox(height: 18),
+          membersSection(),
           const SizedBox(height: 18),
           SizedBox(
             height: 52,
@@ -14855,6 +15506,7 @@ class ChatConversationScreen extends StatefulWidget {
 class _ChatConversationScreenState extends State<ChatConversationScreen> {
   final messageController = TextEditingController();
   bool isSending = false;
+  bool isSharingChatLocation = false;
 
   @override
   void dispose() {
@@ -14894,6 +15546,39 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
     } finally {
       if (mounted) {
         setState(() => isSending = false);
+      }
+    }
+  }
+
+  Future<void> shareLiveLocation() async {
+    if (isSharingChatLocation) {
+      return;
+    }
+
+    setState(() => isSharingChatLocation = true);
+
+    try {
+      await shareChatLiveLocation(context, widget.chat);
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: Colors.redAccent,
+          content: Text(
+            'Could not share location: $error',
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => isSharingChatLocation = false);
       }
     }
   }
@@ -15142,67 +15827,187 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
     }
   }
 
-  Widget messageBubble(ChatMessageData message, String currentUid) {
+  Widget directChatTitle(
+    String currentUid,
+    String fallbackTitle,
+    String fallbackPhotoUrl,
+  ) {
+    final uid = otherUserId(currentUid);
+
+    Widget titleContent(FriendUserData? user) {
+      final title = user == null
+          ? fallbackTitle
+          : displayUsername(user.username);
+
+      return InkWell(
+        onTap: () => openChatUserProfile(currentUid),
+        borderRadius: BorderRadius.circular(14),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 5),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              user == null
+                  ? ChatTitleAvatar(photoUrl: fallbackPhotoUrl, title: title)
+                  : UserAvatarCircle(user: user, size: 34),
+              const SizedBox(width: 10),
+              Flexible(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    OnlineStatusBadge(
+                      online: user?.appearsOnline ?? false,
+                      dotSize: 6,
+                      fontSize: 10,
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    if (uid == null) {
+      return titleContent(null);
+    }
+
+    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      stream: usersCollection().doc(uid).snapshots(),
+      builder: (context, snapshot) {
+        return titleContent(friendUserFromSnapshot(snapshot.data));
+      },
+    );
+  }
+
+  Widget groupChatTitle(String title) {
+    return InkWell(
+      onTap: () {
+        Navigator.push(
+          context,
+          appPageRoute(builder: (_) => GroupSettingsScreen(chat: widget.chat)),
+        );
+      },
+      borderRadius: BorderRadius.circular(12),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 6),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.groups, size: 21),
+            const SizedBox(width: 8),
+            Flexible(child: Text(title)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget messageBubble(
+    ChatMessageData message,
+    String currentUid,
+    Map<String, FriendUserData> usersById,
+  ) {
     final mine = message.senderUid == currentUid;
+    final showSender = !mine && widget.chat.isGroup;
+    final sender = usersById[message.senderUid] ?? fallbackMessageSender(message);
+    final bubble = Container(
+      constraints: BoxConstraints(maxWidth: showSender ? 248 : 280),
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: mine ? blue : panel,
+        borderRadius: BorderRadius.only(
+          topLeft: const Radius.circular(16),
+          topRight: const Radius.circular(16),
+          bottomLeft: Radius.circular(mine ? 16 : 5),
+          bottomRight: Radius.circular(mine ? 5 : 16),
+        ),
+        border: mine ? null : Border.all(color: Colors.white12),
+      ),
+      child: Column(
+        crossAxisAlignment: mine
+            ? CrossAxisAlignment.end
+            : CrossAxisAlignment.start,
+        children: [
+          if (showSender) ...[
+            Text(
+              displayUsername(sender.username),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: blue,
+                fontSize: 12,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+            const SizedBox(height: 4),
+          ],
+          Text(
+            message.text,
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w600,
+              height: 1.25,
+            ),
+          ),
+          if (message.edited) ...[
+            const SizedBox(height: 4),
+            Text(
+              'edited',
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: 0.58),
+                fontSize: 10,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+    final content = showSender
+        ? ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 320),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: GestureDetector(
+                    onTap: () => openUserProfile(
+                      context,
+                      uid: sender.uid,
+                      fallbackUsername: sender.username,
+                    ),
+                    child: UserAvatarCircle(user: sender, size: 30),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Flexible(child: bubble),
+              ],
+            ),
+          )
+        : bubble;
 
     return GestureDetector(
       onLongPress: mine ? () => showOwnMessageActions(message) : null,
       child: Align(
         alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
-        child: Container(
-          constraints: const BoxConstraints(maxWidth: 280),
-          margin: const EdgeInsets.only(bottom: 10),
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-          decoration: BoxDecoration(
-            color: mine ? blue : panel,
-            borderRadius: BorderRadius.only(
-              topLeft: const Radius.circular(16),
-              topRight: const Radius.circular(16),
-              bottomLeft: Radius.circular(mine ? 16 : 5),
-              bottomRight: Radius.circular(mine ? 5 : 16),
-            ),
-            border: mine ? null : Border.all(color: Colors.white12),
-          ),
-          child: Column(
-            crossAxisAlignment: mine
-                ? CrossAxisAlignment.end
-                : CrossAxisAlignment.start,
-            children: [
-              if (!mine && widget.chat.isGroup) ...[
-                Text(
-                  displayUsername(message.senderUsername),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: blue,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
-                const SizedBox(height: 4),
-              ],
-              Text(
-                message.text,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w600,
-                  height: 1.25,
-                ),
-              ),
-              if (message.edited) ...[
-                const SizedBox(height: 4),
-                Text(
-                  'edited',
-                  style: TextStyle(
-                    color: Colors.white.withValues(alpha: 0.58),
-                    fontSize: 10,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ],
-            ],
-          ),
-        ),
+        child: content,
       ),
     );
   }
@@ -15218,53 +16023,23 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
       backgroundColor: Colors.transparent,
       appBar: AppBar(
         title: widget.chat.isGroup
-            ? InkWell(
-                onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => GroupSettingsScreen(chat: widget.chat),
-                    ),
-                  );
-                },
-                borderRadius: BorderRadius.circular(12),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 2,
-                    vertical: 6,
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [Flexible(child: Text(title))],
-                  ),
-                ),
-              )
-            : Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 6),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    ChatTitleAvatar(photoUrl: chatPhotoUrl, title: title),
-                    const SizedBox(width: 10),
-                    Flexible(child: Text(title)),
-                  ],
-                ),
-              ),
+            ? groupChatTitle(title)
+            : directChatTitle(currentUid, title, chatPhotoUrl),
         backgroundColor: Colors.transparent,
         foregroundColor: blue,
         actions: widget.chat.isGroup
             ? [
                 IconButton(
-                  tooltip: 'Group settings',
+                  tooltip: 'Group info',
                   onPressed: () {
                     Navigator.push(
                       context,
-                      MaterialPageRoute(
+                      appPageRoute(
                         builder: (_) => GroupSettingsScreen(chat: widget.chat),
                       ),
                     );
                   },
-                  icon: const Icon(Icons.tune),
+                  icon: const Icon(Icons.info_outline),
                 ),
               ]
             : [
@@ -15301,12 +16076,38 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
                   );
                 }
 
-                return ListView(
-                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-                  children: [
-                    for (final message in messages)
-                      messageBubble(message, currentUid),
-                  ],
+                Widget listWithUsers(Map<String, FriendUserData> usersById) {
+                  return ListView(
+                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+                    children: [
+                      for (final message in messages)
+                        messageBubble(message, currentUid, usersById),
+                    ],
+                  );
+                }
+
+                if (!widget.chat.isGroup) {
+                  return listWithUsers(const <String, FriendUserData>{});
+                }
+
+                return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                  stream: usersCollection().snapshots(),
+                  builder: (context, usersSnapshot) {
+                    final members = usersSnapshot.hasData
+                        ? chatMembersFromSnapshot(
+                            usersSnapshot.data!,
+                            widget.chat,
+                          )
+                        : [
+                            for (final uid in widget.chat.memberIds)
+                              fallbackChatMember(widget.chat, uid),
+                          ];
+                    final usersById = <String, FriendUserData>{
+                      for (final member in members) member.uid: member,
+                    };
+
+                    return listWithUsers(usersById);
+                  },
                 );
               },
             ),
@@ -15321,6 +16122,17 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
               ),
               child: Row(
                 children: [
+                  IconButton(
+                    tooltip: 'Share location',
+                    onPressed: isSharingChatLocation ? null : shareLiveLocation,
+                    style: IconButton.styleFrom(foregroundColor: blue),
+                    icon: Icon(
+                      isSharingChatLocation
+                          ? Icons.hourglass_top
+                          : Icons.my_location,
+                    ),
+                  ),
+                  const SizedBox(width: 4),
                   Expanded(
                     child: TextField(
                       controller: messageController,
@@ -15674,7 +16486,7 @@ void openUserProfile(
 
   Navigator.push(
     context,
-    MaterialPageRoute(
+    appPageRoute(
       builder: (_) => PublicUserProfileScreen(
         userId: cleanUid,
         fallbackUsername: fallbackUsername,
@@ -15842,7 +16654,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Future<void> editProfile() async {
     final updatedProfile = await Navigator.push<UserProfileData>(
       context,
-      MaterialPageRoute(builder: (_) => EditProfileScreen(profile: profile)),
+      appPageRoute(builder: (_) => EditProfileScreen(profile: profile)),
     );
 
     if (!mounted || updatedProfile == null) {
@@ -15890,7 +16702,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Future<void> editGarage(int index) async {
     final updatedCar = await Navigator.push<GarageCar>(
       context,
-      MaterialPageRoute(builder: (_) => EditGarageScreen(car: cars[index])),
+      appPageRoute(builder: (_) => EditGarageScreen(car: cars[index])),
     );
 
     if (!mounted || updatedCar == null) {
@@ -15940,7 +16752,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Future<void> addCar() async {
     final newCar = await Navigator.push<GarageCar>(
       context,
-      MaterialPageRoute(builder: (_) => const EditGarageScreen()),
+      appPageRoute(builder: (_) => const EditGarageScreen()),
     );
 
     if (!mounted || newCar == null) {
@@ -15989,21 +16801,21 @@ class _ProfileScreenState extends State<ProfileScreen> {
   void openSettings() {
     Navigator.push(
       context,
-      MaterialPageRoute(builder: (_) => const SettingsScreen()),
+      appPageRoute(builder: (_) => const SettingsScreen()),
     );
   }
 
   void openFriends() {
     Navigator.push(
       context,
-      MaterialPageRoute(builder: (_) => const FriendsScreen()),
+      appPageRoute(builder: (_) => const FriendsScreen()),
     );
   }
 
   void openAdminPanel() {
     Navigator.push(
       context,
-      MaterialPageRoute(builder: (_) => const AdminReviewScreen()),
+      appPageRoute(builder: (_) => const AdminReviewScreen()),
     );
   }
 
@@ -16022,7 +16834,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       }
 
       Navigator.of(context).pushAndRemoveUntil(
-        MaterialPageRoute(builder: (_) => const SplashScreen()),
+        appPageRoute(builder: (_) => const SplashScreen()),
         (route) => false,
       );
     } catch (error) {
@@ -16390,7 +17202,7 @@ class PublicUserProfileScreen extends StatelessWidget {
 
             Navigator.push(
               context,
-              MaterialPageRoute(
+              appPageRoute(
                 builder: (_) => ChatConversationScreen(chat: chat),
               ),
             );
@@ -16593,9 +17405,17 @@ class PublicUserProfileScreen extends StatelessWidget {
 
               int? liveLocationExpiresAtMillis;
               if (liveDoc != null && liveDoc.exists) {
+                final currentUid = FirebaseAuth.instance.currentUser?.uid;
                 final liveLocation = LiveLocationData.fromFirestore(liveDoc);
-                isSharingLiveLocation = !liveLocation.isExpired;
-                liveLocationExpiresAtMillis = liveLocation.expiresAtMillis;
+                final currentUserCanView =
+                    currentUid != null &&
+                    (liveLocation.uid == currentUid ||
+                        liveLocation.visibleToUserIds.contains(currentUid));
+                isSharingLiveLocation =
+                    currentUserCanView && !liveLocation.isExpired;
+                liveLocationExpiresAtMillis = isSharingLiveLocation
+                    ? liveLocation.expiresAtMillis
+                    : null;
               }
 
               return profileBody(
@@ -17221,7 +18041,7 @@ class _FriendsScreenState extends State<FriendsScreen> {
                           user.name.toLowerCase().contains(searchText);
                     })
                     .toList() ??
-                const <FriendUserData>[];
+                <FriendUserData>[];
 
             users.sort((a, b) {
               final onlineCompare = b.appearsOnline.toString().compareTo(
@@ -17584,7 +18404,7 @@ class _GarageGalleryHeaderState extends State<_GarageGalleryHeader> {
 
     Navigator.push(
       context,
-      MaterialPageRoute(
+      appPageRoute(
         builder: (_) =>
             GaragePhotoGalleryScreen(car: widget.car, initialIndex: index),
       ),
@@ -18250,102 +19070,116 @@ class _ProfileSavedSpotsPreview extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final visibleSpots = spots.take(3).toList();
+    final hiddenCount = spots.length - visibleSpots.length;
 
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: panelGlass,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: Colors.white12),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              const Expanded(
-                child: Text(
-                  'Saved Spots',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 18,
+    return InkWell(
+      onTap: () {
+        Navigator.push(
+          context,
+          appPageRoute(builder: (_) => const SavedScreen()),
+        );
+      },
+      borderRadius: BorderRadius.circular(20),
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: panelGlass,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: Colors.white12),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Expanded(
+                  child: Text(
+                    'Saved Spots',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 18,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ),
+                Text(
+                  '${spots.length}',
+                  style: const TextStyle(
+                    color: blue,
                     fontWeight: FontWeight.w900,
                   ),
                 ),
-              ),
-              Text(
-                '${spots.length}',
-                style: const TextStyle(
-                  color: blue,
-                  fontWeight: FontWeight.w900,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Text(
-            spots.isEmpty
-                ? 'Saved spots will appear here.'
-                : 'Your bookmarked car spots.',
-            style: const TextStyle(color: Colors.white54),
-          ),
-          if (visibleSpots.isNotEmpty) ...[
-            const SizedBox(height: 14),
-            for (final spot in visibleSpots) ...[
-              InkWell(
-                onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => SpotDetailScreen(spot: spot),
-                    ),
-                  );
-                },
-                borderRadius: BorderRadius.circular(14),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 8),
-                  child: Row(
-                    children: [
-                      SpotPhoto(
-                        spot: spot,
-                        width: 54,
-                        height: 54,
-                        borderRadius: BorderRadius.circular(12),
+                const SizedBox(width: 6),
+                const Icon(Icons.chevron_right, color: Colors.white38),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              spots.isEmpty
+                  ? 'Saved spots will appear here.'
+                  : hiddenCount > 0
+                  ? 'Your bookmarked car spots. Tap to view all $hiddenCount more.'
+                  : 'Your bookmarked car spots. Tap to view all.',
+              style: const TextStyle(color: Colors.white54),
+            ),
+            if (visibleSpots.isNotEmpty) ...[
+              const SizedBox(height: 14),
+              for (final spot in visibleSpots) ...[
+                InkWell(
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      appPageRoute(
+                        builder: (_) => SpotDetailScreen(spot: spot),
                       ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              spot.name,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontWeight: FontWeight.w900,
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              spot.cityCountry,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(color: Colors.white54),
-                            ),
-                          ],
+                    );
+                  },
+                  borderRadius: BorderRadius.circular(14),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    child: Row(
+                      children: [
+                        SpotPhoto(
+                          spot: spot,
+                          width: 54,
+                          height: 54,
+                          borderRadius: BorderRadius.circular(12),
                         ),
-                      ),
-                      const Icon(Icons.chevron_right, color: Colors.white38),
-                    ],
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                spot.name,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w900,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                spot.cityCountry,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(color: Colors.white54),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const Icon(Icons.chevron_right, color: Colors.white38),
+                      ],
+                    ),
                   ),
                 ),
-              ),
-              if (spot != visibleSpots.last)
-                Divider(color: Colors.white.withValues(alpha: 0.08)),
+                if (spot != visibleSpots.last)
+                  Divider(color: Colors.white.withValues(alpha: 0.08)),
+              ],
             ],
           ],
-        ],
+        ),
       ),
     );
   }
@@ -20152,7 +20986,7 @@ class _AdminReviewScreenState extends State<AdminReviewScreen> {
                 onTap: () {
                   Navigator.push(
                     context,
-                    MaterialPageRoute(builder: (_) => const AdminUsersScreen()),
+                    appPageRoute(builder: (_) => const AdminUsersScreen()),
                   );
                 },
               ),
@@ -20164,7 +20998,7 @@ class _AdminReviewScreenState extends State<AdminReviewScreen> {
                 onTap: () {
                   Navigator.push(
                     context,
-                    MaterialPageRoute(
+                    appPageRoute(
                       builder: (_) => const AdminVerifiedUsersScreen(),
                     ),
                   );
@@ -20213,7 +21047,7 @@ class AdminSpotTile extends StatelessWidget {
       onTap: () {
         Navigator.push(
           context,
-          MaterialPageRoute(builder: (_) => AdminSpotReviewScreen(spot: spot)),
+          appPageRoute(builder: (_) => AdminSpotReviewScreen(spot: spot)),
         );
       },
       borderRadius: BorderRadius.circular(18),
@@ -20370,7 +21204,7 @@ Future<void> openAdminEditSpot(
 }) async {
   final saved = await Navigator.push<bool>(
     context,
-    MaterialPageRoute(builder: (_) => AdminEditSpotScreen(spot: spot)),
+    appPageRoute(builder: (_) => AdminEditSpotScreen(spot: spot)),
   );
 
   if (saved == true && popAfterSave && context.mounted) {
