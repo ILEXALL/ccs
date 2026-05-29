@@ -10274,7 +10274,12 @@ class _SpotDetailScreenState extends State<SpotDetailScreen> {
                         spotId: spot.id,
                         coordinates: spot.coordinates,
                       );
-                      Navigator.of(context).popUntil((route) => route.isFirst);
+
+                      // Do not pop back to the first route here. Some users reach
+                      // MainScreen from Splash/Login, so route.isFirst can be the
+                      // login screen. Only close the spot details page; MainScreen
+                      // listens to mapFocusRequest and switches to the Map tab.
+                      Navigator.of(context).maybePop();
                     },
                     icon: const Icon(Icons.map_outlined),
                     label: const Text('Show on map'),
