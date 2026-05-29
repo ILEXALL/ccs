@@ -92,6 +92,15 @@ class CCSApp extends StatelessWidget {
           scrolledUnderElevation: 0,
         ),
       ),
+      builder: (context, child) {
+        return Stack(
+          fit: StackFit.expand,
+          children: [
+            const AppMapBackground(),
+            if (child != null) child,
+          ],
+        );
+      },
       home:
           firebaseReady &&
               rememberMeEnabled &&
@@ -5224,7 +5233,7 @@ class _MainScreenState extends State<MainScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.black,
+      backgroundColor: Colors.transparent,
       extendBody: false,
       body: Stack(
         fit: StackFit.expand,
@@ -5264,18 +5273,16 @@ class _MainScreenState extends State<MainScreen> {
   }
 }
 
-enum ExploreSortMode { trending, old, newest, popular, meet }
+enum ExploreSortMode { popular, newest, old, meet }
 
 String exploreSortLabel(ExploreSortMode mode) {
   switch (mode) {
-    case ExploreSortMode.trending:
-      return 'Trending';
-    case ExploreSortMode.old:
-      return 'Old';
-    case ExploreSortMode.newest:
-      return 'New';
     case ExploreSortMode.popular:
       return 'Popular';
+    case ExploreSortMode.newest:
+      return 'New';
+    case ExploreSortMode.old:
+      return 'Old';
     case ExploreSortMode.meet:
       return 'Meet';
   }
@@ -5289,7 +5296,7 @@ class ExploreScreen extends StatefulWidget {
 }
 
 class _ExploreScreenState extends State<ExploreScreen> {
-  ExploreSortMode selectedMode = ExploreSortMode.trending;
+  ExploreSortMode selectedMode = ExploreSortMode.popular;
   final Set<String> enabledCategoryFilters = {...spotCategoryOptions};
   bool showSavedOnly = false;
 
@@ -5319,7 +5326,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
     }
 
     switch (selectedMode) {
-      case ExploreSortMode.trending:
+      case ExploreSortMode.popular:
         list.sort((a, b) {
           final ratingCompare = b.rating.compareTo(a.rating);
           if (ratingCompare != 0) {
@@ -5328,14 +5335,11 @@ class _ExploreScreenState extends State<ExploreScreen> {
           return b.createdAtMillis.compareTo(a.createdAtMillis);
         });
         break;
-      case ExploreSortMode.old:
-        list.sort((a, b) => a.createdAtMillis.compareTo(b.createdAtMillis));
-        break;
       case ExploreSortMode.newest:
         list.sort((a, b) => b.createdAtMillis.compareTo(a.createdAtMillis));
         break;
-      case ExploreSortMode.popular:
-        list.sort((a, b) => b.rating.compareTo(a.rating));
+      case ExploreSortMode.old:
+        list.sort((a, b) => a.createdAtMillis.compareTo(b.createdAtMillis));
         break;
       case ExploreSortMode.meet:
         list.sort((a, b) => b.createdAtMillis.compareTo(a.createdAtMillis));
@@ -5600,34 +5604,6 @@ class _ExploreScreenState extends State<ExploreScreen> {
             title: const CcsAppBarLogo(),
             backgroundColor: Colors.transparent,
             foregroundColor: blue,
-            actions: [
-              Padding(
-                padding: const EdgeInsets.only(right: 10),
-                child: Stack(
-                  alignment: Alignment.topRight,
-                  children: [
-                    IconButton(
-                      tooltip: 'Filters',
-                      onPressed: showExploreCategoryFilterSheet,
-                      icon: const Icon(Icons.tune),
-                    ),
-                    if (selectedCount != spotCategoryOptions.length)
-                      Positioned(
-                        top: 8,
-                        right: 8,
-                        child: Container(
-                          width: 9,
-                          height: 9,
-                          decoration: const BoxDecoration(
-                            color: Colors.redAccent,
-                            shape: BoxShape.circle,
-                          ),
-                        ),
-                      ),
-                  ],
-                ),
-              ),
-            ],
           ),
           body: ListView(
             padding: const EdgeInsets.fromLTRB(20, 18, 20, 28),
@@ -5680,10 +5656,9 @@ class _ExploreScreenState extends State<ExploreScreen> {
                 scrollDirection: Axis.horizontal,
                 child: Row(
                   children: [
-                    sortChip(ExploreSortMode.trending),
-                    sortChip(ExploreSortMode.old),
-                    sortChip(ExploreSortMode.newest),
                     sortChip(ExploreSortMode.popular),
+                    sortChip(ExploreSortMode.newest),
+                    sortChip(ExploreSortMode.old),
                     sortChip(ExploreSortMode.meet),
                     savedFilterChip(),
                   ],
