@@ -994,9 +994,9 @@ class _PhotoCropScreenState extends State<PhotoCropScreen> {
   }
 }
 
-enum UserRole { admin, user }
+enum UserRole { admin, moderator, user }
 
-enum SpotStatus { pending, approved, rejected }
+enum SpotStatus { pending, approved, rejected, edited }
 
 class AppUser {
   final String uid;
@@ -1039,11 +1039,37 @@ AppUser currentUser = const AppUser(
 );
 
 String roleName(UserRole role) {
-  return role == UserRole.admin ? 'admin' : 'user';
+  switch (role) {
+    case UserRole.admin:
+      return 'admin';
+    case UserRole.moderator:
+      return 'moderator';
+    case UserRole.user:
+      return 'user';
+  }
 }
 
 UserRole roleFromFirebase(Object? value) {
-  return value == 'admin' ? UserRole.admin : UserRole.user;
+  switch (value) {
+    case 'admin':
+      return UserRole.admin;
+    case 'moderator':
+      return UserRole.moderator;
+    default:
+      return UserRole.user;
+  }
+}
+
+bool userRoleIsAdmin(UserRole role) {
+  return role == UserRole.admin;
+}
+
+bool userRoleIsModerator(UserRole role) {
+  return role == UserRole.moderator;
+}
+
+bool userRoleIsStaff(UserRole role) {
+  return role == UserRole.admin || role == UserRole.moderator;
 }
 
 Future<bool> loadRememberMePreference() async {
@@ -1059,20 +1085,30 @@ Future<void> saveRememberMePreference(bool value) async {
 
 Future<void> signOutCurrentAccount() async {
   await saveRememberMePreference(false);
-  await updateCurrentUserOnlinePresence(isOnline: false);
+
+  // Stop live Firebase listeners before auth becomes null.
   await spotSyncSubscription?.cancel();
   spotSyncSubscription = null;
 
-  await FirebaseAuth.instance.signOut();
-  await GoogleSignIn.instance.signOut();
+  // Best effort: mark the user offline before signing out.
+  await updateCurrentUserOnlinePresence(isOnline: false);
+
+  // Google Sign-In can throw on some platforms/states. Sign out must not crash.
+  try {
+    await GoogleSignIn.instance.signOut();
+  } catch (_) {}
+
+  try {
+    await FirebaseAuth.instance.signOut();
+  } catch (_) {}
 
   currentUser = const AppUser(
     uid: 'mock_user',
     name: 'Aleksej',
     username: 'pasegorov8',
     email: '',
-    role: UserRole.admin,
-    verified: true,
+    role: UserRole.user,
+    verified: false,
     city: 'Riga',
     country: 'Latvia',
   );
@@ -1092,6 +1128,8 @@ String spotStatusName(SpotStatus status) {
       return 'approved';
     case SpotStatus.rejected:
       return 'rejected';
+    case SpotStatus.edited:
+      return 'edited';
   }
 }
 
@@ -1101,6 +1139,8 @@ SpotStatus spotStatusFromFirebase(Object? value) {
       return SpotStatus.approved;
     case 'rejected':
       return SpotStatus.rejected;
+    case 'edited':
+      return SpotStatus.edited;
     default:
       return SpotStatus.pending;
   }
@@ -1343,17 +1383,9 @@ Future<String> reserveUsernameForCurrentUser({
 }
 
 Future<UserRole> defaultRoleForNewFirebaseUser() async {
-  try {
-    final existingUsers = await FirebaseFirestore.instance
-        .collection('users')
-        .limit(1)
-        .get();
-
-    // First account in a fresh Firebase project becomes admin for the prototype.
-    return existingUsers.docs.isEmpty ? UserRole.admin : UserRole.user;
-  } catch (_) {
-    return UserRole.user;
-  }
+  // New users must always be regular users.
+  // Admin rights are assigned manually in Firebase Console.
+  return UserRole.user;
 }
 
 Future<AppUser?> loadCurrentFirebaseUser() async {
@@ -1439,7 +1471,7 @@ Future<AppUser> saveFirebaseUser(
   final avatarPath = (data?['avatarPath'] as String?)?.trim().isNotEmpty == true
       ? data!['avatarPath'] as String
       : null;
-  final verified = role == UserRole.admin || data?['verified'] == true;
+  final verified = data?['verified'] == true;
   final settings = UserSettingsData.fromFirebase(data?['settings']);
   final garage = garageCarsFromFirebase(data?['garage']);
 
@@ -1455,8 +1487,6 @@ Future<AppUser> saveFirebaseUser(
     'photoUrl': photoUrl,
     'bio': bio,
     'avatarPath': avatarPath,
-    'role': roleName(role),
-    'verified': verified,
     'city': city,
     'country': country,
     'settings': settings.toFirebase(),
@@ -1469,6 +1499,10 @@ Future<AppUser> saveFirebaseUser(
   };
 
   if (isNewUser) {
+    firebaseData['role'] = roleName(role);
+    firebaseData['verified'] = verified;
+    firebaseData['banned'] = false;
+    firebaseData['deleted'] = false;
     firebaseData['createdAt'] = FieldValue.serverTimestamp();
   }
 
@@ -2462,7 +2496,7 @@ class LiveLocationData {
       name: stringFromFirebase(data['name'], 'CCS Driver'),
       photoUrl: data['photoUrl'] is String ? data['photoUrl'] as String : null,
       role: role,
-      verified: role == UserRole.admin || data['verified'] == true,
+      verified: userRoleIsStaff(role) || data['verified'] == true,
       headingDegrees: normalizedHeadingDegrees(
         doubleFromFirebase(data['heading'], 0),
       ),
@@ -2604,7 +2638,7 @@ class FriendUserData {
           ? data['avatarPath'] as String
           : null,
       role: role,
-      verified: role == UserRole.admin || data['verified'] == true,
+      verified: userRoleIsStaff(role) || data['verified'] == true,
       banned: data['banned'] == true,
       bannedUntilMillis: bannedUntilMillis,
       deleted: data['deleted'] == true,
@@ -2904,6 +2938,27 @@ Future<List<FriendUserData>> loadCurrentFriendUsers() async {
   return friends;
 }
 
+Future<List<FriendUserData>> loadAllVisibleUsersForGroupInvite() async {
+  final snapshot = await usersCollection().limit(200).get();
+  final users = snapshot.docs
+      .map(FriendUserData.fromFirestore)
+      .where((user) => user.uid != currentUser.uid && user.canAppearInUserLists)
+      .toList();
+
+  users.sort((a, b) {
+    final onlineCompare = b.appearsOnline.toString().compareTo(
+      a.appearsOnline.toString(),
+    );
+    if (onlineCompare != 0) {
+      return onlineCompare;
+    }
+
+    return a.username.toLowerCase().compareTo(b.username.toLowerCase());
+  });
+
+  return users;
+}
+
 String directChatIdFor(String firstUid, String secondUid) {
   final ids = [firstUid, secondUid]..sort();
   return 'direct_${ids[0]}_${ids[1]}';
@@ -2967,6 +3022,8 @@ class ChatThreadData {
   final String lastSenderUid;
   final String lastSenderUsername;
   final String avatarUrl;
+  final String ownerUid;
+  final List<String> moderatorIds;
   final int updatedAtMillis;
 
   const ChatThreadData({
@@ -2982,6 +3039,8 @@ class ChatThreadData {
     this.lastSenderUid = '',
     this.lastSenderUsername = '',
     this.avatarUrl = '',
+    this.ownerUid = '',
+    this.moderatorIds = const [],
     required this.updatedAtMillis,
   });
 
@@ -3009,6 +3068,8 @@ class ChatThreadData {
       lastSenderUid: stringFromFirebase(data['lastSenderUid'], ''),
       lastSenderUsername: stringFromFirebase(data['lastSenderUsername'], ''),
       avatarUrl: stringFromFirebase(data['avatarUrl'], ''),
+      ownerUid: stringFromFirebase(data['ownerUid'], ''),
+      moderatorIds: stringListFromFirebase(data['moderatorIds'], const []),
       updatedAtMillis: timestampMillisFromFirebase(data['updatedAt']),
     );
   }
@@ -3185,6 +3246,8 @@ Future<String> createGroupChat({
       currentUser.photoUrl ?? '',
       ...uniqueUsers.map((user) => user.photoUrl ?? ''),
     ],
+    'ownerUid': firebaseUser.uid,
+    'moderatorIds': [],
     'photoUrl': '',
     'description': '',
     'lastMessage': '',
@@ -3389,14 +3452,36 @@ Future<void> shareChatLiveLocation(
   }
 }
 
+Future<bool> currentUserCanModerateChat(String chatId) async {
+  final firebaseUser = FirebaseAuth.instance.currentUser;
+  if (firebaseUser == null) return false;
+  if (userRoleIsStaff(currentUser.role)) return true;
+
+  final snapshot = await chatsCollection().doc(chatId).get();
+  final data = snapshot.data();
+  if (data == null || data['isGroup'] != true) return false;
+
+  final memberIds = stringListFromFirebase(data['memberIds'], const []);
+  if (!memberIds.contains(firebaseUser.uid)) return false;
+
+  final ownerUid = stringFromFirebase(
+    data['ownerUid'],
+    memberIds.isEmpty ? '' : memberIds.first,
+  );
+  final moderatorIds = stringListFromFirebase(data['moderatorIds'], const []);
+
+  return ownerUid == firebaseUser.uid || moderatorIds.contains(firebaseUser.uid);
+}
+
 Future<void> editChatMessage({
   required String chatId,
   required ChatMessageData message,
   required String text,
 }) async {
   final firebaseUser = FirebaseAuth.instance.currentUser;
+  final canModerate = await currentUserCanModerateChat(chatId);
 
-  if (firebaseUser == null || firebaseUser.uid != message.senderUid) {
+  if (firebaseUser == null || (firebaseUser.uid != message.senderUid && !canModerate)) {
     throw FirebaseException(
       plugin: 'cloud_firestore',
       code: 'permission-denied',
@@ -3433,8 +3518,9 @@ Future<void> deleteChatMessage({
   required ChatMessageData message,
 }) async {
   final firebaseUser = FirebaseAuth.instance.currentUser;
+  final canModerate = await currentUserCanModerateChat(chatId);
 
-  if (firebaseUser == null || firebaseUser.uid != message.senderUid) {
+  if (firebaseUser == null || (firebaseUser.uid != message.senderUid && !canModerate)) {
     throw FirebaseException(
       plugin: 'cloud_firestore',
       code: 'permission-denied',
@@ -3631,12 +3717,12 @@ Future<void> checkFriendLocationNotifications() async {
 }
 
 bool get currentUserCanUseVerifiedOnlySpots {
-  return currentUser.role == UserRole.admin || currentUser.verified;
+  return userRoleIsStaff(currentUser.role) || currentUser.verified;
 }
 
 bool currentUserCanManageSpotBusiness(CarSpot spot) {
   return spot.supportsContacts &&
-      (currentUser.role == UserRole.admin ||
+      (userRoleIsStaff(currentUser.role) ||
           (spot.ownerUid.isNotEmpty && spot.ownerUid == currentUser.uid));
 }
 
@@ -5327,7 +5413,7 @@ class _RememberMeRow extends StatelessWidget {
   Widget build(BuildContext context) {
     return InkWell(
       onTap: enabled ? () => onChanged(!value) : null,
-      borderRadius: BorderRadius.circular(14),
+      borderRadius: BorderRadius.circular(12),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 2),
         child: Row(
@@ -6205,164 +6291,145 @@ class ExploreSpotCard extends StatelessWidget {
             ),
           ],
         ),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            SizedBox(
-              width: 136,
-              child: Column(
-                children: [
-                  Stack(
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                SpotPhoto(
+                  spot: spot,
+                  width: 118,
+                  height: 104,
+                  fit: BoxFit.cover,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      SpotPhoto(
-                        spot: spot,
-                        width: 136,
-                        height: 106,
-                        fit: BoxFit.cover,
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      Positioned(
-                        top: -4,
-                        right: -4,
-                        child: Transform.scale(
-                          scale: 0.72,
-                          alignment: Alignment.topRight,
-                          child: SaveSpotButton(spot: spot, compact: true),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  ExploreSpotStatsRow(spot: spot),
-                ],
-              ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          spot.name,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 16,
-                            fontWeight: FontWeight.w900,
-                          ),
-                        ),
-                      ),
-                      const Icon(Icons.star, color: blue, size: 15),
-                      const SizedBox(width: 3),
-                      Text(
-                        spot.rating.toStringAsFixed(1),
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    spot.cityCountry,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(color: Colors.white54, fontSize: 12),
-                  ),
-                  const SizedBox(height: 2),
-                  Row(
-                    children: [
-                      const Icon(
-                        Icons.schedule,
-                        color: Colors.white38,
-                        size: 12,
-                      ),
-                      const SizedBox(width: 4),
-                      Expanded(
-                        child: Text(
-                          addedDateText,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            color: Colors.white38,
-                            fontSize: 11,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 2),
-                  Row(
-                    children: [
-                      const Icon(
-                        Icons.person_outline,
-                        color: Colors.white38,
-                        size: 12,
-                      ),
-                      const SizedBox(width: 4),
-                      Expanded(
-                        child: spot.addedByUid.trim().isEmpty
-                            ? Text(
-                                addedByText,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  color: Colors.white38,
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              )
-                            : InkWell(
-                                onTap: () => openUserProfile(
-                                  context,
-                                  uid: spot.addedByUid,
-                                  fallbackUsername: spot.addedBy,
-                                ),
-                                borderRadius: BorderRadius.circular(999),
-                                child: Text(
-                                  'Added by ${displayUsername(spot.addedBy)}',
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(
-                                    color: blue,
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.w800,
-                                  ),
-                                ),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              spot.name,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 16,
+                                fontWeight: FontWeight.w900,
                               ),
+                            ),
+                          ),
+                          const Icon(Icons.star, color: blue, size: 15),
+                          const SizedBox(width: 3),
+                          Text(
+                            spot.rating.toStringAsFixed(1),
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        spot.cityCountry,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(color: Colors.white54, fontSize: 12),
+                      ),
+                      const SizedBox(height: 2),
+                      Row(
+                        children: [
+                          const Icon(Icons.schedule, color: Colors.white38, size: 12),
+                          const SizedBox(width: 4),
+                          Expanded(
+                            child: Text(
+                              addedDateText,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: Colors.white38,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 2),
+                      Row(
+                        children: [
+                          const Icon(Icons.person_outline, color: Colors.white38, size: 12),
+                          const SizedBox(width: 4),
+                          Expanded(
+                            child: spot.addedByUid.trim().isEmpty
+                                ? Text(
+                                    addedByText,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                      color: Colors.white38,
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  )
+                                : InkWell(
+                                    onTap: () => openUserProfile(
+                                      context,
+                                      uid: spot.addedByUid,
+                                      fallbackUsername: spot.addedBy,
+                                    ),
+                                    borderRadius: BorderRadius.circular(999),
+                                    child: Text(
+                                      'Added by ${displayUsername(spot.addedBy)}',
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(
+                                        color: blue,
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w800,
+                                      ),
+                                    ),
+                                  ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        spot.description,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Colors.white70,
+                          fontSize: 12,
+                          height: 1.2,
+                        ),
                       ),
                     ],
                   ),
-                  const SizedBox(height: 4),
-                  Text(
-                    spot.description,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: Colors.white70,
-                      fontSize: 12,
-                      height: 1.2,
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                ExploreSpotStatsRow(spot: spot),
+                const SizedBox(width: 6),
+                SaveSpotButton(spot: spot, compact: true),
+                const SizedBox(width: 6),
+                if (tagWidgets.isNotEmpty)
+                  Flexible(
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: tagWidgets.first,
                     ),
                   ),
-                  const SizedBox(height: 8),
-                  SizedBox(
-                    height: 28,
-                    child: ListView.separated(
-                      scrollDirection: Axis.horizontal,
-                      itemCount: tagWidgets.length,
-                      separatorBuilder: (_, _) => const SizedBox(width: 6),
-                      itemBuilder: (context, index) => tagWidgets[index],
-                    ),
-                  ),
-                ],
-              ),
+              ],
             ),
           ],
         ),
@@ -6827,6 +6894,7 @@ class _MapScreenState extends State<MapScreen> {
   List<LiveLocationData> liveLocations = [];
   Set<String> friendLiveLocationUids = {};
   List<PoliceReportData> policeReports = [];
+  LatLng currentMapCenter = rigaCenter;
   double currentMapZoom = rigaZoom;
   double currentMapRotationDegrees = 0;
   double currentUserHeadingDegrees = 0;
@@ -6894,18 +6962,40 @@ class _MapScreenState extends State<MapScreen> {
     });
   }
 
+  double get currentMapLoadRadiusMeters {
+    if (currentMapZoom >= 14) return 24000;
+    if (currentMapZoom >= 12) return 42000;
+    if (currentMapZoom >= 10) return 72000;
+    return 120000;
+  }
+
+  int get currentMapMarkerLimit {
+    if (currentMapZoom >= 14) return 420;
+    if (currentMapZoom >= 12) return 260;
+    if (currentMapZoom >= 10) return 160;
+    return 90;
+  }
+
   List<CarSpot> get visibleSpots {
-    return approvedPublicSpots().where((spot) {
-      if (spot.status != SpotStatus.approved) {
-        return false;
+    if (enabledCategoryFilters.isEmpty) {
+      return const [];
+    }
+
+    final withDistance = <MapEntry<CarSpot, double>>[];
+    for (final spot in approvedPublicSpots()) {
+      if (spot.status != SpotStatus.approved ||
+          !spot.categories.any(enabledCategoryFilters.contains)) {
+        continue;
       }
 
-      if (enabledCategoryFilters.isEmpty) {
-        return false;
+      final distance = distanceBetweenLatLngMeters(currentMapCenter, spot.coordinates);
+      if (distance <= currentMapLoadRadiusMeters) {
+        withDistance.add(MapEntry(spot, distance));
       }
+    }
 
-      return spot.categories.any(enabledCategoryFilters.contains);
-    }).toList();
+    withDistance.sort((a, b) => a.value.compareTo(b.value));
+    return withDistance.take(currentMapMarkerLimit).map((entry) => entry.key).toList();
   }
 
   Future<void> showMapCategoryFilterSheet() async {
@@ -7215,11 +7305,28 @@ class _MapScreenState extends State<MapScreen> {
   }
 
   List<Marker> get policeReportMarkers {
+    final showPoliceRadius = currentMapZoom >= 14.2;
+    final markerOuterSize = showPoliceRadius
+        ? scaledMapIconValue(
+            zoom: currentMapZoom,
+            minZoom: 14.2,
+            maxZoom: 17,
+            minValue: 42,
+            maxValue: 74,
+          )
+        : scaledMapIconValue(
+            zoom: currentMapZoom,
+            minZoom: 4,
+            maxZoom: 14.2,
+            minValue: 13,
+            maxValue: 22,
+          );
+    final markerInnerSize = showPoliceRadius ? 34.0 : math.max(9.0, markerOuterSize - 8);
     return visiblePoliceReports.map((report) {
       return Marker(
         point: report.coordinates,
-        width: 62,
-        height: 62,
+        width: markerOuterSize,
+        height: markerOuterSize,
         child: GestureDetector(
           onTap: () {
             setState(() {
@@ -7232,34 +7339,32 @@ class _MapScreenState extends State<MapScreen> {
             message: 'Police marked by ${displayUsername(report.username)}',
             child: Container(
               decoration: BoxDecoration(
-                color: Colors.redAccent.withValues(alpha: 0.18),
+                color: Colors.redAccent.withValues(alpha: showPoliceRadius ? 0.18 : 0.95),
                 shape: BoxShape.circle,
                 border: Border.all(
-                  color: Colors.redAccent.withValues(alpha: 0.62),
-                  width: 2,
+                  color: Colors.redAccent.withValues(alpha: showPoliceRadius ? 0.62 : 1),
+                  width: showPoliceRadius ? 2 : 1.5,
                 ),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.redAccent.withValues(alpha: 0.32),
-                    blurRadius: 18,
-                    spreadRadius: 4,
+                    color: Colors.redAccent.withValues(alpha: 0.42),
+                    blurRadius: showPoliceRadius ? 18 : 10,
+                    spreadRadius: showPoliceRadius ? 4 : 1,
                   ),
                 ],
               ),
               child: Center(
                 child: Container(
-                  width: 34,
-                  height: 34,
+                  width: markerInnerSize,
+                  height: markerInnerSize,
                   decoration: BoxDecoration(
-                    color: panelGlass,
+                    color: showPoliceRadius ? panelGlass : Colors.redAccent,
                     shape: BoxShape.circle,
-                    border: Border.all(color: Colors.redAccent, width: 2),
+                    border: showPoliceRadius ? Border.all(color: Colors.redAccent, width: 2) : null,
                   ),
-                  child: const Icon(
-                    Icons.local_police,
-                    color: Colors.redAccent,
-                    size: 21,
-                  ),
+                  child: showPoliceRadius
+                      ? const Icon(Icons.local_police, color: Colors.redAccent, size: 21)
+                      : const SizedBox.shrink(),
                 ),
               ),
             ),
@@ -8681,6 +8786,7 @@ class _MapScreenState extends State<MapScreen> {
 
                 if (zoomChanged || rotationChanged || hasGesture) {
                   setState(() {
+                    currentMapCenter = camera.center;
                     currentMapZoom = nextZoom;
                     currentMapRotationDegrees = nextRotation;
                     if (hasGesture) {
@@ -9482,19 +9588,20 @@ class SaveSpotButton extends StatelessWidget {
 
         if (compact) {
           return SizedBox(
-            width: 46,
+            width: 44,
             height: 38,
             child: OutlinedButton(
               onPressed: () => toggleSaved(context, saved),
               style: OutlinedButton.styleFrom(
                 padding: EdgeInsets.zero,
-                foregroundColor: saved ? blue : Colors.white,
-                side: BorderSide(color: saved ? blue : Colors.white24),
+                backgroundColor: saved ? blue.withValues(alpha: 0.16) : Colors.white.withValues(alpha: 0.06),
+                foregroundColor: saved ? blue : Colors.white70,
+                side: BorderSide(color: saved ? blue : Colors.white24, width: saved ? 1.4 : 1),
                 shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(14),
+                  borderRadius: BorderRadius.circular(999),
                 ),
               ),
-              child: Icon(saved ? Icons.bookmark : Icons.bookmark_border),
+              child: Icon(saved ? Icons.bookmark : Icons.bookmark_border, size: 18),
             ),
           );
         }
@@ -10149,6 +10256,25 @@ class _SpotDetailScreenState extends State<SpotDetailScreen> {
         title: const Text('Spot'),
         backgroundColor: Colors.transparent,
         foregroundColor: blue,
+        actions: [
+          if (userRoleIsStaff(currentUser.role) || spot.addedByUid == currentUser.uid)
+            IconButton(
+              tooltip: 'Edit spot',
+              onPressed: () async {
+                final saved = await Navigator.push<bool>(
+                  context,
+                  appPageRoute(builder: (_) => AdminEditSpotScreen(spot: spot)),
+                );
+                if (saved == true && mounted) {
+                  final fresh = await spotsCollection().doc(spot.id).get();
+                  if (fresh.exists && mounted) {
+                    setState(() => spot = CarSpot.fromFirestore(fresh));
+                  }
+                }
+              },
+              icon: const Icon(Icons.edit_outlined),
+            ),
+        ],
       ),
       body: ListView(
         children: [
@@ -10407,7 +10533,7 @@ class SpotOwnerBadge extends StatelessWidget {
     final badge = ConstrainedBox(
       constraints: const BoxConstraints(maxWidth: 170),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
         decoration: BoxDecoration(
           color: blue.withValues(alpha: 0.12),
           borderRadius: BorderRadius.circular(999),
@@ -11639,7 +11765,7 @@ class _SmallTag extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
       decoration: BoxDecoration(
         color: Colors.white.withValues(alpha: 0.08),
         borderRadius: BorderRadius.circular(999),
@@ -11650,12 +11776,18 @@ class _SmallTag extends StatelessWidget {
         children: [
           Icon(icon, color: blue, size: 14),
           const SizedBox(width: 5),
-          Text(
-            label,
-            style: const TextStyle(
-              color: Colors.white70,
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 98),
+            child: Text(
+              label,
+              maxLines: 1,
+              softWrap: false,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: Colors.white70,
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+              ),
             ),
           ),
         ],
@@ -12376,11 +12508,11 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
     final location = selectedLocation!;
     final categories = [selectedCategory];
     final supportsContacts = spotCategorySupportsContacts(selectedCategory);
-    final owner = supportsContacts && currentUser.role == UserRole.admin
+    final owner = supportsContacts && userRoleIsStaff(currentUser.role)
         ? selectedOwner
         : null;
 
-    final isAdminCreatedSpot = currentUser.role == UserRole.admin;
+    final isAdminCreatedSpot = userRoleIsStaff(currentUser.role);
     final initialStatus = isAdminCreatedSpot
         ? SpotStatus.approved
         : SpotStatus.pending;
@@ -12572,7 +12704,7 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
                   ),
                 ),
                 _PendingBadge(
-                  status: currentUser.role == UserRole.admin
+                  status: userRoleIsStaff(currentUser.role)
                       ? SpotStatus.approved
                       : SpotStatus.pending,
                 ),
@@ -12716,7 +12848,7 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
                   icon: Icons.email_outlined,
                   keyboardType: TextInputType.emailAddress,
                 ),
-                if (currentUser.role == UserRole.admin)
+                if (userRoleIsStaff(currentUser.role))
                   SpotOwnerSelector(
                     selectedOwner: selectedOwner,
                     onChanged: (owner) => setState(() => selectedOwner = owner),
@@ -12778,10 +12910,10 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
                   const SizedBox(width: 10),
                   Text(
                     isSubmitting
-                        ? (currentUser.role == UserRole.admin
+                        ? (userRoleIsStaff(currentUser.role)
                               ? 'Creating spot...'
                               : 'Submitting for review...')
-                        : (currentUser.role == UserRole.admin
+                        : (userRoleIsStaff(currentUser.role)
                               ? 'Create Spot'
                               : 'Submit for Review'),
                     style: const TextStyle(
@@ -12814,6 +12946,8 @@ class _PendingBadge extends StatelessWidget {
         return 'live';
       case SpotStatus.rejected:
         return 'rejected';
+      case SpotStatus.edited:
+        return 'edited';
     }
   }
 
@@ -12825,13 +12959,15 @@ class _PendingBadge extends StatelessWidget {
         return Colors.greenAccent;
       case SpotStatus.rejected:
         return Colors.redAccent;
+      case SpotStatus.edited:
+        return Colors.orangeAccent;
     }
   }
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.14),
         borderRadius: BorderRadius.circular(999),
@@ -14234,14 +14370,16 @@ class _ServiceSpotBusinessEditScreenState
         'updatedAt': FieldValue.serverTimestamp(),
       });
 
+      final visibleUpdatedSpot = updatedSpot;
+
       reviewSpots.value = reviewSpots.value
-          .map((item) => isSameSpot(item, widget.spot) ? updatedSpot : item)
+          .map((item) => isSameSpot(item, widget.spot) ? visibleUpdatedSpot : item)
           .toList();
       submittedSpots.value = submittedSpots.value
-          .map((item) => isSameSpot(item, widget.spot) ? updatedSpot : item)
+          .map((item) => isSameSpot(item, widget.spot) ? visibleUpdatedSpot : item)
           .toList();
       savedSpots.value = savedSpots.value
-          .map((item) => isSameSpot(item, widget.spot) ? updatedSpot : item)
+          .map((item) => isSameSpot(item, widget.spot) ? visibleUpdatedSpot : item)
           .toList();
 
       if (!mounted) {
@@ -14347,6 +14485,34 @@ class _ServiceSpotBusinessEditScreenState
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class UserSubmissionsScreen extends StatelessWidget {
+  const UserSubmissionsScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.transparent,
+      appBar: AppBar(title: const Text('My Submissions'), backgroundColor: Colors.transparent, foregroundColor: blue),
+      body: ValueListenableBuilder<List<CarSpot>>(
+        valueListenable: submittedSpots,
+        builder: (context, spots, _) {
+          return ListView(
+            padding: const EdgeInsets.fromLTRB(20, 18, 20, 28),
+            children: [
+              Text(spots.isEmpty ? 'No spots created yet.' : '${spots.length} created spots.', style: const TextStyle(color: Colors.white54, height: 1.35)),
+              const SizedBox(height: 18),
+              if (spots.isEmpty)
+                const EmptyStateCard(icon: Icons.add_location_alt, title: 'No submissions yet', text: 'Created spots will appear here.')
+              else
+                for (final spot in spots) ...[SavedSpotTile(spot: spot), const SizedBox(height: 12)],
+            ],
+          );
+        },
       ),
     );
   }
@@ -15748,6 +15914,124 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
     }
   }
 
+
+  bool get isCurrentUserGroupOwner {
+    final ownerUid = widget.chat.ownerUid.trim().isEmpty
+        ? (widget.chat.memberIds.isEmpty ? '' : widget.chat.memberIds.first)
+        : widget.chat.ownerUid;
+    return ownerUid == currentUser.uid;
+  }
+
+  bool get canManageGroupMembers {
+    return isCurrentUserGroupOwner || widget.chat.moderatorIds.contains(currentUser.uid) || userRoleIsStaff(currentUser.role);
+  }
+
+  Future<void> addMembersToGroup() async {
+    if (!canManageGroupMembers || isSaving) return;
+
+    final friends = await loadAllVisibleUsersForGroupInvite();
+    if (!mounted) return;
+
+    final candidates = friends.where((user) => !widget.chat.memberIds.contains(user.uid)).toList();
+    final selected = <FriendUserData>[];
+
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: panelGlass,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(26))),
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            return SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(18, 14, 18, 22),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('Add members', style: TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.w900)),
+                    const SizedBox(height: 12),
+                    if (candidates.isEmpty)
+                      const Text('No users available to add.', style: TextStyle(color: Colors.white54))
+                    else
+                      Flexible(
+                        child: SingleChildScrollView(
+                          child: Column(
+                            children: [
+                              for (final friend in candidates)
+                                CheckboxListTile(
+                                  value: selected.any((u) => u.uid == friend.uid),
+                                  onChanged: (value) {
+                                    setSheetState(() {
+                                      if (value == true) {
+                                        selected.add(friend);
+                                      } else {
+                                        selected.removeWhere((u) => u.uid == friend.uid);
+                                      }
+                                    });
+                                  },
+                                  activeColor: blue,
+                                  title: Text(displayUsername(friend.username), style: const TextStyle(color: Colors.white)),
+                                  secondary: UserAvatarCircle(user: friend, size: 34),
+                                ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    const SizedBox(height: 16),
+                    SizedBox(
+                      width: double.infinity,
+                      height: 52,
+                      child: ElevatedButton.icon(
+                        onPressed: selected.isEmpty ? null : () => Navigator.pop(context),
+                        icon: const Icon(Icons.group_add),
+                        label: Text('Add ${selected.length}'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: blue,
+                          foregroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+
+    if (selected.isEmpty) return;
+    setState(() => isSaving = true);
+    try {
+      await chatsCollection().doc(widget.chat.id).set({
+        'memberIds': FieldValue.arrayUnion(selected.map((u) => u.uid).toList()),
+        'memberUsernames': FieldValue.arrayUnion(selected.map((u) => u.username).toList()),
+        'memberPhotoUrls': FieldValue.arrayUnion(selected.map((u) => u.photoUrl ?? '').toList()),
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    } finally {
+      if (mounted) setState(() => isSaving = false);
+    }
+  }
+
+  Future<void> toggleGroupModerator(FriendUserData user) async {
+    if (!isCurrentUserGroupOwner || user.uid == currentUser.uid || isSaving) return;
+
+    final isModerator = widget.chat.moderatorIds.contains(user.uid);
+    setState(() => isSaving = true);
+    try {
+      await chatsCollection().doc(widget.chat.id).set({
+        'moderatorIds': isModerator ? FieldValue.arrayRemove([user.uid]) : FieldValue.arrayUnion([user.uid]),
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    } finally {
+      if (mounted) setState(() => isSaving = false);
+    }
+  }
+
   Future<void> saveGroup() async {
     final name = nameController.text.trim();
     final description = descriptionController.text.trim();
@@ -15848,10 +16132,32 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
                     ],
                   ),
                   const SizedBox(height: 4),
-                  OnlineStatusBadge(online: user.appearsOnline),
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 4,
+                    children: [
+                      OnlineStatusBadge(online: user.appearsOnline),
+                      if (user.uid == (widget.chat.ownerUid.trim().isEmpty ? (widget.chat.memberIds.isEmpty ? '' : widget.chat.memberIds.first) : widget.chat.ownerUid))
+                        const _SmallTag(label: 'owner', icon: Icons.shield),
+                      if (widget.chat.moderatorIds.contains(user.uid))
+                        const _SmallTag(label: 'moderator', icon: Icons.admin_panel_settings),
+                    ],
+                  ),
                 ],
               ),
             ),
+            if (isCurrentUserGroupOwner && user.uid != currentUser.uid)
+              PopupMenuButton<String>(
+                color: panel,
+                icon: const Icon(Icons.more_horiz, color: Colors.white54),
+                onSelected: (_) => toggleGroupModerator(user),
+                itemBuilder: (_) => [
+                  PopupMenuItem(
+                    value: 'toggle_moderator',
+                    child: Text(widget.chat.moderatorIds.contains(user.uid) ? 'Remove group moderator' : 'Make group moderator'),
+                  ),
+                ],
+              ),
           ],
         ),
       ),
@@ -15891,6 +16197,12 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
                       ),
                     ),
                   ),
+                  if (canManageGroupMembers)
+                    IconButton(
+                      tooltip: 'Add members',
+                      onPressed: isSaving ? null : addMembersToGroup,
+                      icon: const Icon(Icons.person_add_alt_1, color: blue),
+                    ),
                   Text(
                     '${members.length}',
                     style: const TextStyle(
@@ -15917,13 +16229,6 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
         title: const Text('Group Info'),
         backgroundColor: Colors.transparent,
         foregroundColor: blue,
-        actions: [
-          IconButton(
-            tooltip: 'Save',
-            onPressed: isSaving ? null : saveGroup,
-            icon: Icon(isSaving ? Icons.hourglass_top : Icons.check),
-          ),
-        ],
       ),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(20, 18, 20, 28),
@@ -16469,6 +16774,10 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
     Map<String, FriendUserData> usersById,
   ) {
     final mine = message.senderUid == currentUid;
+    final canModerateMessage = widget.chat.isGroup &&
+        (userRoleIsStaff(currentUser.role) ||
+            widget.chat.ownerUid == currentUid ||
+            widget.chat.moderatorIds.contains(currentUid));
     final showSender = !mine && widget.chat.isGroup;
     final sender =
         usersById[message.senderUid] ?? fallbackMessageSender(message);
@@ -16552,7 +16861,7 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
         : bubble;
 
     return GestureDetector(
-      onLongPress: mine ? () => showOwnMessageActions(message) : null,
+      onLongPress: (mine || canModerateMessage) ? () => showOwnMessageActions(message) : null,
       child: Align(
         alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
         child: content,
@@ -16942,7 +17251,7 @@ class PublicUserProfileData {
   });
 
   bool get canCurrentUserView {
-    return currentUser.role == UserRole.admin ||
+    return userRoleIsStaff(currentUser.role) ||
         currentUser.uid == uid ||
         settings.publicProfile;
   }
@@ -17007,7 +17316,7 @@ class PublicUserProfileData {
       city: stringFromFirebase(data['city'], 'Riga'),
       country: stringFromFirebase(data['country'], 'Latvia'),
       role: role,
-      verified: role == UserRole.admin || data['verified'] == true,
+      verified: userRoleIsStaff(role) || data['verified'] == true,
       settings: UserSettingsData.fromFirebase(data['settings']),
       garage: garageCarsFromFirebase(data['garage']),
       deleted: data['deleted'] == true,
@@ -17456,34 +17765,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
           return ListView(
             padding: const EdgeInsets.fromLTRB(20, 18, 20, 28),
             children: [
-              _ProfileHeader(profile: profile, onEdit: editProfile),
-              const SizedBox(height: 16),
-              Row(
-                children: [
-                  Expanded(
-                    child: _ProfileStatTile(
-                      icon: Icons.pending_actions,
-                      value: '$pendingCount',
-                      label: 'Pending',
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: _ProfileStatTile(
-                      icon: Icons.directions_car,
-                      value: garageValue,
-                      label: 'Garage',
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: _ProfileStatTile(
-                      icon: Icons.location_on,
-                      value: baseValue,
-                      label: 'Base',
-                    ),
-                  ),
-                ],
+              _ProfileHeader(
+                profile: profile,
+                garageValue: garageValue,
+                spotsValue: '${spots.length} spots',
+                onEdit: editProfile,
               ),
               const SizedBox(height: 16),
               const _ProfileSocialLinksSection(),
@@ -17508,11 +17794,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 onTap: openFriends,
               ),
               const SizedBox(height: 10),
-              if (currentUser.role == UserRole.admin) ...[
+              if (userRoleIsStaff(currentUser.role)) ...[
                 _ProfileActionTile(
                   icon: Icons.admin_panel_settings,
-                  title: 'Admin Panel',
-                  subtitle: 'Review spots and manage verified users',
+                  title: currentUser.role == UserRole.admin ? 'Admin Panel' : 'Moderator Panel',
+                  subtitle: currentUser.role == UserRole.admin ? 'Review spots and manage users' : 'Review spots and moderate users',
                   onTap: openAdminPanel,
                 ),
                 const SizedBox(height: 10),
@@ -18737,9 +19023,16 @@ class _FriendsScreenState extends State<FriendsScreen> {
 
 class _ProfileHeader extends StatelessWidget {
   final UserProfileData profile;
+  final String garageValue;
+  final String spotsValue;
   final VoidCallback onEdit;
 
-  const _ProfileHeader({required this.profile, required this.onEdit});
+  const _ProfileHeader({
+    required this.profile,
+    required this.garageValue,
+    required this.spotsValue,
+    required this.onEdit,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -18817,15 +19110,25 @@ class _ProfileHeader extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      profile.username,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 24,
-                        fontWeight: FontWeight.w900,
-                      ),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            profile.username,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 24,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                        ),
+                        if (userRoleIsStaff(currentUser.role)) ...[
+                          const SizedBox(width: 8),
+                          _ProfileRoleBadge(role: currentUser.role),
+                        ],
+                      ],
                     ),
                     const SizedBox(height: 4),
                     Text(
@@ -18835,22 +19138,31 @@ class _ProfileHeader extends StatelessWidget {
                       style: const TextStyle(color: Colors.white54),
                     ),
                     const SizedBox(height: 10),
-                    Row(
-                      children: [
-                        const Icon(Icons.location_on, color: blue, size: 16),
-                        const SizedBox(width: 4),
-                        Expanded(
-                          child: Text(
-                            profile.cityCountry,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              color: Colors.white70,
-                              fontWeight: FontWeight.w700,
+                    SizedBox(
+                      width: double.infinity,
+                      child: FittedBox(
+                        fit: BoxFit.scaleDown,
+                        alignment: Alignment.centerLeft,
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            _MiniProfileInfoChip(
+                              icon: Icons.location_on,
+                              label: profile.cityCountry,
                             ),
-                          ),
+                            const SizedBox(width: 6),
+                            _MiniProfileInfoChip(
+                              icon: Icons.directions_car,
+                              label: garageValue,
+                            ),
+                            const SizedBox(width: 6),
+                            _MiniProfileInfoChip(
+                              icon: Icons.add_location_alt,
+                              label: spotsValue,
+                            ),
+                          ],
                         ),
-                      ],
+                      ),
                     ),
                   ],
                 ),
@@ -18871,6 +19183,81 @@ class _ProfileHeader extends StatelessWidget {
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(15),
                 ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ProfileRoleBadge extends StatelessWidget {
+  final UserRole role;
+
+  const _ProfileRoleBadge({required this.role});
+
+  @override
+  Widget build(BuildContext context) {
+    final isAdmin = role == UserRole.admin;
+    final color = isAdmin ? Colors.redAccent : blue;
+    final label = isAdmin ? 'Admin' : 'Mod';
+    final icon = isAdmin ? Icons.shield : Icons.shield_outlined;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.14),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: color.withValues(alpha: 0.55)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, color: color, size: 13),
+          const SizedBox(width: 4),
+          Text(
+            label,
+            style: TextStyle(
+              color: color,
+              fontSize: 10.5,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MiniProfileInfoChip extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  const _MiniProfileInfoChip({required this.icon, required this.label});
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 5),
+      decoration: BoxDecoration(
+        color: blue.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: blue.withValues(alpha: 0.24)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, color: blue, size: 12),
+          const SizedBox(width: 4),
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 74),
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: Colors.white70,
+                fontSize: 9.3,
+                fontWeight: FontWeight.w800,
               ),
             ),
           ),
@@ -19363,7 +19750,7 @@ class _BuildChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
       decoration: BoxDecoration(
         color: Colors.white.withValues(alpha: 0.08),
         borderRadius: BorderRadius.circular(999),
@@ -19567,9 +19954,12 @@ class _ProfileSubmissionsPreview extends StatelessWidget {
             if (rejectedCount > 0) '$rejectedCount rejected',
           ].join(' • ');
 
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
+    return InkWell(
+      onTap: spots.isEmpty ? null : () { Navigator.push(context, appPageRoute(builder: (_) => const UserSubmissionsScreen())); },
+      borderRadius: BorderRadius.circular(20),
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
         color: panelGlass,
         borderRadius: BorderRadius.circular(20),
         border: Border.all(color: Colors.white12),
@@ -19628,6 +20018,7 @@ class _ProfileSubmissionsPreview extends StatelessWidget {
           ],
         ],
       ),
+    ),
     );
   }
 }
@@ -20767,6 +21158,15 @@ class AdminVerifiedUsersScreen extends StatelessWidget {
     AdminUserData user,
     bool verified,
   ) async {
+    if (currentUser.role != UserRole.admin) {
+      showAdminActionError(
+        context,
+        message: 'Only admins can change verified status',
+        error: 'not-admin',
+      );
+      return;
+    }
+
     try {
       await usersCollection().doc(user.uid).set({
         'verified': verified,
@@ -20786,7 +21186,7 @@ class AdminVerifiedUsersScreen extends StatelessWidget {
           bio: currentUser.bio,
           avatarPath: currentUser.avatarPath,
           role: currentUser.role,
-          verified: verified || currentUser.role == UserRole.admin,
+          verified: verified || userRoleIsStaff(currentUser.role),
           city: currentUser.city,
           country: currentUser.country,
         );
@@ -20887,12 +21287,9 @@ class AdminVerifiedUsersScreen extends StatelessWidget {
                                       ),
                                     ),
                                   ),
-                                  if (user.role == UserRole.admin) ...[
+                                  if (userRoleIsStaff(user.role)) ...[
                                     const SizedBox(width: 6),
-                                    const _SmallTag(
-                                      label: 'Admin',
-                                      icon: Icons.admin_panel_settings,
-                                    ),
+                                    _ProfileRoleBadge(role: user.role),
                                   ],
                                 ],
                               ),
@@ -20936,7 +21333,7 @@ class AdminUsersScreen extends StatelessWidget {
         const SnackBar(
           backgroundColor: Colors.redAccent,
           content: Text(
-            'You cannot manage your own admin account here.',
+            'You cannot manage your own account here.',
             style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
           ),
         ),
@@ -20949,7 +21346,20 @@ class AdminUsersScreen extends StatelessWidget {
         const SnackBar(
           backgroundColor: Colors.redAccent,
           content: Text(
-            'Admin accounts cannot be banned or deleted here.',
+            'Admin accounts cannot be managed here.',
+            style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+          ),
+        ),
+      );
+      return false;
+    }
+
+    if (currentUser.role == UserRole.moderator && user.role == UserRole.moderator) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          backgroundColor: Colors.redAccent,
+          content: Text(
+            'Moderators cannot manage other moderators.',
             style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
           ),
         ),
@@ -20958,6 +21368,61 @@ class AdminUsersScreen extends StatelessWidget {
     }
 
     return true;
+  }
+
+  Future<void> setModeratorStatus(
+    BuildContext context,
+    AdminUserData user,
+    bool makeModerator,
+  ) async {
+    if (currentUser.role != UserRole.admin) {
+      showAdminActionError(
+        context,
+        message: 'Only admins can change roles',
+        error: 'not-admin',
+      );
+      return;
+    }
+
+    if (user.uid == currentUser.uid || user.role == UserRole.admin) {
+      showAdminActionError(
+        context,
+        message: 'This role cannot be changed here',
+        error: 'protected-user',
+      );
+      return;
+    }
+
+    try {
+      await usersCollection().doc(user.uid).set({
+        'role': makeModerator ? 'moderator' : 'user',
+        'roleUpdatedByUid': currentUser.uid,
+        'roleUpdatedBy': currentUser.username,
+        'roleUpdatedAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: blue,
+            content: Text(
+              makeModerator ? 'Moderator assigned.' : 'Moderator removed.',
+              style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        );
+      }
+    } catch (error) {
+      showAdminActionError(
+        context,
+        message: 'Could not update role',
+        error: error,
+      );
+    }
   }
 
   Future<void> banUser(
@@ -21159,6 +21624,12 @@ class AdminUsersScreen extends StatelessWidget {
       case 'unban':
         unbanUser(context, user);
         break;
+      case 'make_moderator':
+        setModeratorStatus(context, user, true);
+        break;
+      case 'remove_moderator':
+        setModeratorStatus(context, user, false);
+        break;
       case 'delete':
         deleteUser(context, user);
         break;
@@ -21224,12 +21695,9 @@ class AdminUsersScreen extends StatelessWidget {
                             ),
                           ),
                         ),
-                        if (user.role == UserRole.admin) ...[
+                        if (userRoleIsStaff(user.role)) ...[
                           const SizedBox(width: 6),
-                          const _SmallTag(
-                            label: 'Admin',
-                            icon: Icons.admin_panel_settings,
-                          ),
+                          _ProfileRoleBadge(role: user.role),
                         ],
                       ],
                     ),
@@ -21272,14 +21740,27 @@ class AdminUsersScreen extends StatelessWidget {
               ),
               if (user.banned)
                 const PopupMenuItem(value: 'unban', child: Text('Unban')),
-              const PopupMenuDivider(),
-              const PopupMenuItem(
-                value: 'delete',
-                child: Text(
-                  'Delete user',
-                  style: TextStyle(color: Colors.redAccent),
+              if (currentUser.role == UserRole.admin) ...[
+                const PopupMenuDivider(),
+                if (user.role == UserRole.user)
+                  const PopupMenuItem(
+                    value: 'make_moderator',
+                    child: Text('Make moderator'),
+                  ),
+                if (user.role == UserRole.moderator)
+                  const PopupMenuItem(
+                    value: 'remove_moderator',
+                    child: Text('Remove moderator'),
+                  ),
+                const PopupMenuDivider(),
+                const PopupMenuItem(
+                  value: 'delete',
+                  child: Text(
+                    'Delete user',
+                    style: TextStyle(color: Colors.redAccent),
+                  ),
                 ),
-              ),
+              ],
             ],
           ),
         ],
@@ -21344,12 +21825,14 @@ class AdminUsersScreen extends StatelessWidget {
   }
 }
 
-enum AdminSpotFilter { pending, approved, rejected, all }
+enum AdminSpotFilter { pending, edited, approved, rejected, all }
 
 String adminSpotFilterLabel(AdminSpotFilter filter) {
   switch (filter) {
     case AdminSpotFilter.pending:
       return 'Pending';
+    case AdminSpotFilter.edited:
+      return 'Edited';
     case AdminSpotFilter.approved:
       return 'Approved';
     case AdminSpotFilter.rejected:
@@ -21365,6 +21848,8 @@ List<CarSpot> adminSpotsForFilter(AdminSpotFilter filter) {
   switch (filter) {
     case AdminSpotFilter.pending:
       return spots.where((spot) => spot.status == SpotStatus.pending).toList();
+    case AdminSpotFilter.edited:
+      return spots.where((spot) => spot.status == SpotStatus.edited).toList();
     case AdminSpotFilter.approved:
       return spots.where((spot) => spot.status == SpotStatus.approved).toList();
     case AdminSpotFilter.rejected:
@@ -21382,6 +21867,8 @@ String adminEmptyTitle(AdminSpotFilter filter) {
   switch (filter) {
     case AdminSpotFilter.pending:
       return 'No pending spots';
+    case AdminSpotFilter.edited:
+      return 'No edited spots';
     case AdminSpotFilter.approved:
       return 'No approved spots';
     case AdminSpotFilter.rejected:
@@ -21395,6 +21882,8 @@ String adminEmptyText(AdminSpotFilter filter) {
   switch (filter) {
     case AdminSpotFilter.pending:
       return 'New user submitted spots will appear here first.';
+    case AdminSpotFilter.edited:
+      return 'User spot edits will appear here for approval.';
     case AdminSpotFilter.approved:
       return 'Approved spots will appear here after moderation.';
     case AdminSpotFilter.rejected:
@@ -21537,7 +22026,7 @@ class _AdminReviewScreenState extends State<AdminReviewScreen> {
     return Scaffold(
       backgroundColor: Colors.transparent,
       appBar: AppBar(
-        title: const Text('Admin Panel'),
+        title: Text(currentUser.role == UserRole.admin ? 'Admin Panel' : 'Moderator Panel'),
         backgroundColor: Colors.transparent,
         foregroundColor: blue,
       ),
@@ -21550,8 +22039,8 @@ class _AdminReviewScreenState extends State<AdminReviewScreen> {
           return ListView(
             padding: const EdgeInsets.fromLTRB(20, 18, 20, 28),
             children: [
-              const Text(
-                'Admin Review',
+              Text(
+                currentUser.role == UserRole.admin ? 'Admin Review' : 'Moderator Review',
                 style: TextStyle(
                   color: Colors.white,
                   fontSize: 34,
@@ -21578,25 +22067,29 @@ class _AdminReviewScreenState extends State<AdminReviewScreen> {
                 },
               ),
               const SizedBox(height: 10),
-              _ProfileActionTile(
-                icon: Icons.verified_user,
-                title: 'Verified Users',
-                subtitle: 'Grant or remove verified status',
-                onTap: () {
-                  Navigator.push(
-                    context,
-                    appPageRoute(
-                      builder: (_) => const AdminVerifiedUsersScreen(),
-                    ),
-                  );
-                },
-              ),
+              if (currentUser.role == UserRole.admin) ...[
+                const SizedBox(height: 10),
+                _ProfileActionTile(
+                  icon: Icons.verified_user,
+                  title: 'Verified Users',
+                  subtitle: 'Grant or remove verified status',
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      appPageRoute(
+                        builder: (_) => const AdminVerifiedUsersScreen(),
+                      ),
+                    );
+                  },
+                ),
+              ],
               const SizedBox(height: 16),
               SingleChildScrollView(
                 scrollDirection: Axis.horizontal,
                 child: Row(
                   children: [
                     filterChip(AdminSpotFilter.pending),
+                    filterChip(AdminSpotFilter.edited),
                     filterChip(AdminSpotFilter.approved),
                     filterChip(AdminSpotFilter.rejected),
                     filterChip(AdminSpotFilter.all),
@@ -21742,6 +22235,8 @@ class _AdminStatusBadge extends StatelessWidget {
         return Colors.greenAccent;
       case SpotStatus.rejected:
         return Colors.redAccent;
+      case SpotStatus.edited:
+        return Colors.orangeAccent;
     }
   }
 
@@ -21753,6 +22248,8 @@ class _AdminStatusBadge extends StatelessWidget {
         return Icons.check_circle;
       case SpotStatus.rejected:
         return Icons.cancel;
+      case SpotStatus.edited:
+        return Icons.edit_note;
     }
   }
 
@@ -21811,6 +22308,8 @@ class AdminEditSpotScreen extends StatefulWidget {
 class _AdminEditSpotScreenState extends State<AdminEditSpotScreen> {
   late final TextEditingController nameController;
   late final TextEditingController cityController;
+  late final TextEditingController latController;
+  late final TextEditingController lngController;
   late final TextEditingController descriptionController;
   late final TextEditingController reelController;
   late final TextEditingController phoneController;
@@ -21831,6 +22330,8 @@ class _AdminEditSpotScreenState extends State<AdminEditSpotScreen> {
     super.initState();
     nameController = TextEditingController(text: widget.spot.name);
     cityController = TextEditingController(text: widget.spot.cityCountry);
+    latController = TextEditingController(text: widget.spot.coordinates.latitude.toStringAsFixed(6));
+    lngController = TextEditingController(text: widget.spot.coordinates.longitude.toStringAsFixed(6));
     descriptionController = TextEditingController(
       text: widget.spot.description,
     );
@@ -21875,6 +22376,8 @@ class _AdminEditSpotScreenState extends State<AdminEditSpotScreen> {
   void dispose() {
     nameController.dispose();
     cityController.dispose();
+    latController.dispose();
+    lngController.dispose();
     descriptionController.dispose();
     reelController.dispose();
     phoneController.dispose();
@@ -21930,6 +22433,8 @@ class _AdminEditSpotScreenState extends State<AdminEditSpotScreen> {
     final cleanName = nameController.text.trim();
     final cleanCity = cityController.text.trim();
     final cleanDescription = descriptionController.text.trim();
+    final editedLatitude = double.tryParse(latController.text.trim().replaceAll(',', '.'));
+    final editedLongitude = double.tryParse(lngController.text.trim().replaceAll(',', '.'));
     final cleanReel = reelController.text.trim();
     final cleanPhone = phoneController.text.trim();
     final cleanInstagram = instagramController.text.trim();
@@ -21956,6 +22461,16 @@ class _AdminEditSpotScreenState extends State<AdminEditSpotScreen> {
         error: FirebaseException(
           plugin: 'cloud_firestore',
           code: 'missing-spot-id',
+        ),
+      );
+      return;
+    }
+
+    if (editedLatitude == null || editedLongitude == null || editedLatitude < -90 || editedLatitude > 90 || editedLongitude < -180 || editedLongitude > 180) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          backgroundColor: Colors.redAccent,
+          content: Text('Enter valid latitude and longitude.', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
         ),
       );
       return;
@@ -21994,6 +22509,7 @@ class _AdminEditSpotScreenState extends State<AdminEditSpotScreen> {
         name: cleanName,
         cityCountry: cleanCity.isEmpty ? widget.spot.cityCountry : cleanCity,
         description: cleanDescription,
+        coordinates: LatLng(editedLatitude, editedLongitude),
         categories: [selectedCategory],
         reelLink: cleanReel,
         contactPhone: supportsContacts ? cleanPhone : '',
@@ -22007,10 +22523,30 @@ class _AdminEditSpotScreenState extends State<AdminEditSpotScreen> {
         verifiedOnly: verifiedOnlySpot,
       );
 
+      final editChangeSummary = <String>[];
+      if (widget.spot.name != updatedSpot.name) editChangeSummary.add('Name: ${widget.spot.name} → ${updatedSpot.name}');
+      if (widget.spot.cityCountry != updatedSpot.cityCountry) editChangeSummary.add('Location text: ${widget.spot.cityCountry} → ${updatedSpot.cityCountry}');
+      if (widget.spot.description != updatedSpot.description) editChangeSummary.add('Description changed');
+      if ((widget.spot.coordinates.latitude - updatedSpot.coordinates.latitude).abs() > 0.000001 ||
+          (widget.spot.coordinates.longitude - updatedSpot.coordinates.longitude).abs() > 0.000001) {
+        editChangeSummary.add('Map position changed');
+      }
+      if (primarySpotCategory(widget.spot) != primarySpotCategory(updatedSpot)) {
+        editChangeSummary.add('Category: ${primarySpotCategory(widget.spot)} → ${primarySpotCategory(updatedSpot)}');
+      }
+      if (widget.spot.photoUrls.length != updatedSpot.photoUrls.length || widget.spot.photoUrl != updatedSpot.photoUrl) {
+        editChangeSummary.add('Photos changed');
+      }
+
+      final needsEditReview = !userRoleIsStaff(currentUser.role) && widget.spot.addedByUid == currentUser.uid;
+
       await spotsCollection().doc(widget.spot.id).update({
         'name': updatedSpot.name,
         'cityCountry': updatedSpot.cityCountry,
         'description': updatedSpot.description,
+        'lat': updatedSpot.coordinates.latitude,
+        'lng': updatedSpot.coordinates.longitude,
+        'coordinates': GeoPoint(updatedSpot.coordinates.latitude, updatedSpot.coordinates.longitude),
         'categories': updatedSpot.categories,
         'reelLink': updatedSpot.reelLink,
         'contactPhone': updatedSpot.contactPhone,
@@ -22022,20 +22558,25 @@ class _AdminEditSpotScreenState extends State<AdminEditSpotScreen> {
         'photoUrl': updatedSpot.photoUrl,
         'photoUrls': updatedSpot.photoUrls,
         'verifiedOnly': updatedSpot.verifiedOnly,
+        if (needsEditReview) 'status': 'edited',
+        if (needsEditReview) 'editReviewStatus': 'pending',
+        if (needsEditReview) 'editChangeSummary': editChangeSummary,
         'editedBy': currentUser.username,
         'editedByUid': currentUser.uid,
         'editedAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
       });
 
+      final visibleUpdatedSpot = needsEditReview ? updatedSpot.copyWith(status: SpotStatus.edited) : updatedSpot;
+
       reviewSpots.value = reviewSpots.value
-          .map((item) => isSameSpot(item, widget.spot) ? updatedSpot : item)
+          .map((item) => isSameSpot(item, widget.spot) ? visibleUpdatedSpot : item)
           .toList();
       submittedSpots.value = submittedSpots.value
-          .map((item) => isSameSpot(item, widget.spot) ? updatedSpot : item)
+          .map((item) => isSameSpot(item, widget.spot) ? visibleUpdatedSpot : item)
           .toList();
       savedSpots.value = savedSpots.value
-          .map((item) => isSameSpot(item, widget.spot) ? updatedSpot : item)
+          .map((item) => isSameSpot(item, widget.spot) ? visibleUpdatedSpot : item)
           .toList();
 
       await refreshFirebaseSpotsFromServer();
@@ -22045,11 +22586,11 @@ class _AdminEditSpotScreenState extends State<AdminEditSpotScreen> {
       }
 
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
+        SnackBar(
           backgroundColor: blue,
           content: Text(
-            'Spot updated.',
-            style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+            needsEditReview ? 'Spot edit sent for review.' : 'Spot updated.',
+            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
           ),
         ),
       );
@@ -22169,6 +22710,29 @@ class _AdminEditSpotScreenState extends State<AdminEditSpotScreen> {
                 label: 'City / country',
                 hint: 'Riga, Latvia',
                 icon: Icons.location_city,
+              ),
+              Row(
+                children: [
+                  Expanded(
+                    child: _CcsTextField(
+                      controller: latController,
+                      label: 'Latitude',
+                      hint: '56.949600',
+                      icon: Icons.my_location,
+                      keyboardType: const TextInputType.numberWithOptions(decimal: true, signed: true),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: _CcsTextField(
+                      controller: lngController,
+                      label: 'Longitude',
+                      hint: '24.105200',
+                      icon: Icons.explore,
+                      keyboardType: const TextInputType.numberWithOptions(decimal: true, signed: true),
+                    ),
+                  ),
+                ],
               ),
               _CcsTextField(
                 controller: descriptionController,
