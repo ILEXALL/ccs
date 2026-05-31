@@ -1,7 +1,13 @@
 package com.example.ccs_app
 
 import android.app.Activity
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
+import android.content.Context
 import android.content.Intent
+import android.os.Build
 import android.net.Uri
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -10,20 +16,84 @@ import java.io.File
 import java.io.FileOutputStream
 
 class MainActivity : FlutterActivity() {
-    private val channelName = "ccs/photo_picker"
+    private val photoPickerChannelName = "ccs/photo_picker"
+    private val notificationsChannelName = "ccs/system_notifications"
+    private val notificationChannelId = "ccs_updates"
     private val pickPhotoRequestCode = 7001
     private var pendingPhotoResult: MethodChannel.Result? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
 
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, channelName)
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, photoPickerChannelName)
             .setMethodCallHandler { call, result ->
                 when (call.method) {
                     "pickPhoto" -> openPhotoPicker(result)
                     else -> result.notImplemented()
                 }
             }
+
+        createNotificationChannel()
+
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, notificationsChannelName)
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "showNotification" -> {
+                        val title = call.argument<String>("title") ?: "CCS"
+                        val body = call.argument<String>("body") ?: ""
+                        val id = call.argument<Int>("id") ?: System.currentTimeMillis().toInt()
+                        showNotification(id, title, body)
+                        result.success(null)
+                    }
+                    else -> result.notImplemented()
+                }
+            }
+    }
+
+    private fun createNotificationChannel() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+            return
+        }
+
+        val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val channel = NotificationChannel(
+            notificationChannelId,
+            "CCS updates",
+            NotificationManager.IMPORTANCE_HIGH
+        ).apply {
+            description = "Spot, comment, like and chat notifications"
+        }
+
+        manager.createNotificationChannel(channel)
+    }
+
+    private fun showNotification(id: Int, title: String, body: String) {
+        val launchIntent = packageManager.getLaunchIntentForPackage(packageName)
+        val contentIntent = launchIntent?.let {
+            PendingIntent.getActivity(
+                this,
+                0,
+                it,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+        }
+
+        val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            Notification.Builder(this, notificationChannelId)
+        } else {
+            Notification.Builder(this)
+        }
+
+        builder
+            .setSmallIcon(R.mipmap.ic_launcher)
+            .setContentTitle(title)
+            .setContentText(body)
+            .setStyle(Notification.BigTextStyle().bigText(body))
+            .setAutoCancel(true)
+            .setContentIntent(contentIntent)
+
+        val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        manager.notify(id, builder.build())
     }
 
     private fun openPhotoPicker(result: MethodChannel.Result) {

@@ -6,7 +6,9 @@ import 'dart:ui' as ui;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
-import 'package:flutter/material.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:flutter/material.dart' hide Text;
+import 'package:flutter/material.dart' as material show Text;
 import 'package:flutter/services.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:geocoding/geocoding.dart';
@@ -27,6 +29,7 @@ const googleServerClientId =
 // Real Telegram login needs a small backend server.
 // Deploy ccs_app/telegram_auth_server, then paste its HTTPS URL here.
 const telegramAuthBaseUrl = 'https://y-beige-eta.vercel.app';
+const pushNotificationUrl = '$telegramAuthBaseUrl/api/push-notification';
 const r2PresignUploadUrl =
     'https://ccs-telegram-auth-server.vercel.app/api/r2-presign-upload';
 const int maxSpotGalleryPhotos = 4;
@@ -43,16 +46,1416 @@ String? googleSignInSetupError;
 bool firebaseReady = false;
 bool rememberMeEnabled = false;
 const rememberMeKey = 'remember_me';
+StreamSubscription<String>? pushTokenRefreshSubscription;
+StreamSubscription<RemoteMessage>? foregroundPushSubscription;
+final notificationCenterUnreadCount = ValueNotifier<int>(0);
 
+enum AppLanguage { en, ru, lv }
+
+class AppUiPreferences extends ChangeNotifier {
+  static const languageKey = 'app_language';
+  static const lightThemeKey = 'app_light_theme';
+
+  AppLanguage language = AppLanguage.en;
+  bool lightTheme = false;
+
+  Future<void> load() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      language = AppLanguage.values.firstWhere(
+        (value) => value.name == prefs.getString(languageKey),
+        orElse: () => AppLanguage.en,
+      );
+      // Light theme is disabled: CCS uses the dark map/glass design only.
+      lightTheme = false;
+      await prefs.setBool(lightThemeKey, false);
+    } catch (_) {}
+  }
+
+  Future<void> setLanguage(AppLanguage value) async {
+    if (language == value) {
+      return;
+    }
+
+    language = value;
+    notifyListeners();
+
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(languageKey, value.name);
+    } catch (_) {}
+  }
+
+  Future<void> setLightTheme(bool value) async {
+    // Light theme is removed from the app. Keep this method only so old calls do not break.
+    if (!lightTheme) {
+      return;
+    }
+
+    lightTheme = false;
+    notifyListeners();
+
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(lightThemeKey, false);
+    } catch (_) {}
+  }
+}
+
+final appUiPreferences = AppUiPreferences();
+
+const _ruText = <String, String>{
+  'Spots': 'Споты',
+  'Map': 'Карта',
+  'Add Spot': 'Добавить спот',
+  'Chat': 'Чат',
+  'Profile': 'Профиль',
+  'Settings': 'Настройки',
+  'Notifications': 'Уведомления',
+  'Privacy': 'Приватность',
+  'Appearance': 'Оформление',
+  'Light theme': 'Светлая тема',
+  'Use a brighter interface throughout the app':
+      'Использовать светлое оформление во всём приложении',
+  'Language': 'Язык',
+  'Recent notifications': 'Последние уведомления',
+  'Project news': 'Новости проекта',
+  'No notifications yet': 'Уведомлений пока нет',
+  'Your latest CCS updates will appear here.':
+      'Здесь будут появляться последние обновления CCS.',
+  'CCS notification center is ready.':
+      'Центр уведомлений CCS готов к работе.',
+  'Refresh': 'Обновить',
+  'Approved car spots': 'Одобренные автомобильные споты',
+  'Filters': 'Фильтры',
+  'Explore filters': 'Фильтры спотов',
+  'All categories enabled': 'Включены все категории',
+  'Select all': 'Выбрать все',
+  'Clear': 'Очистить',
+  'Apply filters': 'Применить фильтры',
+  'Popular': 'Популярные',
+  'Newest': 'Новые',
+  'Oldest': 'Старые',
+  'Meet spots': 'Встречи',
+  'Saved': 'Сохранённые',
+  'Show less': 'Свернуть',
+  'Saved Spots': 'Сохранённые споты',
+  'No saved spots yet': 'Сохранённых спотов пока нет',
+  'No spots here yet': 'Здесь пока нет спотов',
+  'No spots match your filters': 'Нет спотов по выбранным фильтрам',
+  'Tap the bookmark on a spot to keep it here.':
+      'Нажмите закладку на споте, чтобы сохранить его здесь.',
+  'Approved spots will appear here after moderation.':
+      'Одобренные споты появятся здесь после модерации.',
+  'Open filters and enable more categories to see more spots.':
+      'Откройте фильтры и включите дополнительные категории.',
+  'Spot review updates': 'Результаты проверки спотов',
+  'Approved or rejected spot submissions': 'Одобрение или отклонение спотов',
+  'Likes on my spots': 'Лайки моих спотов',
+  'When people like your approved spots': 'Когда пользователи лайкают ваши споты',
+  'Comments': 'Комментарии',
+  'Future comments and community replies': 'Новые комментарии и ответы',
+  'New spots': 'Новые споты',
+  'Fresh approved locations nearby': 'Новые одобренные места поблизости',
+  'Messages': 'Сообщения',
+  'New direct and group messages': 'Новые личные и групповые сообщения',
+  'Public profile': 'Публичный профиль',
+  'Let other drivers see your profile': 'Разрешить другим водителям видеть профиль',
+  'Show garage': 'Показывать гараж',
+  'Display your car builds on your profile': 'Показывать автомобили в профиле',
+  'Save Settings': 'Сохранить настройки',
+  'Settings saved to your account.': 'Настройки аккаунта сохранены.',
+  'Add Car': 'Добавить автомобиль',
+  'Edit Garage': 'Редактировать гараж',
+  'Car photos': 'Фотографии автомобиля',
+  'Car info': 'Информация об автомобиле',
+  'Car name': 'Название автомобиля',
+  'Description': 'Описание',
+  'Add up to 4 car photos. The first photo becomes the garage cover.':
+      'Добавьте до 4 фотографий. Первая станет обложкой гаража.',
+  'Upload photos': 'Загрузить фотографии',
+  'Cover': 'Обложка',
+  'Save Garage': 'Сохранить гараж',
+  'Photo': 'Фото',
+  'Meet': 'Встречи',
+  'Drive': 'Поездки',
+  'Service': 'Сервис',
+  'Detailing': 'Детейлинг',
+  'Wash': 'Мойка',
+  'Store': 'Магазин',
+  'Drag': 'Драг',
+  'Off-road': 'Бездорожье',
+  'Food': 'Еда',
+  'Today': 'Сегодня',
+  'Tomorrow': 'Завтра',
+  'This week': 'На этой неделе',
+  'Next week': 'На следующей неделе',
+  'This month': 'В этом месяце',
+  'Next month': 'В следующем месяце',
+  'Write a comment': 'Напишите комментарий',
+  'Post Comment': 'Опубликовать',
+  'Posting...': 'Публикация...',
+  'Message': 'Сообщение',
+  'Save Spot': 'Сохранить спот',
+  'Saved Spot': 'Спот сохранён',
+  'View Spot': 'Открыть спот',
+  'View Profile': 'Открыть профиль',
+  'Edit Profile': 'Редактировать профиль',
+  'Adjust Photo': 'Настроить фото',
+  'Use Photo': 'Использовать фото',
+  'Saving...': 'Сохранение...',
+  'Monday': 'Понедельник',
+  'Tuesday': 'Вторник',
+  'Wednesday': 'Среда',
+  'Thursday': 'Четверг',
+  'Friday': 'Пятница',
+  'Saturday': 'Суббота',
+  'Sunday': 'Воскресенье',
+  'Just now': 'Только что',
+  'Stop sharing': 'Остановить показ',
+  'Not there': 'Уже нет',
+  'Still there': 'Всё ещё там',
+  'Live now': 'Сейчас онлайн',
+  'Spot': 'Спот',
+  'Show on map': 'Показать на карте',
+  'Edit Service Info': 'Редактировать данные сервиса',
+  'Hours not added': 'Часы работы не добавлены',
+  'The owner has not added opening hours yet.':
+      'Владелец пока не добавил часы работы.',
+  'Closed today': 'Сегодня закрыто',
+  'Hours need update': 'Нужно обновить часы работы',
+  'Opening hours are not formatted correctly.':
+      'Часы работы указаны неверно.',
+  'Open now': 'Сейчас открыто',
+  'Closed now': 'Сейчас закрыто',
+  'Phone': 'Телефон',
+  'Instagram': 'Instagram',
+  'Email': 'Эл. почта',
+  'Cancel': 'Отмена',
+  'Save': 'Сохранить',
+  'Delete': 'Удалить',
+  'Find exact address': 'Найти точный адрес',
+  'Street, city, country': 'Улица, город, страна',
+  'Find': 'Найти',
+  'Basic info': 'Основная информация',
+  'Spot name': 'Название спота',
+  'Pin on the map': 'Поставить метку на карте',
+  'Use current location': 'Использовать текущее местоположение',
+  'Visibility': 'Видимость',
+  'Verified only': 'Только проверенные пользователи',
+  'Temporary schedule': 'Временное расписание',
+  'Categories': 'Категории',
+  'Contacts': 'Контакты',
+  'Opening hours': 'Часы работы',
+  'Media': 'Медиа',
+  'Instagram / TikTok video link': 'Ссылка на видео Instagram / TikTok',
+  'Added by': 'Добавил',
+  'Starts at': 'Начинается',
+  'Ends at': 'Заканчивается',
+  'Choose Location': 'Выбрать место',
+  'Service Info': 'Данные сервиса',
+  'My Submissions': 'Мои заявки',
+  'No submissions yet': 'Заявок пока нет',
+  'Log in required': 'Требуется вход',
+  'Chats': 'Чаты',
+  'Groups': 'Группы',
+  'No chats yet': 'Чатов пока нет',
+  'Edit Chat View': 'Настроить отображение чата',
+  'New Chat': 'Новый чат',
+  'Direct': 'Личный',
+  'Group': 'Группа',
+  'Find friend': 'Найти друга',
+  'Group name': 'Название группы',
+  'No friends found': 'Друзья не найдены',
+  'owner': 'владелец',
+  'moderator': 'модератор',
+  'Group Info': 'Информация о группе',
+  'Group description': 'Описание группы',
+  'Save Group': 'Сохранить группу',
+  'No messages yet': 'Сообщений пока нет',
+  'Friends': 'Друзья',
+  'Send requests, accept invites, and manage friends':
+      'Отправляйте заявки, принимайте приглашения и управляйте друзьями',
+  'Add another car': 'Добавить автомобиль',
+  'Add another car to your garage': 'Добавить ещё один автомобиль в гараж',
+  'Account, privacy, notifications': 'Аккаунт, приватность, уведомления',
+  'Log out of this Google account': 'Выйти из аккаунта Google',
+  'Cars': 'Автомобили',
+  'Base': 'Город',
+  'Verified': 'Проверен',
+  'No garage shared': 'Гараж не опубликован',
+  'Profile not found': 'Профиль не найден',
+  'Profile deleted': 'Профиль удалён',
+  'Private profile': 'Закрытый профиль',
+  'No friends yet': 'Друзей пока нет',
+  'Remove': 'Удалить',
+  'No incoming requests': 'Нет входящих заявок',
+  'Accept': 'Принять',
+  'Decline': 'Отклонить',
+  'No sent requests': 'Нет отправленных заявок',
+  'nickname or name': 'никнейм или имя',
+  'No users found': 'Пользователи не найдены',
+  'Profile info': 'Информация профиля',
+  'Nickname': 'Никнейм',
+  'About you': 'О себе',
+  'Social links': 'Социальные сети',
+  'Save Profile': 'Сохранить профиль',
+  'Verified Users': 'Проверенные пользователи',
+  'No users yet': 'Пользователей пока нет',
+  'Delete user?': 'Удалить пользователя?',
+  'Open profile': 'Открыть профиль',
+  'Ban 1 day': 'Заблокировать на 1 день',
+  'Ban 7 days': 'Заблокировать на 7 дней',
+  'Ban 30 days': 'Заблокировать на 30 дней',
+  'Ban forever': 'Заблокировать навсегда',
+  'Unban': 'Снять блокировку',
+  'Make moderator': 'Назначить модератором',
+  'Remove moderator': 'Убрать модератора',
+  'Users': 'Пользователи',
+  'Open profiles, ban, unban, or delete users':
+      'Открывайте профили, блокируйте и удаляйте пользователей',
+  'Grant or remove verified status': 'Назначайте или снимайте проверенный статус',
+  'Edit Spot': 'Редактировать спот',
+  'City / country': 'Город / страна',
+  'Latitude': 'Широта',
+  'Longitude': 'Долгота',
+  'Category': 'Категория',
+  'Photos': 'Фотографии',
+  'Manage Spot': 'Управление спотом',
+  'Reject': 'Отклонить',
+  'Approve': 'Одобрить',
+  'Delete Spot': 'Удалить спот',
+  'Write a comment about this spot': 'Напишите комментарий об этом споте',
+  'Edit your comment': 'Измените комментарий',
+  'Search users': 'Поиск пользователей',
+  'Spot owner': 'Владелец спота',
+  'Search nickname, name, or email': 'Поиск по никнейму, имени или эл. почте',
+  'Search to change owner': 'Найдите нового владельца',
+  'Add friends first, then start a chat here.':
+      'Сначала добавьте друзей, затем начните чат здесь.',
+  'Add map alert': 'Добавить отметку на карте',
+  'Add members': 'Добавить участников',
+  'Address not found. Try adding city and country.':
+      'Адрес не найден. Добавьте город и страну.',
+  'Admin accounts cannot be managed here.':
+      'Аккаунтами администраторов нельзя управлять здесь.',
+  'Admins publish instantly. User spots wait for review.':
+      'Споты администраторов публикуются сразу. Остальные ждут проверки.',
+  'Approved spots': 'Одобренные споты',
+  'Are you sure you want to delete this comment?':
+      'Вы уверены, что хотите удалить комментарий?',
+  'By continuing, you agree to our Terms & Privacy Policy':
+      'Продолжая, вы принимаете условия и политику конфиденциальности',
+  'Car added to your account.': 'Автомобиль добавлен в аккаунт.',
+  'Choose both start and end time for a temporary spot.':
+      'Выберите время начала и окончания временного спота.',
+  'Closed': 'Закрыто',
+  'Comment deleted.': 'Комментарий удалён.',
+  'Comment posted.': 'Комментарий опубликован.',
+  'Comment updated.': 'Комментарий обновлён.',
+  'Continue sharing': 'Продолжить показ',
+  'Continue sharing?': 'Продолжить показ?',
+  'Could not open this contact.': 'Не удалось открыть контакт.',
+  'Could not open this link.': 'Не удалось открыть ссылку.',
+  'Created spots will appear here.': 'Созданные споты появятся здесь.',
+  'Current location selected for this spot.':
+      'Для спота выбрано текущее местоположение.',
+  'Delete comment': 'Удалить комментарий',
+  'Delete message': 'Удалить сообщение',
+  'Delete message?': 'Удалить сообщение?',
+  'Delete spot': 'Удалить спот',
+  'Delete spot?': 'Удалить спот?',
+  'Delete user': 'Удалить пользователя',
+  'Description is required.': 'Добавьте описание.',
+  'Edit comment': 'Редактировать комментарий',
+  'Edit message': 'Редактировать сообщение',
+  'Edit spot': 'Редактировать спот',
+  'End time must be after start time.':
+      'Время окончания должно быть позже времени начала.',
+  'End time must be in the future.': 'Время окончания должно быть в будущем.',
+  'Enter valid latitude and longitude.': 'Введите корректные координаты.',
+  'Friend invites sent to you will appear here.':
+      'Здесь появятся входящие заявки в друзья.',
+  'Garage saved to your account.': 'Гараж сохранён в аккаунте.',
+  'Garage tags': 'Теги гаража',
+  'Get closer to this police mark before confirming it.':
+      'Подъедьте ближе к отметке полиции, чтобы подтвердить её.',
+  'Grant verified status': 'Назначить проверенный статус',
+  'Group info': 'Информация о группе',
+  'Incoming requests': 'Входящие заявки',
+  'Live location sharing is on for 1 hour.':
+      'Показ геопозиции включён на 1 час.',
+  'Loading users...': 'Загрузка пользователей...',
+  'Location is required. Pin it on the map, find exact address, or use current location first.':
+      'Укажите место на карте, найдите адрес или используйте текущую геопозицию.',
+  'Location permission is needed for distance.':
+      'Для определения расстояния нужен доступ к геопозиции.',
+  'Location permission is needed to share your location.':
+      'Для отправки геопозиции нужен доступ к ней.',
+  'Location permission is needed to show you on the map.':
+      'Для отображения на карте нужен доступ к геопозиции.',
+  'Location permission is needed to use your current position.':
+      'Для использования текущего места нужен доступ к геопозиции.',
+  'Log in before adding a police mark.':
+      'Войдите в аккаунт перед добавлением отметки полиции.',
+  'Log in before confirming a police mark.':
+      'Войдите в аккаунт перед подтверждением отметки полиции.',
+  'Log in before finding friends.': 'Войдите в аккаунт для поиска друзей.',
+  'Log in before liking comments.': 'Войдите в аккаунт, чтобы лайкать комментарии.',
+  'Log in before liking spots.': 'Войдите в аккаунт, чтобы лайкать споты.',
+  'Log in before sharing your live location.':
+      'Войдите в аккаунт для показа геопозиции.',
+  'Log in before sharing your location.':
+      'Войдите в аккаунт для отправки геопозиции.',
+  'Log in before using chat.': 'Войдите в аккаунт для использования чата.',
+  'Log in before using friend requests.':
+      'Войдите в аккаунт для использования заявок в друзья.',
+  'Log in before using friends.': 'Войдите в аккаунт для просмотра друзей.',
+  'Map filters': 'Фильтры карты',
+  'Mark police at your current location for 2 hours.':
+      'Отметить полицию в текущем месте на 2 часа.',
+  'Maximum 4 photos per spot.': 'Максимум 4 фотографии на один спот.',
+  'Maximum 4 spot photos.': 'Максимум 4 фотографии спота.',
+  'Members': 'Участники',
+  'Messages with friends and groups': 'Сообщения с друзьями и группами',
+  'Moderators cannot manage other moderators.':
+      'Модераторы не могут управлять другими модераторами.',
+  'Move down': 'Переместить вниз',
+  'Move up': 'Переместить вверх',
+  'My submissions': 'Мои заявки',
+  'NOW': 'СЕЙЧАС',
+  'No answer. Live location will stop automatically in 10 minutes.':
+      'Ответа нет. Показ геопозиции остановится через 10 минут.',
+  'No comments yet. Be the first to comment on this spot.':
+      'Комментариев пока нет. Оставьте первый комментарий.',
+  'No link added for this spot.': 'Для этого спота ссылка не добавлена.',
+  'No submitted spots yet.': 'Отправленных спотов пока нет.',
+  'No tags yet': 'Тегов пока нет',
+  'No users available to add.': 'Нет доступных пользователей для добавления.',
+  'No users found.': 'Пользователи не найдены.',
+  'Nothing here yet.': 'Здесь пока ничего нет.',
+  'Only the assigned owner or an admin can edit this spot.':
+      'Редактировать спот может только владелец или администратор.',
+  'Only verified users and admins can see this spot after approval':
+      'После одобрения спот увидят только проверенные пользователи и администраторы',
+  'Photo picker is not connected in Android native code.':
+      'Выбор фото не подключён в Android.',
+  'Pick at least one friend for a group.':
+      'Выберите хотя бы одного друга для группы.',
+  'Pin up to 3 direct chats and 3 groups. Use arrows to change pinned order.':
+      'Закрепите до 3 личных чатов и 3 групп. Порядок меняется стрелками.',
+  'Police': 'Полиция',
+  'Police mark removed from the map.': 'Отметка полиции удалена с карты.',
+  'Police marked on the map for 2 hours.':
+      'Полиция отмечена на карте на 2 часа.',
+  'Police nearby': 'Полиция поблизости',
+  'Profile saved to your account.': 'Профиль сохранён в аккаунте.',
+  'Rating saved.': 'Оценка сохранена.',
+  'Remember me': 'Запомнить меня',
+  'Remove owner': 'Убрать владельца',
+  'Requests': 'Заявки',
+  'Requests you send will appear here until accepted.':
+      'Отправленные заявки будут здесь до принятия.',
+  'Selected owner': 'Выбранный владелец',
+  'Send the first message.': 'Отправьте первое сообщение.',
+  'Sent requests': 'Отправленные заявки',
+  'Service info updated.': 'Данные сервиса обновлены.',
+  'Share live location': 'Поделиться геопозицией в реальном времени',
+  'Share location': 'Поделиться геопозицией',
+  'Short description': 'Краткое описание',
+  'Sign in with Google before submitting a spot.':
+      'Войдите через Google перед отправкой спота.',
+  'Spot approved. It is now public.': 'Спот одобрен и теперь опубликован.',
+  'Spot deleted.': 'Спот удалён.',
+  'Spot name and description are required.':
+      'Добавьте название и описание спота.',
+  'Spot name can use only English or Latvian letters, numbers, spaces, and simple punctuation.':
+      'Название может содержать латинские или латышские буквы, цифры, пробелы и простую пунктуацию.',
+  'Spot name is required.': 'Добавьте название спота.',
+  'Spot rejected.': 'Спот отклонён.',
+  'Start a chat with a friend or create a group.':
+      'Начните чат с другом или создайте группу.',
+  'Submissions': 'Заявки',
+  'Tap the map where this car spot should be placed.':
+      'Нажмите на карту в месте расположения спота.',
+  'Tap to change avatar': 'Нажмите, чтобы изменить аватар',
+  'Tell people about your car, build, setup, and plans':
+      'Расскажите об автомобиле, доработках и планах',
+  'Temporary spot': 'Временный спот',
+  'Temporary spot can be active for 12 hours maximum.':
+      'Временный спот может быть активен не более 12 часов.',
+  'Temporary spot end time must be after start time.':
+      'Временный спот должен закончиться после начала.',
+  'Temporary spots and events': 'Временные споты и события',
+  'Temporary spots can be active for maximum 12 hours.':
+      'Временные споты могут быть активны не более 12 часов.',
+  'This chat has no one to share location with.':
+      'В этом чате не с кем поделиться геопозицией.',
+  'This driver has not shared car builds yet.':
+      'Этот водитель пока не опубликовал автомобили.',
+  'This driver keeps their profile private.': 'У этого водителя закрытый профиль.',
+  'This link is not valid yet.': 'Ссылка пока недействительна.',
+  'This message will be deleted from the chat.':
+      'Сообщение будет удалено из чата.',
+  'This user profile is not available anymore.': 'Профиль больше недоступен.',
+  'Try searching by nickname or name.': 'Попробуйте поиск по никнейму или имени.',
+  'Turn on phone location first.': 'Сначала включите геопозицию на телефоне.',
+  'Turn on phone location to show distance.':
+      'Включите геопозицию, чтобы увидеть расстояние.',
+  'Turn on phone location to use your current position.':
+      'Включите геопозицию, чтобы использовать текущее место.',
+  'Upcoming': 'Предстоящие',
+  'Upload at least 1 photo before creating the spot.':
+      'Загрузите хотя бы одну фотографию перед созданием спота.',
+  'Use Find Users to send your first friend request.':
+      'Используйте поиск, чтобы отправить первую заявку в друзья.',
+  'Use photo': 'Использовать фото',
+  'Use this Location': 'Использовать это место',
+  'Use this for meets and events. Maximum active time is 12 hours.':
+      'Используйте для встреч и событий. Максимальное время: 12 часов.',
+  'User deleted.': 'Пользователь удалён.',
+  'User unbanned.': 'Блокировка пользователя снята.',
+  'Users will appear here after they sign in.':
+      'Пользователи появятся здесь после входа.',
+  'Verified users can create and see verified-only spots.':
+      'Проверенные пользователи могут создавать и видеть закрытые споты.',
+  'Video link': 'Ссылка на видео',
+  'What is this group about?': 'О чём эта группа?',
+  'What makes this spot good for car photos?':
+      'Чем хорош этот спот для автомобильных фотографий?',
+  'Write a comment first.': 'Сначала напишите комментарий.',
+  'You cannot manage your own account here.':
+      'Здесь нельзя управлять собственным аккаунтом.',
+  'You created this mark. You can confirm it later if you drive by this spot again.':
+      'Вы создали эту отметку. Подтвердить её можно позже, проехав рядом снова.',
+  'Your created spots are saved here. Pending spots wait for review; live spots are already public.':
+      'Созданные споты хранятся здесь. Заявки ждут проверки, опубликованные уже видны всем.',
+  'Your live location has been shared for 1 hour. Keep sharing it for another hour?':
+      'Геопозиция показывается уже час. Продолжить ещё на час?',
+  'Your profile nickname': 'Ваш никнейм',
+  'Your rating': 'Ваша оценка',
+  'edited': 'изменено',
+  'New': 'Новые',
+  'Old': 'Старые',
+  'Like': 'Лайк',
+  'Liked': 'Лайкнуто',
+  'Create Spot': 'Создать спот',
+  'Creating spot...': 'Создаём спот...',
+  'Submit for Review': 'Отправить на проверку',
+  'Submitting for review...': 'Отправляем на проверку...',
+  'Choose the spot on map': 'Выберите спот на карте',
+  'Spot location selected on map': 'Место спота выбрано на карте',
+  'Type an address and place the pin automatically': 'Введите адрес, и метка поставится автоматически',
+  'Use your phone GPS position': 'Использовать GPS телефона',
+  'Replace pin with your current GPS position': 'Заменить метку текущей геопозицией',
+  'Getting your GPS position...': 'Получаем вашу GPS-позицию...',
+  'Detecting city/country...': 'Определяем город/страну...',
+  'Checking distance...': 'Проверяем расстояние...',
+  'Distance unavailable': 'Расстояние недоступно',
+  'Open route': 'Открыть маршрут',
+  'Add up to 4 spot photos. The first photo becomes the Explore thumbnail.': 'Добавьте до 4 фото спота. Первое фото станет обложкой в ленте.',
+  'Maximum 4 photos selected. First photo is the spot thumbnail.': 'Выбрано максимум 4 фото. Первое фото — обложка спота.',
+  'Saved spots will appear here.': 'Сохранённые споты появятся здесь.',
+  'Review spots and manage users': 'Проверка спотов и управление пользователями',
+  'Save Changes': 'Сохранить изменения',
+  'Drift': 'Дрифт',
+  'No video link added': 'Ссылка на видео не добавлена',
+  'Sunday is marked as closed.': 'Воскресенье отмечено как выходной.',
+  'Sign out': 'Выйти',
+  'Signing out...': 'Выход...',
+  'Add': 'Добавить',
+  'Friend': 'Друг',
+  'Driver': 'Водитель',
+  'Group share': 'Группа',
+  'Chat share': 'Чат',
+  'Friends share': 'Друзья',
+  'online': 'в сети',
+  'offline': 'не в сети',
+  'Shared live location with this group.': 'Геопозиция отправлена в эту группу.',
+  'Shared live location with you.': 'Геопозиция отправлена вам.',
+  'Location shared with this group for 1 hour.': 'Геопозиция опубликована в группе на 1 час.',
+  'Location shared with this chat for 1 hour.': 'Геопозиция опубликована в чате на 1 час.',
+  'Updated': 'Обновлено',
+  'Live location': 'Геопозиция онлайн',
+  'Admin Panel': 'Админ-панель',
+  'Moderator Panel': 'Панель модератора',
+  'Review spots and moderate users': 'Проверка спотов и модерация пользователей',
+  'Pending': 'На проверке',
+  'Edited': 'Изменённые',
+  'Approved': 'Одобренные',
+  'Rejected': 'Отклонённые',
+  'All': 'Все',
+  'pending': 'на проверке',
+  'approved': 'одобрен',
+  'rejected': 'отклонён',
+  'live': 'активно',
+  'No pending spots': 'Нет спотов на проверке',
+  'No edited spots': 'Нет изменённых спотов',
+  'No approved spots': 'Нет одобренных спотов',
+  'No rejected spots': 'Нет отклонённых спотов',
+  'No community spots yet': 'Спотов сообщества пока нет',
+  'New user submitted spots will appear here first.': 'Новые споты от пользователей сначала появятся здесь.',
+  'User spot edits will appear here for approval.': 'Изменения спотов от пользователей появятся здесь для одобрения.',
+  'Rejected spots will appear here after moderation.': 'Отклонённые споты появятся здесь после модерации.',
+  'When users submit spots, they will appear in this admin panel.': 'Когда пользователи отправят споты, они появятся в этой админ-панели.',
+  'Direct chats': 'Личные чаты',
+  'No direct chats yet.': 'Личных чатов пока нет.',
+  'No groups yet.': 'Групп пока нет.',
+  'Sent': 'Отправлено',
+  'Friend request': 'Заявка в друзья',
+  'This is your current nickname.': 'Это ваш текущий никнейм.',
+  'Checking nickname availability...': 'Проверяем доступность никнейма...',
+  'Nickname is available.': 'Никнейм свободен.',
+  'This nickname is already taken.': 'Этот никнейм уже занят.',
+  'Nickname must be at least 3 characters.': 'Никнейм должен быть минимум 3 символа.',
+  'Could not check nickname availability.': 'Не удалось проверить никнейм.',
+  'Untitled car': 'Автомобиль без названия',
+  'Car profile.': 'Описание автомобиля.',
+  'Spot saved.': 'Спот сохранён.',
+  'Spot removed from saved.': 'Спот удалён из сохранённых.',
+  'Comment': 'Комментарии',
+  'Add or remove spot photos. The first photo becomes the Explore thumbnail.': 'Добавьте или удалите фото спота. Первое фото станет обложкой в ленте.',
+  'Description placeholder': 'Описание',
+  'Notification center could not load.': 'Не удалось загрузить уведомления.',
+  'Push notifications are connected through Firebase Cloud Messaging.': 'Уведомления подключены через Firebase Cloud Messaging.',
+  'you': 'вы',
+};
+
+const _lvText = <String, String>{
+  'Spots': 'Vietas',
+  'Map': 'Karte',
+  'Add Spot': 'Pievienot vietu',
+  'Chat': 'Čats',
+  'Profile': 'Profils',
+  'Settings': 'Iestatījumi',
+  'Notifications': 'Paziņojumi',
+  'Privacy': 'Privātums',
+  'Appearance': 'Izskats',
+  'Light theme': 'Gaišais režīms',
+  'Use a brighter interface throughout the app':
+      'Izmantot gaišāku saskarni visā lietotnē',
+  'Language': 'Valoda',
+  'Recent notifications': 'Jaunākie paziņojumi',
+  'Project news': 'Projekta jaunumi',
+  'No notifications yet': 'Paziņojumu vēl nav',
+  'Your latest CCS updates will appear here.':
+      'Šeit parādīsies jaunākie CCS atjauninājumi.',
+  'CCS notification center is ready.': 'CCS paziņojumu centrs ir gatavs.',
+  'Refresh': 'Atjaunot',
+  'Approved car spots': 'Apstiprinātas auto vietas',
+  'Filters': 'Filtri',
+  'Explore filters': 'Vietu filtri',
+  'All categories enabled': 'Ieslēgtas visas kategorijas',
+  'Select all': 'Izvēlēties visu',
+  'Clear': 'Notīrīt',
+  'Apply filters': 'Lietot filtrus',
+  'Popular': 'Populāri',
+  'Newest': 'Jaunākie',
+  'Oldest': 'Vecākie',
+  'Meet spots': 'Tikšanās',
+  'Saved': 'Saglabātie',
+  'Show less': 'Rādīt mazāk',
+  'Saved Spots': 'Saglabātās vietas',
+  'No saved spots yet': 'Saglabātu vietu vēl nav',
+  'No spots here yet': 'Šeit vietu vēl nav',
+  'No spots match your filters': 'Filtriem neatbilst neviena vieta',
+  'Tap the bookmark on a spot to keep it here.':
+      'Nospiediet grāmatzīmi, lai saglabātu vietu.',
+  'Approved spots will appear here after moderation.':
+      'Apstiprinātās vietas šeit parādīsies pēc moderācijas.',
+  'Open filters and enable more categories to see more spots.':
+      'Atveriet filtrus un ieslēdziet papildu kategorijas.',
+  'Spot review updates': 'Vietu pārbaudes rezultāti',
+  'Approved or rejected spot submissions': 'Apstiprinātas vai noraidītas vietas',
+  'Likes on my spots': 'Patīk manām vietām',
+  'When people like your approved spots': 'Kad lietotāji novērtē jūsu vietas',
+  'Comments': 'Komentāri',
+  'Future comments and community replies': 'Jauni komentāri un atbildes',
+  'New spots': 'Jaunas vietas',
+  'Fresh approved locations nearby': 'Jaunas apstiprinātas vietas tuvumā',
+  'Messages': 'Ziņas',
+  'New direct and group messages': 'Jaunas privātās un grupu ziņas',
+  'Public profile': 'Publisks profils',
+  'Let other drivers see your profile': 'Ļaut citiem autovadītājiem redzēt profilu',
+  'Show garage': 'Rādīt garāžu',
+  'Display your car builds on your profile': 'Rādīt automašīnas profilā',
+  'Save Settings': 'Saglabāt iestatījumus',
+  'Settings saved to your account.': 'Konta iestatījumi saglabāti.',
+  'Add Car': 'Pievienot auto',
+  'Edit Garage': 'Mainīt garāžu',
+  'Car photos': 'Auto fotogrāfijas',
+  'Car info': 'Informācija par auto',
+  'Car name': 'Auto nosaukums',
+  'Description': 'Apraksts',
+  'Add up to 4 car photos. The first photo becomes the garage cover.':
+      'Pievienojiet līdz 4 fotogrāfijām. Pirmā būs garāžas vāks.',
+  'Upload photos': 'Augšupielādēt fotogrāfijas',
+  'Cover': 'Vāks',
+  'Save Garage': 'Saglabāt garāžu',
+  'Photo': 'Foto',
+  'Meet': 'Tikšanās',
+  'Drive': 'Braucieni',
+  'Service': 'Serviss',
+  'Detailing': 'Detalizēšana',
+  'Wash': 'Mazgātava',
+  'Store': 'Veikals',
+  'Drag': 'Drags',
+  'Off-road': 'Bezceļi',
+  'Food': 'Ēdiens',
+  'Today': 'Šodien',
+  'Tomorrow': 'Rīt',
+  'This week': 'Šonedēļ',
+  'Next week': 'Nākamnedēļ',
+  'This month': 'Šomēnes',
+  'Next month': 'Nākamajā mēnesī',
+  'Write a comment': 'Rakstiet komentāru',
+  'Post Comment': 'Publicēt',
+  'Posting...': 'Publicē...',
+  'Message': 'Ziņa',
+  'Save Spot': 'Saglabāt vietu',
+  'Saved Spot': 'Vieta saglabāta',
+  'View Spot': 'Atvērt vietu',
+  'View Profile': 'Atvērt profilu',
+  'Edit Profile': 'Mainīt profilu',
+  'Adjust Photo': 'Pielāgot foto',
+  'Use Photo': 'Izmantot foto',
+  'Saving...': 'Saglabā...',
+  'Monday': 'Pirmdiena',
+  'Tuesday': 'Otrdiena',
+  'Wednesday': 'Trešdiena',
+  'Thursday': 'Ceturtdiena',
+  'Friday': 'Piektdiena',
+  'Saturday': 'Sestdiena',
+  'Sunday': 'Svētdiena',
+  'Just now': 'Tikko',
+  'Stop sharing': 'Pārtraukt kopīgošanu',
+  'Not there': 'Vairs nav',
+  'Still there': 'Joprojām tur',
+  'Live now': 'Tiešsaistē',
+  'Spot': 'Vieta',
+  'Show on map': 'Rādīt kartē',
+  'Edit Service Info': 'Rediģēt servisa informāciju',
+  'Hours not added': 'Darba laiks nav pievienots',
+  'The owner has not added opening hours yet.':
+      'Īpašnieks vēl nav pievienojis darba laiku.',
+  'Closed today': 'Šodien slēgts',
+  'Hours need update': 'Jāatjaunina darba laiks',
+  'Opening hours are not formatted correctly.':
+      'Darba laiks nav norādīts pareizi.',
+  'Open now': 'Tagad atvērts',
+  'Closed now': 'Tagad slēgts',
+  'Phone': 'Tālrunis',
+  'Instagram': 'Instagram',
+  'Email': 'E-pasts',
+  'Cancel': 'Atcelt',
+  'Save': 'Saglabāt',
+  'Delete': 'Dzēst',
+  'Find exact address': 'Atrast precīzu adresi',
+  'Street, city, country': 'Iela, pilsēta, valsts',
+  'Find': 'Atrast',
+  'Basic info': 'Pamatinformācija',
+  'Spot name': 'Vietas nosaukums',
+  'Pin on the map': 'Atzīmēt kartē',
+  'Use current location': 'Izmantot pašreizējo atrašanās vietu',
+  'Visibility': 'Redzamība',
+  'Verified only': 'Tikai verificētiem lietotājiem',
+  'Temporary schedule': 'Pagaidu grafiks',
+  'Categories': 'Kategorijas',
+  'Contacts': 'Kontakti',
+  'Opening hours': 'Darba laiks',
+  'Media': 'Multivide',
+  'Instagram / TikTok video link': 'Instagram / TikTok video saite',
+  'Added by': 'Pievienoja',
+  'Starts at': 'Sākas',
+  'Ends at': 'Beidzas',
+  'Choose Location': 'Izvēlēties vietu',
+  'Service Info': 'Servisa informācija',
+  'My Submissions': 'Mani pieteikumi',
+  'No submissions yet': 'Pieteikumu vēl nav',
+  'Log in required': 'Nepieciešama pieslēgšanās',
+  'Chats': 'Čati',
+  'Groups': 'Grupas',
+  'No chats yet': 'Čatu vēl nav',
+  'Edit Chat View': 'Rediģēt čata skatu',
+  'New Chat': 'Jauns čats',
+  'Direct': 'Privāts',
+  'Group': 'Grupa',
+  'Find friend': 'Atrast draugu',
+  'Group name': 'Grupas nosaukums',
+  'No friends found': 'Draugi nav atrasti',
+  'owner': 'īpašnieks',
+  'moderator': 'moderators',
+  'Group Info': 'Grupas informācija',
+  'Group description': 'Grupas apraksts',
+  'Save Group': 'Saglabāt grupu',
+  'No messages yet': 'Ziņu vēl nav',
+  'Friends': 'Draugi',
+  'Send requests, accept invites, and manage friends':
+      'Sūtiet pieprasījumus, pieņemiet ielūgumus un pārvaldiet draugus',
+  'Add another car': 'Pievienot auto',
+  'Add another car to your garage': 'Pievienot vēl vienu auto garāžai',
+  'Account, privacy, notifications': 'Konts, privātums, paziņojumi',
+  'Log out of this Google account': 'Izrakstīties no Google konta',
+  'Cars': 'Auto',
+  'Base': 'Pilsēta',
+  'Verified': 'Verificēts',
+  'No garage shared': 'Garāža nav publicēta',
+  'Profile not found': 'Profils nav atrasts',
+  'Profile deleted': 'Profils ir dzēsts',
+  'Private profile': 'Privāts profils',
+  'No friends yet': 'Draugu vēl nav',
+  'Remove': 'Noņemt',
+  'No incoming requests': 'Nav ienākošo pieprasījumu',
+  'Accept': 'Pieņemt',
+  'Decline': 'Noraidīt',
+  'No sent requests': 'Nav nosūtītu pieprasījumu',
+  'nickname or name': 'segvārds vai vārds',
+  'No users found': 'Lietotāji nav atrasti',
+  'Profile info': 'Profila informācija',
+  'Nickname': 'Segvārds',
+  'About you': 'Par jums',
+  'Social links': 'Sociālie tīkli',
+  'Save Profile': 'Saglabāt profilu',
+  'Verified Users': 'Verificētie lietotāji',
+  'No users yet': 'Lietotāju vēl nav',
+  'Delete user?': 'Dzēst lietotāju?',
+  'Open profile': 'Atvērt profilu',
+  'Ban 1 day': 'Bloķēt uz 1 dienu',
+  'Ban 7 days': 'Bloķēt uz 7 dienām',
+  'Ban 30 days': 'Bloķēt uz 30 dienām',
+  'Ban forever': 'Bloķēt uz visiem laikiem',
+  'Unban': 'Atbloķēt',
+  'Make moderator': 'Iecelt par moderatoru',
+  'Remove moderator': 'Noņemt moderatoru',
+  'Users': 'Lietotāji',
+  'Open profiles, ban, unban, or delete users':
+      'Atveriet profilus, bloķējiet vai dzēsiet lietotājus',
+  'Grant or remove verified status': 'Piešķiriet vai noņemiet verifikāciju',
+  'Edit Spot': 'Rediģēt vietu',
+  'City / country': 'Pilsēta / valsts',
+  'Latitude': 'Platums',
+  'Longitude': 'Garums',
+  'Category': 'Kategorija',
+  'Photos': 'Fotogrāfijas',
+  'Manage Spot': 'Pārvaldīt vietu',
+  'Reject': 'Noraidīt',
+  'Approve': 'Apstiprināt',
+  'Delete Spot': 'Dzēst vietu',
+  'Write a comment about this spot': 'Rakstiet komentāru par šo vietu',
+  'Edit your comment': 'Rediģējiet komentāru',
+  'Search users': 'Meklēt lietotājus',
+  'Spot owner': 'Vietas īpašnieks',
+  'Search nickname, name, or email': 'Meklēt pēc segvārda, vārda vai e-pasta',
+  'Search to change owner': 'Meklēt jaunu īpašnieku',
+  'Add friends first, then start a chat here.':
+      'Vispirms pievienojiet draugus, pēc tam sāciet čatu.',
+  'Add map alert': 'Pievienot brīdinājumu kartē',
+  'Add members': 'Pievienot dalībniekus',
+  'Address not found. Try adding city and country.':
+      'Adrese nav atrasta. Pievienojiet pilsētu un valsti.',
+  'Admin accounts cannot be managed here.':
+      'Administratoru kontus šeit nevar pārvaldīt.',
+  'Admins publish instantly. User spots wait for review.':
+      'Administratoru vietas publicē uzreiz. Citas vietas gaida pārbaudi.',
+  'Approved spots': 'Apstiprinātās vietas',
+  'Are you sure you want to delete this comment?':
+      'Vai tiešām vēlaties dzēst komentāru?',
+  'By continuing, you agree to our Terms & Privacy Policy':
+      'Turpinot jūs piekrītat noteikumiem un privātuma politikai',
+  'Car added to your account.': 'Auto pievienots kontam.',
+  'Choose both start and end time for a temporary spot.':
+      'Izvēlieties pagaidu vietas sākuma un beigu laiku.',
+  'Closed': 'Slēgts',
+  'Comment deleted.': 'Komentārs dzēsts.',
+  'Comment posted.': 'Komentārs publicēts.',
+  'Comment updated.': 'Komentārs atjaunināts.',
+  'Continue sharing': 'Turpināt kopīgošanu',
+  'Continue sharing?': 'Turpināt kopīgošanu?',
+  'Could not open this contact.': 'Neizdevās atvērt kontaktu.',
+  'Could not open this link.': 'Neizdevās atvērt saiti.',
+  'Created spots will appear here.': 'Izveidotās vietas parādīsies šeit.',
+  'Current location selected for this spot.':
+      'Vietai izvēlēta pašreizējā atrašanās vieta.',
+  'Delete comment': 'Dzēst komentāru',
+  'Delete message': 'Dzēst ziņu',
+  'Delete message?': 'Dzēst ziņu?',
+  'Delete spot': 'Dzēst vietu',
+  'Delete spot?': 'Dzēst vietu?',
+  'Delete user': 'Dzēst lietotāju',
+  'Description is required.': 'Pievienojiet aprakstu.',
+  'Edit comment': 'Rediģēt komentāru',
+  'Edit message': 'Rediģēt ziņu',
+  'Edit spot': 'Rediģēt vietu',
+  'End time must be after start time.':
+      'Beigu laikam jābūt pēc sākuma laika.',
+  'End time must be in the future.': 'Beigu laikam jābūt nākotnē.',
+  'Enter valid latitude and longitude.': 'Ievadiet derīgas koordinātas.',
+  'Friend invites sent to you will appear here.':
+      'Šeit parādīsies saņemtie draudzības uzaicinājumi.',
+  'Garage saved to your account.': 'Garāža saglabāta kontā.',
+  'Garage tags': 'Garāžas birkas',
+  'Get closer to this police mark before confirming it.':
+      'Piebrauciet tuvāk policijas atzīmei, lai to apstiprinātu.',
+  'Grant verified status': 'Piešķirt verificētu statusu',
+  'Group info': 'Grupas informācija',
+  'Incoming requests': 'Saņemtie pieprasījumi',
+  'Live location sharing is on for 1 hour.':
+      'Atrašanās vietas kopīgošana ieslēgta uz 1 stundu.',
+  'Loading users...': 'Ielādē lietotājus...',
+  'Location is required. Pin it on the map, find exact address, or use current location first.':
+      'Atzīmējiet vietu kartē, atrodiet adresi vai izmantojiet pašreizējo atrašanās vietu.',
+  'Location permission is needed for distance.':
+      'Attāluma noteikšanai vajadzīga piekļuve atrašanās vietai.',
+  'Location permission is needed to share your location.':
+      'Atrašanās vietas nosūtīšanai vajadzīga piekļuve tai.',
+  'Location permission is needed to show you on the map.':
+      'Attēlošanai kartē vajadzīga piekļuve atrašanās vietai.',
+  'Location permission is needed to use your current position.':
+      'Pašreizējās pozīcijas izmantošanai vajadzīga piekļuve atrašanās vietai.',
+  'Log in before adding a police mark.':
+      'Pieslēdzieties pirms policijas atzīmes pievienošanas.',
+  'Log in before confirming a police mark.':
+      'Pieslēdzieties pirms policijas atzīmes apstiprināšanas.',
+  'Log in before finding friends.': 'Pieslēdzieties, lai meklētu draugus.',
+  'Log in before liking comments.': 'Pieslēdzieties, lai novērtētu komentārus.',
+  'Log in before liking spots.': 'Pieslēdzieties, lai novērtētu vietas.',
+  'Log in before sharing your live location.':
+      'Pieslēdzieties, lai kopīgotu atrašanās vietu.',
+  'Log in before sharing your location.':
+      'Pieslēdzieties, lai nosūtītu atrašanās vietu.',
+  'Log in before using chat.': 'Pieslēdzieties, lai izmantotu čatu.',
+  'Log in before using friend requests.':
+      'Pieslēdzieties, lai izmantotu draudzības pieprasījumus.',
+  'Log in before using friends.': 'Pieslēdzieties, lai skatītu draugus.',
+  'Map filters': 'Kartes filtri',
+  'Mark police at your current location for 2 hours.':
+      'Atzīmēt policiju pašreizējā vietā uz 2 stundām.',
+  'Maximum 4 photos per spot.': 'Maksimums 4 fotogrāfijas vienai vietai.',
+  'Maximum 4 spot photos.': 'Maksimums 4 vietas fotogrāfijas.',
+  'Members': 'Dalībnieki',
+  'Messages with friends and groups': 'Ziņas ar draugiem un grupām',
+  'Moderators cannot manage other moderators.':
+      'Moderatori nevar pārvaldīt citus moderatorus.',
+  'Move down': 'Pārvietot lejup',
+  'Move up': 'Pārvietot augšup',
+  'My submissions': 'Mani pieteikumi',
+  'NOW': 'TAGAD',
+  'No answer. Live location will stop automatically in 10 minutes.':
+      'Atbildes nav. Atrašanās vietas kopīgošana beigsies pēc 10 minūtēm.',
+  'No comments yet. Be the first to comment on this spot.':
+      'Komentāru vēl nav. Pievienojiet pirmo komentāru.',
+  'No link added for this spot.': 'Šai vietai nav pievienota saite.',
+  'No submitted spots yet.': 'Iesniegtu vietu vēl nav.',
+  'No tags yet': 'Birku vēl nav',
+  'No users available to add.': 'Nav pieejamu lietotāju pievienošanai.',
+  'No users found.': 'Lietotāji nav atrasti.',
+  'Nothing here yet.': 'Šeit vēl nekā nav.',
+  'Only the assigned owner or an admin can edit this spot.':
+      'Vietu var rediģēt tikai īpašnieks vai administrators.',
+  'Only verified users and admins can see this spot after approval':
+      'Pēc apstiprināšanas vietu redzēs tikai verificēti lietotāji un administratori',
+  'Photo picker is not connected in Android native code.':
+      'Foto izvēle nav pieslēgta Android lietotnei.',
+  'Pick at least one friend for a group.':
+      'Izvēlieties vismaz vienu draugu grupai.',
+  'Pin up to 3 direct chats and 3 groups. Use arrows to change pinned order.':
+      'Piespraudiet līdz 3 privātiem čatiem un 3 grupām. Secību mainiet ar bultiņām.',
+  'Police': 'Policija',
+  'Police mark removed from the map.': 'Policijas atzīme noņemta no kartes.',
+  'Police marked on the map for 2 hours.':
+      'Policija atzīmēta kartē uz 2 stundām.',
+  'Police nearby': 'Policija tuvumā',
+  'Profile saved to your account.': 'Profils saglabāts kontā.',
+  'Rating saved.': 'Vērtējums saglabāts.',
+  'Remember me': 'Atcerēties mani',
+  'Remove owner': 'Noņemt īpašnieku',
+  'Requests': 'Pieprasījumi',
+  'Requests you send will appear here until accepted.':
+      'Nosūtītie pieprasījumi būs šeit līdz apstiprināšanai.',
+  'Selected owner': 'Izvēlētais īpašnieks',
+  'Send the first message.': 'Nosūtiet pirmo ziņu.',
+  'Sent requests': 'Nosūtītie pieprasījumi',
+  'Service info updated.': 'Servisa informācija atjaunināta.',
+  'Share live location': 'Kopīgot atrašanās vietu tiešsaistē',
+  'Share location': 'Kopīgot atrašanās vietu',
+  'Short description': 'Īss apraksts',
+  'Sign in with Google before submitting a spot.':
+      'Pieslēdzieties ar Google pirms vietas iesniegšanas.',
+  'Spot approved. It is now public.': 'Vieta apstiprināta un tagad ir publiska.',
+  'Spot deleted.': 'Vieta dzēsta.',
+  'Spot name and description are required.':
+      'Pievienojiet vietas nosaukumu un aprakstu.',
+  'Spot name can use only English or Latvian letters, numbers, spaces, and simple punctuation.':
+      'Nosaukumā drīkst izmantot angļu vai latviešu burtus, ciparus, atstarpes un vienkāršas pieturzīmes.',
+  'Spot name is required.': 'Pievienojiet vietas nosaukumu.',
+  'Spot rejected.': 'Vieta noraidīta.',
+  'Start a chat with a friend or create a group.':
+      'Sāciet čatu ar draugu vai izveidojiet grupu.',
+  'Submissions': 'Pieteikumi',
+  'Tap the map where this car spot should be placed.':
+      'Nospiediet kartē vietā, kur jāatrodas auto vietai.',
+  'Tap to change avatar': 'Nospiediet, lai mainītu avatāru',
+  'Tell people about your car, build, setup, and plans':
+      'Pastāstiet par auto, uzlabojumiem un plāniem',
+  'Temporary spot': 'Pagaidu vieta',
+  'Temporary spot can be active for 12 hours maximum.':
+      'Pagaidu vieta var būt aktīva ne ilgāk par 12 stundām.',
+  'Temporary spot end time must be after start time.':
+      'Pagaidu vietas beigu laikam jābūt pēc sākuma laika.',
+  'Temporary spots and events': 'Pagaidu vietas un pasākumi',
+  'Temporary spots can be active for maximum 12 hours.':
+      'Pagaidu vietas var būt aktīvas ne ilgāk par 12 stundām.',
+  'This chat has no one to share location with.':
+      'Šajā čatā nav neviena, ar ko kopīgot atrašanās vietu.',
+  'This driver has not shared car builds yet.':
+      'Šis autovadītājs vēl nav publicējis auto.',
+  'This driver keeps their profile private.':
+      'Šim autovadītājam ir privāts profils.',
+  'This link is not valid yet.': 'Saite vēl nav derīga.',
+  'This message will be deleted from the chat.': 'Ziņa tiks dzēsta no čata.',
+  'This user profile is not available anymore.': 'Profils vairs nav pieejams.',
+  'Try searching by nickname or name.': 'Meklējiet pēc segvārda vai vārda.',
+  'Turn on phone location first.': 'Vispirms ieslēdziet atrašanās vietu tālrunī.',
+  'Turn on phone location to show distance.':
+      'Ieslēdziet atrašanās vietu, lai redzētu attālumu.',
+  'Turn on phone location to use your current position.':
+      'Ieslēdziet atrašanās vietu, lai izmantotu pašreizējo pozīciju.',
+  'Upcoming': 'Gaidāmie',
+  'Upload at least 1 photo before creating the spot.':
+      'Pirms vietas izveides augšupielādējiet vismaz vienu foto.',
+  'Use Find Users to send your first friend request.':
+      'Izmantojiet meklēšanu, lai nosūtītu pirmo draudzības pieprasījumu.',
+  'Use photo': 'Izmantot foto',
+  'Use this Location': 'Izmantot šo vietu',
+  'Use this for meets and events. Maximum active time is 12 hours.':
+      'Izmantojiet tikšanās reizēm un pasākumiem. Maksimālais laiks: 12 stundas.',
+  'User deleted.': 'Lietotājs dzēsts.',
+  'User unbanned.': 'Lietotājs atbloķēts.',
+  'Users will appear here after they sign in.':
+      'Lietotāji parādīsies šeit pēc pieslēgšanās.',
+  'Verified users can create and see verified-only spots.':
+      'Verificētie lietotāji var veidot un redzēt slēgtās vietas.',
+  'Video link': 'Video saite',
+  'What is this group about?': 'Par ko ir šī grupa?',
+  'What makes this spot good for car photos?':
+      'Kāpēc šī vieta ir piemērota auto fotogrāfijām?',
+  'Write a comment first.': 'Vispirms uzrakstiet komentāru.',
+  'You cannot manage your own account here.':
+      'Šeit nevar pārvaldīt savu kontu.',
+  'You created this mark. You can confirm it later if you drive by this spot again.':
+      'Jūs izveidojāt šo atzīmi. To varēs apstiprināt vēlāk, vēlreiz braucot garām.',
+  'Your created spots are saved here. Pending spots wait for review; live spots are already public.':
+      'Izveidotās vietas glabājas šeit. Pieteikumi gaida pārbaudi, publicētās vietas jau ir redzamas.',
+  'Your live location has been shared for 1 hour. Keep sharing it for another hour?':
+      'Atrašanās vieta kopīgota jau stundu. Turpināt vēl vienu stundu?',
+  'Your profile nickname': 'Jūsu segvārds',
+  'Your rating': 'Jūsu vērtējums',
+  'edited': 'rediģēts',
+  'New': 'Jauni',
+  'Old': 'Veci',
+  'Like': 'Patīk',
+  'Liked': 'Patīk',
+  'Create Spot': 'Izveidot vietu',
+  'Creating spot...': 'Izveido vietu...',
+  'Submit for Review': 'Iesniegt pārbaudei',
+  'Submitting for review...': 'Iesniedz pārbaudei...',
+  'Choose the spot on map': 'Izvēlieties vietu kartē',
+  'Spot location selected on map': 'Vieta izvēlēta kartē',
+  'Type an address and place the pin automatically': 'Ievadiet adresi, un atzīme tiks novietota automātiski',
+  'Use your phone GPS position': 'Izmantot tālruņa GPS pozīciju',
+  'Replace pin with your current GPS position': 'Aizstāt atzīmi ar pašreizējo GPS pozīciju',
+  'Getting your GPS position...': 'Iegūstam GPS pozīciju...',
+  'Detecting city/country...': 'Nosakām pilsētu/valsti...',
+  'Checking distance...': 'Pārbaudām attālumu...',
+  'Distance unavailable': 'Attālums nav pieejams',
+  'Open route': 'Atvērt maršrutu',
+  'Add up to 4 spot photos. The first photo becomes the Explore thumbnail.': 'Pievienojiet līdz 4 vietas foto. Pirmais būs vāks sarakstā.',
+  'Maximum 4 photos selected. First photo is the spot thumbnail.': 'Izvēlēti maksimums 4 foto. Pirmais foto ir vietas vāks.',
+  'Saved spots will appear here.': 'Saglabātās vietas parādīsies šeit.',
+  'Review spots and manage users': 'Pārbaudīt vietas un pārvaldīt lietotājus',
+  'Save Changes': 'Saglabāt izmaiņas',
+  'Drift': 'Drifts',
+  'No video link added': 'Video saite nav pievienota',
+  'Sunday is marked as closed.': 'Svētdiena ir atzīmēta kā slēgta.',
+  'Sign out': 'Izrakstīties',
+  'Signing out...': 'Izrakstās...',
+  'Add': 'Pievienot',
+  'Friend': 'Draugs',
+  'Driver': 'Vadītājs',
+  'Group share': 'Grupa',
+  'Chat share': 'Čats',
+  'Friends share': 'Draugi',
+  'online': 'tiešsaistē',
+  'offline': 'bezsaistē',
+  'Shared live location with this group.': 'Atrašanās vieta nosūtīta šai grupai.',
+  'Shared live location with you.': 'Atrašanās vieta nosūtīta jums.',
+  'Location shared with this group for 1 hour.': 'Atrašanās vieta kopīgota grupā uz 1 stundu.',
+  'Location shared with this chat for 1 hour.': 'Atrašanās vieta kopīgota čatā uz 1 stundu.',
+  'Updated': 'Atjaunināts',
+  'Live location': 'Tiešraides atrašanās vieta',
+  'Admin Panel': 'Admina panelis',
+  'Moderator Panel': 'Moderatora panelis',
+  'Review spots and moderate users': 'Pārbaudīt vietas un moderēt lietotājus',
+  'Pending': 'Gaida',
+  'Edited': 'Labotās',
+  'Approved': 'Apstiprinātās',
+  'Rejected': 'Noraidītās',
+  'All': 'Visas',
+  'pending': 'gaida',
+  'approved': 'apstiprināts',
+  'rejected': 'noraidīts',
+  'live': 'aktīvs',
+  'No pending spots': 'Nav vietu pārbaudei',
+  'No edited spots': 'Nav labotu vietu',
+  'No approved spots': 'Nav apstiprinātu vietu',
+  'No rejected spots': 'Nav noraidītu vietu',
+  'No community spots yet': 'Kopienas vietu vēl nav',
+  'New user submitted spots will appear here first.': 'Jaunas lietotāju vietas vispirms parādīsies šeit.',
+  'User spot edits will appear here for approval.': 'Lietotāju labojumi parādīsies šeit apstiprināšanai.',
+  'Rejected spots will appear here after moderation.': 'Noraidītās vietas parādīsies šeit pēc moderācijas.',
+  'When users submit spots, they will appear in this admin panel.': 'Kad lietotāji iesniegs vietas, tās parādīsies šajā admina panelī.',
+  'Direct chats': 'Privātie čati',
+  'No direct chats yet.': 'Privāto čatu vēl nav.',
+  'No groups yet.': 'Grupu vēl nav.',
+  'Sent': 'Nosūtīts',
+  'Friend request': 'Draudzības pieprasījums',
+  'This is your current nickname.': 'Šis ir jūsu pašreizējais segvārds.',
+  'Checking nickname availability...': 'Pārbaudām segvārda pieejamību...',
+  'Nickname is available.': 'Segvārds ir pieejams.',
+  'This nickname is already taken.': 'Šis segvārds jau ir aizņemts.',
+  'Nickname must be at least 3 characters.': 'Segvārdam jābūt vismaz 3 rakstzīmēm.',
+  'Could not check nickname availability.': 'Neizdevās pārbaudīt segvārdu.',
+  'Untitled car': 'Auto bez nosaukuma',
+  'Car profile.': 'Auto apraksts.',
+  'Spot saved.': 'Vieta saglabāta.',
+  'Spot removed from saved.': 'Vieta noņemta no saglabātajām.',
+  'Comment': 'Komentāri',
+  'Add or remove spot photos. The first photo becomes the Explore thumbnail.': 'Pievienojiet vai noņemiet vietas foto. Pirmais foto būs vāks sarakstā.',
+  'Description placeholder': 'Apraksts',
+  'Notification center could not load.': 'Neizdevās ielādēt paziņojumus.',
+  'Push notifications are connected through Firebase Cloud Messaging.': 'Paziņojumi ir pieslēgti caur Firebase Cloud Messaging.',
+  'you': 'jūs',
+};
+
+String trText(String value, {AppLanguage? language}) {
+  final selectedLanguage = language ?? appUiPreferences.language;
+  final translations = switch (selectedLanguage) {
+    AppLanguage.en => const <String, String>{},
+    AppLanguage.ru => _ruText,
+    AppLanguage.lv => _lvText,
+  };
+  if (value == 'Add Spot Nav') {
+    return switch (selectedLanguage) {
+      AppLanguage.en => 'Add\nSpot',
+      AppLanguage.ru => 'Добавить\nспот',
+      AppLanguage.lv => 'Pievienot\nvietu',
+    };
+  }
+
+  final exact = translations[value];
+
+  if (exact != null) {
+    return exact;
+  }
+
+  final showMoreMatch = RegExp(r'^Show (\d+) more$').firstMatch(value);
+  if (showMoreMatch != null) {
+    final count = showMoreMatch.group(1)!;
+    return switch (selectedLanguage) {
+      AppLanguage.en => value,
+      AppLanguage.ru => 'Показать ещё: $count',
+      AppLanguage.lv => 'Rādīt vēl: $count',
+    };
+  }
+
+  final spotsMatch = RegExp(r'^(\d+) spots$').firstMatch(value);
+  if (spotsMatch != null) {
+    final count = spotsMatch.group(1)!;
+    return switch (selectedLanguage) {
+      AppLanguage.en => value,
+      AppLanguage.ru => 'Споты: $count',
+      AppLanguage.lv => 'Vietas: $count',
+    };
+  }
+
+  final ratingMatch = RegExp(r'^([0-9]+(?:\.[0-9]+)?) spot rating$').firstMatch(value);
+  if (ratingMatch != null) {
+    final rating = ratingMatch.group(1)!;
+    return switch (selectedLanguage) {
+      AppLanguage.en => value,
+      AppLanguage.ru => '$rating рейтинг спота',
+      AppLanguage.lv => '$rating vietas vērtējums',
+    };
+  }
+
+  final commentsMatch = RegExp(r'^(\d+) comments?$').firstMatch(value);
+  if (commentsMatch != null) {
+    final count = commentsMatch.group(1)!;
+    return switch (selectedLanguage) {
+      AppLanguage.en => value,
+      AppLanguage.ru => '$count комментариев',
+      AppLanguage.lv => '$count komentāri',
+    };
+  }
+
+  final photosSelectedMatch = RegExp(r'^(\d+)/(\d+) photos selected$').firstMatch(value);
+  if (photosSelectedMatch != null) {
+    final current = photosSelectedMatch.group(1)!;
+    final max = photosSelectedMatch.group(2)!;
+    return switch (selectedLanguage) {
+      AppLanguage.en => value,
+      AppLanguage.ru => '$current/$max фото выбрано',
+      AppLanguage.lv => '$current/$max foto izvēlēti',
+    };
+  }
+
+  final addedByMatch = RegExp(r'^Added by:? (.+)$').firstMatch(value);
+  if (addedByMatch != null) {
+    final name = addedByMatch.group(1)!;
+    return switch (selectedLanguage) {
+      AppLanguage.en => value,
+      AppLanguage.ru => 'Добавлено $name',
+      AppLanguage.lv => 'Pievienoja $name',
+    };
+  }
+
+  final addedDateMatch = RegExp(r'^Added (.+)$').firstMatch(value);
+  if (addedDateMatch != null) {
+    final date = addedDateMatch.group(1)!;
+    return switch (selectedLanguage) {
+      AppLanguage.en => value,
+      AppLanguage.ru => 'Добавлена дата $date',
+      AppLanguage.lv => 'Pievienošanas datums $date',
+    };
+  }
+
+
+  final commentTitleMatch = RegExp(r'^Comment (.+)$').firstMatch(value);
+  if (commentTitleMatch != null) {
+    final spotName = commentTitleMatch.group(1)!;
+    return switch (selectedLanguage) {
+      AppLanguage.en => value,
+      AppLanguage.ru => 'Комментарии $spotName',
+      AppLanguage.lv => 'Komentāri $spotName',
+    };
+  }
+
+
+  final awayKmMatch = RegExp(r'^ • ([0-9]+(?:\.[0-9]+)?) km away$').firstMatch(value);
+  if (awayKmMatch != null) {
+    final km = awayKmMatch.group(1)!;
+    return switch (selectedLanguage) {
+      AppLanguage.en => value,
+      AppLanguage.ru => ' • $km км',
+      AppLanguage.lv => ' • $km km',
+    };
+  }
+
+  final awayMMatch = RegExp(r'^ • (\d+) m away$').firstMatch(value);
+  if (awayMMatch != null) {
+    final meters = awayMMatch.group(1)!;
+    return switch (selectedLanguage) {
+      AppLanguage.en => value,
+      AppLanguage.ru => ' • $meters м',
+      AppLanguage.lv => ' • $meters m',
+    };
+  }
+
+  final friendAtSpotMatch = RegExp(r'^@(.+) is at (.+)$').firstMatch(value);
+  if (friendAtSpotMatch != null) {
+    final friend = friendAtSpotMatch.group(1)!;
+    final spotName = friendAtSpotMatch.group(2)!;
+    return switch (selectedLanguage) {
+      AppLanguage.en => value,
+      AppLanguage.ru => '@$friend находится у $spotName',
+      AppLanguage.lv => '@$friend ir pie $spotName',
+    };
+  }
+
+  final friendNearbyMatch = RegExp(r'^@(.+) is nearby(.*)$').firstMatch(value);
+  if (friendNearbyMatch != null) {
+    final friend = friendNearbyMatch.group(1)!;
+    final distance = friendNearbyMatch.group(2)!;
+    return switch (selectedLanguage) {
+      AppLanguage.en => value,
+      AppLanguage.ru => '@$friend рядом$distance',
+      AppLanguage.lv => '@$friend ir tuvumā$distance',
+    };
+  }
+
+  final updatedMatch = RegExp(r'^Updated (.+)$').firstMatch(value);
+  if (updatedMatch != null) {
+    final date = updatedMatch.group(1)!;
+    return switch (selectedLanguage) {
+      AppLanguage.en => value,
+      AppLanguage.ru => 'Обновлено $date',
+      AppLanguage.lv => 'Atjaunināts $date',
+    };
+  }
+
+
+  final noAdminSpotsMatch = RegExp(r'^No (pending|edited|approved|rejected|all) spots right now\.$').firstMatch(value);
+  if (noAdminSpotsMatch != null) {
+    final kind = noAdminSpotsMatch.group(1)!;
+    return switch (selectedLanguage) {
+      AppLanguage.en => value,
+      AppLanguage.ru => 'Сейчас нет спотов: ${trText(kind, language: selectedLanguage)}.',
+      AppLanguage.lv => 'Pašlaik nav vietu: ${trText(kind, language: selectedLanguage)}.',
+    };
+  }
+
+  final adminFirebaseCountMatch = RegExp(r'^(\d+) (pending|edited|approved|rejected|all) spots? in Firebase\.$').firstMatch(value);
+  if (adminFirebaseCountMatch != null) {
+    final count = adminFirebaseCountMatch.group(1)!;
+    final kind = adminFirebaseCountMatch.group(2)!;
+    return switch (selectedLanguage) {
+      AppLanguage.en => value,
+      AppLanguage.ru => '$count спотов в Firebase: ${trText(kind, language: selectedLanguage)}.',
+      AppLanguage.lv => '$count vietas Firebase: ${trText(kind, language: selectedLanguage)}.',
+    };
+  }
+
+  final adminCountMatch = RegExp(r'^(Pending|Edited|Approved|Rejected|All) (\d+)$').firstMatch(value);
+  if (adminCountMatch != null) {
+    final status = adminCountMatch.group(1)!;
+    final count = adminCountMatch.group(2)!;
+    return switch (selectedLanguage) {
+      AppLanguage.en => value,
+      AppLanguage.ru => switch (status) {
+        'Pending' => 'На проверке $count',
+        'Edited' => 'Изменённые $count',
+        'Approved' => 'Одобренные $count',
+        'Rejected' => 'Отклонённые $count',
+        _ => 'Все $count',
+      },
+      AppLanguage.lv => switch (status) {
+        'Pending' => 'Gaida $count',
+        'Edited' => 'Labotie $count',
+        'Approved' => 'Apstiprinātie $count',
+        'Rejected' => 'Noraidītie $count',
+        _ => 'Visi $count',
+      },
+    };
+  }
+
+  final awayMatch = RegExp(r'^(.+) away$').firstMatch(value);
+  if (awayMatch != null) {
+    final distance = awayMatch.group(1)!;
+    return switch (selectedLanguage) {
+      AppLanguage.en => value,
+      AppLanguage.ru => '$distance от вас',
+      AppLanguage.lv => '$distance attālumā',
+    };
+  }
+
+  final minuteMatch = RegExp(r'^~(\d+) min$').firstMatch(value);
+  if (minuteMatch != null) {
+    final minutes = minuteMatch.group(1)!;
+    return switch (selectedLanguage) {
+      AppLanguage.en => value,
+      AppLanguage.ru => '~$minutes мин',
+      AppLanguage.lv => '~$minutes min',
+    };
+  }
+
+  return value;
+}
+
+Color? _lightTextColor(Color? color) {
+  if (!appUiPreferences.lightTheme || color == null) {
+    return color;
+  }
+
+  if (color.red >= 220 && color.green >= 220 && color.blue >= 220) {
+    return Color.fromARGB(color.alpha, 24, 28, 34);
+  }
+
+  return color;
+}
+
+TextStyle? _appTextStyle(TextStyle? style) {
+  if (style == null || !appUiPreferences.lightTheme) {
+    return style;
+  }
+
+  return style.copyWith(color: _lightTextColor(style.color));
+}
+
+class Text extends StatelessWidget {
+  final String data;
+  final TextStyle? style;
+  final StrutStyle? strutStyle;
+  final TextAlign? textAlign;
+  final TextDirection? textDirection;
+  final Locale? locale;
+  final bool? softWrap;
+  final TextOverflow? overflow;
+  final TextScaler? textScaler;
+  final int? maxLines;
+  final String? semanticsLabel;
+  final TextWidthBasis? textWidthBasis;
+  final TextHeightBehavior? textHeightBehavior;
+  final Color? selectionColor;
+
+  const Text(
+    this.data, {
+    super.key,
+    this.style,
+    this.strutStyle,
+    this.textAlign,
+    this.textDirection,
+    this.locale,
+    this.softWrap,
+    this.overflow,
+    this.textScaler,
+    this.maxLines,
+    this.semanticsLabel,
+    this.textWidthBasis,
+    this.textHeightBehavior,
+    this.selectionColor,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: appUiPreferences,
+      builder: (context, _) {
+        return material.Text(
+          trText(data),
+          style: _appTextStyle(style),
+          strutStyle: strutStyle,
+          textAlign: textAlign,
+          textDirection: textDirection,
+          locale: locale,
+          softWrap: softWrap,
+          overflow: overflow,
+          textScaler: textScaler,
+          maxLines: maxLines,
+          semanticsLabel: semanticsLabel,
+          textWidthBasis: textWidthBasis,
+          textHeightBehavior: textHeightBehavior,
+          selectionColor: selectionColor,
+        );
+      },
+    );
+  }
+}
+
+@pragma('vm:entry-point')
+Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+}
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await warmUpAppMapBackground();
+  await appUiPreferences.load();
 
   try {
     await Firebase.initializeApp(
       options: DefaultFirebaseOptions.currentPlatform,
     );
     firebaseReady = true;
+    FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
 
     // Google Sign-In needs one setup call before we use the login button.
     try {
@@ -85,38 +1488,68 @@ class CCSApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      debugShowCheckedModeBanner: false,
-      title: 'CCS',
-      theme: ThemeData.dark().copyWith(
-        appBarTheme: const AppBarTheme(
-          backgroundColor: Colors.transparent,
-          surfaceTintColor: Colors.transparent,
-          elevation: 0,
-          scrolledUnderElevation: 0,
-        ),
-      ),
-      builder: (context, child) {
-        return Stack(
-          fit: StackFit.expand,
-          children: [const AppMapBackground(), if (child != null) child],
+    return AnimatedBuilder(
+      animation: appUiPreferences,
+      builder: (context, _) {
+        const lightTheme = false;
+        final baseTheme = ThemeData.dark();
+
+        return MaterialApp(
+          debugShowCheckedModeBanner: false,
+          title: 'CCS',
+          locale: Locale(appUiPreferences.language.name),
+          theme: baseTheme.copyWith(
+            scaffoldBackgroundColor: Colors.transparent,
+            appBarTheme: const AppBarTheme(
+              backgroundColor: Colors.transparent,
+              surfaceTintColor: Colors.transparent,
+              elevation: 0,
+              scrolledUnderElevation: 0,
+            ),
+            textTheme: baseTheme.textTheme.apply(
+              bodyColor: lightTheme ? const Color(0xFF181C22) : Colors.white,
+              displayColor: lightTheme ? const Color(0xFF181C22) : Colors.white,
+            ),
+            iconTheme: IconThemeData(
+              color: lightTheme ? const Color(0xFF242A33) : Colors.white70,
+            ),
+            inputDecorationTheme: InputDecorationTheme(
+              labelStyle: TextStyle(
+                color: lightTheme ? Colors.black54 : Colors.white60,
+              ),
+              hintStyle: TextStyle(
+                color: lightTheme ? Colors.black38 : Colors.white24,
+              ),
+            ),
+          ),
+          builder: (context, child) {
+            return Stack(
+              fit: StackFit.expand,
+              children: [const AppMapBackground(), if (child != null) child],
+            );
+          },
+          home:
+              firebaseReady &&
+                  rememberMeEnabled &&
+                  FirebaseAuth.instance.currentUser != null
+              ? const MainScreen()
+              : const SplashScreen(),
         );
       },
-      home:
-          firebaseReady &&
-              rememberMeEnabled &&
-              FirebaseAuth.instance.currentUser != null
-          ? const MainScreen()
-          : const SplashScreen(),
     );
   }
 }
 
 const blue = Color(0xFF1565FF);
-const night = Color(0xFF050507);
-const panel = Color(0xFF101014);
-const panelGlass = Color(0xCC101014);
-const panelGlassSoft = Color(0xB0101014);
+Color get night => const Color(0xFF050507);
+Color get panel => const Color(0xFF101014);
+Color get panelGlass => const Color(0xCC101014);
+Color get panelGlassSoft => const Color(0xB0101014);
+Color get appPrimaryText => Colors.white;
+Color get appSecondaryText => Colors.white54;
+Color get appSubtleText => Colors.white38;
+Color get appOutline => Colors.white12;
+Color get appSurfaceOverlay => Colors.white.withValues(alpha: 0.06);
 const appMapBackgroundAsset = 'assets/bg_map.png';
 ui.Image? appMapBackgroundImage;
 
@@ -139,7 +1572,7 @@ class AppMapBackground extends StatelessWidget {
     return Stack(
       fit: StackFit.expand,
       children: [
-        const ColoredBox(color: night),
+        ColoredBox(color: night),
         CustomPaint(
           painter: AppMapBackgroundPainter(appMapBackgroundImage),
           child: const SizedBox.expand(),
@@ -230,7 +1663,97 @@ const photoPickerChannel = MethodChannel('ccs/photo_picker');
 const liveLocationBackgroundChannel = MethodChannel(
   'ccs/live_location_background',
 );
+const systemNotificationsChannel = MethodChannel('ccs/system_notifications');
 const spotCategoryFiltersKey = 'spot_category_filters';
+
+Future<void> registerPushTokenForCurrentUser(String token) async {
+  final firebaseUser = FirebaseAuth.instance.currentUser;
+
+  if (firebaseUser == null || token.trim().isEmpty) {
+    return;
+  }
+
+  await usersCollection().doc(firebaseUser.uid).set({
+    'fcmTokens': FieldValue.arrayUnion([token]),
+    'fcmTokenUpdatedAt': FieldValue.serverTimestamp(),
+  }, SetOptions(merge: true));
+}
+
+Future<void> unregisterPushTokenForCurrentUser() async {
+  final firebaseUser = FirebaseAuth.instance.currentUser;
+
+  if (firebaseUser == null) {
+    return;
+  }
+
+  try {
+    final token = await FirebaseMessaging.instance.getToken();
+
+    if (token == null || token.trim().isEmpty) {
+      return;
+    }
+
+    await usersCollection().doc(firebaseUser.uid).set({
+      'fcmTokens': FieldValue.arrayRemove([token]),
+      'fcmTokenUpdatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+  } catch (_) {
+    // Push cleanup is best-effort during sign out.
+  }
+}
+
+Future<void> showForegroundSystemNotification(RemoteMessage message) async {
+  if (!Platform.isAndroid) {
+    return;
+  }
+
+  final notification = message.notification;
+  final title = notification?.title ?? message.data['title'] ?? 'CCS';
+  final body = notification?.body ?? message.data['body'] ?? '';
+
+  if (body.trim().isEmpty) {
+    return;
+  }
+
+  try {
+    await systemNotificationsChannel.invokeMethod<void>('showNotification', {
+      'id': (message.messageId ?? '$title|$body').hashCode & 0x7fffffff,
+      'title': title,
+      'body': body,
+    });
+  } catch (_) {
+    // Foreground push display is best-effort on unsupported platforms.
+  }
+}
+
+Future<void> initializePushNotificationsForCurrentUser() async {
+  if (!firebaseReady || FirebaseAuth.instance.currentUser == null) {
+    return;
+  }
+
+  try {
+    final messaging = FirebaseMessaging.instance;
+
+    await messaging.requestPermission(alert: true, badge: true, sound: true);
+
+    final token = await messaging.getToken();
+    if (token != null) {
+      await registerPushTokenForCurrentUser(token);
+    }
+    unawaited(refreshNotificationCenterUnreadCount());
+
+    pushTokenRefreshSubscription ??= messaging.onTokenRefresh.listen((token) {
+      unawaited(registerPushTokenForCurrentUser(token));
+    });
+
+    foregroundPushSubscription ??= FirebaseMessaging.onMessage.listen((message) {
+      unawaited(showForegroundSystemNotification(message));
+      unawaited(refreshNotificationCenterUnreadCount());
+    });
+  } catch (_) {
+    // Keep the rest of the app usable if notifications are unavailable.
+  }
+}
 
 const spotCategoryOptions = [
   'Drift',
@@ -1131,6 +2654,7 @@ Future<void> saveRememberMePreference(bool value) async {
 
 Future<void> signOutCurrentAccount() async {
   await saveRememberMePreference(false);
+  await unregisterPushTokenForCurrentUser();
 
   // Stop live Firebase listeners before auth becomes null.
   await spotSyncSubscription?.cancel();
@@ -1666,12 +3190,18 @@ Future<AppUser> signInWithTelegramAndSaveUser() async {
   return currentUser;
 }
 
-Future<Map<String, dynamic>> getJsonFromUrl(String url) async {
+Future<Map<String, dynamic>> getJsonFromUrl(
+  String url, {
+  Map<String, String> headers = const {},
+}) async {
   final client = HttpClient();
 
   try {
     final request = await client.getUrl(Uri.parse(url));
     request.headers.set(HttpHeaders.acceptHeader, 'application/json');
+    for (final entry in headers.entries) {
+      request.headers.set(entry.key, entry.value);
+    }
 
     final response = await request.close();
     final body = await utf8.decodeStream(response);
@@ -1753,14 +3283,18 @@ Future<List<int>> compressedJpegBytesFromFile(
 
 Future<Map<String, dynamic>> postJsonToUrl(
   String url,
-  Map<String, Object?> body,
-) async {
+  Map<String, Object?> body, {
+  Map<String, String> headers = const {},
+}) async {
   final client = HttpClient();
 
   try {
     final request = await client.postUrl(Uri.parse(url));
     request.headers.set(HttpHeaders.contentTypeHeader, 'application/json');
     request.headers.set(HttpHeaders.acceptHeader, 'application/json');
+    for (final entry in headers.entries) {
+      request.headers.set(entry.key, entry.value);
+    }
     request.add(utf8.encode(jsonEncode(body)));
 
     final response = await request.close();
@@ -1779,6 +3313,30 @@ Future<Map<String, dynamic>> postJsonToUrl(
     throw Exception('Backend returned invalid JSON.');
   } finally {
     client.close(force: true);
+  }
+}
+
+Future<void> sendPushNotificationEvent(Map<String, Object?> event) async {
+  final firebaseUser = FirebaseAuth.instance.currentUser;
+
+  if (firebaseUser == null) {
+    return;
+  }
+
+  try {
+    final idToken = await firebaseUser.getIdToken();
+
+    if (idToken == null || idToken.trim().isEmpty) {
+      return;
+    }
+
+    await postJsonToUrl(
+      pushNotificationUrl,
+      event,
+      headers: {HttpHeaders.authorizationHeader: 'Bearer $idToken'},
+    );
+  } catch (_) {
+    // Push delivery is best-effort and must not block the user action.
   }
 }
 
@@ -1900,7 +3458,6 @@ class UserSettingsData {
   final bool newSpotNotifications;
   final bool newMessageNotifications;
   final bool publicProfile;
-  final bool showSavedSpots;
   final bool showGarage;
 
   const UserSettingsData({
@@ -1913,7 +3470,6 @@ class UserSettingsData {
     required this.newSpotNotifications,
     this.newMessageNotifications = true,
     required this.publicProfile,
-    required this.showSavedSpots,
     required this.showGarage,
   });
 
@@ -1949,10 +3505,6 @@ class UserSettingsData {
         data['publicProfile'],
         defaults.publicProfile,
       ),
-      showSavedSpots: boolFromFirebase(
-        data['showSavedSpots'],
-        defaults.showSavedSpots,
-      ),
       showGarage: boolFromFirebase(data['showGarage'], defaults.showGarage),
     );
   }
@@ -1968,7 +3520,6 @@ class UserSettingsData {
       'newSpotNotifications': newSpotNotifications,
       'newMessageNotifications': newMessageNotifications,
       'publicProfile': publicProfile,
-      'showSavedSpots': showSavedSpots,
       'showGarage': showGarage,
     };
   }
@@ -1983,7 +3534,6 @@ class UserSettingsData {
     bool? newSpotNotifications,
     bool? newMessageNotifications,
     bool? publicProfile,
-    bool? showSavedSpots,
     bool? showGarage,
   }) {
     return UserSettingsData(
@@ -1997,7 +3547,6 @@ class UserSettingsData {
       newMessageNotifications:
           newMessageNotifications ?? this.newMessageNotifications,
       publicProfile: publicProfile ?? this.publicProfile,
-      showSavedSpots: showSavedSpots ?? this.showSavedSpots,
       showGarage: showGarage ?? this.showGarage,
     );
   }
@@ -2030,7 +3579,6 @@ UserSettingsData defaultUserSettings() {
     newSpotNotifications: true,
     newMessageNotifications: true,
     publicProfile: true,
-    showSavedSpots: false,
     showGarage: true,
   );
 }
@@ -2634,6 +4182,49 @@ CollectionReference<Map<String, dynamic>> meetNotificationsCollection() {
 
 CollectionReference<Map<String, dynamic>> adminNotificationsCollection() {
   return FirebaseFirestore.instance.collection('admin_notifications');
+}
+
+Future<Map<String, dynamic>> patchJsonToUrl(
+  String url,
+  Map<String, Object?> body, {
+  Map<String, String> headers = const {},
+}) async {
+  final client = HttpClient();
+
+  try {
+    final request = await client.patchUrl(Uri.parse(url));
+    request.headers.set(HttpHeaders.contentTypeHeader, 'application/json');
+    request.headers.set(HttpHeaders.acceptHeader, 'application/json');
+    for (final entry in headers.entries) {
+      request.headers.set(entry.key, entry.value);
+    }
+    request.add(utf8.encode(jsonEncode(body)));
+
+    final response = await request.close();
+    final responseBody = await utf8.decodeStream(response);
+
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw Exception('Request failed ${response.statusCode}: $responseBody');
+    }
+
+    final decoded = jsonDecode(responseBody);
+
+    if (decoded is Map<String, dynamic>) {
+      return decoded;
+    }
+
+    throw Exception('Backend returned invalid JSON.');
+  } finally {
+    client.close(force: true);
+  }
+}
+
+CollectionReference<Map<String, dynamic>> userNotificationsCollection() {
+  return FirebaseFirestore.instance.collection('user_notifications');
+}
+
+CollectionReference<Map<String, dynamic>> projectNewsCollection() {
+  return FirebaseFirestore.instance.collection('project_news');
 }
 
 CollectionReference<Map<String, dynamic>> friendRequestsCollection() {
@@ -3388,7 +4979,7 @@ Future<void> sendChatMessage({
     return;
   }
 
-  await chatMessagesCollection(chatId).add({
+  final messageRef = await chatMessagesCollection(chatId).add({
     'senderUid': firebaseUser.uid,
     'senderUsername': currentUser.username,
     'text': cleanText,
@@ -3401,6 +4992,12 @@ Future<void> sendChatMessage({
     'lastSenderUsername': currentUser.username,
     'updatedAt': FieldValue.serverTimestamp(),
   }, SetOptions(merge: true));
+
+  await sendPushNotificationEvent({
+    'type': 'chat_message',
+    'chatId': chatId,
+    'messageId': messageRef.id,
+  });
 }
 
 Future<Position?> getChatSharePosition(BuildContext context) async {
@@ -4501,6 +6098,10 @@ Future<void> toggleSpotLike(
       'username': currentUser.username,
       'createdAt': FieldValue.serverTimestamp(),
     });
+    await sendPushNotificationEvent({
+      'type': 'spot_like',
+      'likeId': likeRef.id,
+    });
   }
 }
 
@@ -4601,7 +6202,7 @@ Future<void> saveSpotReview({
     );
   }
 
-  await spotReviewsCollection().add({
+  final reviewRef = await spotReviewsCollection().add({
     'spotId': spotId,
     'spotName': spot.name,
     'type': 'comment',
@@ -4610,6 +6211,11 @@ Future<void> saveSpotReview({
     'comment': cleanComment,
     'createdAt': FieldValue.serverTimestamp(),
     'updatedAt': FieldValue.serverTimestamp(),
+  });
+
+  await sendPushNotificationEvent({
+    'type': 'spot_comment',
+    'reviewId': reviewRef.id,
   });
 }
 
@@ -4956,6 +6562,16 @@ Future<void> updateSpotStatus(CarSpot spot, SpotStatus status) async {
   if (shouldNotifyOtherAdmins) {
     await createAdminSpotDecisionNotification(updatedSpot, status);
   }
+
+  if (statusChanged &&
+      spot.id.isNotEmpty &&
+      (status == SpotStatus.approved || status == SpotStatus.rejected)) {
+    await sendPushNotificationEvent({
+      'type': 'spot_decision',
+      'spotId': spot.id,
+      'status': spotStatusName(status),
+    });
+  }
 }
 
 Future<void> deleteSpotFromFirebase(CarSpot spot) async {
@@ -5209,6 +6825,517 @@ class CcsAppBarLogo extends StatelessWidget {
         fit: BoxFit.contain,
         alignment: Alignment.centerLeft,
         filterQuality: FilterQuality.high,
+      ),
+    );
+  }
+}
+
+class NotificationCenterItem {
+  final String id;
+  final String title;
+  final String body;
+  final String type;
+  final int createdAtMillis;
+  final bool read;
+  final DocumentReference<Map<String, dynamic>>? reference;
+  final bool projectNews;
+
+  const NotificationCenterItem({
+    required this.id,
+    required this.title,
+    required this.body,
+    required this.type,
+    required this.createdAtMillis,
+    required this.read,
+    this.reference,
+    this.projectNews = false,
+  });
+}
+
+IconData notificationCenterIcon(NotificationCenterItem item) {
+  if (item.projectNews) {
+    return Icons.campaign;
+  }
+
+  return switch (item.type) {
+    'spot_like' => Icons.favorite,
+    'spot_comment' => Icons.chat_bubble,
+    'chat_message' => Icons.mark_chat_unread,
+    'spot_review_update' => Icons.verified,
+    'new_spot' => Icons.add_location_alt,
+    'friend_nearby' || 'friend_at_spot' => Icons.location_on,
+    'spot_pending_review' => Icons.fact_check,
+    _ => Icons.notifications,
+  };
+}
+
+Color notificationCenterColor(NotificationCenterItem item) {
+  if (item.projectNews) {
+    return const Color(0xFFFFB300);
+  }
+
+  return switch (item.type) {
+    'spot_like' => Colors.redAccent,
+    'spot_comment' || 'chat_message' => blue,
+    'spot_review_update' => Colors.green,
+    'new_spot' => const Color(0xFF9B35FF),
+    'friend_nearby' || 'friend_at_spot' => Colors.greenAccent.shade700,
+    _ => blue,
+  };
+}
+
+String notificationCenterTime(int createdAtMillis) {
+  if (createdAtMillis <= 0) {
+    return '';
+  }
+
+  final time = DateTime.fromMillisecondsSinceEpoch(createdAtMillis);
+  final now = DateTime.now();
+  final difference = now.difference(time);
+
+  if (difference.inMinutes < 1) {
+    return trText('Just now');
+  }
+
+  if (difference.inHours < 1) {
+    return '${difference.inMinutes} min';
+  }
+
+  if (difference.inDays < 1) {
+    return '${difference.inHours} h';
+  }
+
+  final day = time.day.toString().padLeft(2, '0');
+  final month = time.month.toString().padLeft(2, '0');
+  return '$day.$month.${time.year}';
+}
+
+NotificationCenterItem notificationCenterItemFromJson(Object? value) {
+  final data = mapFromFirebase(value);
+  return NotificationCenterItem(
+    id: stringFromFirebase(data['id'], ''),
+    title: stringFromFirebase(data['title'], 'CCS'),
+    body: stringFromFirebase(data['body'], ''),
+    type: stringFromFirebase(data['type'], 'notification'),
+    createdAtMillis: data['createdAtMillis'] is num
+        ? (data['createdAtMillis'] as num).toInt()
+        : 0,
+    read: data['read'] == true,
+    projectNews: data['projectNews'] == true,
+  );
+}
+
+NotificationCenterItem notificationCenterItemFromDocument(
+  DocumentSnapshot<Map<String, dynamic>> doc, {
+  bool projectNews = false,
+}) {
+  final data = doc.data() ?? {};
+  final type = stringFromFirebase(
+    data['type'],
+    projectNews ? 'project_news' : 'notification',
+  );
+  final spotName = stringFromFirebase(data['spotName'], '');
+  final status = stringFromFirebase(data['status'], '');
+  final reviewedBy = stringFromFirebase(data['reviewedBy'], '');
+  final friendUsername = stringFromFirebase(data['friendUsername'], '');
+  final title = stringFromFirebase(
+    data['title'],
+    switch (type) {
+      'spot_pending_review' => 'Spot review updates',
+      'spot_approved_by_admin' || 'spot_rejected_by_admin' =>
+        'Spot review updates',
+      'friend_nearby' || 'friend_at_spot' => 'Live location',
+      'project_news' => 'Project news',
+      _ => 'CCS',
+    },
+  );
+  var body = stringFromFirebase(data['body'], '');
+
+  if (body.trim().isEmpty) {
+    body = switch (type) {
+      'spot_pending_review' => spotName.trim().isEmpty
+          ? 'New spot is waiting for review.'
+          : '$spotName is waiting for review.',
+      'spot_approved_by_admin' => spotName.trim().isEmpty
+          ? 'Spot approved.'
+          : '$spotName approved${reviewedBy.trim().isEmpty ? '' : ' by $reviewedBy'}.',
+      'spot_rejected_by_admin' => spotName.trim().isEmpty
+          ? 'Spot rejected.'
+          : '$spotName rejected${reviewedBy.trim().isEmpty ? '' : ' by $reviewedBy'}.',
+      'friend_nearby' => friendUsername.trim().isEmpty
+          ? 'A friend is nearby.'
+          : '@$friendUsername is nearby.',
+      'friend_at_spot' => friendUsername.trim().isEmpty
+          ? 'A friend is at a spot.'
+          : '@$friendUsername is at ${spotName.trim().isEmpty ? 'a spot' : spotName}.',
+      _ => stringFromFirebase(data['message'], ''),
+    };
+  }
+
+  return NotificationCenterItem(
+    id: doc.id,
+    title: title,
+    body: body,
+    type: type,
+    createdAtMillis: timestampMillisFromFirebase(data['createdAt']),
+    read: data['read'] == true,
+    reference: projectNews ? null : doc.reference,
+    projectNews: projectNews,
+  );
+}
+
+Future<Map<String, String>?> firebaseNotificationHeaders() async {
+  final firebaseUser = FirebaseAuth.instance.currentUser;
+
+  if (firebaseUser == null) {
+    return null;
+  }
+
+  final token = await firebaseUser.getIdToken();
+  if (token == null || token.trim().isEmpty) {
+    return null;
+  }
+
+  return {HttpHeaders.authorizationHeader: 'Bearer $token'};
+}
+
+Future<List<NotificationCenterItem>> loadNotificationCenterItems() async {
+  final firebaseUser = FirebaseAuth.instance.currentUser;
+  final items = <NotificationCenterItem>[];
+
+  if (firebaseUser == null) {
+    notificationCenterUnreadCount.value = 0;
+    return const [];
+  }
+
+  try {
+    final snapshots = await Future.wait([
+      userNotificationsCollection()
+          .where('userId', isEqualTo: firebaseUser.uid)
+          .limit(50)
+          .get(),
+      adminNotificationsCollection()
+          .where('userId', isEqualTo: firebaseUser.uid)
+          .limit(50)
+          .get(),
+      friendLocationNotificationsCollection()
+          .where('userId', isEqualTo: firebaseUser.uid)
+          .limit(50)
+          .get(),
+      projectNewsCollection().limit(20).get(),
+    ]);
+
+    for (final doc in snapshots[0].docs) {
+      items.add(notificationCenterItemFromDocument(doc));
+    }
+    for (final doc in snapshots[1].docs) {
+      items.add(notificationCenterItemFromDocument(doc));
+    }
+    for (final doc in snapshots[2].docs) {
+      items.add(notificationCenterItemFromDocument(doc));
+    }
+    for (final doc in snapshots[3].docs) {
+      items.add(notificationCenterItemFromDocument(doc, projectNews: true));
+    }
+  } catch (_) {
+    // The notification center stays usable with its project-news placeholder.
+  }
+
+  if (!items.any((item) => item.projectNews)) {
+    items.addAll(
+      const [
+        NotificationCenterItem(
+          id: 'project_news_ready',
+          title: 'Project news',
+          body: 'CCS notification center is ready.',
+          type: 'project_news',
+          createdAtMillis: 0,
+          read: true,
+          projectNews: true,
+        ),
+      ],
+    );
+  }
+
+  items.sort((first, second) {
+    if (first.createdAtMillis == second.createdAtMillis) {
+      return first.projectNews ? 1 : -1;
+    }
+
+    return second.createdAtMillis.compareTo(first.createdAtMillis);
+  });
+
+  notificationCenterUnreadCount.value = items
+      .where((item) => !item.read)
+      .length;
+  return items.take(80).toList();
+}
+
+Future<void> markNotificationCenterItemsRead(
+  Iterable<NotificationCenterItem> items,
+) async {
+  final unreadItems = items
+      .where((item) => !item.read && item.reference != null)
+      .toList();
+
+  if (unreadItems.isEmpty) {
+    return;
+  }
+
+  try {
+    final batch = FirebaseFirestore.instance.batch();
+
+    for (final item in unreadItems) {
+      final reference = item.reference;
+      if (reference == null) {
+        continue;
+      }
+      batch.set(reference, {
+        'read': true,
+        'readAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    }
+
+    await batch.commit();
+    notificationCenterUnreadCount.value = 0;
+  } catch (_) {
+    // Marking history as read is best-effort.
+  }
+}
+
+Future<void> refreshNotificationCenterUnreadCount() async {
+  await loadNotificationCenterItems();
+}
+
+class CcsLanguageSelector extends StatelessWidget {
+  const CcsLanguageSelector({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: appUiPreferences,
+      builder: (context, _) {
+        return PopupMenuButton<AppLanguage>(
+          tooltip: trText('Language'),
+          onSelected: (language) {
+            unawaited(appUiPreferences.setLanguage(language));
+          },
+          itemBuilder: (context) => [
+            for (final language in AppLanguage.values)
+              PopupMenuItem<AppLanguage>(
+                value: language,
+                child: Row(
+                  children: [
+                    Icon(
+                      appUiPreferences.language == language
+                          ? Icons.radio_button_checked
+                          : Icons.radio_button_unchecked,
+                      color: blue,
+                      size: 18,
+                    ),
+                    const SizedBox(width: 10),
+                    Text(language.name.toUpperCase()),
+                  ],
+                ),
+              ),
+          ],
+          child: Container(
+            width: 42,
+            height: 34,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: blue.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: blue.withValues(alpha: 0.52)),
+            ),
+            child: Text(
+              appUiPreferences.language.name.toUpperCase(),
+              style: const TextStyle(
+                color: blue,
+                fontSize: 11,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class CcsNotificationBell extends StatelessWidget {
+  const CcsNotificationBell({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return IconButton(
+      tooltip: trText('Notifications'),
+      onPressed: () {
+        Navigator.push(
+          context,
+          appPageRoute(builder: (_) => const NotificationCenterScreen()),
+        );
+      },
+      icon: ValueListenableBuilder<int>(
+        valueListenable: notificationCenterUnreadCount,
+        builder: (context, unreadCount, _) {
+          return Badge(
+            isLabelVisible: unreadCount > 0,
+            label: Text(unreadCount > 9 ? '9+' : '$unreadCount'),
+            child: const Icon(Icons.notifications_none),
+          );
+        },
+      ),
+    );
+  }
+}
+
+List<Widget> ccsAppBarActions() {
+  return const [
+    CcsLanguageSelector(),
+    SizedBox(width: 6),
+    CcsNotificationBell(),
+    SizedBox(width: 4),
+  ];
+}
+
+class NotificationCenterScreen extends StatefulWidget {
+  const NotificationCenterScreen({super.key});
+
+  @override
+  State<NotificationCenterScreen> createState() =>
+      _NotificationCenterScreenState();
+}
+
+class _NotificationCenterScreenState extends State<NotificationCenterScreen> {
+  late Future<List<NotificationCenterItem>> itemsFuture;
+  bool markedRead = false;
+
+  @override
+  void initState() {
+    super.initState();
+    itemsFuture = loadNotificationCenterItems();
+  }
+
+  void refresh() {
+    setState(() {
+      markedRead = false;
+      itemsFuture = loadNotificationCenterItems();
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.transparent,
+      appBar: AppBar(
+        title: const Text('Notifications'),
+        backgroundColor: Colors.transparent,
+        foregroundColor: blue,
+        actions: [
+          IconButton(
+            tooltip: trText('Refresh'),
+            onPressed: refresh,
+            icon: const Icon(Icons.refresh),
+          ),
+        ],
+      ),
+      body: FutureBuilder<List<NotificationCenterItem>>(
+        future: itemsFuture,
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator());
+          }
+
+          final items = snapshot.data ?? const <NotificationCenterItem>[];
+          if (!markedRead) {
+            markedRead = true;
+            unawaited(markNotificationCenterItemsRead(items));
+          }
+
+          if (items.isEmpty) {
+            return const EmptyStateCard(
+              icon: Icons.notifications_none,
+              title: 'No notifications yet',
+              text: 'Your latest CCS updates will appear here.',
+            );
+          }
+
+          return ListView.separated(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
+            itemCount: items.length,
+            separatorBuilder: (_, _) => const SizedBox(height: 10),
+            itemBuilder: (context, index) {
+              final item = items[index];
+              final color = notificationCenterColor(item);
+
+              return Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: panelGlass,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(
+                    color: item.read
+                        ? Colors.white12
+                        : color.withValues(alpha: 0.7),
+                  ),
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      width: 42,
+                      height: 42,
+                      decoration: BoxDecoration(
+                        color: color.withValues(alpha: 0.16),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Icon(notificationCenterIcon(item), color: color),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            item.title,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                          if (item.body.trim().isNotEmpty) ...[
+                            const SizedBox(height: 4),
+                            Text(
+                              item.body,
+                              style: const TextStyle(
+                                color: Colors.white60,
+                                height: 1.3,
+                              ),
+                            ),
+                          ],
+                          if (notificationCenterTime(
+                            item.createdAtMillis,
+                          ).isNotEmpty) ...[
+                            const SizedBox(height: 7),
+                            Text(
+                              notificationCenterTime(item.createdAtMillis),
+                              style: const TextStyle(
+                                color: Colors.white38,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            },
+          );
+        },
       ),
     );
   }
@@ -5593,6 +7720,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     mapFocusRequest.addListener(handleMapFocusRequest);
+    unawaited(initializePushNotificationsForCurrentUser());
     updateCurrentUserOnlinePresence(isOnline: true);
     onlinePresenceRefreshTimer = Timer.periodic(const Duration(seconds: 20), (
       _,
@@ -5848,37 +7976,45 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.transparent,
-      extendBody: false,
-      body: IndexedStack(index: index, children: screens),
-      bottomNavigationBar: BottomNavigationBar(
-        currentIndex: index,
-        onTap: (value) => setState(() => index = value),
-        selectedItemColor: blue,
-        unselectedItemColor: Colors.white54,
-        backgroundColor: panelGlass,
-        type: BottomNavigationBarType.fixed,
-        items: const [
+    return AnimatedBuilder(
+      animation: appUiPreferences,
+      builder: (context, _) {
+        return Scaffold(
+          backgroundColor: Colors.transparent,
+          extendBody: false,
+          body: IndexedStack(index: index, children: screens),
+          bottomNavigationBar: BottomNavigationBar(
+            currentIndex: index,
+            onTap: (value) => setState(() => index = value),
+            selectedItemColor: blue,
+            unselectedItemColor: Colors.white54,
+            backgroundColor: panelGlass,
+            type: BottomNavigationBarType.fixed,
+            items: [
           BottomNavigationBarItem(
-            icon: Icon(Icons.location_on),
-            label: 'Spots',
-          ),
-          BottomNavigationBarItem(icon: Icon(Icons.map), label: 'Map'),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.add_circle_outline),
-            label: 'Add Spot',
+            icon: const Icon(Icons.location_on),
+            label: trText('Spots'),
           ),
           BottomNavigationBarItem(
-            icon: Icon(Icons.chat_bubble_outline),
-            label: 'Chat',
+            icon: const Icon(Icons.map),
+            label: trText('Map'),
           ),
           BottomNavigationBarItem(
-            icon: Icon(Icons.person_outline),
-            label: 'Profile',
+            icon: const Icon(Icons.add_circle_outline),
+            label: trText('Add Spot Nav'),
           ),
-        ],
-      ),
+          BottomNavigationBarItem(
+            icon: const Icon(Icons.chat_bubble_outline),
+            label: trText('Chat'),
+          ),
+          BottomNavigationBarItem(
+            icon: const Icon(Icons.person_outline),
+            label: trText('Profile'),
+          ),
+            ],
+          ),
+        );
+      },
     );
   }
 }
@@ -5908,6 +8044,7 @@ class ExploreScreen extends StatefulWidget {
 class _ExploreScreenState extends State<ExploreScreen> {
   ExploreSortMode selectedMode = ExploreSortMode.popular;
   bool showSavedOnly = false;
+  final Set<String> expandedCategories = {};
 
   @override
   void initState() {
@@ -5933,6 +8070,14 @@ class _ExploreScreenState extends State<ExploreScreen> {
     if (mounted) {
       setState(() {});
     }
+  }
+
+  void toggleCategoryExpansion(String category) {
+    setState(() {
+      if (!expandedCategories.add(category)) {
+        expandedCategories.remove(category);
+      }
+    });
   }
 
   List<CarSpot> sortedSpots(List<CarSpot> spots) {
@@ -6306,6 +8451,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
             title: const CcsAppBarLogo(),
             backgroundColor: Colors.transparent,
             foregroundColor: blue,
+            actions: ccsAppBarActions(),
           ),
           body: ListView(
             padding: const EdgeInsets.fromLTRB(20, 18, 20, 28),
@@ -6391,10 +8537,42 @@ class _ExploreScreenState extends State<ExploreScreen> {
                   count: entry.value.length,
                 ),
                 const SizedBox(height: 10),
-                for (final spot in entry.value) ...[
+                for (final spot
+                    in (expandedCategories.contains(entry.key)
+                        ? entry.value
+                        : entry.value.take(2))) ...[
                   ExploreSpotCard(spot: spot),
                   const SizedBox(height: 14),
                 ],
+                if (entry.value.length > 2)
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: () => toggleCategoryExpansion(entry.key),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: spotColorForCategory(entry.key),
+                        side: BorderSide(
+                          color: spotColorForCategory(
+                            entry.key,
+                          ).withValues(alpha: 0.55),
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                      ),
+                      icon: Icon(
+                        expandedCategories.contains(entry.key)
+                            ? Icons.expand_less
+                            : Icons.expand_more,
+                      ),
+                      label: Text(
+                        expandedCategories.contains(entry.key)
+                            ? 'Show less'
+                            : 'Show ${entry.value.length - 2} more',
+                        style: const TextStyle(fontWeight: FontWeight.w800),
+                      ),
+                    ),
+                  ),
                 const SizedBox(height: 6),
               ],
             ],
@@ -6813,35 +8991,18 @@ class ExploreSpotCard extends StatelessWidget {
                           ),
                           const SizedBox(width: 4),
                           Expanded(
-                            child: spot.addedByUid.trim().isEmpty
-                                ? Text(
-                                    addedByText,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(
-                                      color: Colors.white38,
-                                      fontSize: 11,
-                                      fontWeight: FontWeight.w700,
-                                    ),
-                                  )
-                                : InkWell(
-                                    onTap: () => openUserProfile(
-                                      context,
-                                      uid: spot.addedByUid,
-                                      fallbackUsername: spot.addedBy,
-                                    ),
-                                    borderRadius: BorderRadius.circular(999),
-                                    child: Text(
-                                      'Added by ${displayUsername(spot.addedBy)}',
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: const TextStyle(
-                                        color: blue,
-                                        fontSize: 11,
-                                        fontWeight: FontWeight.w800,
-                                      ),
-                                    ),
-                                  ),
+                            child: Text(
+                              spot.addedByUid.trim().isEmpty
+                                  ? addedByText
+                                  : 'Added by ${displayUsername(spot.addedBy)}',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: Colors.white38,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
                           ),
                         ],
                       ),
@@ -7205,7 +9366,7 @@ class _SpotCommentComposerSheetState extends State<_SpotCommentComposerSheet> {
               textInputAction: TextInputAction.newline,
               style: const TextStyle(color: Colors.white),
               decoration: InputDecoration(
-                hintText: 'Write a comment',
+                hintText: trText('Write a comment'),
                 hintStyle: const TextStyle(color: Colors.white38),
                 filled: true,
                 fillColor: Colors.white.withValues(alpha: 0.06),
@@ -9849,31 +12010,39 @@ class _MapHeader extends StatelessWidget {
         borderRadius: BorderRadius.circular(22),
         border: Border.all(color: Colors.white12),
       ),
-      child: Row(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          Container(
-            width: 42,
-            height: 42,
-            decoration: BoxDecoration(
-              color: blue.withValues(alpha: 0.18),
-              borderRadius: BorderRadius.circular(14),
-            ),
-            child: const Icon(Icons.map, color: blue),
-          ),
-          const SizedBox(width: 12),
-          const Expanded(
-            child: Text(
-              'Approved spots',
-              style: TextStyle(
-                color: Colors.white70,
-                fontSize: 13,
-                fontWeight: FontWeight.w700,
+          Row(
+            children: [
+              Container(
+                width: 42,
+                height: 42,
+                decoration: BoxDecoration(
+                  color: blue.withValues(alpha: 0.18),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: const Icon(Icons.map, color: blue),
               ),
-            ),
+              const SizedBox(width: 12),
+              const Expanded(
+                child: Text(
+                  'Approved spots',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: Colors.white70,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ],
           ),
-          const SizedBox(width: 10),
+          const SizedBox(height: 10),
           Container(
-            padding: const EdgeInsets.only(left: 10),
+            width: double.infinity,
+            padding: const EdgeInsets.only(left: 12),
             decoration: BoxDecoration(
               color: isSharingLiveLocation
                   ? blue.withValues(alpha: 0.18)
@@ -9884,14 +12053,17 @@ class _MapHeader extends StatelessWidget {
               ),
             ),
             child: Row(
-              mainAxisSize: MainAxisSize.min,
               children: [
-                const Text(
-                  'Share live location',
-                  style: TextStyle(
-                    color: Colors.white70,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w800,
+                const Expanded(
+                  child: Text(
+                    'Share live location',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: Colors.white70,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w800,
+                    ),
                   ),
                 ),
                 Transform.scale(
@@ -10312,7 +12484,7 @@ class LiveLocationMapCard extends StatelessWidget {
                       label: isFriend ? 'Friend' : 'Driver',
                       icon: isFriend ? Icons.people : Icons.person,
                     ),
-                    const _SmallTag(label: 'Live now', icon: Icons.my_location),
+                    _SmallTag(label: location.isExpired ? 'offline' : 'online', icon: Icons.my_location),
                     if (location.shareScope.trim().isNotEmpty)
                       _SmallTag(
                         label: location.shareScope == 'group'
@@ -12161,7 +14333,7 @@ class _SpotReviewsSectionState extends State<SpotReviewsSection> {
                     maxLines: 4,
                     style: const TextStyle(color: Colors.white),
                     decoration: InputDecoration(
-                      hintText: 'Write a comment about this spot',
+                      hintText: trText('Write a comment about this spot'),
                       hintStyle: const TextStyle(color: Colors.white38),
                       filled: true,
                       fillColor: Colors.white.withValues(alpha: 0.06),
@@ -12257,7 +14429,7 @@ class SpotReviewCard extends StatelessWidget {
                     maxLines: 5,
                     style: const TextStyle(color: Colors.white),
                     decoration: InputDecoration(
-                      hintText: 'Edit your comment',
+                      hintText: trText('Edit your comment'),
                       hintStyle: const TextStyle(color: Colors.white38),
                       filled: true,
                       fillColor: Colors.white.withValues(alpha: 0.06),
@@ -12633,7 +14805,7 @@ class _SpotCategoryDropdown extends StatelessWidget {
       dropdownColor: panel,
       iconEnabledColor: blue,
       decoration: InputDecoration(
-        labelText: 'Category',
+        labelText: trText('Category'),
         labelStyle: const TextStyle(
           color: Colors.white70,
           fontWeight: FontWeight.w700,
@@ -12791,7 +14963,7 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
             textInputAction: TextInputAction.search,
             style: const TextStyle(color: Colors.white),
             decoration: InputDecoration(
-              hintText: 'Street, city, country',
+              hintText: trText('Street, city, country'),
               hintStyle: const TextStyle(color: Colors.white38),
               prefixIcon: const Icon(Icons.search, color: blue),
               filled: true,
@@ -13421,6 +15593,13 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
       );
       await spotRef.set(spotToFirestoreData(newSpot, includeCreatedAt: true));
 
+      if (isAdminCreatedSpot) {
+        await sendPushNotificationEvent({
+          'type': 'new_spot',
+          'spotId': spotRef.id,
+        });
+      }
+
       if (isAdminCreatedSpot && newSpot.categories.contains('Meet')) {
         await createMeetSpotNotificationsForNearbyUsers(newSpot);
       }
@@ -13497,6 +15676,7 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
         title: const CcsAppBarLogo(),
         backgroundColor: Colors.transparent,
         foregroundColor: blue,
+        actions: ccsAppBarActions(),
       ),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(20, 18, 20, 28),
@@ -14117,9 +16297,6 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
           Icons.location_on,
           color: blue,
           size: 56,
-          shadows: [
-            Shadow(color: Colors.black87, blurRadius: 12, offset: Offset(0, 3)),
-          ],
         ),
       ),
     ];
@@ -14321,6 +16498,8 @@ class _LocationPickerField extends StatelessWidget {
                         (hasLocation
                             ? 'Spot location selected on map'
                             : 'Choose the spot on map'),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
                     style: const TextStyle(color: Colors.white54),
                   ),
                 ],
@@ -14569,18 +16748,18 @@ class _CcsTextField extends StatelessWidget {
           ? TextInputAction.newline
           : TextInputAction.done,
       readOnly: readOnly,
-      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+      style: TextStyle(color: appPrimaryText, fontWeight: FontWeight.w600),
       decoration: InputDecoration(
-        labelText: label,
-        hintText: hint,
+        labelText: trText(label),
+        hintText: trText(hint),
         prefixIcon: Icon(icon, color: blue),
-        labelStyle: const TextStyle(color: Colors.white60),
-        hintStyle: const TextStyle(color: Colors.white24),
+        labelStyle: TextStyle(color: appSecondaryText),
+        hintStyle: TextStyle(color: appSubtleText),
         filled: true,
-        fillColor: Colors.white.withValues(alpha: 0.06),
+        fillColor: appSurfaceOverlay,
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(16),
-          borderSide: const BorderSide(color: Colors.white12),
+          borderSide: BorderSide(color: appOutline),
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(16),
@@ -14712,12 +16891,12 @@ class _SpotOwnerSelectorState extends State<SpotOwnerSelector> {
         searchText = value;
         isPicking = true;
       }),
-      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+      style: TextStyle(color: appPrimaryText, fontWeight: FontWeight.w700),
       decoration: InputDecoration(
-        labelText: 'Spot owner',
+        labelText: trText('Spot owner'),
         hintText: widget.selectedOwner == null
-            ? 'Search nickname, name, or email'
-            : 'Search to change owner',
+            ? trText('Search nickname, name, or email')
+            : trText('Search to change owner'),
         prefixIcon: const Icon(Icons.manage_accounts, color: blue),
         suffixIcon: searchText.trim().isNotEmpty
             ? IconButton(
@@ -14728,8 +16907,8 @@ class _SpotOwnerSelectorState extends State<SpotOwnerSelector> {
                 },
               )
             : null,
-        labelStyle: const TextStyle(color: Colors.white60),
-        hintStyle: const TextStyle(color: Colors.white24),
+        labelStyle: TextStyle(color: appSecondaryText),
+        hintStyle: TextStyle(color: appSubtleText),
         filled: true,
         fillColor: Colors.white.withValues(alpha: 0.06),
         enabledBorder: OutlineInputBorder(
@@ -15388,6 +17567,7 @@ class SavedScreen extends StatelessWidget {
         title: const CcsAppBarLogo(),
         backgroundColor: Colors.transparent,
         foregroundColor: blue,
+        actions: ccsAppBarActions(),
       ),
       body: ValueListenableBuilder<List<CarSpot>>(
         valueListenable: savedSpots,
@@ -15623,6 +17803,7 @@ class _ChatScreenState extends State<ChatScreen> {
         title: const CcsAppBarLogo(),
         backgroundColor: Colors.transparent,
         foregroundColor: blue,
+        actions: ccsAppBarActions(),
       ),
       floatingActionButton: firebaseUser == null
           ? null
@@ -17463,7 +19644,7 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
             textInputAction: TextInputAction.newline,
             style: const TextStyle(color: Colors.white),
             decoration: InputDecoration(
-              hintText: 'Message',
+              hintText: trText('Message'),
               hintStyle: const TextStyle(color: Colors.white38),
               filled: true,
               fillColor: Colors.white.withValues(alpha: 0.06),
@@ -17883,9 +20064,9 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
             top: false,
             child: Container(
               padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
-              decoration: const BoxDecoration(
+              decoration: BoxDecoration(
                 color: panelGlass,
-                border: Border(top: BorderSide(color: Colors.white12)),
+                border: const Border(top: BorderSide(color: Colors.white12)),
               ),
               child: Row(
                 children: [
@@ -17909,7 +20090,7 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
                       textInputAction: TextInputAction.newline,
                       style: const TextStyle(color: Colors.white),
                       decoration: InputDecoration(
-                        hintText: 'Message',
+                        hintText: trText('Message'),
                         hintStyle: const TextStyle(color: Colors.white38),
                         filled: true,
                         fillColor: Colors.white.withValues(alpha: 0.06),
@@ -18664,6 +20845,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         title: const CcsAppBarLogo(),
         backgroundColor: Colors.transparent,
         foregroundColor: blue,
+        actions: ccsAppBarActions(),
       ),
       body: ValueListenableBuilder<List<CarSpot>>(
         valueListenable: submittedSpots,
@@ -19752,8 +21934,8 @@ class _FriendsScreenState extends State<FriendsScreen> {
             fontWeight: FontWeight.w700,
           ),
           decoration: InputDecoration(
-            labelText: 'Search users',
-            hintText: 'nickname or name',
+            labelText: trText('Search users'),
+            hintText: trText('nickname or name'),
             prefixIcon: const Icon(Icons.search, color: blue),
             labelStyle: const TextStyle(color: Colors.white60),
             hintStyle: const TextStyle(color: Colors.white24),
@@ -19900,17 +22082,17 @@ class _FriendsScreenState extends State<FriendsScreen> {
           title: const Text('Friends'),
           backgroundColor: Colors.transparent,
           foregroundColor: blue,
-          bottom: const TabBar(
+          bottom: TabBar(
             indicatorColor: blue,
             labelColor: Colors.white,
             unselectedLabelColor: Colors.white54,
             tabs: [
-              Tab(icon: Icon(Icons.group), text: 'Friends'),
+              Tab(icon: const Icon(Icons.group), text: trText('Friends')),
               Tab(
-                icon: Icon(Icons.mark_email_unread_outlined),
-                text: 'Requests',
+                icon: const Icon(Icons.mark_email_unread_outlined),
+                text: trText('Requests'),
               ),
-              Tab(icon: Icon(Icons.person_search), text: 'Find'),
+              Tab(icon: const Icon(Icons.person_search), text: trText('Find')),
             ],
           ),
         ),
@@ -21467,11 +23649,7 @@ class _EditGarageScreenState extends State<EditGarageScreen> {
     super.initState();
     final car = widget.car;
     nameController = TextEditingController(text: car?.name ?? 'BMW E46 Coupe');
-    descriptionController = TextEditingController(
-      text:
-          car?.description ??
-          'Short description about your car, setup, and what content you shoot.',
-    );
+    descriptionController = TextEditingController(text: car?.description ?? '');
     photoPaths = [
       ...(car?.galleryPhotos ?? const <String>[]),
     ].take(maxGaragePhotos).toList();
@@ -21785,7 +23963,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
   late bool newSpotNotifications;
   late bool newMessageNotifications;
   late bool publicProfile;
-  late bool showSavedSpots;
   late bool showGarage;
 
   @override
@@ -21801,7 +23978,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     newSpotNotifications = settings.newSpotNotifications;
     newMessageNotifications = settings.newMessageNotifications;
     publicProfile = settings.publicProfile;
-    showSavedSpots = settings.showSavedSpots;
     showGarage = settings.showGarage;
   }
 
@@ -21824,7 +24000,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
       newSpotNotifications: newSpotNotifications,
       newMessageNotifications: newMessageNotifications,
       publicProfile: publicProfile,
-      showSavedSpots: showSavedSpots,
       showGarage: showGarage,
     );
 
@@ -21932,13 +24107,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 onChanged: (value) => setState(() => publicProfile = value),
               ),
               _SettingsSwitchTile(
-                icon: Icons.bookmark,
-                title: 'Show saved spots',
-                subtitle: 'Display saved spots on your public profile later',
-                value: showSavedSpots,
-                onChanged: (value) => setState(() => showSavedSpots = value),
-              ),
-              _SettingsSwitchTile(
                 icon: Icons.directions_car,
                 title: 'Show garage',
                 subtitle: 'Display your car builds on your profile',
@@ -21947,6 +24115,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
             ],
           ),
+
           const SizedBox(height: 22),
           SizedBox(
             height: 54,
@@ -21988,9 +24157,9 @@ class _SettingsSwitchTile extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.06),
+        color: appSurfaceOverlay,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.white12),
+        border: Border.all(color: appOutline),
       ),
       child: SwitchListTile(
         value: value,
@@ -21999,12 +24168,12 @@ class _SettingsSwitchTile extends StatelessWidget {
         secondary: Icon(icon, color: blue),
         title: Text(
           title,
-          style: const TextStyle(
-            color: Colors.white,
+          style: TextStyle(
+            color: appPrimaryText,
             fontWeight: FontWeight.w800,
           ),
         ),
-        subtitle: Text(subtitle, style: const TextStyle(color: Colors.white54)),
+        subtitle: Text(subtitle, style: TextStyle(color: appSecondaryText)),
       ),
     );
   }
@@ -22485,8 +24654,8 @@ class AdminUsersScreen extends StatelessWidget {
           likeNotifications: false,
           commentNotifications: false,
           newSpotNotifications: false,
+          newMessageNotifications: false,
           publicProfile: false,
-          showSavedSpots: false,
           showGarage: false,
         ).toFirebase(),
         'deletedByUid': currentUser.uid,
@@ -24351,6 +26520,7 @@ class AppPage extends StatelessWidget {
         title: const CcsAppBarLogo(),
         backgroundColor: Colors.transparent,
         foregroundColor: blue,
+        actions: ccsAppBarActions(),
       ),
       body: Center(
         child: Padding(
