@@ -233,7 +233,6 @@ const liveLocationBackgroundChannel = MethodChannel(
 const spotCategoryFiltersKey = 'spot_category_filters';
 
 const spotCategoryOptions = [
-  'Stance',
   'Drift',
   'Photo',
   'Meet',
@@ -368,7 +367,6 @@ String clockTextFromTimeOfDay(TimeOfDay value) {
 }
 
 const spotCategoryIconAssets = {
-  'Stance': 'assets/spot_icons/stance.png',
   'Drift': 'assets/spot_icons/drift.png',
   'Photo': 'assets/spot_icons/photo.png',
   'Meet': 'assets/spot_icons/meet.png',
@@ -383,7 +381,6 @@ const spotCategoryIconAssets = {
 };
 
 const spotCategoryColors = {
-  'Stance': Color(0xFFFF1B72),
   'Drift': Color(0xFFFF7A00),
   'Photo': Color(0xFF9B35FF),
   'Meet': Color(0xFF8AE600),
@@ -5989,25 +5986,82 @@ class _ExploreScreenState extends State<ExploreScreen> {
     }).toList();
   }
 
-  List<CarSpot> todayTemporarySpots() {
-    final todaySpots = approvedPublicSpots()
-        .where((spot) => spot.isTemporaryMapVisibleNow)
-        .toList();
+  Map<String, List<CarSpot>> upcomingTemporarySpotGroups() {
+    final now = DateTime.now();
+    final todayStart = DateTime(now.year, now.month, now.day);
+    final tomorrowStart = todayStart.add(const Duration(days: 1));
+    final dayAfterTomorrowStart = todayStart.add(const Duration(days: 2));
+    final thisWeekEnd = todayStart.add(
+      Duration(days: DateTime.sunday - now.weekday + 1),
+    );
+    final nextWeekStart = thisWeekEnd;
+    final nextWeekEnd = nextWeekStart.add(const Duration(days: 7));
+    final thisMonthEnd = DateTime(now.year, now.month + 1, 1);
+    final nextMonthEnd = DateTime(now.year, now.month + 2, 1);
 
-    todaySpots.sort((a, b) {
-      final aActive = a.isTemporaryActiveNow;
-      final bActive = b.isTemporaryActiveNow;
+    final groups = <String, List<CarSpot>>{
+      'Today': [],
+      'Tomorrow': [],
+      'This week': [],
+      'Next week': [],
+      'This month': [],
+      'Next month': [],
+    };
 
-      if (aActive != bActive) {
-        return aActive ? -1 : 1;
+    for (final spot in approvedPublicSpots()) {
+      if (!spot.hasTemporaryWindow || spot.isExpired) {
+        continue;
       }
 
-      final aStartsAt = a.startsAtMillis ?? 0;
-      final bStartsAt = b.startsAtMillis ?? 0;
-      return aStartsAt.compareTo(bStartsAt);
-    });
+      final startsAt = DateTime.fromMillisecondsSinceEpoch(
+        spot.startsAtMillis!,
+      );
+      final expiresAt = DateTime.fromMillisecondsSinceEpoch(
+        spot.expiresAtMillis!,
+      );
+      final startsToday = isSameLocalDate(now, startsAt);
+      final startsTomorrow =
+          !startsAt.isBefore(tomorrowStart) &&
+          startsAt.isBefore(dayAfterTomorrowStart);
 
-    return todaySpots;
+      if (spot.isTemporaryActiveNow || startsToday) {
+        groups['Today']!.add(spot);
+      } else if (startsTomorrow) {
+        groups['Tomorrow']!.add(spot);
+      } else if (!startsAt.isBefore(dayAfterTomorrowStart) &&
+          startsAt.isBefore(thisWeekEnd)) {
+        groups['This week']!.add(spot);
+      } else if (!startsAt.isBefore(nextWeekStart) &&
+          startsAt.isBefore(nextWeekEnd)) {
+        groups['Next week']!.add(spot);
+      } else if (!startsAt.isBefore(nextWeekEnd) &&
+          startsAt.isBefore(thisMonthEnd)) {
+        groups['This month']!.add(spot);
+      } else if (!startsAt.isBefore(thisMonthEnd) &&
+          startsAt.isBefore(nextMonthEnd)) {
+        groups['Next month']!.add(spot);
+      } else if (expiresAt.isAfter(now) && startsAt.isBefore(tomorrowStart)) {
+        groups['Today']!.add(spot);
+      }
+    }
+
+    for (final spots in groups.values) {
+      spots.sort((a, b) {
+        final aActive = a.isTemporaryActiveNow;
+        final bActive = b.isTemporaryActiveNow;
+
+        if (aActive != bActive) {
+          return aActive ? -1 : 1;
+        }
+
+        final aStartsAt = a.startsAtMillis ?? 0;
+        final bStartsAt = b.startsAtMillis ?? 0;
+        return aStartsAt.compareTo(bStartsAt);
+      });
+    }
+
+    groups.removeWhere((_, spots) => spots.isEmpty);
+    return groups;
   }
 
   Map<String, List<CarSpot>> groupedSpotsByCategory(List<CarSpot> spots) {
@@ -6234,10 +6288,14 @@ class _ExploreScreenState extends State<ExploreScreen> {
       valueListenable: reviewSpots,
       builder: (context, _, _) {
         final approvedSpots = filteredSpots();
-        final todaySpots = todayTemporarySpots();
+        final upcomingTemporaryGroups = upcomingTemporarySpotGroups();
+        final upcomingTemporaryCount = upcomingTemporaryGroups.values.fold<int>(
+          0,
+          (count, spots) => count + spots.length,
+        );
         final groupedSpots = groupedSpotsByCategory(
           approvedSpots
-              .where((spot) => !spot.isTemporaryUpcomingToday)
+              .where((spot) => !spot.hasTemporaryWindow || spot.isExpired)
               .toList(),
         );
         final selectedCount = spotCategoryFilters.value.length;
@@ -6309,11 +6367,11 @@ class _ExploreScreenState extends State<ExploreScreen> {
                 ),
               ),
               const SizedBox(height: 18),
-              if (todaySpots.isNotEmpty) ...[
-                UpcomingTemporarySpotsSection(spots: todaySpots),
+              if (upcomingTemporaryGroups.isNotEmpty) ...[
+                UpcomingTemporarySpotsSection(groups: upcomingTemporaryGroups),
                 const SizedBox(height: 18),
               ],
-              if (groupedSpots.isEmpty && todaySpots.isEmpty)
+              if (groupedSpots.isEmpty && upcomingTemporaryCount == 0)
                 EmptyStateCard(
                   icon: Icons.explore,
                   title: showSavedOnly
@@ -6348,12 +6406,17 @@ class _ExploreScreenState extends State<ExploreScreen> {
 }
 
 class UpcomingTemporarySpotsSection extends StatelessWidget {
-  final List<CarSpot> spots;
+  final Map<String, List<CarSpot>> groups;
 
-  const UpcomingTemporarySpotsSection({super.key, required this.spots});
+  const UpcomingTemporarySpotsSection({super.key, required this.groups});
 
   @override
   Widget build(BuildContext context) {
+    final totalCount = groups.values.fold<int>(
+      0,
+      (count, spots) => count + spots.length,
+    );
+
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
@@ -6388,7 +6451,7 @@ class UpcomingTemporarySpotsSection extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Today',
+                      'Upcoming',
                       style: TextStyle(
                         color: Colors.white,
                         fontSize: 18,
@@ -6397,14 +6460,14 @@ class UpcomingTemporarySpotsSection extends StatelessWidget {
                     ),
                     SizedBox(height: 2),
                     Text(
-                      'Temporary spots active or starting today',
+                      'Temporary spots and events',
                       style: TextStyle(color: Colors.white54, fontSize: 12),
                     ),
                   ],
                 ),
               ),
               Text(
-                '${spots.length}',
+                '$totalCount',
                 style: const TextStyle(
                   color: Colors.orangeAccent,
                   fontWeight: FontWeight.w900,
@@ -6413,9 +6476,48 @@ class UpcomingTemporarySpotsSection extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 12),
-          for (final spot in spots.take(6)) ...[
-            UpcomingTemporarySpotNewsCard(spot: spot),
-            if (spot != spots.take(6).last) const SizedBox(height: 10),
+          for (final groupEntry in groups.entries) ...[
+            Padding(
+              padding: const EdgeInsets.only(top: 2, bottom: 8),
+              child: Row(
+                children: [
+                  Text(
+                    groupEntry.key,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Container(
+                      height: 1,
+                      color: Colors.white.withValues(alpha: 0.08),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    '${groupEntry.value.length}',
+                    style: const TextStyle(
+                      color: Colors.white54,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            for (
+              var index = 0;
+              index < groupEntry.value.take(6).length;
+              index++
+            ) ...[
+              UpcomingTemporarySpotNewsCard(spot: groupEntry.value[index]),
+              if (index != groupEntry.value.take(6).length - 1)
+                const SizedBox(height: 10),
+            ],
+            if (groupEntry != groups.entries.last) const SizedBox(height: 14),
           ],
         ],
       ),
@@ -7199,7 +7301,7 @@ class _MapScreenState extends State<MapScreen> {
   // Default map view: open Riga area first, do not auto-jump to the user.
   static const rigaCenter = LatLng(56.9496, 24.1052);
   static const rigaZoom = 11.25;
-  static const fullSpotIconMinZoom = 10;
+  static const fullSpotIconMinZoom = 11.25;
   static const navigationZoom = 16.35;
   static const Duration liveLocationUploadInterval = Duration(seconds: 10);
   static const double liveLocationMinimumUploadDistanceMeters = 100;
@@ -7550,7 +7652,7 @@ class _MapScreenState extends State<MapScreen> {
             .clamp(0.0, 1.0)
             .toDouble();
     final compactMarkerSize =
-        2.4 + (10.5 - 2.4) * math.pow(compactZoomProgress, 1.8);
+        1.4 + (8.2 - 1.4) * math.pow(compactZoomProgress, 3.8);
     final fullMarkerSize = scaledMapIconValue(
       zoom: currentMapZoom,
       minZoom: fullSpotIconMinZoom.toDouble(),
@@ -7581,8 +7683,8 @@ class _MapScreenState extends State<MapScreen> {
     );
     final spotNameLabelOpacity = scaledMapIconValue(
       zoom: currentMapZoom,
-      minZoom: fullSpotIconMinZoom.toDouble() + 0.35,
-      maxZoom: fullSpotIconMinZoom.toDouble() + 3.2,
+      minZoom: fullSpotIconMinZoom.toDouble() + 1.1,
+      maxZoom: fullSpotIconMinZoom.toDouble() + 3.0,
       minValue: 0,
       maxValue: 1,
     ).clamp(0.0, 1.0).toDouble();
