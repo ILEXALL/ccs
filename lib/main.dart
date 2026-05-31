@@ -32,6 +32,7 @@ const r2PresignUploadUrl =
 const int maxSpotGalleryPhotos = 4;
 const Duration maxTemporarySpotDuration = Duration(hours: 12);
 const double temporarySpotHidePermanentRadiusMeters = 500;
+const double minimumPermanentSpotDistanceMeters = 500;
 const int maxGaragePhotos = 4;
 const int r2SpotPhotoMaxLongSide = 1280;
 const int r2AvatarPhotoMaxLongSide = 768;
@@ -3932,6 +3933,64 @@ Future<String> detectCityCountryForCoordinates(LatLng coordinates) async {
 
 double distanceBetweenLatLngMeters(LatLng first, LatLng second) {
   return const Distance().as(LengthUnit.Meter, first, second);
+}
+
+bool spotBlocksPermanentSpotCreation(CarSpot spot) {
+  if (spot.status == SpotStatus.rejected) {
+    return false;
+  }
+
+  if (spot.isTemporary && spot.isExpired) {
+    return false;
+  }
+
+  return true;
+}
+
+Future<CarSpot?> findNearbySpotBlockingPermanentSpotCreation(
+  LatLng location, {
+  String? ignoreSpotId,
+}) async {
+  List<CarSpot> existingSpots;
+
+  try {
+    final snapshot = await spotsCollection().get(
+      const GetOptions(source: Source.server),
+    );
+    existingSpots = snapshot.docs
+        .map((doc) => CarSpot.fromFirestore(doc))
+        .toList();
+  } catch (_) {
+    existingSpots = reviewSpots.value;
+  }
+
+  CarSpot? nearestSpot;
+  var nearestDistance = double.infinity;
+
+  for (final spot in existingSpots) {
+    if (ignoreSpotId != null &&
+        ignoreSpotId.isNotEmpty &&
+        spot.id == ignoreSpotId) {
+      continue;
+    }
+
+    if (!spotBlocksPermanentSpotCreation(spot)) {
+      continue;
+    }
+
+    final distance = distanceBetweenLatLngMeters(location, spot.coordinates);
+    if (distance < nearestDistance) {
+      nearestDistance = distance;
+      nearestSpot = spot;
+    }
+  }
+
+  if (nearestSpot == null ||
+      nearestDistance >= minimumPermanentSpotDistanceMeters) {
+    return null;
+  }
+
+  return nearestSpot;
 }
 
 double normalizedHeadingDegrees(double value, {double fallback = 0}) {
@@ -13570,6 +13629,41 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
     }
 
     final location = selectedLocation!;
+
+    if (!isTemporarySpot) {
+      final nearbySpot = await findNearbySpotBlockingPermanentSpotCreation(
+        location,
+      );
+
+      if (nearbySpot != null) {
+        final distance = distanceBetweenLatLngMeters(
+          location,
+          nearbySpot.coordinates,
+        );
+        final distanceLabel = distance >= 1000
+            ? '${(distance / 1000).toStringAsFixed(1)} km'
+            : '${distance.round()} m';
+
+        if (!mounted) {
+          return;
+        }
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: Colors.redAccent,
+            content: Text(
+              'Permanent spots must be at least ${minimumPermanentSpotDistanceMeters.round()} m apart. "${nearbySpot.name}" is $distanceLabel away. Temporary spots are allowed to overlap existing spots.',
+              style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        );
+        return;
+      }
+    }
+
     final categories = [selectedCategory];
     final supportsContacts = spotCategorySupportsContacts(selectedCategory);
     final owner = supportsContacts && userRoleIsStaff(currentUser.role)
