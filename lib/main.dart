@@ -2068,6 +2068,7 @@ class CarSpot {
   final bool isTemporary;
   final int? startsAtMillis;
   final int? expiresAtMillis;
+  final int? showOnMapAtMillis;
   final bool verifiedOnly;
 
   const CarSpot({
@@ -2103,6 +2104,7 @@ class CarSpot {
     this.isTemporary = false,
     this.startsAtMillis,
     this.expiresAtMillis,
+    this.showOnMapAtMillis,
     this.verifiedOnly = false,
   });
 
@@ -2139,8 +2141,10 @@ class CarSpot {
     bool? isTemporary,
     int? startsAtMillis,
     int? expiresAtMillis,
+    int? showOnMapAtMillis,
     bool? verifiedOnly,
     bool clearTemporarySchedule = false,
+    bool clearTemporaryMapReveal = false,
   }) {
     return CarSpot(
       id: id ?? this.id,
@@ -2179,6 +2183,9 @@ class CarSpot {
       expiresAtMillis: clearTemporarySchedule
           ? null
           : expiresAtMillis ?? this.expiresAtMillis,
+      showOnMapAtMillis: clearTemporarySchedule || clearTemporaryMapReveal
+          ? null
+          : showOnMapAtMillis ?? this.showOnMapAtMillis,
       verifiedOnly: verifiedOnly ?? this.verifiedOnly,
     );
   }
@@ -2206,6 +2213,24 @@ class CarSpot {
         DateTime.now().millisecondsSinceEpoch >= expiresAt;
   }
 
+  int? get effectiveShowOnMapAtMillis {
+    if (!hasTemporaryWindow) {
+      return null;
+    }
+
+    final customReveal = showOnMapAtMillis;
+    if (customReveal != null) {
+      return customReveal;
+    }
+
+    final startsAt = DateTime.fromMillisecondsSinceEpoch(startsAtMillis!);
+    return DateTime(
+      startsAt.year,
+      startsAt.month,
+      startsAt.day,
+    ).millisecondsSinceEpoch;
+  }
+
   bool get isTemporaryActiveNow {
     if (!hasTemporaryWindow) {
       return false;
@@ -2215,29 +2240,50 @@ class CarSpot {
     return now >= startsAtMillis! && now < expiresAtMillis!;
   }
 
-  bool get isTemporaryUpcomingToday {
+  bool get isTemporaryUpcomingOnMap {
     if (!hasTemporaryWindow) {
       return false;
     }
 
-    final now = DateTime.now();
-    final startsAt = DateTime.fromMillisecondsSinceEpoch(startsAtMillis!);
-    final expiresAt = DateTime.fromMillisecondsSinceEpoch(expiresAtMillis!);
+    final revealAt = effectiveShowOnMapAtMillis;
+    if (revealAt == null) {
+      return false;
+    }
 
-    return now.isBefore(startsAt) &&
-        now.isBefore(expiresAt) &&
-        isSameLocalDate(now, startsAt);
+    final now = DateTime.now().millisecondsSinceEpoch;
+    return now >= revealAt && now < startsAtMillis! && now < expiresAtMillis!;
   }
 
-  bool get isTemporaryMapVisibleNow =>
-      isTemporaryActiveNow || isTemporaryUpcomingToday;
+  bool get isTemporaryLocationAvailableNow {
+    if (!hasTemporaryWindow) {
+      return !isTemporary;
+    }
+
+    final revealAt = effectiveShowOnMapAtMillis;
+    if (revealAt == null) {
+      return false;
+    }
+
+    final now = DateTime.now().millisecondsSinceEpoch;
+    return now >= revealAt && now < expiresAtMillis!;
+  }
+
+  bool get isTemporaryMapVisibleNow => isTemporaryLocationAvailableNow;
+
+  bool get isVisibleOnMapNow {
+    if (!isTemporary) {
+      return true;
+    }
+
+    return isTemporaryMapVisibleNow;
+  }
 
   bool get isVisibleNow {
     if (!isTemporary) {
       return true;
     }
 
-    return isTemporaryMapVisibleNow;
+    return hasTemporaryWindow && !isExpired;
   }
 
   String get temporaryStartsAtLabel {
@@ -2256,6 +2302,20 @@ class CarSpot {
     }
 
     return 'starting at ${formatClockTime(DateTime.fromMillisecondsSinceEpoch(startsAt))}';
+  }
+
+  String get temporaryLocationAvailableAtLabel {
+    final revealAt = effectiveShowOnMapAtMillis;
+    if (revealAt == null) {
+      return '';
+    }
+
+    final revealDate = DateTime.fromMillisecondsSinceEpoch(revealAt);
+    final now = DateTime.now();
+    final revealText = isSameLocalDate(now, revealDate)
+        ? formatClockTime(revealDate)
+        : formatShortDateTime(revealDate);
+    return 'location will be available at $revealText';
   }
 
   String get temporaryEndsAtLabel {
@@ -2326,6 +2386,9 @@ class CarSpot {
       isTemporary: data['isTemporary'] == true,
       startsAtMillis: nullableTimestampMillisFromFirebase(data['startsAt']),
       expiresAtMillis: nullableTimestampMillisFromFirebase(data['expiresAt']),
+      showOnMapAtMillis: nullableTimestampMillisFromFirebase(
+        data['showOnMapAt'],
+      ),
       verifiedOnly: data['verifiedOnly'] == true,
     );
   }
@@ -4311,10 +4374,14 @@ Map<String, Object?> spotToFirestoreData(
     data['expiresAt'] = spot.expiresAtMillis == null
         ? null
         : Timestamp.fromMillisecondsSinceEpoch(spot.expiresAtMillis!);
+    data['showOnMapAt'] = spot.showOnMapAtMillis == null
+        ? null
+        : Timestamp.fromMillisecondsSinceEpoch(spot.showOnMapAtMillis!);
   } else {
     data['isTemporary'] = false;
     data['startsAt'] = null;
     data['expiresAt'] = null;
+    data['showOnMapAt'] = null;
   }
 
   if (includeCreatedAt) {
@@ -6609,6 +6676,19 @@ class UpcomingTemporarySpotNewsCard extends StatelessWidget {
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(color: Colors.white54, fontSize: 12),
                   ),
+                  if (!spot.isTemporaryLocationAvailableNow) ...[
+                    const SizedBox(height: 2),
+                    Text(
+                      spot.temporaryLocationAvailableAtLabel,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Colors.white38,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -7395,7 +7475,7 @@ class _MapScreenState extends State<MapScreen> {
       final liveLocation = selectedLiveLocation;
 
       if (spot != null &&
-          (!spot.isVisibleNow ||
+          (!spot.isVisibleOnMapNow ||
               !spot.categories.any(spotCategoryFilters.value.contains))) {
         selectedSpot = null;
       }
@@ -7434,7 +7514,8 @@ class _MapScreenState extends State<MapScreen> {
     final candidates = <MapEntry<CarSpot, double>>[];
     for (final spot in approvedPublicSpots()) {
       if (spot.status != SpotStatus.approved ||
-          !spot.categories.any(enabledCategoryFilters.contains)) {
+          !spot.categories.any(enabledCategoryFilters.contains) ||
+          !spot.isVisibleOnMapNow) {
         continue;
       }
 
@@ -7652,7 +7733,7 @@ class _MapScreenState extends State<MapScreen> {
             .clamp(0.0, 1.0)
             .toDouble();
     final compactMarkerSize =
-        1.4 + (8.2 - 1.4) * math.pow(compactZoomProgress, 3.8);
+        4.0 + (13.0 - 4.0) * math.pow(compactZoomProgress, 2.7);
     final fullMarkerSize = scaledMapIconValue(
       zoom: currentMapZoom,
       minZoom: fullSpotIconMinZoom.toDouble(),
@@ -7692,7 +7773,7 @@ class _MapScreenState extends State<MapScreen> {
     return visibleSpots.map((spot) {
       final closedNow = spotIsClosedNow(spot);
       final isTemporaryActive = spot.isTemporaryActiveNow;
-      final isTemporaryUpcoming = spot.isTemporaryUpcomingToday;
+      final isTemporaryUpcoming = spot.isTemporaryUpcomingOnMap;
       final markerColor = closedNow && !isTemporaryActive
           ? Colors.grey.shade500
           : isTemporaryActive || isTemporaryUpcoming
@@ -7709,7 +7790,10 @@ class _MapScreenState extends State<MapScreen> {
           : math.max(1.4, markerVisualSize * 0.26);
       final markerWidth = showFullIcons
           ? fullMarkerWidth + (spot.isTemporary ? 30 : 0)
-          : markerVisualSize + (spot.isTemporary ? compactMarkerPadding : 4);
+          : math.max(
+              44.0,
+              markerVisualSize + (spot.isTemporary ? compactMarkerPadding : 8),
+            );
       final markerHeight = showFullIcons
           ? fullMarkerHeight +
                 (isTemporaryUpcoming
@@ -7717,7 +7801,10 @@ class _MapScreenState extends State<MapScreen> {
                     : isTemporaryActive
                     ? 24
                     : 0)
-          : markerVisualSize + (spot.isTemporary ? compactMarkerPadding : 4);
+          : math.max(
+              44.0,
+              markerVisualSize + (spot.isTemporary ? compactMarkerPadding : 8),
+            );
       final markerOpacity = isTemporaryUpcoming || closedNow ? 0.58 : 1.0;
       final iconTopPadding = math.max(
         0.0,
@@ -7853,6 +7940,7 @@ class _MapScreenState extends State<MapScreen> {
         width: markerWidth,
         height: markerHeight,
         child: GestureDetector(
+          behavior: HitTestBehavior.translucent,
           onTap: () {
             setState(() {
               selectedSpot = spot;
@@ -9703,14 +9791,14 @@ class CompactSpotMapPoint extends StatelessWidget {
             ),
             boxShadow: [
               BoxShadow(
-                color: color.withValues(alpha: event ? 0.50 : 0.28),
+                color: color.withValues(alpha: event ? 0.54 : 0.38),
                 blurRadius: math.max(
-                  event ? 2.2 : 1.4,
-                  size * (event ? 0.42 : 0.28),
+                  event ? 3.2 : 2.4,
+                  size * (event ? 0.50 : 0.38),
                 ),
                 spreadRadius: math.max(
-                  event ? 0.18 : 0.08,
-                  size * (event ? 0.045 : 0.025),
+                  event ? 0.28 : 0.18,
+                  size * (event ? 0.055 : 0.04),
                 ),
               ),
             ],
@@ -10173,6 +10261,12 @@ class SpotMapCard extends StatelessWidget {
                       _SmallTag(
                         label: spot.temporaryTimeLabel,
                         icon: Icons.event,
+                      ),
+                    if (spot.isTemporary &&
+                        !spot.isTemporaryLocationAvailableNow)
+                      _SmallTag(
+                        label: spot.temporaryLocationAvailableAtLabel,
+                        icon: Icons.visibility_off_outlined,
                       ),
                   ],
                 ),
@@ -11204,6 +11298,12 @@ class _SpotDetailScreenState extends State<SpotDetailScreen> {
                         label: spot.temporaryTimeLabel,
                         icon: Icons.event,
                       ),
+                    if (spot.isTemporary &&
+                        !spot.isTemporaryLocationAvailableNow)
+                      _SmallTag(
+                        label: spot.temporaryLocationAvailableAtLabel,
+                        icon: Icons.visibility_off_outlined,
+                      ),
                     for (final category in spot.categories)
                       _SmallTag(label: category, icon: Icons.local_offer),
                   ],
@@ -11215,6 +11315,23 @@ class _SpotDetailScreenState extends State<SpotDetailScreen> {
                   width: double.infinity,
                   child: ElevatedButton.icon(
                     onPressed: () {
+                      if (spot.isTemporary &&
+                          !spot.isTemporaryLocationAvailableNow) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            backgroundColor: Colors.redAccent,
+                            content: Text(
+                              'Location not available yet',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                        );
+                        return;
+                      }
+
                       mapFocusRequest.value = MapFocusRequest(
                         spotId: spot.id,
                         coordinates: spot.coordinates,
@@ -11936,6 +12053,11 @@ class _SpotRouteActionsState extends State<SpotRouteActions> {
   }
 
   Future<void> loadDistance() async {
+    if (widget.spot.isTemporary &&
+        !widget.spot.isTemporaryLocationAvailableNow) {
+      return;
+    }
+
     if (isLoadingDistance) {
       return;
     }
@@ -11958,6 +12080,55 @@ class _SpotRouteActionsState extends State<SpotRouteActions> {
 
   @override
   Widget build(BuildContext context) {
+    if (widget.spot.isTemporary &&
+        !widget.spot.isTemporaryLocationAvailableNow) {
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: panelGlass,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: Colors.white12),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 42,
+              height: 42,
+              decoration: BoxDecoration(
+                color: Colors.orangeAccent.withValues(alpha: 0.14),
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: const Icon(
+                Icons.visibility_off_outlined,
+                color: Colors.orangeAccent,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Location not available yet',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    widget.spot.temporaryLocationAvailableAtLabel,
+                    style: const TextStyle(color: Colors.white54),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
     final distanceText = distanceKm == null
         ? (isLoadingDistance ? 'Checking distance...' : 'Distance unavailable')
         : '${formatDistanceKm(distanceKm!)} away';
@@ -12715,6 +12886,8 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
   bool isTemporarySpot = false;
   DateTime? temporaryStartsAt;
   DateTime? temporaryExpiresAt;
+  bool temporaryShowOnMapAtEnabled = false;
+  DateTime? temporaryShowOnMapAt;
   Map<int, OpeningHoursData> openingHours = defaultServiceOpeningHours();
   SpotOwnerAssignment? selectedOwner;
   bool isSubmitting = false;
@@ -13154,6 +13327,23 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
     setState(() => temporaryExpiresAt = value);
   }
 
+  Future<void> chooseTemporaryShowOnMapAt() async {
+    final fallback = temporaryStartsAt == null
+        ? DateTime.now().add(const Duration(hours: 1))
+        : DateTime(
+            temporaryStartsAt!.year,
+            temporaryStartsAt!.month,
+            temporaryStartsAt!.day,
+          );
+    final value = await pickTemporaryDateTime(temporaryShowOnMapAt ?? fallback);
+
+    if (!mounted || value == null) {
+      return;
+    }
+
+    setState(() => temporaryShowOnMapAt = value);
+  }
+
   void resetSpotFormAfterSubmit() {
     nameController.clear();
     cityController.clear();
@@ -13175,6 +13365,8 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
       isTemporarySpot = false;
       temporaryStartsAt = null;
       temporaryExpiresAt = null;
+      temporaryShowOnMapAtEnabled = false;
+      temporaryShowOnMapAt = null;
       openingHours = defaultServiceOpeningHours();
       selectedOwner = null;
     });
@@ -13340,6 +13532,41 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
         );
         return;
       }
+
+      if (temporaryShowOnMapAtEnabled) {
+        final showOnMapAt = temporaryShowOnMapAt;
+        if (showOnMapAt == null) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              backgroundColor: Colors.redAccent,
+              content: Text(
+                'Choose when the temporary spot location should appear on the map.',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          );
+          return;
+        }
+
+        if (!showOnMapAt.isBefore(expiresAt)) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              backgroundColor: Colors.redAccent,
+              content: Text(
+                'Show on map time must be before the end time.',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          );
+          return;
+        }
+      }
     }
 
     final location = selectedLocation!;
@@ -13396,6 +13623,9 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
           : null,
       expiresAtMillis: isTemporarySpot
           ? temporaryExpiresAt!.millisecondsSinceEpoch
+          : null,
+      showOnMapAtMillis: isTemporarySpot && temporaryShowOnMapAtEnabled
+          ? temporaryShowOnMapAt!.millisecondsSinceEpoch
           : null,
       verifiedOnly: verifiedOnlySpot,
     );
@@ -13625,6 +13855,8 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
                 enabled: isTemporarySpot,
                 startsAt: temporaryStartsAt,
                 expiresAt: temporaryExpiresAt,
+                showOnMapAtEnabled: temporaryShowOnMapAtEnabled,
+                showOnMapAt: temporaryShowOnMapAt,
                 onEnabledChanged: (value) {
                   setState(() {
                     isTemporarySpot = value;
@@ -13635,10 +13867,32 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
                       temporaryStartsAt = start;
                       temporaryExpiresAt = start.add(const Duration(hours: 3));
                     }
+                    if (!value) {
+                      temporaryShowOnMapAtEnabled = false;
+                      temporaryShowOnMapAt = null;
+                    }
+                  });
+                },
+                onShowOnMapAtEnabledChanged: (value) {
+                  setState(() {
+                    temporaryShowOnMapAtEnabled = value;
+                    if (value &&
+                        temporaryShowOnMapAt == null &&
+                        temporaryStartsAt != null) {
+                      temporaryShowOnMapAt = DateTime(
+                        temporaryStartsAt!.year,
+                        temporaryStartsAt!.month,
+                        temporaryStartsAt!.day,
+                      );
+                    }
+                    if (!value) {
+                      temporaryShowOnMapAt = null;
+                    }
                   });
                 },
                 onPickStart: chooseTemporaryStart,
                 onPickEnd: chooseTemporaryEnd,
+                onPickShowOnMapAt: chooseTemporaryShowOnMapAt,
               ),
             ],
           ),
@@ -13961,17 +14215,25 @@ class _TemporarySpotScheduleCard extends StatelessWidget {
   final bool enabled;
   final DateTime? startsAt;
   final DateTime? expiresAt;
+  final bool showOnMapAtEnabled;
+  final DateTime? showOnMapAt;
   final ValueChanged<bool> onEnabledChanged;
+  final ValueChanged<bool> onShowOnMapAtEnabledChanged;
   final VoidCallback onPickStart;
   final VoidCallback onPickEnd;
+  final VoidCallback onPickShowOnMapAt;
 
   const _TemporarySpotScheduleCard({
     required this.enabled,
     required this.startsAt,
     required this.expiresAt,
+    required this.showOnMapAtEnabled,
+    required this.showOnMapAt,
     required this.onEnabledChanged,
+    required this.onShowOnMapAtEnabledChanged,
     required this.onPickStart,
     required this.onPickEnd,
+    required this.onPickShowOnMapAt,
   });
 
   Widget timeButton({
@@ -14066,6 +14328,34 @@ class _TemporarySpotScheduleCard extends StatelessWidget {
               icon: Icons.stop,
               onTap: onPickEnd,
             ),
+            const SizedBox(height: 10),
+            SwitchListTile(
+              value: showOnMapAtEnabled,
+              onChanged: enabled ? onShowOnMapAtEnabledChanged : null,
+              activeThumbColor: blue,
+              contentPadding: EdgeInsets.zero,
+              secondary: const Icon(Icons.visibility_outlined, color: blue),
+              title: const Text(
+                'Show on map at',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              subtitle: const Text(
+                'Optional. If disabled, location appears at the beginning of the event day.',
+                style: TextStyle(color: Colors.white54),
+              ),
+            ),
+            if (showOnMapAtEnabled) ...[
+              const SizedBox(height: 10),
+              timeButton(
+                label: 'Location visible from',
+                value: showOnMapAt,
+                icon: Icons.map_outlined,
+                onTap: onPickShowOnMapAt,
+              ),
+            ],
           ],
         ],
       ),
@@ -23248,6 +23538,8 @@ class _AdminEditSpotScreenState extends State<AdminEditSpotScreen> {
   late bool isTemporarySpot;
   DateTime? temporaryStartsAt;
   DateTime? temporaryExpiresAt;
+  bool temporaryShowOnMapAtEnabled = false;
+  DateTime? temporaryShowOnMapAt;
   late final List<String> existingPhotoUrls;
   final List<String> newPhotoPaths = [];
   late Map<int, OpeningHoursData> openingHours;
@@ -23294,6 +23586,10 @@ class _AdminEditSpotScreenState extends State<AdminEditSpotScreen> {
     temporaryExpiresAt = widget.spot.expiresAtMillis == null
         ? null
         : DateTime.fromMillisecondsSinceEpoch(widget.spot.expiresAtMillis!);
+    temporaryShowOnMapAtEnabled = widget.spot.showOnMapAtMillis != null;
+    temporaryShowOnMapAt = widget.spot.showOnMapAtMillis == null
+        ? null
+        : DateTime.fromMillisecondsSinceEpoch(widget.spot.showOnMapAtMillis!);
     openingHours = widget.spot.openingHours.isEmpty
         ? defaultServiceOpeningHours()
         : {...widget.spot.openingHours};
@@ -23431,6 +23727,23 @@ class _AdminEditSpotScreenState extends State<AdminEditSpotScreen> {
     setState(() => temporaryExpiresAt = value);
   }
 
+  Future<void> chooseTemporaryShowOnMapAt() async {
+    final fallback = temporaryStartsAt == null
+        ? DateTime.now().add(const Duration(hours: 1))
+        : DateTime(
+            temporaryStartsAt!.year,
+            temporaryStartsAt!.month,
+            temporaryStartsAt!.day,
+          );
+    final value = await pickTemporaryDateTime(temporaryShowOnMapAt ?? fallback);
+
+    if (!mounted || value == null) {
+      return;
+    }
+
+    setState(() => temporaryShowOnMapAt = value);
+  }
+
   Future<void> saveSpot() async {
     final firebaseUser = FirebaseAuth.instance.currentUser;
     final cleanName = nameController.text.trim();
@@ -23555,6 +23868,41 @@ class _AdminEditSpotScreenState extends State<AdminEditSpotScreen> {
         );
         return;
       }
+
+      if (temporaryShowOnMapAtEnabled) {
+        final showOnMapAt = temporaryShowOnMapAt;
+        if (showOnMapAt == null) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              backgroundColor: Colors.redAccent,
+              content: Text(
+                'Choose when the temporary spot location should appear on the map.',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          );
+          return;
+        }
+
+        if (!showOnMapAt.isBefore(expiresAt)) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              backgroundColor: Colors.redAccent,
+              content: Text(
+                'Show on map time must be before the end time.',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          );
+          return;
+        }
+      }
     }
 
     setState(() => isSaving = true);
@@ -23596,7 +23944,12 @@ class _AdminEditSpotScreenState extends State<AdminEditSpotScreen> {
         expiresAtMillis: isTemporarySpot
             ? temporaryExpiresAt!.millisecondsSinceEpoch
             : null,
+        showOnMapAtMillis: isTemporarySpot && temporaryShowOnMapAtEnabled
+            ? temporaryShowOnMapAt!.millisecondsSinceEpoch
+            : null,
         clearTemporarySchedule: !isTemporarySpot,
+        clearTemporaryMapReveal:
+            !isTemporarySpot || !temporaryShowOnMapAtEnabled,
       );
 
       final editChangeSummary = <String>[];
@@ -23631,7 +23984,8 @@ class _AdminEditSpotScreenState extends State<AdminEditSpotScreen> {
       }
       if (widget.spot.isTemporary != updatedSpot.isTemporary ||
           widget.spot.startsAtMillis != updatedSpot.startsAtMillis ||
-          widget.spot.expiresAtMillis != updatedSpot.expiresAtMillis) {
+          widget.spot.expiresAtMillis != updatedSpot.expiresAtMillis ||
+          widget.spot.showOnMapAtMillis != updatedSpot.showOnMapAtMillis) {
         editChangeSummary.add('Temporary schedule changed');
       }
 
@@ -23668,6 +24022,11 @@ class _AdminEditSpotScreenState extends State<AdminEditSpotScreen> {
             ? null
             : Timestamp.fromMillisecondsSinceEpoch(
                 updatedSpot.expiresAtMillis!,
+              ),
+        'showOnMapAt': updatedSpot.showOnMapAtMillis == null
+            ? null
+            : Timestamp.fromMillisecondsSinceEpoch(
+                updatedSpot.showOnMapAtMillis!,
               ),
         if (needsEditReview) 'status': 'edited',
         if (needsEditReview) 'editReviewStatus': 'pending',
@@ -23962,6 +24321,8 @@ class _AdminEditSpotScreenState extends State<AdminEditSpotScreen> {
                 enabled: isTemporarySpot,
                 startsAt: temporaryStartsAt,
                 expiresAt: temporaryExpiresAt,
+                showOnMapAtEnabled: temporaryShowOnMapAtEnabled,
+                showOnMapAt: temporaryShowOnMapAt,
                 onEnabledChanged: (value) {
                   setState(() {
                     isTemporarySpot = value;
@@ -23972,10 +24333,32 @@ class _AdminEditSpotScreenState extends State<AdminEditSpotScreen> {
                       temporaryStartsAt = start;
                       temporaryExpiresAt = start.add(const Duration(hours: 3));
                     }
+                    if (!value) {
+                      temporaryShowOnMapAtEnabled = false;
+                      temporaryShowOnMapAt = null;
+                    }
+                  });
+                },
+                onShowOnMapAtEnabledChanged: (value) {
+                  setState(() {
+                    temporaryShowOnMapAtEnabled = value;
+                    if (value &&
+                        temporaryShowOnMapAt == null &&
+                        temporaryStartsAt != null) {
+                      temporaryShowOnMapAt = DateTime(
+                        temporaryStartsAt!.year,
+                        temporaryStartsAt!.month,
+                        temporaryStartsAt!.day,
+                      );
+                    }
+                    if (!value) {
+                      temporaryShowOnMapAt = null;
+                    }
                   });
                 },
                 onPickStart: chooseTemporaryStart,
                 onPickEnd: chooseTemporaryEnd,
+                onPickShowOnMapAt: chooseTemporaryShowOnMapAt,
               ),
             ],
           ),
