@@ -30,6 +30,8 @@ const telegramAuthBaseUrl = 'https://y-beige-eta.vercel.app';
 const r2PresignUploadUrl =
     'https://ccs-telegram-auth-server.vercel.app/api/r2-presign-upload';
 const int maxSpotGalleryPhotos = 4;
+const Duration maxTemporarySpotDuration = Duration(hours: 12);
+const double temporarySpotHidePermanentRadiusMeters = 500;
 const int maxGaragePhotos = 4;
 const int r2SpotPhotoMaxLongSide = 1280;
 const int r2AvatarPhotoMaxLongSide = 768;
@@ -62,6 +64,7 @@ Future<void> main() async {
     }
 
     rememberMeEnabled = await loadRememberMePreference();
+    await loadSpotCategoryFiltersPreference();
 
     final appUser = await loadCurrentFirebaseUser();
     if (appUser != null) {
@@ -224,6 +227,10 @@ PageRoute<T> appPageRoute<T>({
 }
 
 const photoPickerChannel = MethodChannel('ccs/photo_picker');
+const liveLocationBackgroundChannel = MethodChannel(
+  'ccs/live_location_background',
+);
+const spotCategoryFiltersKey = 'spot_category_filters';
 
 const spotCategoryOptions = [
   'Stance',
@@ -426,6 +433,48 @@ final reviewSpots = ValueNotifier<List<CarSpot>>([]);
 final userSettings = ValueNotifier<UserSettingsData>(defaultUserSettings());
 final garageCars = ValueNotifier<List<GarageCar>>(defaultGarageCars());
 final mapFocusRequest = ValueNotifier<MapFocusRequest?>(null);
+final spotCategoryFilters = ValueNotifier<Set<String>>({
+  ...spotCategoryOptions,
+});
+
+Set<String> sanitizedSpotCategoryFilters(Iterable<String> categories) {
+  final validCategories = spotCategoryOptions.toSet();
+  final cleanCategories = categories
+      .map((category) => category.trim())
+      .where(validCategories.contains)
+      .toSet();
+
+  return cleanCategories;
+}
+
+Future<void> loadSpotCategoryFiltersPreference() async {
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    final savedCategories = prefs.getStringList(spotCategoryFiltersKey);
+
+    if (savedCategories == null) {
+      return;
+    }
+
+    spotCategoryFilters.value = sanitizedSpotCategoryFilters(savedCategories);
+  } catch (_) {}
+}
+
+Future<void> saveSpotCategoryFiltersPreference(Set<String> categories) async {
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList(
+      spotCategoryFiltersKey,
+      categories.toList()..sort(),
+    );
+  } catch (_) {}
+}
+
+void updateSpotCategoryFilters(Set<String> categories) {
+  final cleanCategories = sanitizedSpotCategoryFilters(categories);
+  spotCategoryFilters.value = cleanCategories;
+  unawaited(saveSpotCategoryFiltersPreference(cleanCategories));
+}
 
 class MapFocusRequest {
   final String spotId;
@@ -2094,6 +2143,7 @@ class CarSpot {
     int? startsAtMillis,
     int? expiresAtMillis,
     bool? verifiedOnly,
+    bool clearTemporarySchedule = false,
   }) {
     return CarSpot(
       id: id ?? this.id,
@@ -2126,8 +2176,12 @@ class CarSpot {
       status: status ?? this.status,
       createdAtMillis: createdAtMillis ?? this.createdAtMillis,
       isTemporary: isTemporary ?? this.isTemporary,
-      startsAtMillis: startsAtMillis ?? this.startsAtMillis,
-      expiresAtMillis: expiresAtMillis ?? this.expiresAtMillis,
+      startsAtMillis: clearTemporarySchedule
+          ? null
+          : startsAtMillis ?? this.startsAtMillis,
+      expiresAtMillis: clearTemporarySchedule
+          ? null
+          : expiresAtMillis ?? this.expiresAtMillis,
       verifiedOnly: verifiedOnly ?? this.verifiedOnly,
     );
   }
@@ -2155,20 +2209,69 @@ class CarSpot {
         DateTime.now().millisecondsSinceEpoch >= expiresAt;
   }
 
+  bool get isTemporaryActiveNow {
+    if (!hasTemporaryWindow) {
+      return false;
+    }
+
+    final now = DateTime.now().millisecondsSinceEpoch;
+    return now >= startsAtMillis! && now < expiresAtMillis!;
+  }
+
+  bool get isTemporaryUpcomingToday {
+    if (!hasTemporaryWindow) {
+      return false;
+    }
+
+    final now = DateTime.now();
+    final startsAt = DateTime.fromMillisecondsSinceEpoch(startsAtMillis!);
+    final expiresAt = DateTime.fromMillisecondsSinceEpoch(expiresAtMillis!);
+
+    return now.isBefore(startsAt) &&
+        now.isBefore(expiresAt) &&
+        isSameLocalDate(now, startsAt);
+  }
+
+  bool get isTemporaryMapVisibleNow =>
+      isTemporaryActiveNow || isTemporaryUpcomingToday;
+
   bool get isVisibleNow {
     if (!isTemporary) {
       return true;
     }
 
-    final startsAt = startsAtMillis;
-    final expiresAt = expiresAtMillis;
+    return isTemporaryMapVisibleNow;
+  }
 
-    if (startsAt == null || expiresAt == null) {
-      return false;
+  String get temporaryStartsAtLabel {
+    final startsAt = startsAtMillis;
+    if (startsAt == null) {
+      return '';
     }
 
-    final now = DateTime.now().millisecondsSinceEpoch;
-    return now >= startsAt && now < expiresAt;
+    return 'starts at ${formatClockTime(DateTime.fromMillisecondsSinceEpoch(startsAt))}';
+  }
+
+  String get temporaryStartingAtLabel {
+    final startsAt = startsAtMillis;
+    if (startsAt == null) {
+      return '';
+    }
+
+    return 'starting at ${formatClockTime(DateTime.fromMillisecondsSinceEpoch(startsAt))}';
+  }
+
+  String get temporaryEndsAtLabel {
+    final expiresAt = expiresAtMillis;
+    if (expiresAt == null) {
+      return '';
+    }
+
+    return 'ends at ${formatClockTime(DateTime.fromMillisecondsSinceEpoch(expiresAt))}';
+  }
+
+  String get temporaryTodayLabel {
+    return isTemporaryActiveNow ? temporaryEndsAtLabel : temporaryStartsAtLabel;
   }
 
   String get temporaryTimeLabel {
@@ -2276,6 +2379,16 @@ String twoDigits(int value) => value.toString().padLeft(2, '0');
 String formatShortDateTime(DateTime value) {
   return '${twoDigits(value.day)}.${twoDigits(value.month)} '
       '${twoDigits(value.hour)}:${twoDigits(value.minute)}';
+}
+
+String formatClockTime(DateTime value) {
+  return '${twoDigits(value.hour)}:${twoDigits(value.minute)}';
+}
+
+bool isSameLocalDate(DateTime first, DateTime second) {
+  return first.year == second.year &&
+      first.month == second.month &&
+      first.day == second.day;
 }
 
 String formatShortDate(DateTime value) {
@@ -3470,7 +3583,8 @@ Future<bool> currentUserCanModerateChat(String chatId) async {
   );
   final moderatorIds = stringListFromFirebase(data['moderatorIds'], const []);
 
-  return ownerUid == firebaseUser.uid || moderatorIds.contains(firebaseUser.uid);
+  return ownerUid == firebaseUser.uid ||
+      moderatorIds.contains(firebaseUser.uid);
 }
 
 Future<void> editChatMessage({
@@ -3481,7 +3595,8 @@ Future<void> editChatMessage({
   final firebaseUser = FirebaseAuth.instance.currentUser;
   final canModerate = await currentUserCanModerateChat(chatId);
 
-  if (firebaseUser == null || (firebaseUser.uid != message.senderUid && !canModerate)) {
+  if (firebaseUser == null ||
+      (firebaseUser.uid != message.senderUid && !canModerate)) {
     throw FirebaseException(
       plugin: 'cloud_firestore',
       code: 'permission-denied',
@@ -3520,7 +3635,8 @@ Future<void> deleteChatMessage({
   final firebaseUser = FirebaseAuth.instance.currentUser;
   final canModerate = await currentUserCanModerateChat(chatId);
 
-  if (firebaseUser == null || (firebaseUser.uid != message.senderUid && !canModerate)) {
+  if (firebaseUser == null ||
+      (firebaseUser.uid != message.senderUid && !canModerate)) {
     throw FirebaseException(
       plugin: 'cloud_firestore',
       code: 'permission-denied',
@@ -3769,6 +3885,10 @@ double normalizedHeadingDegrees(double value, {double fallback = 0}) {
 
 double headingRadiansForMap(double headingDegrees, double mapRotationDegrees) {
   return (headingDegrees - mapRotationDegrees) * math.pi / 180;
+}
+
+double headingRadiansForMapPinnedMarker(double headingDegrees) {
+  return normalizedHeadingDegrees(headingDegrees) * math.pi / 180;
 }
 
 double bearingBetweenLatLngDegrees(LatLng from, LatLng to) {
@@ -5790,23 +5910,30 @@ class ExploreScreen extends StatefulWidget {
 
 class _ExploreScreenState extends State<ExploreScreen> {
   ExploreSortMode selectedMode = ExploreSortMode.popular;
-  final Set<String> enabledCategoryFilters = {...spotCategoryOptions};
   bool showSavedOnly = false;
 
   @override
   void initState() {
     super.initState();
     savedSpots.addListener(refreshSavedFilter);
+    spotCategoryFilters.addListener(refreshSpotCategoryFilters);
   }
 
   @override
   void dispose() {
     savedSpots.removeListener(refreshSavedFilter);
+    spotCategoryFilters.removeListener(refreshSpotCategoryFilters);
     super.dispose();
   }
 
   void refreshSavedFilter() {
     if (mounted && showSavedOnly) {
+      setState(() {});
+    }
+  }
+
+  void refreshSpotCategoryFilters() {
+    if (mounted) {
       setState(() {});
     }
   }
@@ -5843,6 +5970,8 @@ class _ExploreScreenState extends State<ExploreScreen> {
   }
 
   List<CarSpot> filteredSpots() {
+    final enabledCategoryFilters = spotCategoryFilters.value;
+
     if (enabledCategoryFilters.isEmpty) {
       return const [];
     }
@@ -5858,6 +5987,27 @@ class _ExploreScreenState extends State<ExploreScreen> {
 
       return savedSpots.value.any((saved) => isSameSpot(saved, spot));
     }).toList();
+  }
+
+  List<CarSpot> todayTemporarySpots() {
+    final todaySpots = approvedPublicSpots()
+        .where((spot) => spot.isTemporaryMapVisibleNow)
+        .toList();
+
+    todaySpots.sort((a, b) {
+      final aActive = a.isTemporaryActiveNow;
+      final bActive = b.isTemporaryActiveNow;
+
+      if (aActive != bActive) {
+        return aActive ? -1 : 1;
+      }
+
+      final aStartsAt = a.startsAtMillis ?? 0;
+      final bStartsAt = b.startsAtMillis ?? 0;
+      return aStartsAt.compareTo(bStartsAt);
+    });
+
+    return todaySpots;
   }
 
   Map<String, List<CarSpot>> groupedSpotsByCategory(List<CarSpot> spots) {
@@ -5878,7 +6028,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
   }
 
   Future<void> showExploreCategoryFilterSheet() async {
-    final nextEnabledCategories = Set<String>.from(enabledCategoryFilters);
+    final nextEnabledCategories = Set<String>.from(spotCategoryFilters.value);
 
     await showModalBottomSheet<void>(
       context: context,
@@ -6006,11 +6156,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
                       height: 54,
                       child: ElevatedButton.icon(
                         onPressed: () {
-                          setState(() {
-                            enabledCategoryFilters
-                              ..clear()
-                              ..addAll(nextEnabledCategories);
-                          });
+                          updateSpotCategoryFilters(nextEnabledCategories);
                           Navigator.pop(context);
                         },
                         style: ElevatedButton.styleFrom(
@@ -6088,8 +6234,13 @@ class _ExploreScreenState extends State<ExploreScreen> {
       valueListenable: reviewSpots,
       builder: (context, _, _) {
         final approvedSpots = filteredSpots();
-        final groupedSpots = groupedSpotsByCategory(approvedSpots);
-        final selectedCount = enabledCategoryFilters.length;
+        final todaySpots = todayTemporarySpots();
+        final groupedSpots = groupedSpotsByCategory(
+          approvedSpots
+              .where((spot) => !spot.isTemporaryUpcomingToday)
+              .toList(),
+        );
+        final selectedCount = spotCategoryFilters.value.length;
 
         return Scaffold(
           backgroundColor: Colors.transparent,
@@ -6158,7 +6309,11 @@ class _ExploreScreenState extends State<ExploreScreen> {
                 ),
               ),
               const SizedBox(height: 18),
-              if (groupedSpots.isEmpty)
+              if (todaySpots.isNotEmpty) ...[
+                UpcomingTemporarySpotsSection(spots: todaySpots),
+                const SizedBox(height: 18),
+              ],
+              if (groupedSpots.isEmpty && todaySpots.isEmpty)
                 EmptyStateCard(
                   icon: Icons.explore,
                   title: showSavedOnly
@@ -6171,24 +6326,195 @@ class _ExploreScreenState extends State<ExploreScreen> {
                       : approvedPublicSpots().isEmpty
                       ? 'Approved spots will appear here after moderation.'
                       : 'Open filters and enable more categories to see more spots.',
-                )
-              else
-                for (final entry in groupedSpots.entries) ...[
-                  ExploreCategoryHeader(
-                    category: entry.key,
-                    count: entry.value.length,
-                  ),
-                  const SizedBox(height: 10),
-                  for (final spot in entry.value) ...[
-                    ExploreSpotCard(spot: spot),
-                    const SizedBox(height: 14),
-                  ],
-                  const SizedBox(height: 6),
+                ),
+              for (final entry in groupedSpots.entries) ...[
+                ExploreCategoryHeader(
+                  category: entry.key,
+                  count: entry.value.length,
+                ),
+                const SizedBox(height: 10),
+                for (final spot in entry.value) ...[
+                  ExploreSpotCard(spot: spot),
+                  const SizedBox(height: 14),
                 ],
+                const SizedBox(height: 6),
+              ],
             ],
           ),
         );
       },
+    );
+  }
+}
+
+class UpcomingTemporarySpotsSection extends StatelessWidget {
+  final List<CarSpot> spots;
+
+  const UpcomingTemporarySpotsSection({super.key, required this.spots});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.orangeAccent.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: Colors.orangeAccent.withValues(alpha: 0.36)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.orangeAccent.withValues(alpha: 0.08),
+            blurRadius: 18,
+            offset: const Offset(0, 10),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 34,
+                height: 34,
+                decoration: BoxDecoration(
+                  color: Colors.orangeAccent.withValues(alpha: 0.18),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Icon(Icons.campaign, color: Colors.orangeAccent),
+              ),
+              const SizedBox(width: 10),
+              const Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Today',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 18,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    SizedBox(height: 2),
+                    Text(
+                      'Temporary spots active or starting today',
+                      style: TextStyle(color: Colors.white54, fontSize: 12),
+                    ),
+                  ],
+                ),
+              ),
+              Text(
+                '${spots.length}',
+                style: const TextStyle(
+                  color: Colors.orangeAccent,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          for (final spot in spots.take(6)) ...[
+            UpcomingTemporarySpotNewsCard(spot: spot),
+            if (spot != spots.take(6).last) const SizedBox(height: 10),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class UpcomingTemporarySpotNewsCard extends StatelessWidget {
+  final CarSpot spot;
+
+  const UpcomingTemporarySpotNewsCard({super.key, required this.spot});
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: () {
+        Navigator.push(
+          context,
+          appPageRoute(builder: (_) => SpotDetailScreen(spot: spot)),
+        );
+      },
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(
+          color: Colors.black.withValues(alpha: 0.30),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: Colors.white12),
+        ),
+        child: Row(
+          children: [
+            Stack(
+              alignment: Alignment.center,
+              children: [
+                Container(
+                  width: 56,
+                  height: 56,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(
+                      color: Colors.orangeAccent.withValues(alpha: 0.65),
+                      width: 1.4,
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.orangeAccent.withValues(alpha: 0.16),
+                        blurRadius: 12,
+                        offset: const Offset(0, 6),
+                      ),
+                    ],
+                  ),
+                ),
+                SpotPhoto(
+                  spot: spot,
+                  width: 52,
+                  height: 52,
+                  borderRadius: BorderRadius.circular(14),
+                ),
+              ],
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    spot.temporaryTodayLabel,
+                    style: const TextStyle(
+                      color: Colors.orangeAccent,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    spot.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 15,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    spot.cityCountry,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(color: Colors.white54, fontSize: 12),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            const Icon(Icons.chevron_right, color: Colors.white38),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -6254,14 +6580,21 @@ class ExploreSpotCard extends StatelessWidget {
 
     final tagWidgets = <Widget>[
       if (spot.isTemporary)
-        _SmallTag(label: spot.temporaryTimeLabel, icon: Icons.event),
+        _SmallTag(
+          label: spot.isTemporaryMapVisibleNow
+              ? spot.temporaryTodayLabel
+              : spot.temporaryTimeLabel,
+          icon: Icons.event,
+        ),
       for (final category in visibleCategories)
         _SmallTag(label: category, icon: Icons.local_offer),
     ];
     final addedDateText = spot.createdAtMillis > 0
         ? 'Added ${formatShortDate(DateTime.fromMillisecondsSinceEpoch(spot.createdAtMillis))}'
         : 'Added date unknown';
-    final categoryColor = spotColorForSpot(spot);
+    final categoryColor = spot.isTemporary
+        ? Colors.orangeAccent
+        : spotColorForSpot(spot);
     final addedByText = spot.addedBy.trim().isEmpty
         ? 'Added by: unknown'
         : 'Added by: ${spot.addedBy}';
@@ -6340,12 +6673,19 @@ class ExploreSpotCard extends StatelessWidget {
                         spot.cityCountry,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(color: Colors.white54, fontSize: 12),
+                        style: const TextStyle(
+                          color: Colors.white54,
+                          fontSize: 12,
+                        ),
                       ),
                       const SizedBox(height: 2),
                       Row(
                         children: [
-                          const Icon(Icons.schedule, color: Colors.white38, size: 12),
+                          const Icon(
+                            Icons.schedule,
+                            color: Colors.white38,
+                            size: 12,
+                          ),
                           const SizedBox(width: 4),
                           Expanded(
                             child: Text(
@@ -6364,7 +6704,11 @@ class ExploreSpotCard extends StatelessWidget {
                       const SizedBox(height: 2),
                       Row(
                         children: [
-                          const Icon(Icons.person_outline, color: Colors.white38, size: 12),
+                          const Icon(
+                            Icons.person_outline,
+                            color: Colors.white38,
+                            size: 12,
+                          ),
                           const SizedBox(width: 4),
                           Expanded(
                             child: spot.addedByUid.trim().isEmpty
@@ -6871,7 +7215,6 @@ class _MapScreenState extends State<MapScreen> {
   liveLocationSubscription;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>?
   policeReportSubscription;
-  final Set<String> enabledCategoryFilters = {...spotCategoryOptions};
   CarSpot? selectedSpot;
   PoliceReportData? selectedPoliceReport;
   LiveLocationData? selectedLiveLocation;
@@ -6924,6 +7267,7 @@ class _MapScreenState extends State<MapScreen> {
   void initState() {
     super.initState();
     reviewSpots.addListener(refreshMap);
+    spotCategoryFilters.addListener(refreshMap);
     mapFocusRequest.addListener(handleMapFocusRequest);
 
     // Temporary spots can become visible or expire just because time passes.
@@ -6948,7 +7292,9 @@ class _MapScreenState extends State<MapScreen> {
       final policeReport = selectedPoliceReport;
       final liveLocation = selectedLiveLocation;
 
-      if (spot != null && !spot.isVisibleNow) {
+      if (spot != null &&
+          (!spot.isVisibleNow ||
+              !spot.categories.any(spotCategoryFilters.value.contains))) {
         selectedSpot = null;
       }
 
@@ -6977,29 +7323,68 @@ class _MapScreenState extends State<MapScreen> {
   }
 
   List<CarSpot> get visibleSpots {
+    final enabledCategoryFilters = spotCategoryFilters.value;
+
     if (enabledCategoryFilters.isEmpty) {
       return const [];
     }
 
-    final withDistance = <MapEntry<CarSpot, double>>[];
+    final candidates = <MapEntry<CarSpot, double>>[];
     for (final spot in approvedPublicSpots()) {
       if (spot.status != SpotStatus.approved ||
           !spot.categories.any(enabledCategoryFilters.contains)) {
         continue;
       }
 
-      final distance = distanceBetweenLatLngMeters(currentMapCenter, spot.coordinates);
+      final distance = distanceBetweenLatLngMeters(
+        currentMapCenter,
+        spot.coordinates,
+      );
       if (distance <= currentMapLoadRadiusMeters) {
-        withDistance.add(MapEntry(spot, distance));
+        candidates.add(MapEntry(spot, distance));
       }
     }
 
-    withDistance.sort((a, b) => a.value.compareTo(b.value));
-    return withDistance.take(currentMapMarkerLimit).map((entry) => entry.key).toList();
+    final visibleTemporarySpots = candidates
+        .map((entry) => entry.key)
+        .where((spot) => spot.isTemporary && spot.isTemporaryMapVisibleNow)
+        .toList();
+
+    final withPermanentSpotsSuppressed = candidates.where((entry) {
+      final spot = entry.key;
+      if (spot.isTemporary) {
+        return true;
+      }
+
+      return !visibleTemporarySpots.any(
+        (temporarySpot) =>
+            distanceBetweenLatLngMeters(
+              spot.coordinates,
+              temporarySpot.coordinates,
+            ) <=
+            temporarySpotHidePermanentRadiusMeters,
+      );
+    }).toList();
+
+    withPermanentSpotsSuppressed.sort((a, b) {
+      final aTemporary = a.key.isTemporary && a.key.isTemporaryMapVisibleNow;
+      final bTemporary = b.key.isTemporary && b.key.isTemporaryMapVisibleNow;
+
+      if (aTemporary != bTemporary) {
+        return aTemporary ? -1 : 1;
+      }
+
+      return a.value.compareTo(b.value);
+    });
+
+    return withPermanentSpotsSuppressed
+        .take(currentMapMarkerLimit)
+        .map((entry) => entry.key)
+        .toList();
   }
 
   Future<void> showMapCategoryFilterSheet() async {
-    final nextEnabledCategories = Set<String>.from(enabledCategoryFilters);
+    final nextEnabledCategories = Set<String>.from(spotCategoryFilters.value);
 
     await showModalBottomSheet<void>(
       context: context,
@@ -7127,10 +7512,8 @@ class _MapScreenState extends State<MapScreen> {
                       height: 54,
                       child: ElevatedButton.icon(
                         onPressed: () {
+                          updateSpotCategoryFilters(nextEnabledCategories);
                           setState(() {
-                            enabledCategoryFilters
-                              ..clear()
-                              ..addAll(nextEnabledCategories);
                             selectedSpot = null;
                             selectedLiveLocation = null;
                           });
@@ -7162,13 +7545,12 @@ class _MapScreenState extends State<MapScreen> {
 
   List<Marker> get markers {
     final showFullIcons = currentMapZoom >= fullSpotIconMinZoom;
-    final compactMarkerSize = scaledMapIconValue(
-      zoom: currentMapZoom,
-      minZoom: 4,
-      maxZoom: fullSpotIconMinZoom.toDouble(),
-      minValue: 15,
-      maxValue: 24,
-    );
+    final compactZoomProgress =
+        ((currentMapZoom - 3) / (fullSpotIconMinZoom - 3))
+            .clamp(0.0, 1.0)
+            .toDouble();
+    final compactMarkerSize =
+        2.4 + (10.5 - 2.4) * math.pow(compactZoomProgress, 1.8);
     final fullMarkerSize = scaledMapIconValue(
       zoom: currentMapZoom,
       minZoom: fullSpotIconMinZoom.toDouble(),
@@ -7197,15 +7579,172 @@ class _MapScreenState extends State<MapScreen> {
       minValue: 8.2,
       maxValue: 10,
     );
+    final spotNameLabelOpacity = scaledMapIconValue(
+      zoom: currentMapZoom,
+      minZoom: fullSpotIconMinZoom.toDouble() + 0.35,
+      maxZoom: fullSpotIconMinZoom.toDouble() + 3.2,
+      minValue: 0,
+      maxValue: 1,
+    ).clamp(0.0, 1.0).toDouble();
 
     return visibleSpots.map((spot) {
       final closedNow = spotIsClosedNow(spot);
-      final markerColor = closedNow
+      final isTemporaryActive = spot.isTemporaryActiveNow;
+      final isTemporaryUpcoming = spot.isTemporaryUpcomingToday;
+      final markerColor = closedNow && !isTemporaryActive
           ? Colors.grey.shade500
+          : isTemporaryActive || isTemporaryUpcoming
+          ? Colors.orangeAccent
           : spotColorForSpot(spot);
-      final markerSize = showFullIcons ? fullMarkerSize : compactMarkerSize;
-      final markerWidth = showFullIcons ? fullMarkerWidth : markerSize;
-      final markerHeight = showFullIcons ? fullMarkerHeight : markerSize;
+      final baseMarkerSize = showFullIcons ? fullMarkerSize : compactMarkerSize;
+      final markerVisualSize = isTemporaryActive || isTemporaryUpcoming
+          ? baseMarkerSize * (showFullIcons ? 1.16 : 1.04)
+          : baseMarkerSize;
+      final compactMarkerPadding = showFullIcons
+          ? 0.0
+          : spot.isTemporary
+          ? math.max(2.4, markerVisualSize * (isTemporaryActive ? 0.54 : 0.38))
+          : math.max(1.4, markerVisualSize * 0.26);
+      final markerWidth = showFullIcons
+          ? fullMarkerWidth + (spot.isTemporary ? 30 : 0)
+          : markerVisualSize + (spot.isTemporary ? compactMarkerPadding : 4);
+      final markerHeight = showFullIcons
+          ? fullMarkerHeight +
+                (isTemporaryUpcoming
+                    ? 34
+                    : isTemporaryActive
+                    ? 24
+                    : 0)
+          : markerVisualSize + (spot.isTemporary ? compactMarkerPadding : 4);
+      final markerOpacity = isTemporaryUpcoming || closedNow ? 0.58 : 1.0;
+      final iconTopPadding = math.max(
+        0.0,
+        (markerHeight - markerVisualSize) / 2,
+      );
+      final mapNameLabelTop = math.max(0.0, iconTopPadding - labelFontSize - 3);
+      final mapStartLabelBottom = math.max(0.0, iconTopPadding - 14);
+
+      Widget iconWidget() {
+        final asset = spotIconAssetPathForSpot(spot);
+        final image = Image.asset(
+          asset,
+          fit: BoxFit.contain,
+          errorBuilder: (context, error, stackTrace) {
+            return CompactSpotMapPoint(
+              color: markerColor,
+              faded: isTemporaryUpcoming || closedNow,
+              event: isTemporaryActive || isTemporaryUpcoming,
+            );
+          },
+        );
+
+        final icon = SizedBox(
+          width: markerVisualSize,
+          height: markerVisualSize,
+          child: closedNow || isTemporaryUpcoming
+              ? Opacity(
+                  opacity: markerOpacity,
+                  child: ColorFiltered(
+                    colorFilter: ColorFilter.mode(
+                      markerColor,
+                      BlendMode.srcATop,
+                    ),
+                    child: image,
+                  ),
+                )
+              : image,
+        );
+
+        if (!isTemporaryActive) {
+          return icon;
+        }
+
+        return PulsingTemporarySpotIconGlow(
+          size: markerVisualSize,
+          child: icon,
+        );
+      }
+
+      Widget fullMarker() {
+        return Stack(
+          alignment: Alignment.center,
+          children: [
+            Positioned(
+              top: mapNameLabelTop,
+              left: 2,
+              right: 2,
+              child: IgnorePointer(
+                child: Opacity(
+                  opacity: spotNameLabelOpacity,
+                  child: Text(
+                    spot.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: closedNow || isTemporaryUpcoming
+                          ? Colors.white.withValues(alpha: 0.46)
+                          : Colors.white.withValues(alpha: 0.74),
+                      fontSize: labelFontSize,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 0.2,
+                      shadows: const [
+                        Shadow(color: Colors.black, blurRadius: 5),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            iconWidget(),
+            if (isTemporaryActive)
+              Positioned(
+                right: 2,
+                top: iconTopPadding + markerVisualSize * 0.28,
+                child: const _TemporaryMapBadge(),
+              ),
+            if (isTemporaryUpcoming)
+              Positioned(
+                left: 2,
+                right: 2,
+                bottom: mapStartLabelBottom,
+                child: IgnorePointer(
+                  child: Text(
+                    spot.temporaryStartingAtLabel,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      color: Colors.orangeAccent,
+                      fontSize: 9,
+                      fontWeight: FontWeight.w900,
+                      shadows: [Shadow(color: Colors.black, blurRadius: 6)],
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        );
+      }
+
+      Widget compactMarker() {
+        final point = CompactSpotMapPoint(
+          color: markerColor,
+          size: markerVisualSize,
+          faded: isTemporaryUpcoming || closedNow,
+          event: isTemporaryActive || isTemporaryUpcoming,
+        );
+
+        if (!isTemporaryActive) {
+          return point;
+        }
+
+        return PulsingTemporarySpotIconGlow(
+          size: markerVisualSize,
+          compact: true,
+          child: point,
+        );
+      }
 
       return Marker(
         point: spot.coordinates,
@@ -7219,67 +7758,7 @@ class _MapScreenState extends State<MapScreen> {
               selectedLiveLocation = null;
             });
           },
-          child: showFullIcons
-              ? Stack(
-                  alignment: Alignment.center,
-                  children: [
-                    Positioned(
-                      top: 0,
-                      left: 2,
-                      right: 2,
-                      child: IgnorePointer(
-                        child: Text(
-                          spot.name,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          textAlign: TextAlign.center,
-                          style: TextStyle(
-                            color: closedNow
-                                ? Colors.white.withValues(alpha: 0.46)
-                                : Colors.white.withValues(alpha: 0.74),
-                            fontSize: labelFontSize,
-                            fontWeight: FontWeight.w800,
-                            letterSpacing: 0.2,
-                            shadows: const [
-                              Shadow(color: Colors.black, blurRadius: 5),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                    SizedBox(
-                      width: markerSize,
-                      height: markerSize,
-                      child: closedNow
-                          ? ColorFiltered(
-                              colorFilter: ColorFilter.mode(
-                                markerColor,
-                                BlendMode.srcATop,
-                              ),
-                              child: Opacity(
-                                opacity: 0.58,
-                                child: Image.asset(
-                                  spotIconAssetPathForSpot(spot),
-                                  fit: BoxFit.contain,
-                                  errorBuilder: (context, error, stackTrace) {
-                                    return CompactSpotMapPoint(
-                                      color: markerColor,
-                                    );
-                                  },
-                                ),
-                              ),
-                            )
-                          : Image.asset(
-                              spotIconAssetPathForSpot(spot),
-                              fit: BoxFit.contain,
-                              errorBuilder: (context, error, stackTrace) {
-                                return CompactSpotMapPoint(color: markerColor);
-                              },
-                            ),
-                    ),
-                  ],
-                )
-              : CompactSpotMapPoint(color: markerColor),
+          child: showFullIcons ? fullMarker() : compactMarker(),
         ),
       );
     }).toList();
@@ -7321,7 +7800,9 @@ class _MapScreenState extends State<MapScreen> {
             minValue: 13,
             maxValue: 22,
           );
-    final markerInnerSize = showPoliceRadius ? 34.0 : math.max(9.0, markerOuterSize - 8);
+    final markerInnerSize = showPoliceRadius
+        ? 34.0
+        : math.max(9.0, markerOuterSize - 8);
     return visiblePoliceReports.map((report) {
       return Marker(
         point: report.coordinates,
@@ -7339,10 +7820,14 @@ class _MapScreenState extends State<MapScreen> {
             message: 'Police marked by ${displayUsername(report.username)}',
             child: Container(
               decoration: BoxDecoration(
-                color: Colors.redAccent.withValues(alpha: showPoliceRadius ? 0.18 : 0.95),
+                color: Colors.redAccent.withValues(
+                  alpha: showPoliceRadius ? 0.18 : 0.95,
+                ),
                 shape: BoxShape.circle,
                 border: Border.all(
-                  color: Colors.redAccent.withValues(alpha: showPoliceRadius ? 0.62 : 1),
+                  color: Colors.redAccent.withValues(
+                    alpha: showPoliceRadius ? 0.62 : 1,
+                  ),
                   width: showPoliceRadius ? 2 : 1.5,
                 ),
                 boxShadow: [
@@ -7360,10 +7845,16 @@ class _MapScreenState extends State<MapScreen> {
                   decoration: BoxDecoration(
                     color: showPoliceRadius ? panelGlass : Colors.redAccent,
                     shape: BoxShape.circle,
-                    border: showPoliceRadius ? Border.all(color: Colors.redAccent, width: 2) : null,
+                    border: showPoliceRadius
+                        ? Border.all(color: Colors.redAccent, width: 2)
+                        : null,
                   ),
                   child: showPoliceRadius
-                      ? const Icon(Icons.local_police, color: Colors.redAccent, size: 21)
+                      ? const Icon(
+                          Icons.local_police,
+                          color: Colors.redAccent,
+                          size: 21,
+                        )
                       : const SizedBox.shrink(),
                 ),
               ),
@@ -7444,6 +7935,13 @@ class _MapScreenState extends State<MapScreen> {
             minValue: 7.8,
             maxValue: 10.5,
           );
+          final userNameLabelOpacity = scaledMapIconValue(
+            zoom: currentMapZoom,
+            minZoom: 10.8,
+            maxZoom: 14.2,
+            minValue: 0,
+            maxValue: 1,
+          ).clamp(0.0, 1.0).toDouble();
           final markerHeight = carIconSize + 36;
           final iconAsset = liveLocationCarIconAsset(location);
           final fallbackColor = liveLocationIsFriend(location)
@@ -7476,19 +7974,22 @@ class _MapScreenState extends State<MapScreen> {
                       left: 2,
                       right: 2,
                       child: IgnorePointer(
-                        child: Text(
-                          displayUsername(location.username),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          textAlign: TextAlign.center,
-                          style: TextStyle(
-                            color: Colors.white.withValues(alpha: 0.74),
-                            fontSize: labelFontSize,
-                            fontWeight: FontWeight.w800,
-                            letterSpacing: 0.2,
-                            shadows: const [
-                              Shadow(color: Colors.black, blurRadius: 5),
-                            ],
+                        child: Opacity(
+                          opacity: userNameLabelOpacity,
+                          child: Text(
+                            displayUsername(location.username),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              color: Colors.white.withValues(alpha: 0.74),
+                              fontSize: labelFontSize,
+                              fontWeight: FontWeight.w800,
+                              letterSpacing: 0.2,
+                              shadows: const [
+                                Shadow(color: Colors.black, blurRadius: 5),
+                              ],
+                            ),
                           ),
                         ),
                       ),
@@ -7539,9 +8040,15 @@ class _MapScreenState extends State<MapScreen> {
       rotate: false,
       child: Tooltip(
         message: 'Your location',
-        child: CustomPaint(
-          painter: CurrentUserTrianglePainter(),
-          child: const SizedBox(width: 42, height: 42),
+        child: Transform.rotate(
+          angle: headingRadiansForMap(
+            currentUserHeadingDegrees,
+            currentMapRotationDegrees,
+          ),
+          child: CustomPaint(
+            painter: CurrentUserTrianglePainter(),
+            child: const SizedBox(width: 42, height: 42),
+          ),
         ),
       ),
     );
@@ -8131,6 +8638,36 @@ class _MapScreenState extends State<MapScreen> {
     }
   }
 
+  Future<void> startNativeLiveLocationBackgroundService({
+    required String uid,
+    required List<String> visibleToUserIds,
+    required String shareScope,
+    required DateTime promptAt,
+    required DateTime expiresAt,
+  }) async {
+    try {
+      await liveLocationBackgroundChannel.invokeMethod('start', {
+        'uid': uid,
+        'visibleToUserIds': visibleToUserIds,
+        'shareScope': shareScope,
+        'promptAtMillis': promptAt.millisecondsSinceEpoch,
+        'expiresAtMillis': expiresAt.millisecondsSinceEpoch,
+        'uploadIntervalSeconds': liveLocationUploadInterval.inSeconds,
+        'minimumUploadDistanceMeters': liveLocationMinimumUploadDistanceMeters,
+      });
+    } on MissingPluginException {
+      // Native background tracking is not wired yet. Foreground sharing still works.
+    } catch (_) {}
+  }
+
+  Future<void> stopNativeLiveLocationBackgroundService() async {
+    try {
+      await liveLocationBackgroundChannel.invokeMethod('stop');
+    } on MissingPluginException {
+      // Native background tracking is not wired yet.
+    } catch (_) {}
+  }
+
   Future<void> startLiveLocationSharing() async {
     if (isTogglingLiveLocation) {
       return;
@@ -8189,6 +8726,20 @@ class _MapScreenState extends State<MapScreen> {
       visibleToUserIds: visibleToUserIds,
       shareScope: 'friends',
     );
+
+    final promptAt = liveLocationPromptAt;
+    final expiresAt = liveLocationExpiresAt;
+    if (promptAt != null && expiresAt != null) {
+      unawaited(
+        startNativeLiveLocationBackgroundService(
+          uid: firebaseUser.uid,
+          visibleToUserIds: visibleToUserIds,
+          shareScope: 'friends',
+          promptAt: promptAt,
+          expiresAt: expiresAt,
+        ),
+      );
+    }
 
     if (!mounted) {
       return;
@@ -8386,6 +8937,7 @@ class _MapScreenState extends State<MapScreen> {
     liveLocationUploadTimer?.cancel();
     liveLocationUploadTimer = null;
     cancelLiveLocationTimers(keepUploadTimer: true);
+    unawaited(stopNativeLiveLocationBackgroundService());
 
     if (firebaseUser != null) {
       await liveLocationsCollection().doc(firebaseUser.uid).delete();
@@ -8433,6 +8985,31 @@ class _MapScreenState extends State<MapScreen> {
       renewWindow: true,
       headingDegrees: heading,
     );
+
+    final firebaseUser = FirebaseAuth.instance.currentUser;
+    final promptAt = liveLocationPromptAt;
+    final expiresAt = liveLocationExpiresAt;
+    if (firebaseUser != null && promptAt != null && expiresAt != null) {
+      var friendUids = const <String>[];
+      try {
+        friendUids = await loadCurrentFriendUids();
+      } catch (_) {
+        friendUids = const <String>[];
+      }
+
+      unawaited(
+        startNativeLiveLocationBackgroundService(
+          uid: firebaseUser.uid,
+          visibleToUserIds: uniqueNonEmptyStrings([
+            firebaseUser.uid,
+            ...friendUids,
+          ]),
+          shareScope: 'friends',
+          promptAt: promptAt,
+          expiresAt: expiresAt,
+        ),
+      );
+    }
 
     if (!mounted) {
       return;
@@ -8523,6 +9100,7 @@ class _MapScreenState extends State<MapScreen> {
     navigationPositionSubscription?.cancel();
     navigationPredictionTimer?.cancel();
     reviewSpots.removeListener(refreshMap);
+    spotCategoryFilters.removeListener(refreshMap);
     mapFocusRequest.removeListener(handleMapFocusRequest);
     mapController.dispose();
     super.dispose();
@@ -8827,7 +9405,7 @@ class _MapScreenState extends State<MapScreen> {
                   child: Align(
                     alignment: Alignment.centerRight,
                     child: MapFilterButton(
-                      enabledCount: enabledCategoryFilters.length,
+                      enabledCount: spotCategoryFilters.value.length,
                       totalCount: spotCategoryOptions.length,
                       onTap: showMapCategoryFilterSheet,
                     ),
@@ -8990,29 +9568,159 @@ class MapFilterButton extends StatelessWidget {
 
 class CompactSpotMapPoint extends StatelessWidget {
   final Color color;
+  final double size;
+  final bool faded;
+  final bool event;
 
-  const CompactSpotMapPoint({super.key, required this.color});
+  const CompactSpotMapPoint({
+    super.key,
+    required this.color,
+    this.size = 14,
+    this.faded = false,
+    this.event = false,
+  });
 
   @override
   Widget build(BuildContext context) {
     return Center(
-      child: Container(
-        width: 14,
-        height: 14,
-        decoration: BoxDecoration(
-          color: color,
-          shape: BoxShape.circle,
-          border: Border.all(
-            color: Colors.white.withValues(alpha: 0.80),
-            width: 1.5,
-          ),
-          boxShadow: [
-            BoxShadow(
-              color: color.withValues(alpha: 0.45),
-              blurRadius: 8,
-              spreadRadius: 2,
+      child: Opacity(
+        opacity: faded ? 0.58 : 1,
+        child: Container(
+          width: size,
+          height: size,
+          decoration: BoxDecoration(
+            color: color,
+            shape: BoxShape.circle,
+            border: Border.all(
+              color: event
+                  ? Colors.orangeAccent
+                  : Colors.white.withValues(alpha: 0.80),
+              width: event
+                  ? math.max(0.5, size * 0.09)
+                  : math.max(0.45, size * 0.065),
             ),
-          ],
+            boxShadow: [
+              BoxShadow(
+                color: color.withValues(alpha: event ? 0.50 : 0.28),
+                blurRadius: math.max(
+                  event ? 2.2 : 1.4,
+                  size * (event ? 0.42 : 0.28),
+                ),
+                spreadRadius: math.max(
+                  event ? 0.18 : 0.08,
+                  size * (event ? 0.045 : 0.025),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class PulsingTemporarySpotIconGlow extends StatefulWidget {
+  final double size;
+  final Widget child;
+  final bool compact;
+
+  const PulsingTemporarySpotIconGlow({
+    super.key,
+    required this.size,
+    required this.child,
+    this.compact = false,
+  });
+
+  @override
+  State<PulsingTemporarySpotIconGlow> createState() =>
+      _PulsingTemporarySpotIconGlowState();
+}
+
+class _PulsingTemporarySpotIconGlowState
+    extends State<PulsingTemporarySpotIconGlow>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController controller;
+
+  @override
+  void initState() {
+    super.initState();
+    controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1250),
+    )..repeat(reverse: true);
+  }
+
+  @override
+  void dispose() {
+    controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: controller,
+      child: widget.child,
+      builder: (context, child) {
+        final value = Curves.easeInOut.transform(controller.value);
+        final scale = widget.compact ? 1 + value * 0.12 : 1 + value * 0.065;
+        final glowBlur = widget.compact
+            ? math.max(2.2, widget.size * (0.50 + value * 0.44))
+            : math.max(12.0, widget.size * (0.30 + value * 0.16));
+        final glowSpread = widget.compact
+            ? math.max(0.10, widget.size * (0.04 + value * 0.05))
+            : math.max(1.8, widget.size * (0.045 + value * 0.025));
+
+        return Transform.scale(
+          scale: scale,
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.orangeAccent.withValues(
+                    alpha: widget.compact ? 0.55 : 0.62,
+                  ),
+                  blurRadius: glowBlur,
+                  spreadRadius: glowSpread,
+                ),
+              ],
+            ),
+            child: child,
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _TemporaryMapBadge extends StatelessWidget {
+  const _TemporaryMapBadge();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2.5),
+      decoration: BoxDecoration(
+        color: Colors.orangeAccent,
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: Colors.black.withValues(alpha: 0.42)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.orangeAccent.withValues(alpha: 0.48),
+            blurRadius: 8,
+            spreadRadius: 1,
+          ),
+        ],
+      ),
+      child: const Text(
+        'NOW',
+        style: TextStyle(
+          color: Colors.black,
+          fontSize: 8.5,
+          fontWeight: FontWeight.w900,
+          letterSpacing: 0.6,
+          height: 1,
         ),
       ),
     );
@@ -9594,14 +10302,22 @@ class SaveSpotButton extends StatelessWidget {
               onPressed: () => toggleSaved(context, saved),
               style: OutlinedButton.styleFrom(
                 padding: EdgeInsets.zero,
-                backgroundColor: saved ? blue.withValues(alpha: 0.16) : Colors.white.withValues(alpha: 0.06),
+                backgroundColor: saved
+                    ? blue.withValues(alpha: 0.16)
+                    : Colors.white.withValues(alpha: 0.06),
                 foregroundColor: saved ? blue : Colors.white70,
-                side: BorderSide(color: saved ? blue : Colors.white24, width: saved ? 1.4 : 1),
+                side: BorderSide(
+                  color: saved ? blue : Colors.white24,
+                  width: saved ? 1.4 : 1,
+                ),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(999),
                 ),
               ),
-              child: Icon(saved ? Icons.bookmark : Icons.bookmark_border, size: 18),
+              child: Icon(
+                saved ? Icons.bookmark : Icons.bookmark_border,
+                size: 18,
+              ),
             ),
           );
         }
@@ -10257,7 +10973,8 @@ class _SpotDetailScreenState extends State<SpotDetailScreen> {
         backgroundColor: Colors.transparent,
         foregroundColor: blue,
         actions: [
-          if (userRoleIsStaff(currentUser.role) || spot.addedByUid == currentUser.uid)
+          if (userRoleIsStaff(currentUser.role) ||
+              spot.addedByUid == currentUser.uid)
             IconButton(
               tooltip: 'Edit spot',
               onPressed: () async {
@@ -12316,7 +13033,9 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
 
     setState(() {
       temporaryStartsAt = value;
-      if (temporaryExpiresAt == null || !temporaryExpiresAt!.isAfter(value)) {
+      if (temporaryExpiresAt == null ||
+          !temporaryExpiresAt!.isAfter(value) ||
+          temporaryExpiresAt!.difference(value) > maxTemporarySpotDuration) {
         temporaryExpiresAt = value.add(const Duration(hours: 3));
       }
     });
@@ -12478,6 +13197,22 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
             backgroundColor: Colors.redAccent,
             content: Text(
               'End time must be after start time.',
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        );
+        return;
+      }
+
+      if (expiresAt.difference(startsAt) > maxTemporarySpotDuration) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            backgroundColor: Colors.redAccent,
+            content: Text(
+              'Temporary spots can be active for maximum 12 hours.',
               style: TextStyle(
                 color: Colors.white,
                 fontWeight: FontWeight.w700,
@@ -13210,7 +13945,7 @@ class _TemporarySpotScheduleCard extends StatelessWidget {
               ),
             ),
             subtitle: const Text(
-              'Use this for meets and events. It disappears after the end time.',
+              'Use this for meets and events. Maximum active time is 12 hours.',
               style: TextStyle(color: Colors.white54),
             ),
           ),
@@ -14373,13 +15108,19 @@ class _ServiceSpotBusinessEditScreenState
       final visibleUpdatedSpot = updatedSpot;
 
       reviewSpots.value = reviewSpots.value
-          .map((item) => isSameSpot(item, widget.spot) ? visibleUpdatedSpot : item)
+          .map(
+            (item) => isSameSpot(item, widget.spot) ? visibleUpdatedSpot : item,
+          )
           .toList();
       submittedSpots.value = submittedSpots.value
-          .map((item) => isSameSpot(item, widget.spot) ? visibleUpdatedSpot : item)
+          .map(
+            (item) => isSameSpot(item, widget.spot) ? visibleUpdatedSpot : item,
+          )
           .toList();
       savedSpots.value = savedSpots.value
-          .map((item) => isSameSpot(item, widget.spot) ? visibleUpdatedSpot : item)
+          .map(
+            (item) => isSameSpot(item, widget.spot) ? visibleUpdatedSpot : item,
+          )
           .toList();
 
       if (!mounted) {
@@ -14497,19 +15238,35 @@ class UserSubmissionsScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.transparent,
-      appBar: AppBar(title: const Text('My Submissions'), backgroundColor: Colors.transparent, foregroundColor: blue),
+      appBar: AppBar(
+        title: const Text('My Submissions'),
+        backgroundColor: Colors.transparent,
+        foregroundColor: blue,
+      ),
       body: ValueListenableBuilder<List<CarSpot>>(
         valueListenable: submittedSpots,
         builder: (context, spots, _) {
           return ListView(
             padding: const EdgeInsets.fromLTRB(20, 18, 20, 28),
             children: [
-              Text(spots.isEmpty ? 'No spots created yet.' : '${spots.length} created spots.', style: const TextStyle(color: Colors.white54, height: 1.35)),
+              Text(
+                spots.isEmpty
+                    ? 'No spots created yet.'
+                    : '${spots.length} created spots.',
+                style: const TextStyle(color: Colors.white54, height: 1.35),
+              ),
               const SizedBox(height: 18),
               if (spots.isEmpty)
-                const EmptyStateCard(icon: Icons.add_location_alt, title: 'No submissions yet', text: 'Created spots will appear here.')
+                const EmptyStateCard(
+                  icon: Icons.add_location_alt,
+                  title: 'No submissions yet',
+                  text: 'Created spots will appear here.',
+                )
               else
-                for (final spot in spots) ...[SavedSpotTile(spot: spot), const SizedBox(height: 12)],
+                for (final spot in spots) ...[
+                  SavedSpotTile(spot: spot),
+                  const SizedBox(height: 12),
+                ],
             ],
           );
         },
@@ -15914,7 +16671,6 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
     }
   }
 
-
   bool get isCurrentUserGroupOwner {
     final ownerUid = widget.chat.ownerUid.trim().isEmpty
         ? (widget.chat.memberIds.isEmpty ? '' : widget.chat.memberIds.first)
@@ -15923,7 +16679,9 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
   }
 
   bool get canManageGroupMembers {
-    return isCurrentUserGroupOwner || widget.chat.moderatorIds.contains(currentUser.uid) || userRoleIsStaff(currentUser.role);
+    return isCurrentUserGroupOwner ||
+        widget.chat.moderatorIds.contains(currentUser.uid) ||
+        userRoleIsStaff(currentUser.role);
   }
 
   Future<void> addMembersToGroup() async {
@@ -15932,14 +16690,18 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
     final friends = await loadAllVisibleUsersForGroupInvite();
     if (!mounted) return;
 
-    final candidates = friends.where((user) => !widget.chat.memberIds.contains(user.uid)).toList();
+    final candidates = friends
+        .where((user) => !widget.chat.memberIds.contains(user.uid))
+        .toList();
     final selected = <FriendUserData>[];
 
     await showModalBottomSheet<void>(
       context: context,
       backgroundColor: panelGlass,
       isScrollControlled: true,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(26))),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(26)),
+      ),
       builder: (context) {
         return StatefulBuilder(
           builder: (context, setSheetState) {
@@ -15950,10 +16712,20 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text('Add members', style: TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.w900)),
+                    const Text(
+                      'Add members',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 22,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
                     const SizedBox(height: 12),
                     if (candidates.isEmpty)
-                      const Text('No users available to add.', style: TextStyle(color: Colors.white54))
+                      const Text(
+                        'No users available to add.',
+                        style: TextStyle(color: Colors.white54),
+                      )
                     else
                       Flexible(
                         child: SingleChildScrollView(
@@ -15961,19 +16733,29 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
                             children: [
                               for (final friend in candidates)
                                 CheckboxListTile(
-                                  value: selected.any((u) => u.uid == friend.uid),
+                                  value: selected.any(
+                                    (u) => u.uid == friend.uid,
+                                  ),
                                   onChanged: (value) {
                                     setSheetState(() {
                                       if (value == true) {
                                         selected.add(friend);
                                       } else {
-                                        selected.removeWhere((u) => u.uid == friend.uid);
+                                        selected.removeWhere(
+                                          (u) => u.uid == friend.uid,
+                                        );
                                       }
                                     });
                                   },
                                   activeColor: blue,
-                                  title: Text(displayUsername(friend.username), style: const TextStyle(color: Colors.white)),
-                                  secondary: UserAvatarCircle(user: friend, size: 34),
+                                  title: Text(
+                                    displayUsername(friend.username),
+                                    style: const TextStyle(color: Colors.white),
+                                  ),
+                                  secondary: UserAvatarCircle(
+                                    user: friend,
+                                    size: 34,
+                                  ),
                                 ),
                             ],
                           ),
@@ -15984,13 +16766,17 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
                       width: double.infinity,
                       height: 52,
                       child: ElevatedButton.icon(
-                        onPressed: selected.isEmpty ? null : () => Navigator.pop(context),
+                        onPressed: selected.isEmpty
+                            ? null
+                            : () => Navigator.pop(context),
                         icon: const Icon(Icons.group_add),
                         label: Text('Add ${selected.length}'),
                         style: ElevatedButton.styleFrom(
                           backgroundColor: blue,
                           foregroundColor: Colors.white,
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(18),
+                          ),
                         ),
                       ),
                     ),
@@ -16008,8 +16794,12 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
     try {
       await chatsCollection().doc(widget.chat.id).set({
         'memberIds': FieldValue.arrayUnion(selected.map((u) => u.uid).toList()),
-        'memberUsernames': FieldValue.arrayUnion(selected.map((u) => u.username).toList()),
-        'memberPhotoUrls': FieldValue.arrayUnion(selected.map((u) => u.photoUrl ?? '').toList()),
+        'memberUsernames': FieldValue.arrayUnion(
+          selected.map((u) => u.username).toList(),
+        ),
+        'memberPhotoUrls': FieldValue.arrayUnion(
+          selected.map((u) => u.photoUrl ?? '').toList(),
+        ),
         'updatedAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
     } finally {
@@ -16018,13 +16808,16 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
   }
 
   Future<void> toggleGroupModerator(FriendUserData user) async {
-    if (!isCurrentUserGroupOwner || user.uid == currentUser.uid || isSaving) return;
+    if (!isCurrentUserGroupOwner || user.uid == currentUser.uid || isSaving)
+      return;
 
     final isModerator = widget.chat.moderatorIds.contains(user.uid);
     setState(() => isSaving = true);
     try {
       await chatsCollection().doc(widget.chat.id).set({
-        'moderatorIds': isModerator ? FieldValue.arrayRemove([user.uid]) : FieldValue.arrayUnion([user.uid]),
+        'moderatorIds': isModerator
+            ? FieldValue.arrayRemove([user.uid])
+            : FieldValue.arrayUnion([user.uid]),
         'updatedAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
     } finally {
@@ -16137,10 +16930,18 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
                     runSpacing: 4,
                     children: [
                       OnlineStatusBadge(online: user.appearsOnline),
-                      if (user.uid == (widget.chat.ownerUid.trim().isEmpty ? (widget.chat.memberIds.isEmpty ? '' : widget.chat.memberIds.first) : widget.chat.ownerUid))
+                      if (user.uid ==
+                          (widget.chat.ownerUid.trim().isEmpty
+                              ? (widget.chat.memberIds.isEmpty
+                                    ? ''
+                                    : widget.chat.memberIds.first)
+                              : widget.chat.ownerUid))
                         const _SmallTag(label: 'owner', icon: Icons.shield),
                       if (widget.chat.moderatorIds.contains(user.uid))
-                        const _SmallTag(label: 'moderator', icon: Icons.admin_panel_settings),
+                        const _SmallTag(
+                          label: 'moderator',
+                          icon: Icons.admin_panel_settings,
+                        ),
                     ],
                   ),
                 ],
@@ -16154,7 +16955,11 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
                 itemBuilder: (_) => [
                   PopupMenuItem(
                     value: 'toggle_moderator',
-                    child: Text(widget.chat.moderatorIds.contains(user.uid) ? 'Remove group moderator' : 'Make group moderator'),
+                    child: Text(
+                      widget.chat.moderatorIds.contains(user.uid)
+                          ? 'Remove group moderator'
+                          : 'Make group moderator',
+                    ),
                   ),
                 ],
               ),
@@ -16774,7 +17579,8 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
     Map<String, FriendUserData> usersById,
   ) {
     final mine = message.senderUid == currentUid;
-    final canModerateMessage = widget.chat.isGroup &&
+    final canModerateMessage =
+        widget.chat.isGroup &&
         (userRoleIsStaff(currentUser.role) ||
             widget.chat.ownerUid == currentUid ||
             widget.chat.moderatorIds.contains(currentUid));
@@ -16861,7 +17667,9 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
         : bubble;
 
     return GestureDetector(
-      onLongPress: (mine || canModerateMessage) ? () => showOwnMessageActions(message) : null,
+      onLongPress: (mine || canModerateMessage)
+          ? () => showOwnMessageActions(message)
+          : null,
       child: Align(
         alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
         child: content,
@@ -17797,8 +18605,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
               if (userRoleIsStaff(currentUser.role)) ...[
                 _ProfileActionTile(
                   icon: Icons.admin_panel_settings,
-                  title: currentUser.role == UserRole.admin ? 'Admin Panel' : 'Moderator Panel',
-                  subtitle: currentUser.role == UserRole.admin ? 'Review spots and manage users' : 'Review spots and moderate users',
+                  title: currentUser.role == UserRole.admin
+                      ? 'Admin Panel'
+                      : 'Moderator Panel',
+                  subtitle: currentUser.role == UserRole.admin
+                      ? 'Review spots and manage users'
+                      : 'Review spots and moderate users',
                   onTap: openAdminPanel,
                 ),
                 const SizedBox(height: 10),
@@ -19955,70 +20767,77 @@ class _ProfileSubmissionsPreview extends StatelessWidget {
           ].join(' • ');
 
     return InkWell(
-      onTap: spots.isEmpty ? null : () { Navigator.push(context, appPageRoute(builder: (_) => const UserSubmissionsScreen())); },
+      onTap: spots.isEmpty
+          ? null
+          : () {
+              Navigator.push(
+                context,
+                appPageRoute(builder: (_) => const UserSubmissionsScreen()),
+              );
+            },
       borderRadius: BorderRadius.circular(20),
       child: Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-        color: panelGlass,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: Colors.white12),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            'Submissions',
-            style: TextStyle(
-              color: Colors.white,
-              fontSize: 18,
-              fontWeight: FontWeight.w900,
+          color: panelGlass,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: Colors.white12),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Submissions',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 18,
+                fontWeight: FontWeight.w900,
+              ),
             ),
-          ),
-          const SizedBox(height: 8),
-          Text(summary, style: const TextStyle(color: Colors.white54)),
-          if (latest != null) ...[
-            const SizedBox(height: 14),
-            Row(
-              children: [
-                SpotPhoto(
-                  spot: latest,
-                  width: 64,
-                  height: 64,
-                  borderRadius: BorderRadius.circular(13),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        latest.name,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.w900,
-                        ),
-                      ),
-                      const SizedBox(height: 5),
-                      Text(
-                        latest.cityCountry,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(color: Colors.white54),
-                      ),
-                      const SizedBox(height: 8),
-                      _PendingBadge(status: latest.status),
-                    ],
+            const SizedBox(height: 8),
+            Text(summary, style: const TextStyle(color: Colors.white54)),
+            if (latest != null) ...[
+              const SizedBox(height: 14),
+              Row(
+                children: [
+                  SpotPhoto(
+                    spot: latest,
+                    width: 64,
+                    height: 64,
+                    borderRadius: BorderRadius.circular(13),
                   ),
-                ),
-              ],
-            ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          latest.name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                        const SizedBox(height: 5),
+                        Text(
+                          latest.cityCountry,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(color: Colors.white54),
+                        ),
+                        const SizedBox(height: 8),
+                        _PendingBadge(status: latest.status),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ],
           ],
-        ],
+        ),
       ),
-    ),
     );
   }
 }
@@ -21354,7 +22173,8 @@ class AdminUsersScreen extends StatelessWidget {
       return false;
     }
 
-    if (currentUser.role == UserRole.moderator && user.role == UserRole.moderator) {
+    if (currentUser.role == UserRole.moderator &&
+        user.role == UserRole.moderator) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           backgroundColor: Colors.redAccent,
@@ -22026,7 +22846,11 @@ class _AdminReviewScreenState extends State<AdminReviewScreen> {
     return Scaffold(
       backgroundColor: Colors.transparent,
       appBar: AppBar(
-        title: Text(currentUser.role == UserRole.admin ? 'Admin Panel' : 'Moderator Panel'),
+        title: Text(
+          currentUser.role == UserRole.admin
+              ? 'Admin Panel'
+              : 'Moderator Panel',
+        ),
         backgroundColor: Colors.transparent,
         foregroundColor: blue,
       ),
@@ -22040,7 +22864,9 @@ class _AdminReviewScreenState extends State<AdminReviewScreen> {
             padding: const EdgeInsets.fromLTRB(20, 18, 20, 28),
             children: [
               Text(
-                currentUser.role == UserRole.admin ? 'Admin Review' : 'Moderator Review',
+                currentUser.role == UserRole.admin
+                    ? 'Admin Review'
+                    : 'Moderator Review',
                 style: TextStyle(
                   color: Colors.white,
                   fontSize: 34,
@@ -22317,6 +23143,9 @@ class _AdminEditSpotScreenState extends State<AdminEditSpotScreen> {
   late final TextEditingController emailController;
   late String selectedCategory;
   late bool verifiedOnlySpot;
+  late bool isTemporarySpot;
+  DateTime? temporaryStartsAt;
+  DateTime? temporaryExpiresAt;
   late final List<String> existingPhotoUrls;
   final List<String> newPhotoPaths = [];
   late Map<int, OpeningHoursData> openingHours;
@@ -22330,8 +23159,12 @@ class _AdminEditSpotScreenState extends State<AdminEditSpotScreen> {
     super.initState();
     nameController = TextEditingController(text: widget.spot.name);
     cityController = TextEditingController(text: widget.spot.cityCountry);
-    latController = TextEditingController(text: widget.spot.coordinates.latitude.toStringAsFixed(6));
-    lngController = TextEditingController(text: widget.spot.coordinates.longitude.toStringAsFixed(6));
+    latController = TextEditingController(
+      text: widget.spot.coordinates.latitude.toStringAsFixed(6),
+    );
+    lngController = TextEditingController(
+      text: widget.spot.coordinates.longitude.toStringAsFixed(6),
+    );
     descriptionController = TextEditingController(
       text: widget.spot.description,
     );
@@ -22352,6 +23185,13 @@ class _AdminEditSpotScreenState extends State<AdminEditSpotScreen> {
     }
     selectedCategory = primarySpotCategory(widget.spot);
     verifiedOnlySpot = widget.spot.verifiedOnly;
+    isTemporarySpot = widget.spot.isTemporary;
+    temporaryStartsAt = widget.spot.startsAtMillis == null
+        ? null
+        : DateTime.fromMillisecondsSinceEpoch(widget.spot.startsAtMillis!);
+    temporaryExpiresAt = widget.spot.expiresAtMillis == null
+        ? null
+        : DateTime.fromMillisecondsSinceEpoch(widget.spot.expiresAtMillis!);
     openingHours = widget.spot.openingHours.isEmpty
         ? defaultServiceOpeningHours()
         : {...widget.spot.openingHours};
@@ -22428,13 +23268,78 @@ class _AdminEditSpotScreenState extends State<AdminEditSpotScreen> {
     setState(() => newPhotoPaths.removeAt(index));
   }
 
+  Future<DateTime?> pickTemporaryDateTime(DateTime? initialValue) async {
+    final now = DateTime.now();
+    final initial = initialValue ?? now.add(const Duration(hours: 1));
+
+    final date = await showDatePicker(
+      context: context,
+      initialDate: initial,
+      firstDate: DateTime(now.year, now.month, now.day),
+      lastDate: now.add(const Duration(days: 365)),
+      builder: (context, child) {
+        return Theme(data: ThemeData.dark(), child: child!);
+      },
+    );
+
+    if (date == null || !mounted) {
+      return null;
+    }
+
+    final time = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.fromDateTime(initial),
+      builder: (context, child) {
+        return Theme(data: ThemeData.dark(), child: child!);
+      },
+    );
+
+    if (time == null) {
+      return null;
+    }
+
+    return DateTime(date.year, date.month, date.day, time.hour, time.minute);
+  }
+
+  Future<void> chooseTemporaryStart() async {
+    final value = await pickTemporaryDateTime(temporaryStartsAt);
+
+    if (!mounted || value == null) {
+      return;
+    }
+
+    setState(() {
+      temporaryStartsAt = value;
+      if (temporaryExpiresAt == null ||
+          !temporaryExpiresAt!.isAfter(value) ||
+          temporaryExpiresAt!.difference(value) > maxTemporarySpotDuration) {
+        temporaryExpiresAt = value.add(const Duration(hours: 3));
+      }
+    });
+  }
+
+  Future<void> chooseTemporaryEnd() async {
+    final fallback = temporaryStartsAt?.add(const Duration(hours: 3));
+    final value = await pickTemporaryDateTime(temporaryExpiresAt ?? fallback);
+
+    if (!mounted || value == null) {
+      return;
+    }
+
+    setState(() => temporaryExpiresAt = value);
+  }
+
   Future<void> saveSpot() async {
     final firebaseUser = FirebaseAuth.instance.currentUser;
     final cleanName = nameController.text.trim();
     final cleanCity = cityController.text.trim();
     final cleanDescription = descriptionController.text.trim();
-    final editedLatitude = double.tryParse(latController.text.trim().replaceAll(',', '.'));
-    final editedLongitude = double.tryParse(lngController.text.trim().replaceAll(',', '.'));
+    final editedLatitude = double.tryParse(
+      latController.text.trim().replaceAll(',', '.'),
+    );
+    final editedLongitude = double.tryParse(
+      lngController.text.trim().replaceAll(',', '.'),
+    );
     final cleanReel = reelController.text.trim();
     final cleanPhone = phoneController.text.trim();
     final cleanInstagram = instagramController.text.trim();
@@ -22466,11 +23371,19 @@ class _AdminEditSpotScreenState extends State<AdminEditSpotScreen> {
       return;
     }
 
-    if (editedLatitude == null || editedLongitude == null || editedLatitude < -90 || editedLatitude > 90 || editedLongitude < -180 || editedLongitude > 180) {
+    if (editedLatitude == null ||
+        editedLongitude == null ||
+        editedLatitude < -90 ||
+        editedLatitude > 90 ||
+        editedLongitude < -180 ||
+        editedLongitude > 180) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           backgroundColor: Colors.redAccent,
-          content: Text('Enter valid latitude and longitude.', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
+          content: Text(
+            'Enter valid latitude and longitude.',
+            style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+          ),
         ),
       );
       return;
@@ -22487,6 +23400,59 @@ class _AdminEditSpotScreenState extends State<AdminEditSpotScreen> {
         ),
       );
       return;
+    }
+
+    if (isTemporarySpot) {
+      final startsAt = temporaryStartsAt;
+      final expiresAt = temporaryExpiresAt;
+
+      if (startsAt == null || expiresAt == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            backgroundColor: Colors.redAccent,
+            content: Text(
+              'Choose both start and end time for a temporary spot.',
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        );
+        return;
+      }
+
+      if (!expiresAt.isAfter(startsAt)) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            backgroundColor: Colors.redAccent,
+            content: Text(
+              'Temporary spot end time must be after start time.',
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        );
+        return;
+      }
+
+      if (expiresAt.difference(startsAt) > maxTemporarySpotDuration) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            backgroundColor: Colors.redAccent,
+            content: Text(
+              'Temporary spot can be active for 12 hours maximum.',
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        );
+        return;
+      }
     }
 
     setState(() => isSaving = true);
@@ -22521,24 +23487,55 @@ class _AdminEditSpotScreenState extends State<AdminEditSpotScreen> {
         photoUrl: finalPhotoUrls.isEmpty ? '' : finalPhotoUrls.first,
         photoUrls: finalPhotoUrls,
         verifiedOnly: verifiedOnlySpot,
+        isTemporary: isTemporarySpot,
+        startsAtMillis: isTemporarySpot
+            ? temporaryStartsAt!.millisecondsSinceEpoch
+            : null,
+        expiresAtMillis: isTemporarySpot
+            ? temporaryExpiresAt!.millisecondsSinceEpoch
+            : null,
+        clearTemporarySchedule: !isTemporarySpot,
       );
 
       final editChangeSummary = <String>[];
-      if (widget.spot.name != updatedSpot.name) editChangeSummary.add('Name: ${widget.spot.name} → ${updatedSpot.name}');
-      if (widget.spot.cityCountry != updatedSpot.cityCountry) editChangeSummary.add('Location text: ${widget.spot.cityCountry} → ${updatedSpot.cityCountry}');
-      if (widget.spot.description != updatedSpot.description) editChangeSummary.add('Description changed');
-      if ((widget.spot.coordinates.latitude - updatedSpot.coordinates.latitude).abs() > 0.000001 ||
-          (widget.spot.coordinates.longitude - updatedSpot.coordinates.longitude).abs() > 0.000001) {
+      if (widget.spot.name != updatedSpot.name)
+        editChangeSummary.add(
+          'Name: ${widget.spot.name} → ${updatedSpot.name}',
+        );
+      if (widget.spot.cityCountry != updatedSpot.cityCountry)
+        editChangeSummary.add(
+          'Location text: ${widget.spot.cityCountry} → ${updatedSpot.cityCountry}',
+        );
+      if (widget.spot.description != updatedSpot.description)
+        editChangeSummary.add('Description changed');
+      if ((widget.spot.coordinates.latitude - updatedSpot.coordinates.latitude)
+                  .abs() >
+              0.000001 ||
+          (widget.spot.coordinates.longitude -
+                      updatedSpot.coordinates.longitude)
+                  .abs() >
+              0.000001) {
         editChangeSummary.add('Map position changed');
       }
-      if (primarySpotCategory(widget.spot) != primarySpotCategory(updatedSpot)) {
-        editChangeSummary.add('Category: ${primarySpotCategory(widget.spot)} → ${primarySpotCategory(updatedSpot)}');
+      if (primarySpotCategory(widget.spot) !=
+          primarySpotCategory(updatedSpot)) {
+        editChangeSummary.add(
+          'Category: ${primarySpotCategory(widget.spot)} → ${primarySpotCategory(updatedSpot)}',
+        );
       }
-      if (widget.spot.photoUrls.length != updatedSpot.photoUrls.length || widget.spot.photoUrl != updatedSpot.photoUrl) {
+      if (widget.spot.photoUrls.length != updatedSpot.photoUrls.length ||
+          widget.spot.photoUrl != updatedSpot.photoUrl) {
         editChangeSummary.add('Photos changed');
       }
+      if (widget.spot.isTemporary != updatedSpot.isTemporary ||
+          widget.spot.startsAtMillis != updatedSpot.startsAtMillis ||
+          widget.spot.expiresAtMillis != updatedSpot.expiresAtMillis) {
+        editChangeSummary.add('Temporary schedule changed');
+      }
 
-      final needsEditReview = !userRoleIsStaff(currentUser.role) && widget.spot.addedByUid == currentUser.uid;
+      final needsEditReview =
+          !userRoleIsStaff(currentUser.role) &&
+          widget.spot.addedByUid == currentUser.uid;
 
       await spotsCollection().doc(widget.spot.id).update({
         'name': updatedSpot.name,
@@ -22546,7 +23543,10 @@ class _AdminEditSpotScreenState extends State<AdminEditSpotScreen> {
         'description': updatedSpot.description,
         'lat': updatedSpot.coordinates.latitude,
         'lng': updatedSpot.coordinates.longitude,
-        'coordinates': GeoPoint(updatedSpot.coordinates.latitude, updatedSpot.coordinates.longitude),
+        'coordinates': GeoPoint(
+          updatedSpot.coordinates.latitude,
+          updatedSpot.coordinates.longitude,
+        ),
         'categories': updatedSpot.categories,
         'reelLink': updatedSpot.reelLink,
         'contactPhone': updatedSpot.contactPhone,
@@ -22558,6 +23558,15 @@ class _AdminEditSpotScreenState extends State<AdminEditSpotScreen> {
         'photoUrl': updatedSpot.photoUrl,
         'photoUrls': updatedSpot.photoUrls,
         'verifiedOnly': updatedSpot.verifiedOnly,
+        'isTemporary': updatedSpot.isTemporary,
+        'startsAt': updatedSpot.startsAtMillis == null
+            ? null
+            : Timestamp.fromMillisecondsSinceEpoch(updatedSpot.startsAtMillis!),
+        'expiresAt': updatedSpot.expiresAtMillis == null
+            ? null
+            : Timestamp.fromMillisecondsSinceEpoch(
+                updatedSpot.expiresAtMillis!,
+              ),
         if (needsEditReview) 'status': 'edited',
         if (needsEditReview) 'editReviewStatus': 'pending',
         if (needsEditReview) 'editChangeSummary': editChangeSummary,
@@ -22567,16 +23576,24 @@ class _AdminEditSpotScreenState extends State<AdminEditSpotScreen> {
         'updatedAt': FieldValue.serverTimestamp(),
       });
 
-      final visibleUpdatedSpot = needsEditReview ? updatedSpot.copyWith(status: SpotStatus.edited) : updatedSpot;
+      final visibleUpdatedSpot = needsEditReview
+          ? updatedSpot.copyWith(status: SpotStatus.edited)
+          : updatedSpot;
 
       reviewSpots.value = reviewSpots.value
-          .map((item) => isSameSpot(item, widget.spot) ? visibleUpdatedSpot : item)
+          .map(
+            (item) => isSameSpot(item, widget.spot) ? visibleUpdatedSpot : item,
+          )
           .toList();
       submittedSpots.value = submittedSpots.value
-          .map((item) => isSameSpot(item, widget.spot) ? visibleUpdatedSpot : item)
+          .map(
+            (item) => isSameSpot(item, widget.spot) ? visibleUpdatedSpot : item,
+          )
           .toList();
       savedSpots.value = savedSpots.value
-          .map((item) => isSameSpot(item, widget.spot) ? visibleUpdatedSpot : item)
+          .map(
+            (item) => isSameSpot(item, widget.spot) ? visibleUpdatedSpot : item,
+          )
           .toList();
 
       await refreshFirebaseSpotsFromServer();
@@ -22590,7 +23607,10 @@ class _AdminEditSpotScreenState extends State<AdminEditSpotScreen> {
           backgroundColor: blue,
           content: Text(
             needsEditReview ? 'Spot edit sent for review.' : 'Spot updated.',
-            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w700,
+            ),
           ),
         ),
       );
@@ -22719,7 +23739,10 @@ class _AdminEditSpotScreenState extends State<AdminEditSpotScreen> {
                       label: 'Latitude',
                       hint: '56.949600',
                       icon: Icons.my_location,
-                      keyboardType: const TextInputType.numberWithOptions(decimal: true, signed: true),
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                        signed: true,
+                      ),
                     ),
                   ),
                   const SizedBox(width: 10),
@@ -22729,7 +23752,10 @@ class _AdminEditSpotScreenState extends State<AdminEditSpotScreen> {
                       label: 'Longitude',
                       hint: '24.105200',
                       icon: Icons.explore,
-                      keyboardType: const TextInputType.numberWithOptions(decimal: true, signed: true),
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                        signed: true,
+                      ),
                     ),
                   ),
                 ],
@@ -22826,6 +23852,31 @@ class _AdminEditSpotScreenState extends State<AdminEditSpotScreen> {
               ],
             ),
           ],
+          const SizedBox(height: 16),
+          _AddSpotSection(
+            title: 'Temporary schedule',
+            children: [
+              _TemporarySpotScheduleCard(
+                enabled: isTemporarySpot,
+                startsAt: temporaryStartsAt,
+                expiresAt: temporaryExpiresAt,
+                onEnabledChanged: (value) {
+                  setState(() {
+                    isTemporarySpot = value;
+                    if (value && temporaryStartsAt == null) {
+                      final start = DateTime.now().add(
+                        const Duration(hours: 1),
+                      );
+                      temporaryStartsAt = start;
+                      temporaryExpiresAt = start.add(const Duration(hours: 3));
+                    }
+                  });
+                },
+                onPickStart: chooseTemporaryStart,
+                onPickEnd: chooseTemporaryEnd,
+              ),
+            ],
+          ),
           const SizedBox(height: 16),
           _AddSpotSection(
             title: 'Photos',
