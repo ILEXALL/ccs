@@ -47,8 +47,17 @@ String? googleSignInSetupError;
 bool firebaseReady = false;
 bool rememberMeEnabled = false;
 const rememberMeKey = 'remember_me';
+const liveLocationDisclaimerDismissedKey = 'live_location_disclaimer_dismissed';
+const liveLocationDurationChoices = <Duration>[
+  Duration(hours: 1),
+  Duration(hours: 2),
+  Duration(hours: 4),
+];
+const liveLocationRenewGracePeriod = Duration(minutes: 10);
 StreamSubscription<String>? pushTokenRefreshSubscription;
 StreamSubscription<RemoteMessage>? foregroundPushSubscription;
+StreamSubscription<QuerySnapshot<Map<String, dynamic>>>?
+notificationCenterUnreadSubscription;
 final notificationCenterUnreadCount = ValueNotifier<int>(0);
 
 enum AppLanguage { en, ru, lv }
@@ -124,8 +133,7 @@ const _ruText = <String, String>{
   'No notifications yet': 'Уведомлений пока нет',
   'Your latest CCS updates will appear here.':
       'Здесь будут появляться последние обновления CCS.',
-  'CCS notification center is ready.':
-      'Центр уведомлений CCS готов к работе.',
+  'CCS notification center is ready.': 'Центр уведомлений CCS готов к работе.',
   'Refresh': 'Обновить',
   'Approved car spots': 'Одобренные автомобильные споты',
   'Filters': 'Фильтры',
@@ -153,7 +161,8 @@ const _ruText = <String, String>{
   'Spot review updates': 'Результаты проверки спотов',
   'Approved or rejected spot submissions': 'Одобрение или отклонение спотов',
   'Likes on my spots': 'Лайки моих спотов',
-  'When people like your approved spots': 'Когда пользователи лайкают ваши споты',
+  'When people like your approved spots':
+      'Когда пользователи лайкают ваши споты',
   'Comments': 'Комментарии',
   'Future comments and community replies': 'Новые комментарии и ответы',
   'New spots': 'Новые споты',
@@ -161,7 +170,8 @@ const _ruText = <String, String>{
   'Messages': 'Сообщения',
   'New direct and group messages': 'Новые личные и групповые сообщения',
   'Public profile': 'Публичный профиль',
-  'Let other drivers see your profile': 'Разрешить другим водителям видеть профиль',
+  'Let other drivers see your profile':
+      'Разрешить другим водителям видеть профиль',
   'Show garage': 'Показывать гараж',
   'Display your car builds on your profile': 'Показывать автомобили в профиле',
   'Save Settings': 'Сохранить настройки',
@@ -225,8 +235,7 @@ const _ruText = <String, String>{
       'Владелец пока не добавил часы работы.',
   'Closed today': 'Сегодня закрыто',
   'Hours need update': 'Нужно обновить часы работы',
-  'Opening hours are not formatted correctly.':
-      'Часы работы указаны неверно.',
+  'Opening hours are not formatted correctly.': 'Часы работы указаны неверно.',
   'Open now': 'Сейчас открыто',
   'Closed now': 'Сейчас закрыто',
   'Phone': 'Телефон',
@@ -315,7 +324,8 @@ const _ruText = <String, String>{
   'Users': 'Пользователи',
   'Open profiles, ban, unban, or delete users':
       'Открывайте профили, блокируйте и удаляйте пользователей',
-  'Grant or remove verified status': 'Назначайте или снимайте проверенный статус',
+  'Grant or remove verified status':
+      'Назначайте или снимайте проверенный статус',
   'Edit Spot': 'Редактировать спот',
   'City / country': 'Город / страна',
   'Latitude': 'Широта',
@@ -402,7 +412,8 @@ const _ruText = <String, String>{
   'Log in before confirming a police mark.':
       'Войдите в аккаунт перед подтверждением отметки полиции.',
   'Log in before finding friends.': 'Войдите в аккаунт для поиска друзей.',
-  'Log in before liking comments.': 'Войдите в аккаунт, чтобы лайкать комментарии.',
+  'Log in before liking comments.':
+      'Войдите в аккаунт, чтобы лайкать комментарии.',
   'Log in before liking spots.': 'Войдите в аккаунт, чтобы лайкать споты.',
   'Log in before sharing your live location.':
       'Войдите в аккаунт для показа геопозиции.',
@@ -462,6 +473,14 @@ const _ruText = <String, String>{
   'Sent requests': 'Отправленные заявки',
   'Service info updated.': 'Данные сервиса обновлены.',
   'Share live location': 'Поделиться геопозицией в реальном времени',
+  'Share live location?': 'Поделиться геопозицией?',
+  'You are about to share your live location. People who have access to this share will be able to see you on the map until sharing expires or you stop it.':
+      'Вы собираетесь поделиться своей геопозицией. Пользователи, у которых есть доступ к этой отправке, смогут видеть вас на карте до окончания времени или пока вы не остановите показ.',
+  "Don't show again": 'Больше не показывать',
+  'Choose sharing duration': 'Выберите длительность показа',
+  '1 hour': '1 час',
+  '2 hours': '2 часа',
+  '4 hours': '4 часа',
   'Share location': 'Поделиться геопозицией',
   'Short description': 'Краткое описание',
   'Sign in with Google before submitting a spot.':
@@ -494,12 +513,14 @@ const _ruText = <String, String>{
       'В этом чате не с кем поделиться геопозицией.',
   'This driver has not shared car builds yet.':
       'Этот водитель пока не опубликовал автомобили.',
-  'This driver keeps their profile private.': 'У этого водителя закрытый профиль.',
+  'This driver keeps their profile private.':
+      'У этого водителя закрытый профиль.',
   'This link is not valid yet.': 'Ссылка пока недействительна.',
   'This message will be deleted from the chat.':
       'Сообщение будет удалено из чата.',
   'This user profile is not available anymore.': 'Профиль больше недоступен.',
-  'Try searching by nickname or name.': 'Попробуйте поиск по никнейму или имени.',
+  'Try searching by nickname or name.':
+      'Попробуйте поиск по никнейму или имени.',
   'Turn on phone location first.': 'Сначала включите геопозицию на телефоне.',
   'Turn on phone location to show distance.':
       'Включите геопозицию, чтобы увидеть расстояние.',
@@ -546,18 +567,23 @@ const _ruText = <String, String>{
   'Submitting for review...': 'Отправляем на проверку...',
   'Choose the spot on map': 'Выберите спот на карте',
   'Spot location selected on map': 'Место спота выбрано на карте',
-  'Type an address and place the pin automatically': 'Введите адрес, и метка поставится автоматически',
+  'Type an address and place the pin automatically':
+      'Введите адрес, и метка поставится автоматически',
   'Use your phone GPS position': 'Использовать GPS телефона',
-  'Replace pin with your current GPS position': 'Заменить метку текущей геопозицией',
+  'Replace pin with your current GPS position':
+      'Заменить метку текущей геопозицией',
   'Getting your GPS position...': 'Получаем вашу GPS-позицию...',
   'Detecting city/country...': 'Определяем город/страну...',
   'Checking distance...': 'Проверяем расстояние...',
   'Distance unavailable': 'Расстояние недоступно',
   'Open route': 'Открыть маршрут',
-  'Add up to 4 spot photos. The first photo becomes the Explore thumbnail.': 'Добавьте до 4 фото спота. Первое фото станет обложкой в ленте.',
-  'Maximum 4 photos selected. First photo is the spot thumbnail.': 'Выбрано максимум 4 фото. Первое фото — обложка спота.',
+  'Add up to 4 spot photos. The first photo becomes the Explore thumbnail.':
+      'Добавьте до 4 фото спота. Первое фото станет обложкой в ленте.',
+  'Maximum 4 photos selected. First photo is the spot thumbnail.':
+      'Выбрано максимум 4 фото. Первое фото — обложка спота.',
   'Saved spots will appear here.': 'Сохранённые споты появятся здесь.',
-  'Review spots and manage users': 'Проверка спотов и управление пользователями',
+  'Review spots and manage users':
+      'Проверка спотов и управление пользователями',
   'Save Changes': 'Сохранить изменения',
   'Drift': 'Дрифт',
   'No video link added': 'Ссылка на видео не добавлена',
@@ -572,15 +598,19 @@ const _ruText = <String, String>{
   'Friends share': 'Друзья',
   'online': 'в сети',
   'offline': 'не в сети',
-  'Shared live location with this group.': 'Геопозиция отправлена в эту группу.',
+  'Shared live location with this group.':
+      'Геопозиция отправлена в эту группу.',
   'Shared live location with you.': 'Геопозиция отправлена вам.',
-  'Location shared with this group for 1 hour.': 'Геопозиция опубликована в группе на 1 час.',
-  'Location shared with this chat for 1 hour.': 'Геопозиция опубликована в чате на 1 час.',
+  'Location shared with this group for 1 hour.':
+      'Геопозиция опубликована в группе на 1 час.',
+  'Location shared with this chat for 1 hour.':
+      'Геопозиция опубликована в чате на 1 час.',
   'Updated': 'Обновлено',
   'Live location': 'Геопозиция онлайн',
   'Admin Panel': 'Админ-панель',
   'Moderator Panel': 'Панель модератора',
-  'Review spots and moderate users': 'Проверка спотов и модерация пользователей',
+  'Review spots and moderate users':
+      'Проверка спотов и модерация пользователей',
   'Pending': 'На проверке',
   'Edited': 'Изменённые',
   'Approved': 'Одобренные',
@@ -595,10 +625,14 @@ const _ruText = <String, String>{
   'No approved spots': 'Нет одобренных спотов',
   'No rejected spots': 'Нет отклонённых спотов',
   'No community spots yet': 'Спотов сообщества пока нет',
-  'New user submitted spots will appear here first.': 'Новые споты от пользователей сначала появятся здесь.',
-  'User spot edits will appear here for approval.': 'Изменения спотов от пользователей появятся здесь для одобрения.',
-  'Rejected spots will appear here after moderation.': 'Отклонённые споты появятся здесь после модерации.',
-  'When users submit spots, they will appear in this admin panel.': 'Когда пользователи отправят споты, они появятся в этой админ-панели.',
+  'New user submitted spots will appear here first.':
+      'Новые споты от пользователей сначала появятся здесь.',
+  'User spot edits will appear here for approval.':
+      'Изменения спотов от пользователей появятся здесь для одобрения.',
+  'Rejected spots will appear here after moderation.':
+      'Отклонённые споты появятся здесь после модерации.',
+  'When users submit spots, they will appear in this admin panel.':
+      'Когда пользователи отправят споты, они появятся в этой админ-панели.',
   'Direct chats': 'Личные чаты',
   'No direct chats yet.': 'Личных чатов пока нет.',
   'No groups yet.': 'Групп пока нет.',
@@ -608,17 +642,20 @@ const _ruText = <String, String>{
   'Checking nickname availability...': 'Проверяем доступность никнейма...',
   'Nickname is available.': 'Никнейм свободен.',
   'This nickname is already taken.': 'Этот никнейм уже занят.',
-  'Nickname must be at least 3 characters.': 'Никнейм должен быть минимум 3 символа.',
+  'Nickname must be at least 3 characters.':
+      'Никнейм должен быть минимум 3 символа.',
   'Could not check nickname availability.': 'Не удалось проверить никнейм.',
   'Untitled car': 'Автомобиль без названия',
   'Car profile.': 'Описание автомобиля.',
   'Spot saved.': 'Спот сохранён.',
   'Spot removed from saved.': 'Спот удалён из сохранённых.',
   'Comment': 'Комментарии',
-  'Add or remove spot photos. The first photo becomes the Explore thumbnail.': 'Добавьте или удалите фото спота. Первое фото станет обложкой в ленте.',
+  'Add or remove spot photos. The first photo becomes the Explore thumbnail.':
+      'Добавьте или удалите фото спота. Первое фото станет обложкой в ленте.',
   'Description placeholder': 'Описание',
   'Notification center could not load.': 'Не удалось загрузить уведомления.',
-  'Push notifications are connected through Firebase Cloud Messaging.': 'Уведомления подключены через Firebase Cloud Messaging.',
+  'Push notifications are connected through Firebase Cloud Messaging.':
+      'Уведомления подключены через Firebase Cloud Messaging.',
   'you': 'вы',
 };
 
@@ -667,7 +704,8 @@ const _lvText = <String, String>{
   'Open filters and enable more categories to see more spots.':
       'Atveriet filtrus un ieslēdziet papildu kategorijas.',
   'Spot review updates': 'Vietu pārbaudes rezultāti',
-  'Approved or rejected spot submissions': 'Apstiprinātas vai noraidītas vietas',
+  'Approved or rejected spot submissions':
+      'Apstiprinātas vai noraidītas vietas',
   'Likes on my spots': 'Patīk manām vietām',
   'When people like your approved spots': 'Kad lietotāji novērtē jūsu vietas',
   'Comments': 'Komentāri',
@@ -677,7 +715,8 @@ const _lvText = <String, String>{
   'Messages': 'Ziņas',
   'New direct and group messages': 'Jaunas privātās un grupu ziņas',
   'Public profile': 'Publisks profils',
-  'Let other drivers see your profile': 'Ļaut citiem autovadītājiem redzēt profilu',
+  'Let other drivers see your profile':
+      'Ļaut citiem autovadītājiem redzēt profilu',
   'Show garage': 'Rādīt garāžu',
   'Display your car builds on your profile': 'Rādīt automašīnas profilā',
   'Save Settings': 'Saglabāt iestatījumus',
@@ -887,8 +926,7 @@ const _lvText = <String, String>{
   'Edit comment': 'Rediģēt komentāru',
   'Edit message': 'Rediģēt ziņu',
   'Edit spot': 'Rediģēt vietu',
-  'End time must be after start time.':
-      'Beigu laikam jābūt pēc sākuma laika.',
+  'End time must be after start time.': 'Beigu laikam jābūt pēc sākuma laika.',
   'End time must be in the future.': 'Beigu laikam jābūt nākotnē.',
   'Enter valid latitude and longitude.': 'Ievadiet derīgas koordinātas.',
   'Friend invites sent to you will appear here.':
@@ -978,11 +1016,20 @@ const _lvText = <String, String>{
   'Sent requests': 'Nosūtītie pieprasījumi',
   'Service info updated.': 'Servisa informācija atjaunināta.',
   'Share live location': 'Kopīgot atrašanās vietu tiešsaistē',
+  'Share live location?': 'Kopīgot atrašanās vietu tiešsaistē?',
+  'You are about to share your live location. People who have access to this share will be able to see you on the map until sharing expires or you stop it.':
+      'Jūs gatavojaties kopīgot savu atrašanās vietu tiešsaistē. Lietotāji, kuriem ir piekļuve šai kopīgošanai, varēs redzēt jūs kartē līdz kopīgošanas beigām vai līdz brīdim, kad to apturēsiet.',
+  "Don't show again": 'Vairs nerādīt',
+  'Choose sharing duration': 'Izvēlieties kopīgošanas ilgumu',
+  '1 hour': '1 stunda',
+  '2 hours': '2 stundas',
+  '4 hours': '4 stundas',
   'Share location': 'Kopīgot atrašanās vietu',
   'Short description': 'Īss apraksts',
   'Sign in with Google before submitting a spot.':
       'Pieslēdzieties ar Google pirms vietas iesniegšanas.',
-  'Spot approved. It is now public.': 'Vieta apstiprināta un tagad ir publiska.',
+  'Spot approved. It is now public.':
+      'Vieta apstiprināta un tagad ir publiska.',
   'Spot deleted.': 'Vieta dzēsta.',
   'Spot name and description are required.':
       'Pievienojiet vietas nosaukumu un aprakstu.',
@@ -1016,7 +1063,8 @@ const _lvText = <String, String>{
   'This message will be deleted from the chat.': 'Ziņa tiks dzēsta no čata.',
   'This user profile is not available anymore.': 'Profils vairs nav pieejams.',
   'Try searching by nickname or name.': 'Meklējiet pēc segvārda vai vārda.',
-  'Turn on phone location first.': 'Vispirms ieslēdziet atrašanās vietu tālrunī.',
+  'Turn on phone location first.':
+      'Vispirms ieslēdziet atrašanās vietu tālrunī.',
   'Turn on phone location to show distance.':
       'Ieslēdziet atrašanās vietu, lai redzētu attālumu.',
   'Turn on phone location to use your current position.':
@@ -1062,16 +1110,20 @@ const _lvText = <String, String>{
   'Submitting for review...': 'Iesniedz pārbaudei...',
   'Choose the spot on map': 'Izvēlieties vietu kartē',
   'Spot location selected on map': 'Vieta izvēlēta kartē',
-  'Type an address and place the pin automatically': 'Ievadiet adresi, un atzīme tiks novietota automātiski',
+  'Type an address and place the pin automatically':
+      'Ievadiet adresi, un atzīme tiks novietota automātiski',
   'Use your phone GPS position': 'Izmantot tālruņa GPS pozīciju',
-  'Replace pin with your current GPS position': 'Aizstāt atzīmi ar pašreizējo GPS pozīciju',
+  'Replace pin with your current GPS position':
+      'Aizstāt atzīmi ar pašreizējo GPS pozīciju',
   'Getting your GPS position...': 'Iegūstam GPS pozīciju...',
   'Detecting city/country...': 'Nosakām pilsētu/valsti...',
   'Checking distance...': 'Pārbaudām attālumu...',
   'Distance unavailable': 'Attālums nav pieejams',
   'Open route': 'Atvērt maršrutu',
-  'Add up to 4 spot photos. The first photo becomes the Explore thumbnail.': 'Pievienojiet līdz 4 vietas foto. Pirmais būs vāks sarakstā.',
-  'Maximum 4 photos selected. First photo is the spot thumbnail.': 'Izvēlēti maksimums 4 foto. Pirmais foto ir vietas vāks.',
+  'Add up to 4 spot photos. The first photo becomes the Explore thumbnail.':
+      'Pievienojiet līdz 4 vietas foto. Pirmais būs vāks sarakstā.',
+  'Maximum 4 photos selected. First photo is the spot thumbnail.':
+      'Izvēlēti maksimums 4 foto. Pirmais foto ir vietas vāks.',
   'Saved spots will appear here.': 'Saglabātās vietas parādīsies šeit.',
   'Review spots and manage users': 'Pārbaudīt vietas un pārvaldīt lietotājus',
   'Save Changes': 'Saglabāt izmaiņas',
@@ -1088,10 +1140,13 @@ const _lvText = <String, String>{
   'Friends share': 'Draugi',
   'online': 'tiešsaistē',
   'offline': 'bezsaistē',
-  'Shared live location with this group.': 'Atrašanās vieta nosūtīta šai grupai.',
+  'Shared live location with this group.':
+      'Atrašanās vieta nosūtīta šai grupai.',
   'Shared live location with you.': 'Atrašanās vieta nosūtīta jums.',
-  'Location shared with this group for 1 hour.': 'Atrašanās vieta kopīgota grupā uz 1 stundu.',
-  'Location shared with this chat for 1 hour.': 'Atrašanās vieta kopīgota čatā uz 1 stundu.',
+  'Location shared with this group for 1 hour.':
+      'Atrašanās vieta kopīgota grupā uz 1 stundu.',
+  'Location shared with this chat for 1 hour.':
+      'Atrašanās vieta kopīgota čatā uz 1 stundu.',
   'Updated': 'Atjaunināts',
   'Live location': 'Tiešraides atrašanās vieta',
   'Admin Panel': 'Admina panelis',
@@ -1111,10 +1166,14 @@ const _lvText = <String, String>{
   'No approved spots': 'Nav apstiprinātu vietu',
   'No rejected spots': 'Nav noraidītu vietu',
   'No community spots yet': 'Kopienas vietu vēl nav',
-  'New user submitted spots will appear here first.': 'Jaunas lietotāju vietas vispirms parādīsies šeit.',
-  'User spot edits will appear here for approval.': 'Lietotāju labojumi parādīsies šeit apstiprināšanai.',
-  'Rejected spots will appear here after moderation.': 'Noraidītās vietas parādīsies šeit pēc moderācijas.',
-  'When users submit spots, they will appear in this admin panel.': 'Kad lietotāji iesniegs vietas, tās parādīsies šajā admina panelī.',
+  'New user submitted spots will appear here first.':
+      'Jaunas lietotāju vietas vispirms parādīsies šeit.',
+  'User spot edits will appear here for approval.':
+      'Lietotāju labojumi parādīsies šeit apstiprināšanai.',
+  'Rejected spots will appear here after moderation.':
+      'Noraidītās vietas parādīsies šeit pēc moderācijas.',
+  'When users submit spots, they will appear in this admin panel.':
+      'Kad lietotāji iesniegs vietas, tās parādīsies šajā admina panelī.',
   'Direct chats': 'Privātie čati',
   'No direct chats yet.': 'Privāto čatu vēl nav.',
   'No groups yet.': 'Grupu vēl nav.',
@@ -1124,17 +1183,20 @@ const _lvText = <String, String>{
   'Checking nickname availability...': 'Pārbaudām segvārda pieejamību...',
   'Nickname is available.': 'Segvārds ir pieejams.',
   'This nickname is already taken.': 'Šis segvārds jau ir aizņemts.',
-  'Nickname must be at least 3 characters.': 'Segvārdam jābūt vismaz 3 rakstzīmēm.',
+  'Nickname must be at least 3 characters.':
+      'Segvārdam jābūt vismaz 3 rakstzīmēm.',
   'Could not check nickname availability.': 'Neizdevās pārbaudīt segvārdu.',
   'Untitled car': 'Auto bez nosaukuma',
   'Car profile.': 'Auto apraksts.',
   'Spot saved.': 'Vieta saglabāta.',
   'Spot removed from saved.': 'Vieta noņemta no saglabātajām.',
   'Comment': 'Komentāri',
-  'Add or remove spot photos. The first photo becomes the Explore thumbnail.': 'Pievienojiet vai noņemiet vietas foto. Pirmais foto būs vāks sarakstā.',
+  'Add or remove spot photos. The first photo becomes the Explore thumbnail.':
+      'Pievienojiet vai noņemiet vietas foto. Pirmais foto būs vāks sarakstā.',
   'Description placeholder': 'Apraksts',
   'Notification center could not load.': 'Neizdevās ielādēt paziņojumus.',
-  'Push notifications are connected through Firebase Cloud Messaging.': 'Paziņojumi ir pieslēgti caur Firebase Cloud Messaging.',
+  'Push notifications are connected through Firebase Cloud Messaging.':
+      'Paziņojumi ir pieslēgti caur Firebase Cloud Messaging.',
   'you': 'jūs',
 };
 
@@ -1179,7 +1241,9 @@ String trText(String value, {AppLanguage? language}) {
     };
   }
 
-  final ratingMatch = RegExp(r'^([0-9]+(?:\.[0-9]+)?) spot rating$').firstMatch(value);
+  final ratingMatch = RegExp(
+    r'^([0-9]+(?:\.[0-9]+)?) spot rating$',
+  ).firstMatch(value);
   if (ratingMatch != null) {
     final rating = ratingMatch.group(1)!;
     return switch (selectedLanguage) {
@@ -1199,7 +1263,9 @@ String trText(String value, {AppLanguage? language}) {
     };
   }
 
-  final photosSelectedMatch = RegExp(r'^(\d+)/(\d+) photos selected$').firstMatch(value);
+  final photosSelectedMatch = RegExp(
+    r'^(\d+)/(\d+) photos selected$',
+  ).firstMatch(value);
   if (photosSelectedMatch != null) {
     final current = photosSelectedMatch.group(1)!;
     final max = photosSelectedMatch.group(2)!;
@@ -1230,7 +1296,6 @@ String trText(String value, {AppLanguage? language}) {
     };
   }
 
-
   final commentTitleMatch = RegExp(r'^Comment (.+)$').firstMatch(value);
   if (commentTitleMatch != null) {
     final spotName = commentTitleMatch.group(1)!;
@@ -1241,8 +1306,9 @@ String trText(String value, {AppLanguage? language}) {
     };
   }
 
-
-  final awayKmMatch = RegExp(r'^ • ([0-9]+(?:\.[0-9]+)?) km away$').firstMatch(value);
+  final awayKmMatch = RegExp(
+    r'^ • ([0-9]+(?:\.[0-9]+)?) km away$',
+  ).firstMatch(value);
   if (awayKmMatch != null) {
     final km = awayKmMatch.group(1)!;
     return switch (selectedLanguage) {
@@ -1294,29 +1360,38 @@ String trText(String value, {AppLanguage? language}) {
     };
   }
 
-
-  final noAdminSpotsMatch = RegExp(r'^No (pending|edited|approved|rejected|all) spots right now\.$').firstMatch(value);
+  final noAdminSpotsMatch = RegExp(
+    r'^No (pending|edited|approved|rejected|all) spots right now\.$',
+  ).firstMatch(value);
   if (noAdminSpotsMatch != null) {
     final kind = noAdminSpotsMatch.group(1)!;
     return switch (selectedLanguage) {
       AppLanguage.en => value,
-      AppLanguage.ru => 'Сейчас нет спотов: ${trText(kind, language: selectedLanguage)}.',
-      AppLanguage.lv => 'Pašlaik nav vietu: ${trText(kind, language: selectedLanguage)}.',
+      AppLanguage.ru =>
+        'Сейчас нет спотов: ${trText(kind, language: selectedLanguage)}.',
+      AppLanguage.lv =>
+        'Pašlaik nav vietu: ${trText(kind, language: selectedLanguage)}.',
     };
   }
 
-  final adminFirebaseCountMatch = RegExp(r'^(\d+) (pending|edited|approved|rejected|all) spots? in Firebase\.$').firstMatch(value);
+  final adminFirebaseCountMatch = RegExp(
+    r'^(\d+) (pending|edited|approved|rejected|all) spots? in Firebase\.$',
+  ).firstMatch(value);
   if (adminFirebaseCountMatch != null) {
     final count = adminFirebaseCountMatch.group(1)!;
     final kind = adminFirebaseCountMatch.group(2)!;
     return switch (selectedLanguage) {
       AppLanguage.en => value,
-      AppLanguage.ru => '$count спотов в Firebase: ${trText(kind, language: selectedLanguage)}.',
-      AppLanguage.lv => '$count vietas Firebase: ${trText(kind, language: selectedLanguage)}.',
+      AppLanguage.ru =>
+        '$count спотов в Firebase: ${trText(kind, language: selectedLanguage)}.',
+      AppLanguage.lv =>
+        '$count vietas Firebase: ${trText(kind, language: selectedLanguage)}.',
     };
   }
 
-  final adminCountMatch = RegExp(r'^(Pending|Edited|Approved|Rejected|All) (\d+)$').firstMatch(value);
+  final adminCountMatch = RegExp(
+    r'^(Pending|Edited|Approved|Rejected|All) (\d+)$',
+  ).firstMatch(value);
   if (adminCountMatch != null) {
     final status = adminCountMatch.group(1)!;
     final count = adminCountMatch.group(2)!;
@@ -1446,6 +1521,7 @@ class Text extends StatelessWidget {
 Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
 }
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await warmUpAppMapBackground();
@@ -1473,6 +1549,7 @@ Future<void> main() async {
     final appUser = await loadCurrentFirebaseUser();
     if (appUser != null) {
       startFirebaseSpotSync();
+      unawaited(initializePushNotificationsForCurrentUser());
     }
   } catch (error) {
     // Do not let a Firebase/Google services problem crash the app on startup.
@@ -1669,15 +1746,28 @@ const spotCategoryFiltersKey = 'spot_category_filters';
 
 Future<void> registerPushTokenForCurrentUser(String token) async {
   final firebaseUser = FirebaseAuth.instance.currentUser;
+  final cleanToken = token.trim();
 
-  if (firebaseUser == null || token.trim().isEmpty) {
+  if (firebaseUser == null || cleanToken.isEmpty) {
+    debugPrint(
+      'Push token registration skipped. firebaseUser=${firebaseUser?.uid}, tokenEmpty=${cleanToken.isEmpty}',
+    );
     return;
   }
 
-  await usersCollection().doc(firebaseUser.uid).set({
-    'fcmTokens': FieldValue.arrayUnion([token]),
-    'fcmTokenUpdatedAt': FieldValue.serverTimestamp(),
-  }, SetOptions(merge: true));
+  try {
+    await usersCollection().doc(firebaseUser.uid).set({
+      'fcmTokens': FieldValue.arrayUnion([cleanToken]),
+      'fcmTokenUpdatedAt': FieldValue.serverTimestamp(),
+      'lastFcmTokenPlatform': Platform.operatingSystem,
+    }, SetOptions(merge: true));
+    debugPrint(
+      'Push token registered for ${firebaseUser.uid}: ${cleanToken.substring(0, math.min(12, cleanToken.length))}...',
+    );
+  } catch (error, stack) {
+    debugPrint('Push token registration failed: $error');
+    debugPrint('$stack');
+  }
 }
 
 Future<void> unregisterPushTokenForCurrentUser() async {
@@ -1698,8 +1788,9 @@ Future<void> unregisterPushTokenForCurrentUser() async {
       'fcmTokens': FieldValue.arrayRemove([token]),
       'fcmTokenUpdatedAt': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
-  } catch (_) {
-    // Push cleanup is best-effort during sign out.
+  } catch (error, stack) {
+    debugPrint('Push token cleanup failed: $error');
+    debugPrint('$stack');
   }
 }
 
@@ -1722,37 +1813,68 @@ Future<void> showForegroundSystemNotification(RemoteMessage message) async {
       'title': title,
       'body': body,
     });
-  } catch (_) {
-    // Foreground push display is best-effort on unsupported platforms.
+  } catch (error, stack) {
+    debugPrint('Foreground push display failed: $error');
+    debugPrint('$stack');
   }
 }
 
 Future<void> initializePushNotificationsForCurrentUser() async {
-  if (!firebaseReady || FirebaseAuth.instance.currentUser == null) {
+  final firebaseUser = FirebaseAuth.instance.currentUser;
+
+  if (!firebaseReady || firebaseUser == null) {
+    debugPrint(
+      'Push initialization skipped. firebaseReady=$firebaseReady, firebaseUser=${firebaseUser?.uid}',
+    );
     return;
   }
 
   try {
     final messaging = FirebaseMessaging.instance;
 
-    await messaging.requestPermission(alert: true, badge: true, sound: true);
+    final settings = await messaging.requestPermission(
+      alert: true,
+      badge: true,
+      sound: true,
+    );
+    debugPrint('Push permission status: ${settings.authorizationStatus}');
 
     final token = await messaging.getToken();
-    if (token != null) {
+    if (token == null || token.trim().isEmpty) {
+      debugPrint('FirebaseMessaging.getToken() returned no token.');
+    } else {
       await registerPushTokenForCurrentUser(token);
     }
     unawaited(refreshNotificationCenterUnreadCount());
+    startNotificationCenterUnreadWatcher();
 
-    pushTokenRefreshSubscription ??= messaging.onTokenRefresh.listen((token) {
-      unawaited(registerPushTokenForCurrentUser(token));
-    });
+    pushTokenRefreshSubscription ??= messaging.onTokenRefresh.listen(
+      (token) {
+        debugPrint('FCM token refreshed.');
+        unawaited(registerPushTokenForCurrentUser(token));
+      },
+      onError: (Object error, StackTrace stack) {
+        debugPrint('FCM token refresh listener failed: $error');
+        debugPrint('$stack');
+      },
+    );
 
-    foregroundPushSubscription ??= FirebaseMessaging.onMessage.listen((message) {
-      unawaited(showForegroundSystemNotification(message));
-      unawaited(refreshNotificationCenterUnreadCount());
-    });
-  } catch (_) {
-    // Keep the rest of the app usable if notifications are unavailable.
+    foregroundPushSubscription ??= FirebaseMessaging.onMessage.listen(
+      (message) {
+        debugPrint(
+          'Foreground push received. messageId=${message.messageId}, data=${message.data}',
+        );
+        unawaited(showForegroundSystemNotification(message));
+        unawaited(refreshNotificationCenterUnreadCount());
+      },
+      onError: (Object error, StackTrace stack) {
+        debugPrint('Foreground push listener failed: $error');
+        debugPrint('$stack');
+      },
+    );
+  } catch (error, stack) {
+    debugPrint('Push initialization failed: $error');
+    debugPrint('$stack');
   }
 }
 
@@ -2658,8 +2780,14 @@ Future<void> signOutCurrentAccount() async {
   await unregisterPushTokenForCurrentUser();
 
   // Stop live Firebase listeners before auth becomes null.
-  await spotSyncSubscription?.cancel();
-  spotSyncSubscription = null;
+  for (final subscription in spotSyncSubscriptions) {
+    await subscription.cancel();
+  }
+  spotSyncSubscriptions.clear();
+  _firebaseSpotCacheBySource.clear();
+  await notificationCenterUnreadSubscription?.cancel();
+  notificationCenterUnreadSubscription = null;
+  notificationCenterUnreadCount.value = 0;
 
   // Best effort: mark the user offline before signing out.
   await updateCurrentUserOnlinePresence(isOnline: false);
@@ -3061,6 +3189,16 @@ Future<AppUser> saveFirebaseUser(
     'city': city,
     'country': country,
     'settings': settings.toFirebase(),
+    'instagram': settings.instagram.trim(),
+    'tiktok': settings.tiktok.trim(),
+    'telegram': settings.telegram.trim(),
+    'reviewNotifications': settings.reviewNotifications,
+    'likeNotifications': settings.likeNotifications,
+    'commentNotifications': settings.commentNotifications,
+    'newSpotNotifications': settings.newSpotNotifications,
+    'newMessageNotifications': settings.newMessageNotifications,
+    'publicProfile': settings.publicProfile,
+    'showGarage': settings.showGarage,
     'garage': garage.map((car) => car.toFirebase()).toList(),
     'provider': provider,
     'telegramUsername': telegramUsername,
@@ -3188,6 +3326,7 @@ Future<AppUser> signInWithTelegramAndSaveUser() async {
     telegramUsername: fallbackUsername,
   );
   startFirebaseSpotSync();
+  unawaited(initializePushNotificationsForCurrentUser());
   return currentUser;
 }
 
@@ -3300,6 +3439,7 @@ Future<Map<String, dynamic>> postJsonToUrl(
 
     final response = await request.close();
     final responseBody = await utf8.decodeStream(response);
+    debugPrint('POST $url -> ${response.statusCode}: $responseBody');
 
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw Exception('Request failed ${response.statusCode}: $responseBody');
@@ -3321,23 +3461,32 @@ Future<void> sendPushNotificationEvent(Map<String, Object?> event) async {
   final firebaseUser = FirebaseAuth.instance.currentUser;
 
   if (firebaseUser == null) {
+    debugPrint(
+      'Push event skipped because there is no signed-in Firebase user. event=$event',
+    );
     return;
   }
 
   try {
-    final idToken = await firebaseUser.getIdToken();
+    final idToken = await firebaseUser.getIdToken(true);
 
     if (idToken == null || idToken.trim().isEmpty) {
+      debugPrint(
+        'Push event skipped because Firebase ID token is empty. event=$event',
+      );
       return;
     }
 
+    debugPrint('Sending push event: $event');
     await postJsonToUrl(
       pushNotificationUrl,
-      event,
+      {...event, 'senderUserId': firebaseUser.uid},
       headers: {HttpHeaders.authorizationHeader: 'Bearer $idToken'},
     );
-  } catch (_) {
-    // Push delivery is best-effort and must not block the user action.
+    debugPrint('Push event accepted by backend: $event');
+  } catch (error, stack) {
+    debugPrint('Push event failed: $error');
+    debugPrint('$stack');
   }
 }
 
@@ -3446,6 +3595,7 @@ Future<AppUser> signInWithGoogleAndSaveUser() async {
 
   currentUser = await saveFirebaseUser(firebaseUser, provider: 'google');
   startFirebaseSpotSync();
+  unawaited(initializePushNotificationsForCurrentUser());
   return currentUser;
 }
 
@@ -3565,18 +3715,28 @@ Future<void> saveCurrentUserSettings(UserSettingsData settings) async {
 
   await usersCollection().doc(firebaseUser.uid).set({
     'settings': settings.toFirebase(),
+    'instagram': settings.instagram.trim(),
+    'tiktok': settings.tiktok.trim(),
+    'telegram': settings.telegram.trim(),
+    'reviewNotifications': settings.reviewNotifications,
+    'likeNotifications': settings.likeNotifications,
+    'commentNotifications': settings.commentNotifications,
+    'newSpotNotifications': settings.newSpotNotifications,
+    'newMessageNotifications': settings.newMessageNotifications,
+    'publicProfile': settings.publicProfile,
+    'showGarage': settings.showGarage,
     'updatedAt': FieldValue.serverTimestamp(),
   }, SetOptions(merge: true));
 }
 
 UserSettingsData defaultUserSettings() {
   return const UserSettingsData(
-    instagram: 'https://instagram.com/ccs.lv',
-    tiktok: 'https://tiktok.com/@ccs',
-    telegram: 'https://t.me/ccs_lv',
+    instagram: '',
+    tiktok: '',
+    telegram: '',
     reviewNotifications: true,
     likeNotifications: true,
-    commentNotifications: false,
+    commentNotifications: true,
     newSpotNotifications: true,
     newMessageNotifications: true,
     publicProfile: true,
@@ -4174,6 +4334,7 @@ class LiveLocationData {
   final List<String> visibleToUserIds;
   final String visibleToChatId;
   final String shareScope;
+  final int shareDurationMinutes;
   final int promptAtMillis;
   final int expiresAtMillis;
   final int updatedAtMillis;
@@ -4190,6 +4351,7 @@ class LiveLocationData {
     this.visibleToUserIds = const [],
     this.visibleToChatId = '',
     this.shareScope = '',
+    this.shareDurationMinutes = 60,
     required this.promptAtMillis,
     required this.expiresAtMillis,
     required this.updatedAtMillis,
@@ -4229,6 +4391,9 @@ class LiveLocationData {
       ),
       visibleToChatId: stringFromFirebase(data['visibleToChatId'], ''),
       shareScope: stringFromFirebase(data['shareScope'], ''),
+      shareDurationMinutes: data['shareDurationMinutes'] is num
+          ? (data['shareDurationMinutes'] as num).toInt()
+          : 60,
       promptAtMillis: timestampMillisFromFirebase(data['promptAt']),
       expiresAtMillis: timestampMillisFromFirebase(data['expiresAt']),
       updatedAtMillis: timestampMillisFromFirebase(data['updatedAt']),
@@ -4285,6 +4450,197 @@ Future<Map<String, dynamic>> patchJsonToUrl(
 
 CollectionReference<Map<String, dynamic>> userNotificationsCollection() {
   return FirebaseFirestore.instance.collection('user_notifications');
+}
+
+String spotNotificationOwnerUid(CarSpot spot) {
+  final ownerUid = spot.ownerUid.trim();
+  if (ownerUid.isNotEmpty) {
+    return ownerUid;
+  }
+
+  return spot.addedByUid.trim();
+}
+
+Future<bool> userNotificationPreferenceEnabled(
+  String userId,
+  String settingName,
+) async {
+  if (userId.trim().isEmpty) {
+    return false;
+  }
+
+  try {
+    final snapshot = await usersCollection().doc(userId).get();
+    final data = snapshot.data() ?? const <String, dynamic>{};
+    final nestedSettings = mapFromFirebase(data['settings']);
+
+    if (data[settingName] is bool) {
+      return data[settingName] == true;
+    }
+
+    if (nestedSettings[settingName] is bool) {
+      return nestedSettings[settingName] == true;
+    }
+  } catch (error, stack) {
+    debugPrint(
+      'Could not read notification setting $settingName for $userId: $error',
+    );
+    debugPrint('$stack');
+  }
+
+  // Missing settings are treated as enabled. This matches the app default.
+  return true;
+}
+
+Future<void> createUserNotification({
+  required String userId,
+  required String type,
+  required String title,
+  required String body,
+  required String settingName,
+  String? notificationId,
+  Map<String, Object?> extra = const {},
+}) async {
+  final firebaseUser = FirebaseAuth.instance.currentUser;
+  final cleanUserId = userId.trim();
+
+  if (firebaseUser == null ||
+      cleanUserId.isEmpty ||
+      cleanUserId == firebaseUser.uid) {
+    return;
+  }
+
+  final allowed = await userNotificationPreferenceEnabled(
+    cleanUserId,
+    settingName,
+  );
+  if (!allowed) {
+    debugPrint(
+      'Notification skipped. userId=$cleanUserId disabled $settingName',
+    );
+    return;
+  }
+
+  try {
+    final reference = notificationId == null || notificationId.trim().isEmpty
+        ? userNotificationsCollection().doc()
+        : userNotificationsCollection().doc(notificationId.trim());
+
+    await reference.set({
+      'userId': cleanUserId,
+      'type': type,
+      'title': title,
+      'body': body,
+      'actorUserId': firebaseUser.uid,
+      'actorUsername': currentUser.username,
+      'read': false,
+      'createdAt': FieldValue.serverTimestamp(),
+      ...extra,
+    }, SetOptions(merge: true));
+
+    unawaited(refreshNotificationCenterUnreadCount());
+  } catch (error, stack) {
+    debugPrint('Could not create notification center item: $error');
+    debugPrint('$stack');
+  }
+}
+
+Future<void> createSpotLikeNotification(CarSpot spot, String likeId) async {
+  final ownerUid = spotNotificationOwnerUid(spot);
+  await createUserNotification(
+    userId: ownerUid,
+    type: 'spot_like',
+    title: 'Likes on my spots',
+    body: '@${currentUser.username} liked ${spot.name}.',
+    settingName: 'likeNotifications',
+    notificationId: likeId.trim().isEmpty ? null : 'spot_like_$likeId',
+    extra: {
+      'spotId': spotReviewKey(spot),
+      'spotName': spot.name,
+      'cityCountry': spot.cityCountry,
+    },
+  );
+}
+
+Future<void> createSpotCommentNotification(
+  CarSpot spot,
+  String reviewId,
+  String comment,
+) async {
+  final ownerUid = spotNotificationOwnerUid(spot);
+  await createUserNotification(
+    userId: ownerUid,
+    type: 'spot_comment',
+    title: 'Comments',
+    body: '@${currentUser.username} commented on ${spot.name}.',
+    settingName: 'commentNotifications',
+    notificationId: reviewId.trim().isEmpty ? null : 'spot_comment_$reviewId',
+    extra: {
+      'reviewId': reviewId,
+      'spotId': spotReviewKey(spot),
+      'spotName': spot.name,
+      'comment': comment.trim(),
+      'cityCountry': spot.cityCountry,
+    },
+  );
+}
+
+Future<void> createSpotReviewUpdateNotification(
+  CarSpot spot,
+  SpotStatus status,
+) async {
+  if (status != SpotStatus.approved && status != SpotStatus.rejected) {
+    return;
+  }
+
+  final ownerUid = spotNotificationOwnerUid(spot);
+  final statusName = spotStatusName(status);
+  final approved = status == SpotStatus.approved;
+
+  await createUserNotification(
+    userId: ownerUid,
+    type: 'spot_review_update',
+    title: 'Spot review updates',
+    body: approved
+        ? '${spot.name} was approved.'
+        : '${spot.name} was rejected.',
+    settingName: 'reviewNotifications',
+    notificationId: spot.id.trim().isEmpty
+        ? null
+        : 'spot_review_${spot.id}_${statusName}_$ownerUid',
+    extra: {
+      'spotId': spot.id.trim().isEmpty ? spotReviewKey(spot) : spot.id.trim(),
+      'spotName': spot.name,
+      'cityCountry': spot.cityCountry,
+      'status': statusName,
+      'reviewedBy': currentUser.username,
+      'reviewedByUid': currentUser.uid,
+    },
+  );
+}
+
+void startNotificationCenterUnreadWatcher() {
+  final firebaseUser = FirebaseAuth.instance.currentUser;
+
+  if (firebaseUser == null) {
+    notificationCenterUnreadCount.value = 0;
+    return;
+  }
+
+  notificationCenterUnreadSubscription?.cancel();
+  notificationCenterUnreadSubscription = userNotificationsCollection()
+      .where('userId', isEqualTo: firebaseUser.uid)
+      .where('read', isEqualTo: false)
+      .snapshots()
+      .listen(
+        (snapshot) {
+          notificationCenterUnreadCount.value = snapshot.docs.length;
+        },
+        onError: (Object error, StackTrace stack) {
+          debugPrint('Notification unread watcher failed: $error');
+          debugPrint('$stack');
+        },
+      );
 }
 
 CollectionReference<Map<String, dynamic>> projectNewsCollection() {
@@ -5111,6 +5467,161 @@ Future<Position?> getChatSharePosition(BuildContext context) async {
   );
 }
 
+String liveLocationDurationLabel(Duration duration) {
+  final hours = duration.inHours;
+  if (hours == 1) {
+    return trText('1 hour');
+  }
+
+  return trText('$hours hours');
+}
+
+Future<bool> showLiveLocationSharingDisclaimer(BuildContext context) async {
+  final prefs = await SharedPreferences.getInstance();
+  final dismissed = prefs.getBool(liveLocationDisclaimerDismissedKey) == true;
+  if (dismissed) {
+    return true;
+  }
+
+  if (!context.mounted) {
+    return false;
+  }
+
+  var doNotShowAgain = false;
+  final accepted = await showDialog<bool>(
+    context: context,
+    barrierDismissible: false,
+    builder: (dialogContext) {
+      return StatefulBuilder(
+        builder: (context, setDialogState) {
+          return AlertDialog(
+            backgroundColor: panelGlass,
+            title: Text(
+              trText('Share live location?'),
+              style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  trText(
+                    'You are about to share your live location. People who have access to this share will be able to see you on the map until sharing expires or you stop it.',
+                  ),
+                  style: const TextStyle(color: Colors.white70, height: 1.35),
+                ),
+                const SizedBox(height: 14),
+                InkWell(
+                  borderRadius: BorderRadius.circular(12),
+                  onTap: () =>
+                      setDialogState(() => doNotShowAgain = !doNotShowAgain),
+                  child: Row(
+                    children: [
+                      Checkbox(
+                        value: doNotShowAgain,
+                        activeColor: blue,
+                        onChanged: (value) => setDialogState(
+                          () => doNotShowAgain = value == true,
+                        ),
+                      ),
+                      Expanded(
+                        child: Text(
+                          trText("Don't show again"),
+                          style: const TextStyle(
+                            color: Colors.white70,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext, false),
+                child: Text(trText('Cancel')),
+              ),
+              ElevatedButton(
+                onPressed: () => Navigator.pop(dialogContext, true),
+                style: ElevatedButton.styleFrom(backgroundColor: blue),
+                child: const Text('OK', style: TextStyle(color: Colors.white)),
+              ),
+            ],
+          );
+        },
+      );
+    },
+  );
+
+  if (accepted == true && doNotShowAgain) {
+    await prefs.setBool(liveLocationDisclaimerDismissedKey, true);
+  }
+
+  return accepted == true;
+}
+
+Future<Duration?> showLiveLocationDurationDialog(BuildContext context) async {
+  if (!context.mounted) {
+    return null;
+  }
+
+  return showDialog<Duration>(
+    context: context,
+    barrierDismissible: true,
+    builder: (dialogContext) {
+      return AlertDialog(
+        backgroundColor: panelGlass,
+        title: Text(
+          trText('Choose sharing duration'),
+          style: const TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.w900,
+          ),
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: liveLocationDurationChoices.map((duration) {
+            final label = liveLocationDurationLabel(duration);
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: () => Navigator.pop(dialogContext, duration),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: panelGlass,
+                    foregroundColor: Colors.white,
+                    side: const BorderSide(color: Colors.white12),
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                  ),
+                  child: Text(
+                    label,
+                    style: const TextStyle(fontWeight: FontWeight.w800),
+                  ),
+                ),
+              ),
+            );
+          }).toList(),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: Text(trText('Cancel')),
+          ),
+        ],
+      );
+    },
+  );
+}
+
 Future<void> shareChatLiveLocation(
   BuildContext context,
   ChatThreadData chat,
@@ -5159,6 +5670,16 @@ Future<void> shareChatLiveLocation(
     return;
   }
 
+  final acceptedDisclaimer = await showLiveLocationSharingDisclaimer(context);
+  if (!acceptedDisclaimer || !context.mounted) {
+    return;
+  }
+
+  final shareDuration = await showLiveLocationDurationDialog(context);
+  if (shareDuration == null || !context.mounted) {
+    return;
+  }
+
   final position = await getChatSharePosition(context);
 
   if (position == null) {
@@ -5166,8 +5687,8 @@ Future<void> shareChatLiveLocation(
   }
 
   final now = DateTime.now();
-  final promptAt = now.add(const Duration(hours: 1));
-  final expiresAt = promptAt.add(const Duration(minutes: 10));
+  final promptAt = now.add(shareDuration);
+  final expiresAt = promptAt.add(liveLocationRenewGracePeriod);
   final chatTitle = chat.titleForCurrentUser(firebaseUser.uid);
 
   await liveLocationsCollection().doc(firebaseUser.uid).set({
@@ -5185,6 +5706,7 @@ Future<void> shareChatLiveLocation(
     'visibleToChatId': chat.id,
     'visibleToChatName': chatTitle,
     'shareScope': chat.isGroup ? 'group' : 'direct',
+    'shareDurationMinutes': shareDuration.inMinutes,
     'promptAt': Timestamp.fromDate(promptAt),
     'expiresAt': Timestamp.fromDate(expiresAt),
     'updatedAt': FieldValue.serverTimestamp(),
@@ -5193,6 +5715,7 @@ Future<void> shareChatLiveLocation(
   await usersCollection().doc(firebaseUser.uid).set({
     'isSharingLiveLocation': true,
     'liveLocationExpiresAt': Timestamp.fromDate(expiresAt),
+    'liveLocationShareDurationMinutes': shareDuration.inMinutes,
     'liveLocationVisibleToUserIds': visibleToUserIds,
     'lastSeenAt': FieldValue.serverTimestamp(),
     'isOnline': true,
@@ -5211,8 +5734,8 @@ Future<void> shareChatLiveLocation(
         backgroundColor: panelGlass,
         content: Text(
           chat.isGroup
-              ? 'Location shared with this group for 1 hour.'
-              : 'Location shared with this chat for 1 hour.',
+              ? 'Location shared with this group for ${liveLocationDurationLabel(shareDuration)}.'
+              : 'Location shared with this chat for ${liveLocationDurationLabel(shareDuration)}.',
           style: const TextStyle(
             color: Colors.white,
             fontWeight: FontWeight.w700,
@@ -6047,43 +6570,172 @@ Map<String, Object?> spotToFirestoreData(
   return data;
 }
 
-StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? spotSyncSubscription;
+const int firebaseApprovedSpotsListenLimit = 250;
+const int firebaseMySpotsListenLimit = 100;
+const int firebaseAdminReviewSpotsListenLimit = 250;
+const int firebaseChatsListenLimit = 60;
+const int firebaseChatMessagesListenLimit = 50;
 
-void startFirebaseSpotSync() {
-  spotSyncSubscription?.cancel();
-  spotSyncSubscription = spotsCollection().snapshots().listen(
+final List<StreamSubscription<QuerySnapshot<Map<String, dynamic>>>>
+spotSyncSubscriptions = [];
+final Map<String, Map<String, CarSpot>> _firebaseSpotCacheBySource = {};
+
+String _spotCacheKey(CarSpot spot) {
+  if (spot.id.trim().isNotEmpty) {
+    return spot.id.trim();
+  }
+
+  return '${spot.name}_${spot.addedByUid}_${spot.createdAtMillis}';
+}
+
+void _publishFirebaseSpotCaches() {
+  final merged = <String, CarSpot>{};
+
+  for (final sourceSpots in _firebaseSpotCacheBySource.values) {
+    for (final entry in sourceSpots.entries) {
+      merged[entry.key] = entry.value;
+    }
+  }
+
+  final firebaseSpots = merged.values.toList()
+    ..sort(
+      (first, second) =>
+          second.createdAtMillis.compareTo(first.createdAtMillis),
+    );
+
+  final currentUid = FirebaseAuth.instance.currentUser?.uid ?? currentUser.uid;
+  reviewSpots.value = firebaseSpots;
+  submittedSpots.value = firebaseSpots
+      .where((spot) => spot.addedByUid == currentUid)
+      .toList();
+}
+
+void _listenToSpotQuery({
+  required String source,
+  required Query<Map<String, dynamic>> query,
+}) {
+  final subscription = query.snapshots().listen(
     (snapshot) {
-      final firebaseSpots = snapshot.docs
-          .map((doc) => CarSpot.fromFirestore(doc))
-          .toList();
-
-      reviewSpots.value = firebaseSpots;
-      submittedSpots.value = firebaseSpots
-          .where(
-            (spot) => spot.addedByUid == FirebaseAuth.instance.currentUser?.uid,
-          )
-          .toList();
+      _firebaseSpotCacheBySource[source] = {
+        for (final doc in snapshot.docs)
+          _spotCacheKey(CarSpot.fromFirestore(doc)): CarSpot.fromFirestore(doc),
+      };
+      _publishFirebaseSpotCaches();
     },
-    onError: (_) {
-      // Firestore rules may still be closed while the user is setting up Firebase.
+    onError: (Object error, StackTrace stack) {
+      debugPrint('Spot listener failed for $source: $error');
+      debugPrint('$stack');
     },
   );
+
+  spotSyncSubscriptions.add(subscription);
+}
+
+void startFirebaseSpotSync() {
+  for (final subscription in spotSyncSubscriptions) {
+    subscription.cancel();
+  }
+  spotSyncSubscriptions.clear();
+  _firebaseSpotCacheBySource.clear();
+
+  // Important cost optimization: never listen to the entire spots collection.
+  // Normal users only need a small approved feed plus their own submissions.
+  // Staff get a separate limited review queue.
+  _listenToSpotQuery(
+    source: 'approved',
+    query: spotsCollection()
+        .where('status', isEqualTo: spotStatusName(SpotStatus.approved))
+        .limit(firebaseApprovedSpotsListenLimit),
+  );
+
+  final currentUid = FirebaseAuth.instance.currentUser?.uid ?? currentUser.uid;
+  if (currentUid.trim().isNotEmpty && currentUid != 'mock_user') {
+    _listenToSpotQuery(
+      source: 'mine',
+      query: spotsCollection()
+          .where('addedByUid', isEqualTo: currentUid)
+          .limit(firebaseMySpotsListenLimit),
+    );
+  }
+
+  if (userRoleIsStaff(currentUser.role)) {
+    for (final status in const [
+      SpotStatus.pending,
+      SpotStatus.edited,
+      SpotStatus.rejected,
+    ]) {
+      _listenToSpotQuery(
+        source: 'admin_${spotStatusName(status)}',
+        query: spotsCollection()
+            .where('status', isEqualTo: spotStatusName(status))
+            .limit(firebaseAdminReviewSpotsListenLimit),
+      );
+    }
+  }
 }
 
 Future<void> refreshFirebaseSpotsFromServer() async {
-  final snapshot = await spotsCollection().get(
-    const GetOptions(source: Source.server),
-  );
-  final firebaseSpots = snapshot.docs
-      .map((doc) => CarSpot.fromFirestore(doc))
-      .toList();
+  final currentUid = FirebaseAuth.instance.currentUser?.uid ?? currentUser.uid;
+  final refreshCaches = <String, Map<String, CarSpot>>{};
 
-  reviewSpots.value = firebaseSpots;
-  submittedSpots.value = firebaseSpots
-      .where(
-        (spot) => spot.addedByUid == FirebaseAuth.instance.currentUser?.uid,
-      )
-      .toList();
+  Future<void> loadQuery(
+    String source,
+    Query<Map<String, dynamic>> query,
+  ) async {
+    final snapshot = await query.get(const GetOptions(source: Source.server));
+    refreshCaches[source] = {
+      for (final doc in snapshot.docs)
+        _spotCacheKey(CarSpot.fromFirestore(doc)): CarSpot.fromFirestore(doc),
+    };
+  }
+
+  await loadQuery(
+    'approved',
+    spotsCollection()
+        .where('status', isEqualTo: spotStatusName(SpotStatus.approved))
+        .limit(firebaseApprovedSpotsListenLimit),
+  );
+
+  if (currentUid.trim().isNotEmpty && currentUid != 'mock_user') {
+    await loadQuery(
+      'mine',
+      spotsCollection()
+          .where('addedByUid', isEqualTo: currentUid)
+          .limit(firebaseMySpotsListenLimit),
+    );
+  }
+
+  if (userRoleIsStaff(currentUser.role)) {
+    for (final status in const [
+      SpotStatus.pending,
+      SpotStatus.edited,
+      SpotStatus.rejected,
+    ]) {
+      await loadQuery(
+        'admin_${spotStatusName(status)}',
+        spotsCollection()
+            .where('status', isEqualTo: spotStatusName(status))
+            .limit(firebaseAdminReviewSpotsListenLimit),
+      );
+    }
+  }
+
+  _firebaseSpotCacheBySource
+    ..clear()
+    ..addAll(refreshCaches);
+  _publishFirebaseSpotCaches();
+}
+
+Query<Map<String, dynamic>> currentUserChatsQuery(String uid) {
+  return chatsCollection()
+      .where('memberIds', arrayContains: uid)
+      .limit(firebaseChatsListenLimit);
+}
+
+Query<Map<String, dynamic>> latestChatMessagesQuery(String chatId) {
+  return chatMessagesCollection(chatId)
+      .orderBy('createdAt', descending: true)
+      .limit(firebaseChatMessagesListenLimit);
 }
 
 class SpotReviewData {
@@ -6220,10 +6872,12 @@ Future<void> toggleSpotLike(
     await likeRef.set({
       'spotId': spotReviewKey(spot),
       'spotName': spot.name,
+      'spotOwnerUid': spotNotificationOwnerUid(spot),
       'userId': firebaseUser.uid,
       'username': currentUser.username,
       'createdAt': FieldValue.serverTimestamp(),
     });
+    await createSpotLikeNotification(spot, likeRef.id);
     await sendPushNotificationEvent({
       'type': 'spot_like',
       'likeId': likeRef.id,
@@ -6338,6 +6992,8 @@ Future<void> saveSpotReview({
     'createdAt': FieldValue.serverTimestamp(),
     'updatedAt': FieldValue.serverTimestamp(),
   });
+
+  await createSpotCommentNotification(spot, reviewRef.id, cleanComment);
 
   await sendPushNotificationEvent({
     'type': 'spot_comment',
@@ -6687,6 +7343,11 @@ Future<void> updateSpotStatus(CarSpot spot, SpotStatus status) async {
 
   if (shouldNotifyOtherAdmins) {
     await createAdminSpotDecisionNotification(updatedSpot, status);
+  }
+
+  if (statusChanged &&
+      (status == SpotStatus.approved || status == SpotStatus.rejected)) {
+    await createSpotReviewUpdateNotification(updatedSpot, status);
   }
 
   if (statusChanged &&
@@ -7063,37 +7724,60 @@ NotificationCenterItem notificationCenterItemFromDocument(
   final spotName = stringFromFirebase(data['spotName'], '');
   final status = stringFromFirebase(data['status'], '');
   final reviewedBy = stringFromFirebase(data['reviewedBy'], '');
+  final actorUsername = stringFromFirebase(data['actorUsername'], '');
+  final comment = stringFromFirebase(data['comment'], '');
   final friendUsername = stringFromFirebase(data['friendUsername'], '');
-  final title = stringFromFirebase(
-    data['title'],
-    switch (type) {
-      'spot_pending_review' => 'Spot review updates',
-      'spot_approved_by_admin' || 'spot_rejected_by_admin' =>
-        'Spot review updates',
-      'friend_nearby' || 'friend_at_spot' => 'Live location',
-      'project_news' => 'Project news',
-      _ => 'CCS',
-    },
-  );
+  final title = stringFromFirebase(data['title'], switch (type) {
+    'spot_like' => 'Likes on my spots',
+    'spot_comment' => 'Comments',
+    'spot_review_update' => 'Spot review updates',
+    'spot_pending_review' => 'Spot review updates',
+    'spot_approved_by_admin' ||
+    'spot_rejected_by_admin' => 'Spot review updates',
+    'friend_nearby' || 'friend_at_spot' => 'Live location',
+    'project_news' => 'Project news',
+    _ => 'CCS',
+  });
   var body = stringFromFirebase(data['body'], '');
 
   if (body.trim().isEmpty) {
     body = switch (type) {
-      'spot_pending_review' => spotName.trim().isEmpty
-          ? 'New spot is waiting for review.'
-          : '$spotName is waiting for review.',
-      'spot_approved_by_admin' => spotName.trim().isEmpty
-          ? 'Spot approved.'
-          : '$spotName approved${reviewedBy.trim().isEmpty ? '' : ' by $reviewedBy'}.',
-      'spot_rejected_by_admin' => spotName.trim().isEmpty
-          ? 'Spot rejected.'
-          : '$spotName rejected${reviewedBy.trim().isEmpty ? '' : ' by $reviewedBy'}.',
-      'friend_nearby' => friendUsername.trim().isEmpty
-          ? 'A friend is nearby.'
-          : '@$friendUsername is nearby.',
-      'friend_at_spot' => friendUsername.trim().isEmpty
-          ? 'A friend is at a spot.'
-          : '@$friendUsername is at ${spotName.trim().isEmpty ? 'a spot' : spotName}.',
+      'spot_like' =>
+        spotName.trim().isEmpty
+            ? '${actorUsername.trim().isEmpty ? 'Someone' : '@$actorUsername'} liked your spot.'
+            : '${actorUsername.trim().isEmpty ? 'Someone' : '@$actorUsername'} liked $spotName.',
+      'spot_comment' =>
+        spotName.trim().isEmpty
+            ? '${actorUsername.trim().isEmpty ? 'Someone' : '@$actorUsername'} commented on your spot${comment.trim().isEmpty ? '.' : ': $comment'}'
+            : '${actorUsername.trim().isEmpty ? 'Someone' : '@$actorUsername'} commented on $spotName${comment.trim().isEmpty ? '.' : ': $comment'}',
+      'spot_review_update' =>
+        status == 'approved'
+            ? (spotName.trim().isEmpty
+                  ? 'Your spot was approved.'
+                  : '$spotName was approved.')
+            : (spotName.trim().isEmpty
+                  ? 'Your spot was rejected.'
+                  : '$spotName was rejected.'),
+      'spot_pending_review' =>
+        spotName.trim().isEmpty
+            ? 'New spot is waiting for review.'
+            : '$spotName is waiting for review.',
+      'spot_approved_by_admin' =>
+        spotName.trim().isEmpty
+            ? 'Spot approved.'
+            : '$spotName approved${reviewedBy.trim().isEmpty ? '' : ' by $reviewedBy'}.',
+      'spot_rejected_by_admin' =>
+        spotName.trim().isEmpty
+            ? 'Spot rejected.'
+            : '$spotName rejected${reviewedBy.trim().isEmpty ? '' : ' by $reviewedBy'}.',
+      'friend_nearby' =>
+        friendUsername.trim().isEmpty
+            ? 'A friend is nearby.'
+            : '@$friendUsername is nearby.',
+      'friend_at_spot' =>
+        friendUsername.trim().isEmpty
+            ? 'A friend is at a spot.'
+            : '@$friendUsername is at ${spotName.trim().isEmpty ? 'a spot' : spotName}.',
       _ => stringFromFirebase(data['message'], ''),
     };
   }
@@ -7168,19 +7852,17 @@ Future<List<NotificationCenterItem>> loadNotificationCenterItems() async {
   }
 
   if (!items.any((item) => item.projectNews)) {
-    items.addAll(
-      const [
-        NotificationCenterItem(
-          id: 'project_news_ready',
-          title: 'Project news',
-          body: 'CCS notification center is ready.',
-          type: 'project_news',
-          createdAtMillis: 0,
-          read: true,
-          projectNews: true,
-        ),
-      ],
-    );
+    items.addAll(const [
+      NotificationCenterItem(
+        id: 'project_news_ready',
+        title: 'Project news',
+        body: 'CCS notification center is ready.',
+        type: 'project_news',
+        createdAtMillis: 0,
+        read: true,
+        projectNews: true,
+      ),
+    ]);
   }
 
   items.sort((first, second) {
@@ -8117,26 +8799,26 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
             backgroundColor: panelGlass,
             type: BottomNavigationBarType.fixed,
             items: [
-          BottomNavigationBarItem(
-            icon: const Icon(Icons.location_on),
-            label: trText('Spots'),
-          ),
-          BottomNavigationBarItem(
-            icon: const Icon(Icons.map),
-            label: trText('Map'),
-          ),
-          BottomNavigationBarItem(
-            icon: const Icon(Icons.add_circle_outline),
-            label: trText('Add Spot Nav'),
-          ),
-          BottomNavigationBarItem(
-            icon: const Icon(Icons.chat_bubble_outline),
-            label: trText('Chat'),
-          ),
-          BottomNavigationBarItem(
-            icon: const Icon(Icons.person_outline),
-            label: trText('Profile'),
-          ),
+              BottomNavigationBarItem(
+                icon: const Icon(Icons.location_on),
+                label: trText('Spots'),
+              ),
+              BottomNavigationBarItem(
+                icon: const Icon(Icons.map),
+                label: trText('Map'),
+              ),
+              BottomNavigationBarItem(
+                icon: const Icon(Icons.add_circle_outline),
+                label: trText('Add Spot Nav'),
+              ),
+              BottomNavigationBarItem(
+                icon: const Icon(Icons.chat_bubble_outline),
+                label: trText('Chat'),
+              ),
+              BottomNavigationBarItem(
+                icon: const Icon(Icons.person_outline),
+                label: trText('Profile'),
+              ),
             ],
           ),
         );
@@ -9603,8 +10285,8 @@ class _MapScreenState extends State<MapScreen> {
   static const rigaZoom = 11.25;
   static const fullSpotIconMinZoom = 11.25;
   static const navigationZoom = 16.35;
-  static const Duration liveLocationUploadInterval = Duration(seconds: 10);
-  static const double liveLocationMinimumUploadDistanceMeters = 100;
+  static const Duration liveLocationUploadInterval = Duration(seconds: 30);
+  static const double liveLocationMinimumUploadDistanceMeters = 50;
 
   final mapController = MapController();
   Timer? temporarySpotRefreshTimer;
@@ -9636,6 +10318,7 @@ class _MapScreenState extends State<MapScreen> {
   bool liveLocationPromptOpen = false;
   DateTime? liveLocationPromptAt;
   DateTime? liveLocationExpiresAt;
+  Duration liveLocationShareDuration = const Duration(hours: 1);
   List<LiveLocationData> liveLocations = [];
   Set<String> friendLiveLocationUids = {};
   List<PoliceReportData> policeReports = [];
@@ -10988,6 +11671,9 @@ class _MapScreenState extends State<MapScreen> {
                 liveLocationExpiresAt = DateTime.fromMillisecondsSinceEpoch(
                   ownLocation.expiresAtMillis,
                 );
+                liveLocationShareDuration = Duration(
+                  minutes: ownLocation.shareDurationMinutes,
+                );
                 scheduleLiveLocationTimers();
               } else if (!isTogglingLiveLocation) {
                 isSharingLiveLocation = false;
@@ -11100,6 +11786,26 @@ class _MapScreenState extends State<MapScreen> {
 
     setState(() => isTogglingLiveLocation = true);
 
+    final acceptedDisclaimer = await showLiveLocationSharingDisclaimer(context);
+    if (!mounted) {
+      return;
+    }
+    if (!acceptedDisclaimer) {
+      setState(() => isTogglingLiveLocation = false);
+      return;
+    }
+
+    final shareDuration = await showLiveLocationDurationDialog(context);
+    if (!mounted) {
+      return;
+    }
+    if (shareDuration == null) {
+      setState(() => isTogglingLiveLocation = false);
+      return;
+    }
+
+    liveLocationShareDuration = shareDuration;
+
     final position = await getMapUserPosition(showErrors: true);
 
     if (!mounted) {
@@ -11133,6 +11839,7 @@ class _MapScreenState extends State<MapScreen> {
       position,
       renewWindow: true,
       headingDegrees: heading,
+      shareDuration: shareDuration,
       visibleToUserIds: visibleToUserIds,
       shareScope: 'friends',
     );
@@ -11180,7 +11887,7 @@ class _MapScreenState extends State<MapScreen> {
       SnackBar(
         backgroundColor: panelGlass,
         content: Text(
-          'Live location sharing is on for 1 hour.',
+          'Live location sharing is on for ${liveLocationDurationLabel(shareDuration)}.',
           style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
         ),
       ),
@@ -11206,7 +11913,7 @@ class _MapScreenState extends State<MapScreen> {
         : const Distance().as(LengthUnit.Meter, lastUploadedLocation, location);
 
     // Keep local navigation smooth, but do not write GPS noise to Firebase.
-    // A user is considered standing still while they remain inside a 100m
+    // A user is considered standing still while they remain inside a 50m
     // radius from the last uploaded live-location point.
     if (movedSinceLastUpload < liveLocationMinimumUploadDistanceMeters) {
       setState(() {
@@ -11253,6 +11960,7 @@ class _MapScreenState extends State<MapScreen> {
     Position position, {
     required bool renewWindow,
     double? headingDegrees,
+    Duration? shareDuration,
     List<String>? visibleToUserIds,
     String? visibleToChatId,
     String? visibleToChatName,
@@ -11265,13 +11973,15 @@ class _MapScreenState extends State<MapScreen> {
     }
 
     final now = DateTime.now();
+    final duration = shareDuration ?? liveLocationShareDuration;
     final promptAt = renewWindow
-        ? now.add(const Duration(hours: 1))
-        : liveLocationPromptAt ?? now.add(const Duration(hours: 1));
+        ? now.add(duration)
+        : liveLocationPromptAt ?? now.add(duration);
     final expiresAt = renewWindow
-        ? promptAt.add(const Duration(minutes: 10))
-        : liveLocationExpiresAt ?? promptAt.add(const Duration(minutes: 10));
+        ? promptAt.add(liveLocationRenewGracePeriod)
+        : liveLocationExpiresAt ?? promptAt.add(liveLocationRenewGracePeriod);
 
+    liveLocationShareDuration = duration;
     liveLocationPromptAt = promptAt;
     liveLocationExpiresAt = expiresAt;
 
@@ -11321,6 +12031,7 @@ class _MapScreenState extends State<MapScreen> {
       'visibleToChatId': nextVisibleToChatId,
       'visibleToChatName': nextVisibleToChatName,
       'shareScope': nextShareScope,
+      'shareDurationMinutes': duration.inMinutes,
       'promptAt': Timestamp.fromDate(promptAt),
       'expiresAt': Timestamp.fromDate(expiresAt),
       'updatedAt': FieldValue.serverTimestamp(),
@@ -11329,6 +12040,7 @@ class _MapScreenState extends State<MapScreen> {
     await usersCollection().doc(firebaseUser.uid).set({
       'isSharingLiveLocation': true,
       'liveLocationExpiresAt': Timestamp.fromDate(expiresAt),
+      'liveLocationShareDurationMinutes': duration.inMinutes,
       'liveLocationVisibleToUserIds': nextVisibleToUserIds.isEmpty
           ? [firebaseUser.uid]
           : nextVisibleToUserIds,
@@ -11354,6 +12066,7 @@ class _MapScreenState extends State<MapScreen> {
       await usersCollection().doc(firebaseUser.uid).set({
         'isSharingLiveLocation': false,
         'liveLocationExpiresAt': null,
+        'liveLocationShareDurationMinutes': null,
         'liveLocationVisibleToUserIds': [],
       }, SetOptions(merge: true));
     }
@@ -11367,6 +12080,7 @@ class _MapScreenState extends State<MapScreen> {
       isTogglingLiveLocation = false;
       liveLocationPromptAt = null;
       liveLocationExpiresAt = null;
+      liveLocationShareDuration = const Duration(hours: 1);
       liveLocationPromptOpen = false;
       lastUploadedLiveLocation = null;
       liveLocations = liveLocations
@@ -11394,6 +12108,7 @@ class _MapScreenState extends State<MapScreen> {
       position,
       renewWindow: true,
       headingDegrees: heading,
+      shareDuration: liveLocationShareDuration,
     );
 
     final firebaseUser = FirebaseAuth.instance.currentUser;
@@ -11454,9 +12169,9 @@ class _MapScreenState extends State<MapScreen> {
             'Continue sharing?',
             style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900),
           ),
-          content: const Text(
-            'Your live location has been shared for 1 hour. Keep sharing it for another hour?',
-            style: TextStyle(color: Colors.white70, height: 1.35),
+          content: Text(
+            'Your live location has been shared for ${liveLocationDurationLabel(liveLocationShareDuration)}. Keep sharing it for another ${liveLocationDurationLabel(liveLocationShareDuration)}?',
+            style: const TextStyle(color: Colors.white70, height: 1.35),
           ),
           actions: [
             TextButton(
@@ -12637,7 +13352,10 @@ class LiveLocationMapCard extends StatelessWidget {
                       label: isFriend ? 'Friend' : 'Driver',
                       icon: isFriend ? Icons.people : Icons.person,
                     ),
-                    _SmallTag(label: location.isExpired ? 'offline' : 'online', icon: Icons.my_location),
+                    _SmallTag(
+                      label: location.isExpired ? 'offline' : 'online',
+                      icon: Icons.my_location,
+                    ),
                     if (location.shareScope.trim().isNotEmpty)
                       _SmallTag(
                         label: location.shareScope == 'group'
@@ -16677,11 +17395,7 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
         point: location,
         width: 64,
         height: 64,
-        child: const Icon(
-          Icons.location_on,
-          color: blue,
-          size: 56,
-        ),
+        child: const Icon(Icons.location_on, color: blue, size: 56),
       ),
     ];
   }
@@ -18192,9 +18906,7 @@ class _ChatScreenState extends State<ChatScreen> {
       floatingActionButton: firebaseUser == null
           ? null
           : StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-              stream: chatsCollection()
-                  .where('memberIds', arrayContains: firebaseUser.uid)
-                  .snapshots(),
+              stream: currentUserChatsQuery(firebaseUser.uid).snapshots(),
               builder: (context, snapshot) {
                 final chats =
                     snapshot.data?.docs
@@ -18220,9 +18932,7 @@ class _ChatScreenState extends State<ChatScreen> {
               ),
             )
           : StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-              stream: chatsCollection()
-                  .where('memberIds', arrayContains: firebaseUser.uid)
-                  .snapshots(),
+              stream: currentUserChatsQuery(firebaseUser.uid).snapshots(),
               builder: (context, snapshot) {
                 final chats =
                     snapshot.data?.docs
@@ -20386,16 +21096,18 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
         children: [
           Expanded(
             child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-              stream: chatMessagesCollection(
-                widget.chat.id,
-              ).orderBy('createdAt').snapshots(),
+              stream: latestChatMessagesQuery(widget.chat.id).snapshots(),
               builder: (context, snapshot) {
                 final messages =
                     snapshot.data?.docs
                         .map((doc) => ChatMessageData.fromFirestore(doc))
                         .where((message) => message.text.trim().isNotEmpty)
                         .toList() ??
-                    const <ChatMessageData>[];
+                    <ChatMessageData>[];
+                messages.sort(
+                  (first, second) =>
+                      first.createdAtMillis.compareTo(second.createdAtMillis),
+                );
 
                 if (messages.isEmpty) {
                   return const Padding(
@@ -20890,6 +21602,9 @@ Future<void> saveProfileToFirebase(UserProfileData profile) async {
     'city': cityCountry[0],
     'country': cityCountry[1],
     'settings': nextSettings.toFirebase(),
+    'instagram': nextSettings.instagram.trim(),
+    'tiktok': nextSettings.tiktok.trim(),
+    'telegram': nextSettings.telegram.trim(),
   });
 }
 
@@ -20941,7 +21656,21 @@ Future<void> saveGarageToFirebase(List<GarageCar> cars) async {
 Future<void> saveSettingsToFirebase(UserSettingsData settings) async {
   userSettings.value = settings;
 
-  await saveCurrentUserFields({'settings': settings.toFirebase()});
+  await saveCurrentUserFields({
+    'settings': settings.toFirebase(),
+    'instagram': settings.instagram.trim(),
+    'tiktok': settings.tiktok.trim(),
+    'telegram': settings.telegram.trim(),
+    // Keep flat copies too so older backend/functions or admin tools that read
+    // notification settings directly from the user document do not miss changes.
+    'reviewNotifications': settings.reviewNotifications,
+    'likeNotifications': settings.likeNotifications,
+    'commentNotifications': settings.commentNotifications,
+    'newSpotNotifications': settings.newSpotNotifications,
+    'newMessageNotifications': settings.newMessageNotifications,
+    'publicProfile': settings.publicProfile,
+    'showGarage': settings.showGarage,
+  });
 }
 
 Widget profileMessageButton(BuildContext context, FriendUserData user) {
@@ -21552,6 +22281,30 @@ class PublicUserProfileScreen extends StatelessWidget {
 
   Widget socialLinks(PublicUserProfileData profile) {
     final settings = profile.settings;
+    final links = <Widget>[
+      if (settings.instagram.trim().isNotEmpty)
+        _SocialLinkRow(
+          icon: Icons.camera_alt,
+          label: 'Instagram',
+          value: settings.instagram,
+        ),
+      if (settings.tiktok.trim().isNotEmpty)
+        _SocialLinkRow(
+          icon: Icons.music_note,
+          label: 'TikTok',
+          value: settings.tiktok,
+        ),
+      if (settings.telegram.trim().isNotEmpty)
+        _SocialLinkRow(
+          icon: Icons.send,
+          label: 'Telegram',
+          value: settings.telegram,
+        ),
+    ];
+
+    if (links.isEmpty) {
+      return const SizedBox.shrink();
+    }
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -21572,23 +22325,10 @@ class PublicUserProfileScreen extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 12),
-          _SocialLinkRow(
-            icon: Icons.camera_alt,
-            label: 'Instagram',
-            value: settings.instagram,
-          ),
-          const SizedBox(height: 10),
-          _SocialLinkRow(
-            icon: Icons.music_note,
-            label: 'TikTok',
-            value: settings.tiktok,
-          ),
-          const SizedBox(height: 10),
-          _SocialLinkRow(
-            icon: Icons.send,
-            label: 'Telegram',
-            value: settings.telegram,
-          ),
+          for (var index = 0; index < links.length; index++) ...[
+            if (index > 0) const SizedBox(height: 10),
+            links[index],
+          ],
         ],
       ),
     );
@@ -23124,6 +23864,31 @@ class _ProfileSocialLinksSection extends StatelessWidget {
     return ValueListenableBuilder<UserSettingsData>(
       valueListenable: userSettings,
       builder: (context, settings, _) {
+        final links = <Widget>[
+          if (settings.instagram.trim().isNotEmpty)
+            _SocialLinkRow(
+              icon: Icons.camera_alt,
+              label: 'Instagram',
+              value: settings.instagram,
+            ),
+          if (settings.tiktok.trim().isNotEmpty)
+            _SocialLinkRow(
+              icon: Icons.music_note,
+              label: 'TikTok',
+              value: settings.tiktok,
+            ),
+          if (settings.telegram.trim().isNotEmpty)
+            _SocialLinkRow(
+              icon: Icons.send,
+              label: 'Telegram',
+              value: settings.telegram,
+            ),
+        ];
+
+        if (links.isEmpty) {
+          return const SizedBox.shrink();
+        }
+
         return Container(
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
@@ -23143,23 +23908,10 @@ class _ProfileSocialLinksSection extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 12),
-              _SocialLinkRow(
-                icon: Icons.camera_alt,
-                label: 'Instagram',
-                value: settings.instagram,
-              ),
-              const SizedBox(height: 10),
-              _SocialLinkRow(
-                icon: Icons.music_note,
-                label: 'TikTok',
-                value: settings.tiktok,
-              ),
-              const SizedBox(height: 10),
-              _SocialLinkRow(
-                icon: Icons.send,
-                label: 'Telegram',
-                value: settings.telegram,
-              ),
+              for (var index = 0; index < links.length; index++) ...[
+                if (index > 0) const SizedBox(height: 10),
+                links[index],
+              ],
             ],
           ),
         );
@@ -23181,10 +23933,14 @@ class _SocialLinkRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final hasValue = value.trim().isNotEmpty;
+    final cleanValue = value.trim();
+
+    if (cleanValue.isEmpty) {
+      return const SizedBox.shrink();
+    }
 
     return InkWell(
-      onTap: hasValue ? () => launchExternalUrl(context, value) : null,
+      onTap: () => launchExternalUrl(context, cleanValue),
       borderRadius: BorderRadius.circular(12),
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 5),
@@ -23204,17 +23960,15 @@ class _SocialLinkRow extends StatelessWidget {
             ),
             Expanded(
               child: Text(
-                hasValue ? value : 'Not added yet',
+                cleanValue,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 textAlign: TextAlign.right,
-                style: TextStyle(color: hasValue ? blue : Colors.white54),
+                style: const TextStyle(color: blue),
               ),
             ),
-            if (hasValue) ...[
-              const SizedBox(width: 8),
-              const Icon(Icons.open_in_new, color: Colors.white38, size: 15),
-            ],
+            const SizedBox(width: 8),
+            const Icon(Icons.open_in_new, color: Colors.white38, size: 15),
           ],
         ),
       ),
@@ -24348,6 +25102,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   late bool newMessageNotifications;
   late bool publicProfile;
   late bool showGarage;
+  bool isSavingSettings = false;
 
   @override
   void initState() {
@@ -24373,8 +25128,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     super.dispose();
   }
 
-  Future<void> saveSettings() async {
-    final settings = UserSettingsData(
+  UserSettingsData settingsFromForm() {
+    return UserSettingsData(
       instagram: instagramController.text.trim(),
       tiktok: tiktokController.text.trim(),
       telegram: telegramController.text.trim(),
@@ -24386,23 +25141,36 @@ class _SettingsScreenState extends State<SettingsScreen> {
       publicProfile: publicProfile,
       showGarage: showGarage,
     );
+  }
+
+  Future<void> persistSettings({bool showSuccessMessage = false}) async {
+    if (isSavingSettings) {
+      return;
+    }
+
+    setState(() => isSavingSettings = true);
 
     try {
-      await saveSettingsToFirebase(settings);
+      await saveSettingsToFirebase(settingsFromForm());
 
       if (!mounted) {
         return;
       }
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          backgroundColor: blue,
-          content: Text(
-            'Settings saved to your account.',
-            style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+      if (showSuccessMessage) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            backgroundColor: blue,
+            content: Text(
+              'Settings saved to your account.',
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
           ),
-        ),
-      );
+        );
+      }
     } catch (error) {
       if (!mounted) {
         return;
@@ -24420,7 +25188,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
         ),
       );
+    } finally {
+      if (mounted) {
+        setState(() => isSavingSettings = false);
+      }
     }
+  }
+
+  Future<void> updateSettingsSwitch(VoidCallback update) async {
+    setState(update);
+    await persistSettings();
+  }
+
+  Future<void> saveSettings() async {
+    await persistSettings(showSuccessMessage: true);
   }
 
   @override
@@ -24444,14 +25225,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 subtitle: 'Approved or rejected spot submissions',
                 value: reviewNotifications,
                 onChanged: (value) =>
-                    setState(() => reviewNotifications = value),
+                    updateSettingsSwitch(() => reviewNotifications = value),
               ),
               _SettingsSwitchTile(
                 icon: Icons.favorite,
                 title: 'Likes on my spots',
                 subtitle: 'When people like your approved spots',
                 value: likeNotifications,
-                onChanged: (value) => setState(() => likeNotifications = value),
+                onChanged: (value) =>
+                    updateSettingsSwitch(() => likeNotifications = value),
               ),
               _SettingsSwitchTile(
                 icon: Icons.chat_bubble,
@@ -24459,7 +25241,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 subtitle: 'Future comments and community replies',
                 value: commentNotifications,
                 onChanged: (value) =>
-                    setState(() => commentNotifications = value),
+                    updateSettingsSwitch(() => commentNotifications = value),
               ),
               _SettingsSwitchTile(
                 icon: Icons.map,
@@ -24467,7 +25249,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 subtitle: 'Fresh approved locations nearby',
                 value: newSpotNotifications,
                 onChanged: (value) =>
-                    setState(() => newSpotNotifications = value),
+                    updateSettingsSwitch(() => newSpotNotifications = value),
               ),
               _SettingsSwitchTile(
                 icon: Icons.mark_chat_unread,
@@ -24475,7 +25257,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 subtitle: 'New direct and group messages',
                 value: newMessageNotifications,
                 onChanged: (value) =>
-                    setState(() => newMessageNotifications = value),
+                    updateSettingsSwitch(() => newMessageNotifications = value),
               ),
             ],
           ),
@@ -24488,14 +25270,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 title: 'Public profile',
                 subtitle: 'Let other drivers see your profile',
                 value: publicProfile,
-                onChanged: (value) => setState(() => publicProfile = value),
+                onChanged: (value) =>
+                    updateSettingsSwitch(() => publicProfile = value),
               ),
               _SettingsSwitchTile(
                 icon: Icons.directions_car,
                 title: 'Show garage',
                 subtitle: 'Display your car builds on your profile',
                 value: showGarage,
-                onChanged: (value) => setState(() => showGarage = value),
+                onChanged: (value) =>
+                    updateSettingsSwitch(() => showGarage = value),
               ),
             ],
           ),
@@ -24504,8 +25288,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
           SizedBox(
             height: 54,
             child: ElevatedButton.icon(
-              onPressed: saveSettings,
-              icon: const Icon(Icons.check),
+              onPressed: isSavingSettings ? null : saveSettings,
+              icon: Icon(isSavingSettings ? Icons.hourglass_top : Icons.check),
               label: const Text('Save Settings'),
               style: ElevatedButton.styleFrom(
                 backgroundColor: blue,
@@ -24552,10 +25336,7 @@ class _SettingsSwitchTile extends StatelessWidget {
         secondary: Icon(icon, color: blue),
         title: Text(
           title,
-          style: TextStyle(
-            color: appPrimaryText,
-            fontWeight: FontWeight.w800,
-          ),
+          style: TextStyle(color: appPrimaryText, fontWeight: FontWeight.w800),
         ),
         subtitle: Text(subtitle, style: TextStyle(color: appSecondaryText)),
       ),
