@@ -64,7 +64,7 @@ class DefaultFirebaseOptions {
     messagingSenderId: '325709324670',
     projectId: 'ccsv1-63537',
     storageBucket: 'ccsv1-63537.firebasestorage.app',
-    iosBundleId: 'com.example.ccsApp',
+    iosBundleId: 'lv.ilexall.ccs',
   );
 
   static const FirebaseOptions macos = FirebaseOptions(
@@ -73,7 +73,7 @@ class DefaultFirebaseOptions {
     messagingSenderId: '325709324670',
     projectId: 'ccsv1-63537',
     storageBucket: 'ccsv1-63537.firebasestorage.app',
-    iosBundleId: 'com.example.ccsApp',
+    iosBundleId: 'lv.ilexall.ccs',
   );
 
   static const FirebaseOptions windows = FirebaseOptions(
