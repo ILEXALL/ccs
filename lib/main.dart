@@ -1690,6 +1690,12 @@ class CCSApp extends StatelessWidget {
 }
 
 const blue = Color(0xFF1565FF);
+const sosAlertColor = Color(0xFFFF2D55);
+
+Color policeAlertColor(double pulse) {
+  return Color.lerp(blue, sosAlertColor, pulse)!;
+}
+
 Color get night => const Color(0xFF050507);
 Color get panel => const Color(0xFF101014);
 Color get panelGlass => const Color(0xCC101014);
@@ -11424,11 +11430,7 @@ class _MapScreenState extends State<MapScreen>
                 final progress = Curves.easeInOut.transform(
                   mapAlertPulseController.value,
                 );
-                final color = Color.lerp(
-                  blue,
-                  const Color(0xFFFF2D55),
-                  progress,
-                )!;
+                final color = policeAlertColor(progress);
                 return Container(
                   decoration: BoxDecoration(
                     color: color.withValues(
@@ -11498,8 +11500,6 @@ class _MapScreenState extends State<MapScreen>
     final markerInnerSize = showSosRadius
         ? 38.0
         : math.max(10.0, markerOuterSize - 8);
-    const sosColor = Color(0xFFFF2D55);
-
     return visibleSosReports.map((report) {
       return Marker(
         point: report.coordinates,
@@ -11527,15 +11527,19 @@ class _MapScreenState extends State<MapScreen>
                     : 0.82 + pulse * 0.14;
                 return Container(
                   decoration: BoxDecoration(
-                    color: sosColor.withValues(alpha: alpha),
+                    color: sosAlertColor.withValues(alpha: alpha),
                     shape: BoxShape.circle,
                     border: Border.all(
-                      color: sosColor.withValues(alpha: 0.82 + pulse * 0.18),
+                      color: sosAlertColor.withValues(
+                        alpha: 0.82 + pulse * 0.18,
+                      ),
                       width: showSosRadius ? 2.2 : 1.6,
                     ),
                     boxShadow: [
                       BoxShadow(
-                        color: sosColor.withValues(alpha: 0.34 + pulse * 0.22),
+                        color: sosAlertColor.withValues(
+                          alpha: 0.34 + pulse * 0.22,
+                        ),
                         blurRadius: showSosRadius
                             ? 16 + pulse * 10
                             : 9 + pulse * 5,
@@ -11550,10 +11554,10 @@ class _MapScreenState extends State<MapScreen>
                       width: markerInnerSize,
                       height: markerInnerSize,
                       decoration: BoxDecoration(
-                        color: showSosRadius ? panelGlass : sosColor,
+                        color: showSosRadius ? panelGlass : sosAlertColor,
                         shape: BoxShape.circle,
                         border: showSosRadius
-                            ? Border.all(color: sosColor, width: 2)
+                            ? Border.all(color: sosAlertColor, width: 2)
                             : null,
                       ),
                       child: Center(
@@ -11920,11 +11924,11 @@ class _MapScreenState extends State<MapScreen>
                               fontWeight: FontWeight.w800,
                             ),
                           ),
-                          selectedColor: const Color(0xFF6C5CFF),
+                          selectedColor: sosAlertColor,
                           backgroundColor: Colors.white.withValues(alpha: 0.06),
                           side: BorderSide(
                             color: selected
-                                ? const Color(0xFF6C5CFF)
+                                ? sosAlertColor
                                 : Colors.white12,
                           ),
                           onSelected: (_) {
@@ -11988,7 +11992,7 @@ class _MapScreenState extends State<MapScreen>
                     );
                   },
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF6C5CFF),
+                    backgroundColor: sosAlertColor,
                   ),
                   child: Text(
                     trText('Create SOS'),
@@ -12378,7 +12382,7 @@ class _MapScreenState extends State<MapScreen>
             ElevatedButton(
               onPressed: () => Navigator.pop(dialogContext, true),
               style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF6C5CFF),
+                backgroundColor: sosAlertColor,
               ),
               child: const Text(
                 'Yes, still need',
@@ -12441,17 +12445,34 @@ class _MapScreenState extends State<MapScreen>
                 const SizedBox(height: 12),
                 ListTile(
                   contentPadding: const EdgeInsets.symmetric(horizontal: 6),
-                  leading: Container(
-                    width: 44,
-                    height: 44,
-                    decoration: BoxDecoration(
-                      color: Colors.redAccent.withValues(alpha: 0.18),
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                    child: const Icon(
-                      Icons.local_police,
-                      color: Colors.redAccent,
-                    ),
+                  leading: AnimatedBuilder(
+                    animation: mapAlertPulseController,
+                    builder: (context, child) {
+                      final pulse = Curves.easeInOut.transform(
+                        mapAlertPulseController.value,
+                      );
+                      final color = policeAlertColor(pulse);
+                      return Container(
+                        width: 44,
+                        height: 44,
+                        decoration: BoxDecoration(
+                          color: color.withValues(alpha: 0.18),
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(
+                            color: color.withValues(alpha: 0.72),
+                            width: 1.5,
+                          ),
+                          boxShadow: [
+                            BoxShadow(
+                              color: color.withValues(alpha: 0.32),
+                              blurRadius: 9,
+                              spreadRadius: 1,
+                            ),
+                          ],
+                        ),
+                        child: Icon(Icons.local_police, color: color),
+                      );
+                    },
                   ),
                   title: const Text(
                     'Police',
@@ -12468,23 +12489,48 @@ class _MapScreenState extends State<MapScreen>
                 ),
                 ListTile(
                   contentPadding: const EdgeInsets.symmetric(horizontal: 6),
-                  leading: Container(
-                    width: 44,
-                    height: 44,
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF6C5CFF).withValues(alpha: 0.18),
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                    child: const Center(
-                      child: Text(
-                        'SOS',
-                        style: TextStyle(
-                          color: Color(0xFF6C5CFF),
-                          fontSize: 12,
-                          fontWeight: FontWeight.w900,
+                  leading: AnimatedBuilder(
+                    animation: mapAlertPulseController,
+                    builder: (context, child) {
+                      final pulse = Curves.easeInOut.transform(
+                        mapAlertPulseController.value,
+                      );
+                      return Container(
+                        width: 44,
+                        height: 44,
+                        decoration: BoxDecoration(
+                          color: sosAlertColor.withValues(
+                            alpha: 0.18 + pulse * 0.12,
+                          ),
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(
+                            color: sosAlertColor.withValues(
+                              alpha: 0.82 + pulse * 0.18,
+                            ),
+                            width: 1.6,
+                          ),
+                          boxShadow: [
+                            BoxShadow(
+                              color: sosAlertColor.withValues(
+                                alpha: 0.34 + pulse * 0.22,
+                              ),
+                              blurRadius: 9 + pulse * 5,
+                              spreadRadius: 1 + pulse * 1.5,
+                            ),
+                          ],
                         ),
-                      ),
-                    ),
+                        child: const Center(
+                          child: Text(
+                            'SOS',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                        ),
+                      );
+                    },
                   ),
                   title: const Text(
                     'SOS',
@@ -14451,14 +14497,12 @@ class SosReportMapCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const sosColor = Color(0xFFFF2D55);
-
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: Colors.black.withValues(alpha: 0.88),
         borderRadius: BorderRadius.circular(22),
-        border: Border.all(color: sosColor.withValues(alpha: 0.42)),
+        border: Border.all(color: sosAlertColor.withValues(alpha: 0.42)),
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -14470,14 +14514,14 @@ class SosReportMapCard extends StatelessWidget {
                 width: 44,
                 height: 44,
                 decoration: BoxDecoration(
-                  color: sosColor.withValues(alpha: 0.18),
+                  color: sosAlertColor.withValues(alpha: 0.18),
                   borderRadius: BorderRadius.circular(14),
                 ),
                 child: const Center(
                   child: Text(
                     'SOS',
                     style: TextStyle(
-                      color: sosColor,
+                      color: sosAlertColor,
                       fontSize: 12,
                       fontWeight: FontWeight.w900,
                     ),
@@ -14522,9 +14566,11 @@ class SosReportMapCard extends StatelessWidget {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
             decoration: BoxDecoration(
-              color: sosColor.withValues(alpha: 0.14),
+              color: sosAlertColor.withValues(alpha: 0.14),
               borderRadius: BorderRadius.circular(999),
-              border: Border.all(color: sosColor.withValues(alpha: 0.26)),
+              border: Border.all(
+                color: sosAlertColor.withValues(alpha: 0.26),
+              ),
             ),
             child: Text(
               trText(sosReasonLabel(report.reason)),
@@ -14589,7 +14635,7 @@ class SosReportMapCard extends StatelessWidget {
                 icon: const Icon(Icons.route, size: 18),
                 label: const Text('Open Waze'),
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: sosColor,
+                  backgroundColor: sosAlertColor,
                   foregroundColor: Colors.white,
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(14),
