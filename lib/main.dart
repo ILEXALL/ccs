@@ -8146,38 +8146,70 @@ Future<List<NotificationCenterItem>> loadNotificationCenterItems() async {
     return const [];
   }
 
+  Future<void> addItems(
+    Future<QuerySnapshot<Map<String, dynamic>>> snapshotFuture, {
+    bool projectNews = false,
+  }) async {
+    try {
+      final snapshot = await snapshotFuture;
+      for (final doc in snapshot.docs) {
+        items.add(
+          notificationCenterItemFromDocument(doc, projectNews: projectNews),
+        );
+      }
+    } catch (error, stack) {
+      debugPrint('Notification center source could not load: $error');
+      debugPrint('$stack');
+    }
+  }
+
+  var serverItemsLoaded = false;
   try {
-    final snapshots = await Future.wait([
-      userNotificationsCollection()
-          .where('userId', isEqualTo: firebaseUser.uid)
-          .limit(50)
-          .get(),
+    final headers = await firebaseNotificationHeaders();
+    if (headers != null) {
+      final response = await getJsonFromUrl(
+        pushNotificationUrl,
+        headers: headers,
+      );
+      final notifications = response['notifications'];
+      if (notifications is List) {
+        items.addAll(notifications.map(notificationCenterItemFromJson));
+        serverItemsLoaded = true;
+      }
+    }
+  } catch (error, stack) {
+    debugPrint('Server notification history could not load: $error');
+    debugPrint('$stack');
+  }
+
+  final sourceLoads = <Future<void>>[
+    addItems(
       adminNotificationsCollection()
           .where('userId', isEqualTo: firebaseUser.uid)
           .limit(50)
           .get(),
+    ),
+    addItems(
       friendLocationNotificationsCollection()
           .where('userId', isEqualTo: firebaseUser.uid)
           .limit(50)
           .get(),
-      projectNewsCollection().limit(20).get(),
-    ]);
+    ),
+  ];
 
-    for (final doc in snapshots[0].docs) {
-      items.add(notificationCenterItemFromDocument(doc));
-    }
-    for (final doc in snapshots[1].docs) {
-      items.add(notificationCenterItemFromDocument(doc));
-    }
-    for (final doc in snapshots[2].docs) {
-      items.add(notificationCenterItemFromDocument(doc));
-    }
-    for (final doc in snapshots[3].docs) {
-      items.add(notificationCenterItemFromDocument(doc, projectNews: true));
-    }
-  } catch (_) {
-    // The notification center stays usable with its project-news placeholder.
+  if (!serverItemsLoaded) {
+    sourceLoads.addAll([
+      addItems(
+        userNotificationsCollection()
+            .where('userId', isEqualTo: firebaseUser.uid)
+            .limit(50)
+            .get(),
+      ),
+      addItems(projectNewsCollection().limit(20).get(), projectNews: true),
+    ]);
   }
+
+  await Future.wait(sourceLoads);
 
   if (!items.any((item) => item.projectNews)) {
     items.addAll(const [
@@ -8210,32 +8242,52 @@ Future<List<NotificationCenterItem>> loadNotificationCenterItems() async {
 Future<void> markNotificationCenterItemsRead(
   Iterable<NotificationCenterItem> items,
 ) async {
-  final unreadItems = items
+  final unreadItems = items.where((item) => !item.read).toList();
+  final firestoreItems = unreadItems
       .where((item) => !item.read && item.reference != null)
       .toList();
+  final serverNotificationIds = unreadItems
+      .where((item) => item.reference == null && !item.projectNews)
+      .map((item) => item.id.trim())
+      .where((id) => id.isNotEmpty)
+      .toSet()
+      .toList();
 
-  if (unreadItems.isEmpty) {
+  if (firestoreItems.isEmpty && serverNotificationIds.isEmpty) {
     return;
   }
 
   try {
-    final batch = FirebaseFirestore.instance.batch();
-
-    for (final item in unreadItems) {
-      final reference = item.reference;
-      if (reference == null) {
-        continue;
+    if (serverNotificationIds.isNotEmpty) {
+      final headers = await firebaseNotificationHeaders();
+      if (headers != null) {
+        await patchJsonToUrl(
+          pushNotificationUrl,
+          {'notificationIds': serverNotificationIds},
+          headers: headers,
+        );
       }
-      batch.set(reference, {
-        'read': true,
-        'readAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
     }
 
-    await batch.commit();
+    if (firestoreItems.isNotEmpty) {
+      final batch = FirebaseFirestore.instance.batch();
+      for (final item in firestoreItems) {
+        final reference = item.reference;
+        if (reference == null) {
+          continue;
+        }
+        batch.set(reference, {
+          'read': true,
+          'readAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+      }
+      await batch.commit();
+    }
+
     notificationCenterUnreadCount.value = 0;
-  } catch (_) {
-    // Marking history as read is best-effort.
+  } catch (error, stack) {
+    debugPrint('Notification history could not be marked read: $error');
+    debugPrint('$stack');
   }
 }
 
@@ -15577,12 +15629,6 @@ class _SpotPhotoCarouselState extends State<SpotPhotoCarousel> {
                         height: 58,
                         decoration: BoxDecoration(
                           borderRadius: BorderRadius.circular(14),
-                          border: Border.all(
-                            color: currentIndex == index
-                                ? blue
-                                : Colors.white24,
-                            width: currentIndex == index ? 2.2 : 1,
-                          ),
                           boxShadow: currentIndex == index
                               ? [
                                   BoxShadow(
@@ -15592,6 +15638,15 @@ class _SpotPhotoCarouselState extends State<SpotPhotoCarousel> {
                                   ),
                                 ]
                               : null,
+                        ),
+                        foregroundDecoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(
+                            color: currentIndex == index
+                                ? blue
+                                : Colors.white24,
+                            width: currentIndex == index ? 2.2 : 1,
+                          ),
                         ),
                         clipBehavior: Clip.antiAlias,
                         child: Stack(
@@ -22244,13 +22299,66 @@ class ChatConversationScreen extends StatefulWidget {
 
 class _ChatConversationScreenState extends State<ChatConversationScreen> {
   final messageController = TextEditingController();
+  final chatScrollController = ScrollController();
   bool isSending = false;
   bool isSharingChatLocation = false;
+  bool hasScrolledToLatestMessage = false;
+  bool scrollToLatestAfterNextMessage = false;
+  int renderedMessageCount = 0;
 
   @override
   void dispose() {
     messageController.dispose();
+    chatScrollController.dispose();
     super.dispose();
+  }
+
+  bool isNearLatestMessage() {
+    if (!chatScrollController.hasClients) {
+      return true;
+    }
+
+    final position = chatScrollController.position;
+    return position.maxScrollExtent - position.pixels < 140;
+  }
+
+  void scheduleScrollToLatestMessage({bool animated = false}) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !chatScrollController.hasClients) {
+        return;
+      }
+
+      final target = chatScrollController.position.maxScrollExtent;
+      if (animated) {
+        chatScrollController.animateTo(
+          target,
+          duration: const Duration(milliseconds: 220),
+          curve: Curves.easeOut,
+        );
+      } else {
+        chatScrollController.jumpTo(target);
+      }
+    });
+  }
+
+  void updateChatScrollForMessages(int messageCount) {
+    final firstMessageLayout = !hasScrolledToLatestMessage;
+    final receivedNewMessage = messageCount > renderedMessageCount;
+    final shouldFollowLatest =
+        firstMessageLayout ||
+        (receivedNewMessage &&
+            (scrollToLatestAfterNextMessage || isNearLatestMessage()));
+
+    renderedMessageCount = messageCount;
+    if (firstMessageLayout) {
+      hasScrolledToLatestMessage = true;
+    }
+    if (receivedNewMessage) {
+      scrollToLatestAfterNextMessage = false;
+    }
+    if (shouldFollowLatest) {
+      scheduleScrollToLatestMessage(animated: !firstMessageLayout);
+    }
   }
 
   Future<void> sendMessage() async {
@@ -22265,6 +22373,8 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
     try {
       await sendChatMessage(chatId: widget.chat.id, text: text);
       messageController.clear();
+      scrollToLatestAfterNextMessage = true;
+      scheduleScrollToLatestMessage(animated: true);
     } catch (error) {
       if (!mounted) {
         return;
@@ -22827,6 +22937,7 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
                   (first, second) =>
                       first.createdAtMillis.compareTo(second.createdAtMillis),
                 );
+                updateChatScrollForMessages(messages.length);
 
                 if (messages.isEmpty) {
                   return const Padding(
@@ -22855,6 +22966,7 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
                   }
 
                   return ListView(
+                    controller: chatScrollController,
                     padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
                     children: children,
                   );
@@ -25406,12 +25518,6 @@ class _GarageGalleryHeaderState extends State<_GarageGalleryHeader> {
                           height: 70,
                           decoration: BoxDecoration(
                             borderRadius: BorderRadius.circular(14),
-                            border: Border.all(
-                              color: currentIndex == index
-                                  ? blue
-                                  : Colors.white24,
-                              width: currentIndex == index ? 2.2 : 1,
-                            ),
                             boxShadow: currentIndex == index
                                 ? [
                                     BoxShadow(
@@ -25421,6 +25527,15 @@ class _GarageGalleryHeaderState extends State<_GarageGalleryHeader> {
                                     ),
                                   ]
                                 : null,
+                          ),
+                          foregroundDecoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(
+                              color: currentIndex == index
+                                  ? blue
+                                  : Colors.white24,
+                              width: currentIndex == index ? 2.2 : 1,
+                            ),
                           ),
                           clipBehavior: Clip.antiAlias,
                           child: Stack(
