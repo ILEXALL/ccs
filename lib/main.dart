@@ -1690,6 +1690,12 @@ class CCSApp extends StatelessWidget {
 }
 
 const blue = Color(0xFF1565FF);
+const sosAlertColor = Color(0xFFFF2D55);
+
+Color policeAlertColor(double pulse) {
+  return Color.lerp(blue, sosAlertColor, pulse)!;
+}
+
 Color get night => const Color(0xFF050507);
 Color get panel => const Color(0xFF101014);
 Color get panelGlass => const Color(0xCC101014);
@@ -3850,6 +3856,7 @@ class CarSpot {
   final int? expiresAtMillis;
   final int? showOnMapAtMillis;
   final bool verifiedOnly;
+  final String rejectionReason;
 
   const CarSpot({
     this.id = '',
@@ -3886,6 +3893,7 @@ class CarSpot {
     this.expiresAtMillis,
     this.showOnMapAtMillis,
     this.verifiedOnly = false,
+    this.rejectionReason = '',
   });
 
   CarSpot copyWith({
@@ -3923,6 +3931,7 @@ class CarSpot {
     int? expiresAtMillis,
     int? showOnMapAtMillis,
     bool? verifiedOnly,
+    String? rejectionReason,
     bool clearTemporarySchedule = false,
     bool clearTemporaryMapReveal = false,
   }) {
@@ -3967,6 +3976,7 @@ class CarSpot {
           ? null
           : showOnMapAtMillis ?? this.showOnMapAtMillis,
       verifiedOnly: verifiedOnly ?? this.verifiedOnly,
+      rejectionReason: rejectionReason ?? this.rejectionReason,
     );
   }
 
@@ -4170,6 +4180,7 @@ class CarSpot {
         data['showOnMapAt'],
       ),
       verifiedOnly: data['verifiedOnly'] == true,
+      rejectionReason: stringFromFirebase(data['rejectionReason'], ''),
     );
   }
 }
@@ -4662,8 +4673,9 @@ Future<void> createSpotCommentNotification(
 
 Future<void> createSpotReviewUpdateNotification(
   CarSpot spot,
-  SpotStatus status,
-) async {
+  SpotStatus status, {
+  String rejectionReason = '',
+}) async {
   if (status != SpotStatus.approved && status != SpotStatus.rejected) {
     return;
   }
@@ -4671,6 +4683,7 @@ Future<void> createSpotReviewUpdateNotification(
   final ownerUid = spotNotificationOwnerUid(spot);
   final statusName = spotStatusName(status);
   final approved = status == SpotStatus.approved;
+  final cleanReason = rejectionReason.trim();
 
   await createUserNotification(
     userId: ownerUid,
@@ -4678,7 +4691,9 @@ Future<void> createSpotReviewUpdateNotification(
     title: 'Spot review updates',
     body: approved
         ? '${spot.name} was approved.'
-        : '${spot.name} was rejected.',
+        : cleanReason.isEmpty
+        ? '${spot.name} was rejected.'
+        : '${spot.name} was rejected. Reason: $cleanReason',
     settingName: 'reviewNotifications',
     notificationId: spot.id.trim().isEmpty
         ? null
@@ -4690,6 +4705,7 @@ Future<void> createSpotReviewUpdateNotification(
       'status': statusName,
       'reviewedBy': currentUser.username,
       'reviewedByUid': currentUser.uid,
+      if (cleanReason.isNotEmpty) 'rejectionReason': cleanReason,
     },
   );
 }
@@ -6464,8 +6480,9 @@ Future<void> createAdminSpotReviewNotification(CarSpot spot) async {
 
 Future<void> createAdminSpotDecisionNotification(
   CarSpot spot,
-  SpotStatus status,
-) async {
+  SpotStatus status, {
+  String rejectionReason = '',
+}) async {
   if (spot.id.trim().isEmpty ||
       (status != SpotStatus.approved && status != SpotStatus.rejected)) {
     return;
@@ -6479,6 +6496,7 @@ Future<void> createAdminSpotDecisionNotification(
 
   final batch = FirebaseFirestore.instance.batch();
   final statusName = spotStatusName(status);
+  final cleanReason = rejectionReason.trim();
 
   for (final adminUid in adminUids) {
     final notificationRef = adminNotificationsCollection().doc(
@@ -6495,6 +6513,7 @@ Future<void> createAdminSpotDecisionNotification(
       'status': statusName,
       'reviewedBy': currentUser.username,
       'reviewedByUid': currentUser.uid,
+      if (cleanReason.isNotEmpty) 'rejectionReason': cleanReason,
       'read': false,
       'createdAt': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
@@ -6846,6 +6865,7 @@ Map<String, Object?> spotToFirestoreData(
     'addedByUid': spot.addedByUid,
     'status': spotStatusName(spot.status),
     'verifiedOnly': spot.verifiedOnly,
+    'rejectionReason': spot.rejectionReason,
     'updatedAt': FieldValue.serverTimestamp(),
   };
 
@@ -7612,8 +7632,15 @@ bool isSameSpot(CarSpot first, CarSpot second) {
   return first.name == second.name && first.addedBy == second.addedBy;
 }
 
-Future<void> updateSpotStatus(CarSpot spot, SpotStatus status) async {
+Future<void> updateSpotStatus(
+  CarSpot spot,
+  SpotStatus status, {
+  String rejectionReason = '',
+}) async {
   final statusChanged = spot.status != status;
+  final cleanRejectionReason = status == SpotStatus.rejected
+      ? rejectionReason.trim()
+      : '';
   final shouldNotifyNearbyMeetUsers =
       status == SpotStatus.approved &&
       spot.status != SpotStatus.approved &&
@@ -7627,6 +7654,7 @@ Future<void> updateSpotStatus(CarSpot spot, SpotStatus status) async {
     rating: status == SpotStatus.approved && spot.rating == 0
         ? 4.5
         : spot.rating,
+    rejectionReason: cleanRejectionReason,
   );
 
   if (spot.id.isNotEmpty) {
@@ -7636,6 +7664,7 @@ Future<void> updateSpotStatus(CarSpot spot, SpotStatus status) async {
       'reviewedBy': currentUser.username,
       'reviewedByUid': currentUser.uid,
       'reviewedAt': FieldValue.serverTimestamp(),
+      'rejectionReason': cleanRejectionReason,
       'updatedAt': FieldValue.serverTimestamp(),
     });
   }
@@ -7656,12 +7685,20 @@ Future<void> updateSpotStatus(CarSpot spot, SpotStatus status) async {
   }
 
   if (shouldNotifyOtherAdmins) {
-    await createAdminSpotDecisionNotification(updatedSpot, status);
+    await createAdminSpotDecisionNotification(
+      updatedSpot,
+      status,
+      rejectionReason: cleanRejectionReason,
+    );
   }
 
   if (statusChanged &&
       (status == SpotStatus.approved || status == SpotStatus.rejected)) {
-    await createSpotReviewUpdateNotification(updatedSpot, status);
+    await createSpotReviewUpdateNotification(
+      updatedSpot,
+      status,
+      rejectionReason: cleanRejectionReason,
+    );
   }
 
   if (statusChanged &&
@@ -7671,6 +7708,8 @@ Future<void> updateSpotStatus(CarSpot spot, SpotStatus status) async {
       'type': 'spot_decision',
       'spotId': spot.id,
       'status': spotStatusName(status),
+      if (cleanRejectionReason.isNotEmpty)
+        'rejectionReason': cleanRejectionReason,
     });
   }
 }
@@ -7940,6 +7979,13 @@ class NotificationCenterItem {
   final bool read;
   final DocumentReference<Map<String, dynamic>>? reference;
   final bool projectNews;
+  final String spotId;
+  final String spotName;
+  final String chatId;
+  final String userId;
+  final String addedByUid;
+  final String status;
+  final String rejectionReason;
 
   const NotificationCenterItem({
     required this.id,
@@ -7950,7 +7996,89 @@ class NotificationCenterItem {
     required this.read,
     this.reference,
     this.projectNews = false,
+    this.spotId = '',
+    this.spotName = '',
+    this.chatId = '',
+    this.userId = '',
+    this.addedByUid = '',
+    this.status = '',
+    this.rejectionReason = '',
   });
+
+  NotificationCenterItem copyWith({
+    String? id,
+    String? title,
+    String? body,
+    String? type,
+    int? createdAtMillis,
+    bool? read,
+    DocumentReference<Map<String, dynamic>>? reference,
+    bool clearReference = false,
+    bool? projectNews,
+    String? spotId,
+    String? spotName,
+    String? chatId,
+    String? userId,
+    String? addedByUid,
+    String? status,
+    String? rejectionReason,
+  }) {
+    return NotificationCenterItem(
+      id: id ?? this.id,
+      title: title ?? this.title,
+      body: body ?? this.body,
+      type: type ?? this.type,
+      createdAtMillis: createdAtMillis ?? this.createdAtMillis,
+      read: read ?? this.read,
+      reference: clearReference ? null : (reference ?? this.reference),
+      projectNews: projectNews ?? this.projectNews,
+      spotId: spotId ?? this.spotId,
+      spotName: spotName ?? this.spotName,
+      chatId: chatId ?? this.chatId,
+      userId: userId ?? this.userId,
+      addedByUid: addedByUid ?? this.addedByUid,
+      status: status ?? this.status,
+      rejectionReason: rejectionReason ?? this.rejectionReason,
+    );
+  }
+
+  bool get canOpen =>
+      !projectNews &&
+      (spotId.trim().isNotEmpty ||
+          chatId.trim().isNotEmpty ||
+          addedByUid.trim().isNotEmpty ||
+          userId.trim().isNotEmpty ||
+          type == 'spot_pending_review');
+}
+
+bool notificationCenterItemIsRejected(NotificationCenterItem item) {
+  final status = item.status.trim().toLowerCase();
+  final title = item.title.trim().toLowerCase();
+  final body = item.body.trim().toLowerCase();
+  final type = item.type.trim().toLowerCase();
+
+  return status == 'rejected' ||
+      status.contains('reject') ||
+      type == 'spot_rejected_by_admin' ||
+      type.contains('reject') ||
+      title.contains('rejected') ||
+      body.contains('rejected') ||
+      body.contains('was rejected') ||
+      item.rejectionReason.trim().isNotEmpty;
+}
+
+String bodyWithRejectionReason(String body, String reason) {
+  final cleanReason = reason.trim();
+  if (cleanReason.isEmpty || body.toLowerCase().contains('reason:')) {
+    return body;
+  }
+
+  final cleanBody = body.trim();
+  if (cleanBody.isEmpty) {
+    return 'Your spot was rejected. Reason: $cleanReason';
+  }
+
+  return '$cleanBody Reason: $cleanReason';
 }
 
 IconData notificationCenterIcon(NotificationCenterItem item) {
@@ -7958,15 +8086,27 @@ IconData notificationCenterIcon(NotificationCenterItem item) {
     return Icons.campaign;
   }
 
+  // Rejection must always win over any generic review/update type. Some
+  // notification payloads arrive as spot_review_update, so deciding only from
+  // the type can incorrectly show the green approval check.
+  if (notificationCenterItemIsRejected(item)) {
+    return Icons.cancel;
+  }
+
   return switch (item.type) {
     'spot_like' => Icons.favorite,
     'spot_comment' => Icons.chat_bubble,
     'chat_message' => Icons.mark_chat_unread,
-    'spot_review_update' => Icons.verified,
+    'spot_review_update' =>
+      notificationCenterItemIsRejected(item)
+          ? Icons.cancel
+          : Icons.check_circle,
+    'spot_pending_review' => Icons.fact_check,
+    'spot_approved_by_admin' => Icons.check_circle,
+    'spot_rejected_by_admin' => Icons.cancel,
     'new_spot' => Icons.add_location_alt,
     'temporary_event' => Icons.event_available,
     'friend_nearby' || 'friend_at_spot' => Icons.location_on,
-    'spot_pending_review' => Icons.fact_check,
     _ => Icons.notifications,
   };
 }
@@ -7976,10 +8116,19 @@ Color notificationCenterColor(NotificationCenterItem item) {
     return const Color(0xFFFFB300);
   }
 
+  // Same rule as the icon: any rejected review notification is red.
+  if (notificationCenterItemIsRejected(item)) {
+    return Colors.redAccent;
+  }
+
   return switch (item.type) {
     'spot_like' => Colors.redAccent,
     'spot_comment' || 'chat_message' => blue,
-    'spot_review_update' => Colors.green,
+    'spot_review_update' =>
+      notificationCenterItemIsRejected(item) ? Colors.redAccent : Colors.green,
+    'spot_rejected_by_admin' => Colors.redAccent,
+    'spot_approved_by_admin' => Colors.green,
+    'spot_pending_review' => blue,
     'new_spot' => const Color(0xFF9B35FF),
     'temporary_event' => const Color(0xFFFF7A00),
     'friend_nearby' || 'friend_at_spot' => Colors.greenAccent.shade700,
@@ -8015,16 +8164,62 @@ String notificationCenterTime(int createdAtMillis) {
 
 NotificationCenterItem notificationCenterItemFromJson(Object? value) {
   final data = mapFromFirebase(value);
+  final payload = mapFromFirebase(data['data']);
+
+  String pickString(String key, String fallback) {
+    final topLevel = stringFromFirebase(data[key], '');
+    if (topLevel.trim().isNotEmpty) {
+      return topLevel;
+    }
+    return stringFromFirebase(payload[key], fallback);
+  }
+
+  int pickMillis(String key) {
+    final topLevel = data[key];
+    if (topLevel is num) {
+      return topLevel.toInt();
+    }
+    final nested = payload[key];
+    if (nested is num) {
+      return nested.toInt();
+    }
+    return 0;
+  }
+
+  final type = pickString('type', 'notification');
+  final status = pickString('status', '');
+  final spotName = pickString('spotName', '');
+  final rejectionReason = pickString('rejectionReason', '');
+  var body = pickString('body', '');
+
+  if (type == 'spot_review_update' &&
+      status == 'rejected' &&
+      rejectionReason.trim().isNotEmpty &&
+      !body.toLowerCase().contains('reason:')) {
+    if (body.trim().isEmpty) {
+      body = spotName.trim().isEmpty
+          ? 'Your spot was rejected. Reason: ${rejectionReason.trim()}'
+          : '$spotName was rejected. Reason: ${rejectionReason.trim()}';
+    } else if (body.toLowerCase().contains('rejected')) {
+      body = bodyWithRejectionReason(body, rejectionReason);
+    }
+  }
+
   return NotificationCenterItem(
-    id: stringFromFirebase(data['id'], ''),
-    title: stringFromFirebase(data['title'], 'CCS'),
-    body: stringFromFirebase(data['body'], ''),
-    type: stringFromFirebase(data['type'], 'notification'),
-    createdAtMillis: data['createdAtMillis'] is num
-        ? (data['createdAtMillis'] as num).toInt()
-        : 0,
-    read: data['read'] == true,
-    projectNews: data['projectNews'] == true,
+    id: pickString('id', ''),
+    title: pickString('title', 'CCS'),
+    body: body,
+    type: type,
+    createdAtMillis: pickMillis('createdAtMillis'),
+    read: data['read'] == true || payload['read'] == true,
+    projectNews: data['projectNews'] == true || payload['projectNews'] == true,
+    spotId: pickString('spotId', ''),
+    spotName: spotName,
+    chatId: pickString('chatId', ''),
+    userId: pickString('userId', ''),
+    addedByUid: pickString('addedByUid', ''),
+    status: status,
+    rejectionReason: rejectionReason,
   );
 }
 
@@ -8040,6 +8235,7 @@ NotificationCenterItem notificationCenterItemFromDocument(
   final spotName = stringFromFirebase(data['spotName'], '');
   final status = stringFromFirebase(data['status'], '');
   final reviewedBy = stringFromFirebase(data['reviewedBy'], '');
+  final rejectionReason = stringFromFirebase(data['rejectionReason'], '');
   final actorUsername = stringFromFirebase(data['actorUsername'], '');
   final comment = stringFromFirebase(data['comment'], '');
   final friendUsername = stringFromFirebase(data['friendUsername'], '');
@@ -8084,8 +8280,8 @@ NotificationCenterItem notificationCenterItemFromDocument(
                   ? 'Your spot was approved.'
                   : '$spotName was approved.')
             : (spotName.trim().isEmpty
-                  ? 'Your spot was rejected.'
-                  : '$spotName was rejected.'),
+                  ? 'Your spot was rejected${rejectionReason.trim().isEmpty ? '.' : '. Reason: $rejectionReason'}'
+                  : '$spotName was rejected${rejectionReason.trim().isEmpty ? '.' : '. Reason: $rejectionReason'}'),
       'spot_pending_review' =>
         spotName.trim().isEmpty
             ? 'New spot is waiting for review.'
@@ -8096,8 +8292,8 @@ NotificationCenterItem notificationCenterItemFromDocument(
             : '$spotName approved${reviewedBy.trim().isEmpty ? '' : ' by $reviewedBy'}.',
       'spot_rejected_by_admin' =>
         spotName.trim().isEmpty
-            ? 'Spot rejected.'
-            : '$spotName rejected${reviewedBy.trim().isEmpty ? '' : ' by $reviewedBy'}.',
+            ? 'Spot rejected${rejectionReason.trim().isEmpty ? '.' : '. Reason: $rejectionReason'}'
+            : '$spotName rejected${reviewedBy.trim().isEmpty ? '' : ' by $reviewedBy'}${rejectionReason.trim().isEmpty ? '.' : '. Reason: $rejectionReason'}',
       'friend_nearby' =>
         friendUsername.trim().isEmpty
             ? 'A friend is nearby.'
@@ -8110,6 +8306,17 @@ NotificationCenterItem notificationCenterItemFromDocument(
     };
   }
 
+  final cleanReason = rejectionReason.trim();
+  final rejectedWithoutReason =
+      cleanReason.isNotEmpty &&
+      ((type == 'spot_review_update' && status == 'rejected') ||
+          type == 'spot_rejected_by_admin') &&
+      !body.toLowerCase().contains('reason:') &&
+      body.toLowerCase().contains('rejected');
+  if (rejectedWithoutReason) {
+    body = bodyWithRejectionReason(body, cleanReason);
+  }
+
   return NotificationCenterItem(
     id: doc.id,
     title: title,
@@ -8119,7 +8326,106 @@ NotificationCenterItem notificationCenterItemFromDocument(
     read: data['read'] == true,
     reference: projectNews ? null : doc.reference,
     projectNews: projectNews,
+    spotId: stringFromFirebase(data['spotId'], ''),
+    spotName: spotName,
+    chatId: stringFromFirebase(data['chatId'], ''),
+    userId: stringFromFirebase(data['userId'], ''),
+    addedByUid: stringFromFirebase(data['addedByUid'], ''),
+    status: status,
+    rejectionReason: rejectionReason,
   );
+}
+
+String notificationCenterHiddenIdsKey(String uid) =>
+    'notification_center_hidden_ids_$uid';
+
+Future<Set<String>> loadHiddenNotificationCenterIds(String uid) async {
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getStringList(notificationCenterHiddenIdsKey(uid))?.toSet() ??
+        <String>{};
+  } catch (_) {
+    return <String>{};
+  }
+}
+
+Future<void> saveHiddenNotificationCenterIds(
+  String uid,
+  Set<String> ids,
+) async {
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList(
+      notificationCenterHiddenIdsKey(uid),
+      ids.toList(),
+    );
+  } catch (_) {}
+}
+
+Future<String> rejectionReasonForNotificationItem(
+  NotificationCenterItem item,
+) async {
+  final existingReason = item.rejectionReason.trim();
+  if (existingReason.isNotEmpty) {
+    return existingReason;
+  }
+
+  final cleanSpotId = item.spotId.trim();
+  if (cleanSpotId.isEmpty) {
+    return '';
+  }
+
+  for (final spot in [
+    ...reviewSpots.value,
+    ...submittedSpots.value,
+    ...approvedPublicSpots(),
+  ]) {
+    if (spot.id == cleanSpotId || spotReviewKey(spot) == cleanSpotId) {
+      return spot.rejectionReason.trim();
+    }
+  }
+
+  try {
+    final doc = await spotsCollection().doc(cleanSpotId).get();
+    if (!doc.exists) {
+      return '';
+    }
+    final data = doc.data() ?? {};
+    return stringFromFirebase(data['rejectionReason'], '').trim();
+  } catch (error, stack) {
+    debugPrint('Could not load rejection reason for notification: $error');
+    debugPrint('$stack');
+    return '';
+  }
+}
+
+Future<List<NotificationCenterItem>> enrichRejectedNotificationCenterItems(
+  List<NotificationCenterItem> items,
+) async {
+  final enriched = <NotificationCenterItem>[];
+
+  for (final item in items) {
+    if (!notificationCenterItemIsRejected(item)) {
+      enriched.add(item);
+      continue;
+    }
+
+    final reason = await rejectionReasonForNotificationItem(item);
+    if (reason.trim().isEmpty) {
+      enriched.add(item);
+      continue;
+    }
+
+    enriched.add(
+      item.copyWith(
+        status: item.status.trim().isEmpty ? 'rejected' : item.status,
+        rejectionReason: reason.trim(),
+        body: bodyWithRejectionReason(item.body, reason),
+      ),
+    );
+  }
+
+  return enriched;
 }
 
 Future<Map<String, String>?> firebaseNotificationHeaders() async {
@@ -8195,19 +8501,17 @@ Future<List<NotificationCenterItem>> loadNotificationCenterItems() async {
           .limit(50)
           .get(),
     ),
+    // Always load Firestore user notifications too. The push server history can
+    // lag behind or omit custom fields such as rejectionReason, so Firestore is
+    // the source of truth for review decision details.
+    addItems(
+      userNotificationsCollection()
+          .where('userId', isEqualTo: firebaseUser.uid)
+          .limit(50)
+          .get(),
+    ),
+    addItems(projectNewsCollection().limit(20).get(), projectNews: true),
   ];
-
-  if (!serverItemsLoaded) {
-    sourceLoads.addAll([
-      addItems(
-        userNotificationsCollection()
-            .where('userId', isEqualTo: firebaseUser.uid)
-            .limit(50)
-            .get(),
-      ),
-      addItems(projectNewsCollection().limit(20).get(), projectNews: true),
-    ]);
-  }
 
   await Future.wait(sourceLoads);
 
@@ -8224,6 +8528,62 @@ Future<List<NotificationCenterItem>> loadNotificationCenterItems() async {
       ),
     ]);
   }
+
+  final mergedById = <String, NotificationCenterItem>{};
+  final mergedItems = <NotificationCenterItem>[];
+
+  bool isRicherNotification(
+    NotificationCenterItem candidate,
+    NotificationCenterItem current,
+  ) {
+    final candidateHasReason =
+        candidate.rejectionReason.trim().isNotEmpty ||
+        candidate.body.toLowerCase().contains('reason:');
+    final currentHasReason =
+        current.rejectionReason.trim().isNotEmpty ||
+        current.body.toLowerCase().contains('reason:');
+
+    if (candidateHasReason && !currentHasReason) {
+      return true;
+    }
+
+    if (candidate.reference != null && current.reference == null) {
+      return true;
+    }
+
+    return candidate.body.length > current.body.length;
+  }
+
+  for (final item in items) {
+    final id = item.id.trim();
+    if (id.isEmpty) {
+      mergedItems.add(item);
+      continue;
+    }
+
+    final current = mergedById[id];
+    if (current == null || isRicherNotification(item, current)) {
+      mergedById[id] = item;
+    }
+  }
+
+  items
+    ..clear()
+    ..addAll(mergedItems)
+    ..addAll(mergedById.values);
+
+  final hiddenIds = await loadHiddenNotificationCenterIds(firebaseUser.uid);
+  if (hiddenIds.isNotEmpty) {
+    items.removeWhere((item) {
+      final id = item.id.trim();
+      return id.isNotEmpty && hiddenIds.contains(id);
+    });
+  }
+
+  final enrichedItems = await enrichRejectedNotificationCenterItems(items);
+  items
+    ..clear()
+    ..addAll(enrichedItems);
 
   items.sort((first, second) {
     if (first.createdAtMillis == second.createdAtMillis) {
@@ -8287,6 +8647,77 @@ Future<void> markNotificationCenterItemsRead(
     debugPrint('Notification history could not be marked read: $error');
     debugPrint('$stack');
   }
+}
+
+Future<void> clearNotificationCenterItems(
+  Iterable<NotificationCenterItem> items,
+) async {
+  final firebaseUser = FirebaseAuth.instance.currentUser;
+  if (firebaseUser == null) {
+    notificationCenterUnreadCount.value = 0;
+    return;
+  }
+
+  final cleanItems = items.toList();
+  if (cleanItems.isEmpty) {
+    notificationCenterUnreadCount.value = 0;
+    return;
+  }
+
+  final hiddenIds = await loadHiddenNotificationCenterIds(firebaseUser.uid);
+  for (final item in cleanItems) {
+    final id = item.id.trim();
+    if (id.isNotEmpty) {
+      hiddenIds.add(id);
+    }
+  }
+  await saveHiddenNotificationCenterIds(firebaseUser.uid, hiddenIds);
+
+  final references = cleanItems
+      .map((item) => item.reference)
+      .whereType<DocumentReference<Map<String, dynamic>>>()
+      .toList();
+
+  if (references.isNotEmpty) {
+    try {
+      final batch = FirebaseFirestore.instance.batch();
+      for (final reference in references) {
+        batch.delete(reference);
+      }
+      await batch.commit();
+    } catch (error, stack) {
+      debugPrint('Notification center could not clear Firestore items: $error');
+      debugPrint('$stack');
+    }
+  }
+
+  final serverNotificationIds = cleanItems
+      .where((item) => item.reference == null && !item.projectNews)
+      .map((item) => item.id.trim())
+      .where((id) => id.isNotEmpty)
+      .toSet()
+      .toList();
+
+  if (serverNotificationIds.isNotEmpty) {
+    try {
+      final headers = await firebaseNotificationHeaders();
+      if (headers != null) {
+        // The backend currently supports marking notifications read. The local
+        // hidden-id list above keeps cleared server-history items out of the
+        // bell even if the backend does not physically delete them yet.
+        await patchJsonToUrl(pushNotificationUrl, {
+          'notificationIds': serverNotificationIds,
+        }, headers: headers);
+      }
+    } catch (error, stack) {
+      debugPrint(
+        'Server notifications could not be marked read while clearing: $error',
+      );
+      debugPrint('$stack');
+    }
+  }
+
+  notificationCenterUnreadCount.value = 0;
 }
 
 Future<void> refreshNotificationCenterUnreadCount() async {
@@ -8385,6 +8816,142 @@ List<Widget> ccsAppBarActions() {
   ];
 }
 
+Future<CarSpot?> spotForNotificationItem(NotificationCenterItem item) async {
+  final cleanSpotId = item.spotId.trim();
+  if (cleanSpotId.isEmpty) {
+    return null;
+  }
+
+  for (final spot in reviewSpots.value) {
+    if (spot.id == cleanSpotId || spotReviewKey(spot) == cleanSpotId) {
+      return spot;
+    }
+  }
+  for (final spot in approvedPublicSpots()) {
+    if (spot.id == cleanSpotId || spotReviewKey(spot) == cleanSpotId) {
+      return spot;
+    }
+  }
+  for (final spot in submittedSpots.value) {
+    if (spot.id == cleanSpotId || spotReviewKey(spot) == cleanSpotId) {
+      return spot;
+    }
+  }
+
+  try {
+    final doc = await spotsCollection().doc(cleanSpotId).get();
+    if (doc.exists) {
+      return CarSpot.fromFirestore(doc);
+    }
+  } catch (_) {}
+
+  return null;
+}
+
+Future<void> openNotificationCenterItem(
+  BuildContext context,
+  NotificationCenterItem item,
+) async {
+  if (item.reference != null) {
+    unawaited(item.reference!.set({'read': true}, SetOptions(merge: true)));
+  }
+
+  final cleanChatId = item.chatId.trim();
+  if (cleanChatId.isNotEmpty) {
+    try {
+      final doc = await chatsCollection().doc(cleanChatId).get();
+      if (!context.mounted) return;
+      if (doc.exists) {
+        Navigator.push(
+          context,
+          appPageRoute(
+            builder: (_) =>
+                ChatConversationScreen(chat: ChatThreadData.fromFirestore(doc)),
+          ),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            backgroundColor: Colors.redAccent,
+            content: Text(
+              'Chat is not available anymore.',
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        );
+      }
+    } catch (error) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: Colors.redAccent,
+          content: Text(
+            'Could not open chat: $error',
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+      );
+    }
+    return;
+  }
+
+  final cleanProfileUid = item.addedByUid.trim().isNotEmpty
+      ? item.addedByUid.trim()
+      : item.userId.trim();
+  if ((item.type == 'friend_nearby' || item.type == 'friend_at_spot') &&
+      cleanProfileUid.isNotEmpty) {
+    openUserProfile(context, uid: cleanProfileUid);
+    return;
+  }
+
+  final spot = await spotForNotificationItem(item);
+  if (!context.mounted) return;
+
+  if (spot == null) {
+    if (item.type == 'spot_pending_review' &&
+        userRoleIsStaff(currentUser.role)) {
+      Navigator.push(
+        context,
+        appPageRoute(builder: (_) => const AdminReviewScreen()),
+      );
+      return;
+    }
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        backgroundColor: Colors.redAccent,
+        content: Text(
+          'Spot is not available anymore.',
+          style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+        ),
+      ),
+    );
+    return;
+  }
+
+  if (userRoleIsStaff(currentUser.role) &&
+      (item.type == 'spot_pending_review' ||
+          item.type == 'spot_approved_by_admin' ||
+          item.type == 'spot_rejected_by_admin')) {
+    Navigator.push(
+      context,
+      appPageRoute(builder: (_) => AdminSpotReviewScreen(spot: spot)),
+    );
+    return;
+  }
+
+  Navigator.push(
+    context,
+    appPageRoute(builder: (_) => SpotDetailScreen(spot: spot)),
+  );
+}
+
 class NotificationCenterScreen extends StatefulWidget {
   const NotificationCenterScreen({super.key});
 
@@ -8396,6 +8963,7 @@ class NotificationCenterScreen extends StatefulWidget {
 class _NotificationCenterScreenState extends State<NotificationCenterScreen> {
   late Future<List<NotificationCenterItem>> itemsFuture;
   bool markedRead = false;
+  bool clearingNotifications = false;
 
   @override
   void initState() {
@@ -8410,6 +8978,48 @@ class _NotificationCenterScreenState extends State<NotificationCenterScreen> {
     });
   }
 
+  Future<void> clearAllNotifications() async {
+    if (clearingNotifications) {
+      return;
+    }
+
+    setState(() => clearingNotifications = true);
+
+    try {
+      final items = await itemsFuture;
+      await clearNotificationCenterItems(items);
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        markedRead = true;
+        itemsFuture = Future.value(const <NotificationCenterItem>[]);
+      });
+    } catch (error, stack) {
+      debugPrint('Notification center could not clear items: $error');
+      debugPrint('$stack');
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: Colors.redAccent,
+          content: Text(
+            'Could not clear notifications: $error',
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => clearingNotifications = false);
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -8419,6 +9029,18 @@ class _NotificationCenterScreenState extends State<NotificationCenterScreen> {
         backgroundColor: Colors.transparent,
         foregroundColor: blue,
         actions: [
+          TextButton.icon(
+            onPressed: clearingNotifications ? null : clearAllNotifications,
+            icon: clearingNotifications
+                ? const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.clear_all, size: 18),
+            label: const Text('Clear all'),
+            style: TextButton.styleFrom(foregroundColor: blue),
+          ),
           IconButton(
             tooltip: trText('Refresh'),
             onPressed: refresh,
@@ -8455,68 +9077,82 @@ class _NotificationCenterScreenState extends State<NotificationCenterScreen> {
               final item = items[index];
               final color = notificationCenterColor(item);
 
-              return Container(
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(
-                  color: panelGlass,
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(
-                    color: item.read
-                        ? Colors.white12
-                        : color.withValues(alpha: 0.7),
+              return InkWell(
+                onTap: item.canOpen
+                    ? () => openNotificationCenterItem(context, item)
+                    : null,
+                borderRadius: BorderRadius.circular(16),
+                child: Container(
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: panelGlass,
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(
+                      color: item.read
+                          ? Colors.white12
+                          : color.withValues(alpha: 0.7),
+                    ),
                   ),
-                ),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Container(
-                      width: 42,
-                      height: 42,
-                      decoration: BoxDecoration(
-                        color: color.withValues(alpha: 0.16),
-                        borderRadius: BorderRadius.circular(12),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Container(
+                        width: 42,
+                        height: 42,
+                        decoration: BoxDecoration(
+                          color: color.withValues(alpha: 0.16),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Icon(notificationCenterIcon(item), color: color),
                       ),
-                      child: Icon(notificationCenterIcon(item), color: color),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            item.title,
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.w900,
-                            ),
-                          ),
-                          if (item.body.trim().isNotEmpty) ...[
-                            const SizedBox(height: 4),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
                             Text(
-                              item.body,
+                              item.title,
                               style: const TextStyle(
-                                color: Colors.white60,
-                                height: 1.3,
+                                color: Colors.white,
+                                fontWeight: FontWeight.w900,
                               ),
                             ),
-                          ],
-                          if (notificationCenterTime(
-                            item.createdAtMillis,
-                          ).isNotEmpty) ...[
-                            const SizedBox(height: 7),
-                            Text(
-                              notificationCenterTime(item.createdAtMillis),
-                              style: const TextStyle(
-                                color: Colors.white38,
-                                fontSize: 11,
-                                fontWeight: FontWeight.w700,
+                            if (item.body.trim().isNotEmpty) ...[
+                              const SizedBox(height: 4),
+                              Text(
+                                item.body,
+                                style: const TextStyle(
+                                  color: Colors.white60,
+                                  height: 1.3,
+                                ),
                               ),
-                            ),
+                            ],
+                            if (notificationCenterTime(
+                              item.createdAtMillis,
+                            ).isNotEmpty) ...[
+                              const SizedBox(height: 7),
+                              Text(
+                                notificationCenterTime(item.createdAtMillis),
+                                style: const TextStyle(
+                                  color: Colors.white38,
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ],
                           ],
-                        ],
+                        ),
                       ),
-                    ),
-                  ],
+                      if (item.canOpen) ...[
+                        const SizedBox(width: 8),
+                        const Icon(
+                          Icons.chevron_right,
+                          color: Colors.white38,
+                          size: 22,
+                        ),
+                      ],
+                    ],
+                  ),
                 ),
               );
             },
@@ -9022,6 +9658,13 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
             final spotName = stringFromFirebase(data['spotName'], 'New spot');
             final addedBy = stringFromFirebase(data['addedBy'], 'user');
             final reviewedBy = stringFromFirebase(data['reviewedBy'], 'admin');
+            final rejectionReason = stringFromFirebase(
+              data['rejectionReason'],
+              '',
+            );
+            final rejectionSuffix = rejectionReason.trim().isEmpty
+                ? ''
+                : ' — $rejectionReason';
 
             final message = switch (type) {
               'spot_pending_review' =>
@@ -9029,7 +9672,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
               'spot_approved_by_admin' =>
                 '$reviewedBy approved spot: $spotName',
               'spot_rejected_by_admin' =>
-                '$reviewedBy rejected spot: $spotName',
+                '$reviewedBy rejected spot: $spotName$rejectionSuffix',
               _ => 'Admin update: $spotName',
             };
 
@@ -10158,6 +10801,8 @@ class ExploreSpotCard extends StatelessWidget {
     }.take(3).toList();
 
     final tagWidgets = <Widget>[
+      if (spot.verifiedOnly)
+        _SmallTag(label: 'Verified only', icon: Icons.verified),
       if (spot.isTemporary)
         _SmallTag(
           label: spot.isTemporaryMapVisibleNow
@@ -10235,6 +10880,7 @@ class ExploreSpotCard extends StatelessWidget {
                               ),
                             ),
                           ),
+                          const SizedBox(width: 8),
                           const Icon(Icons.star, color: blue, size: 15),
                           const SizedBox(width: 3),
                           Text(
@@ -10817,9 +11463,7 @@ class _MapScreenState extends State<MapScreen>
   double currentMapRotationDegrees = 0;
   double currentUserHeadingDegrees = 0;
   LatLng? previousAcceptedHeadingLocation;
-  DateTime? previousAcceptedHeadingLocationAt;
   double smoothedUserHeadingDegrees = 0;
-  bool hasAcceptedTravelHeading = false;
   DateTime? lastNavigationPositionAt;
   bool mapCenteredOnCurrentUser = false;
   int? lastHandledMapFocusRequestToken;
@@ -11255,13 +11899,33 @@ class _MapScreenState extends State<MapScreen>
               : image,
         );
 
-        if (!isTemporaryActive) {
-          return icon;
+        Widget withVerifiedBadge(Widget child) {
+          if (!spot.verifiedOnly) {
+            return child;
+          }
+
+          return Stack(
+            clipBehavior: Clip.none,
+            alignment: Alignment.center,
+            children: [
+              child,
+              Positioned(
+                right: -2,
+                top: -2,
+                child: _VerifiedSpotBadge(
+                  size: markerVisualSize.clamp(13.0, 18.0).toDouble(),
+                ),
+              ),
+            ],
+          );
         }
 
-        return PulsingTemporarySpotIconGlow(
-          size: markerVisualSize,
-          child: icon,
+        if (!isTemporaryActive) {
+          return withVerifiedBadge(icon);
+        }
+
+        return withVerifiedBadge(
+          PulsingTemporarySpotIconGlow(size: markerVisualSize, child: icon),
         );
       }
 
@@ -11335,15 +11999,17 @@ class _MapScreenState extends State<MapScreen>
           event: isTemporaryActive || isTemporaryUpcoming,
         );
 
-        if (!isTemporaryActive) {
-          return point;
+        Widget marker = point;
+
+        if (isTemporaryActive) {
+          marker = PulsingTemporarySpotIconGlow(
+            size: markerVisualSize,
+            compact: true,
+            child: point,
+          );
         }
 
-        return PulsingTemporarySpotIconGlow(
-          size: markerVisualSize,
-          compact: true,
-          child: point,
-        );
+        return marker;
       }
 
       return Marker(
@@ -11428,11 +12094,7 @@ class _MapScreenState extends State<MapScreen>
                 final progress = Curves.easeInOut.transform(
                   mapAlertPulseController.value,
                 );
-                final color = Color.lerp(
-                  blue,
-                  const Color(0xFFFF2D55),
-                  progress,
-                )!;
+                final color = policeAlertColor(progress);
                 return Container(
                   decoration: BoxDecoration(
                     color: color.withValues(
@@ -11502,8 +12164,6 @@ class _MapScreenState extends State<MapScreen>
     final markerInnerSize = showSosRadius
         ? 38.0
         : math.max(10.0, markerOuterSize - 8);
-    const sosColor = Color(0xFFFF2D55);
-
     return visibleSosReports.map((report) {
       return Marker(
         point: report.coordinates,
@@ -11531,15 +12191,19 @@ class _MapScreenState extends State<MapScreen>
                     : 0.82 + pulse * 0.14;
                 return Container(
                   decoration: BoxDecoration(
-                    color: sosColor.withValues(alpha: alpha),
+                    color: sosAlertColor.withValues(alpha: alpha),
                     shape: BoxShape.circle,
                     border: Border.all(
-                      color: sosColor.withValues(alpha: 0.82 + pulse * 0.18),
+                      color: sosAlertColor.withValues(
+                        alpha: 0.82 + pulse * 0.18,
+                      ),
                       width: showSosRadius ? 2.2 : 1.6,
                     ),
                     boxShadow: [
                       BoxShadow(
-                        color: sosColor.withValues(alpha: 0.34 + pulse * 0.22),
+                        color: sosAlertColor.withValues(
+                          alpha: 0.34 + pulse * 0.22,
+                        ),
                         blurRadius: showSosRadius
                             ? 16 + pulse * 10
                             : 9 + pulse * 5,
@@ -11554,10 +12218,10 @@ class _MapScreenState extends State<MapScreen>
                       width: markerInnerSize,
                       height: markerInnerSize,
                       decoration: BoxDecoration(
-                        color: showSosRadius ? panelGlass : sosColor,
+                        color: showSosRadius ? panelGlass : sosAlertColor,
                         shape: BoxShape.circle,
                         border: showSosRadius
-                            ? Border.all(color: sosColor, width: 2)
+                            ? Border.all(color: sosAlertColor, width: 2)
                             : null,
                       ),
                       child: Center(
@@ -11924,12 +12588,10 @@ class _MapScreenState extends State<MapScreen>
                               fontWeight: FontWeight.w800,
                             ),
                           ),
-                          selectedColor: const Color(0xFF6C5CFF),
+                          selectedColor: sosAlertColor,
                           backgroundColor: Colors.white.withValues(alpha: 0.06),
                           side: BorderSide(
-                            color: selected
-                                ? const Color(0xFF6C5CFF)
-                                : Colors.white12,
+                            color: selected ? sosAlertColor : Colors.white12,
                           ),
                           onSelected: (_) {
                             setDialogState(() {
@@ -11992,7 +12654,7 @@ class _MapScreenState extends State<MapScreen>
                     );
                   },
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF6C5CFF),
+                    backgroundColor: sosAlertColor,
                   ),
                   child: Text(
                     trText('Create SOS'),
@@ -12386,9 +13048,7 @@ class _MapScreenState extends State<MapScreen>
             ),
             ElevatedButton(
               onPressed: () => Navigator.pop(dialogContext, true),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF6C5CFF),
-              ),
+              style: ElevatedButton.styleFrom(backgroundColor: sosAlertColor),
               child: const Text(
                 'Yes, still need',
                 style: TextStyle(color: Colors.white),
@@ -12450,17 +13110,34 @@ class _MapScreenState extends State<MapScreen>
                 const SizedBox(height: 12),
                 ListTile(
                   contentPadding: const EdgeInsets.symmetric(horizontal: 6),
-                  leading: Container(
-                    width: 44,
-                    height: 44,
-                    decoration: BoxDecoration(
-                      color: Colors.redAccent.withValues(alpha: 0.18),
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                    child: const Icon(
-                      Icons.local_police,
-                      color: Colors.redAccent,
-                    ),
+                  leading: AnimatedBuilder(
+                    animation: mapAlertPulseController,
+                    builder: (context, child) {
+                      final pulse = Curves.easeInOut.transform(
+                        mapAlertPulseController.value,
+                      );
+                      final color = policeAlertColor(pulse);
+                      return Container(
+                        width: 44,
+                        height: 44,
+                        decoration: BoxDecoration(
+                          color: color.withValues(alpha: 0.18),
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(
+                            color: color.withValues(alpha: 0.72),
+                            width: 1.5,
+                          ),
+                          boxShadow: [
+                            BoxShadow(
+                              color: color.withValues(alpha: 0.32),
+                              blurRadius: 9,
+                              spreadRadius: 1,
+                            ),
+                          ],
+                        ),
+                        child: Icon(Icons.local_police, color: color),
+                      );
+                    },
                   ),
                   title: const Text(
                     'Police',
@@ -12477,23 +13154,48 @@ class _MapScreenState extends State<MapScreen>
                 ),
                 ListTile(
                   contentPadding: const EdgeInsets.symmetric(horizontal: 6),
-                  leading: Container(
-                    width: 44,
-                    height: 44,
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF6C5CFF).withValues(alpha: 0.18),
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                    child: const Center(
-                      child: Text(
-                        'SOS',
-                        style: TextStyle(
-                          color: Color(0xFF6C5CFF),
-                          fontSize: 12,
-                          fontWeight: FontWeight.w900,
+                  leading: AnimatedBuilder(
+                    animation: mapAlertPulseController,
+                    builder: (context, child) {
+                      final pulse = Curves.easeInOut.transform(
+                        mapAlertPulseController.value,
+                      );
+                      return Container(
+                        width: 44,
+                        height: 44,
+                        decoration: BoxDecoration(
+                          color: sosAlertColor.withValues(
+                            alpha: 0.18 + pulse * 0.12,
+                          ),
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(
+                            color: sosAlertColor.withValues(
+                              alpha: 0.82 + pulse * 0.18,
+                            ),
+                            width: 1.6,
+                          ),
+                          boxShadow: [
+                            BoxShadow(
+                              color: sosAlertColor.withValues(
+                                alpha: 0.34 + pulse * 0.22,
+                              ),
+                              blurRadius: 9 + pulse * 5,
+                              spreadRadius: 1 + pulse * 1.5,
+                            ),
+                          ],
                         ),
-                      ),
-                    ),
+                        child: const Center(
+                          child: Text(
+                            'SOS',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                        ),
+                      );
+                    },
                   ),
                   title: const Text(
                     'SOS',
@@ -13736,9 +14438,11 @@ class _MapScreenState extends State<MapScreen>
 
     final location = LatLng(position.latitude, position.longitude);
     final speed = position.speed.isFinite ? math.max(0.0, position.speed) : 0.0;
-    final accuracy = position.accuracy.isFinite
-        ? math.max(0.0, position.accuracy)
-        : 999.0;
+    final heading = headingForNewUserLocation(
+      location,
+      position.heading,
+      speedMetersPerSecond: speed,
+    );
 
     final currentDisplay = displayedUserLocation ?? location;
     final distanceToNewGps = distanceBetweenLatLngMeters(
@@ -13749,16 +14453,6 @@ class _MapScreenState extends State<MapScreen>
     final nextDisplay = distanceToNewGps > 80
         ? location
         : lerpLatLng(currentDisplay, location, speed >= 2.0 ? 0.35 : 0.18);
-
-    // Point the arrow in the same direction the marker is actually moving on
-    // screen. Using the smoothed display position here avoids sideways/backward
-    // rotations from one noisy raw GPS coordinate.
-    final heading = headingForNewUserLocation(
-      nextDisplay,
-      position.heading,
-      speedMetersPerSecond: speed,
-      accuracyMeters: accuracy,
-    );
 
     setState(() {
       currentUserLocation = location;
@@ -13886,7 +14580,6 @@ class _MapScreenState extends State<MapScreen>
     LatLng nextLocation,
     double rawHeading, {
     double speedMetersPerSecond = 0,
-    double accuracyMeters = 999,
   }) {
     final fallback = currentUserHeadingDegrees;
     final normalizedRawHeading = normalizedHeadingDegrees(
@@ -13894,17 +14587,12 @@ class _MapScreenState extends State<MapScreen>
       fallback: fallback,
     );
 
-    final now = DateTime.now();
-    final previousLocation = previousAcceptedHeadingLocation;
+    final previousLocation =
+        previousAcceptedHeadingLocation ?? currentUserLocation;
 
     if (previousLocation == null) {
       previousAcceptedHeadingLocation = nextLocation;
-      previousAcceptedHeadingLocationAt = now;
-
-      if (rawHeading.isFinite && rawHeading >= 0) {
-        smoothedUserHeadingDegrees = normalizedRawHeading;
-      }
-
+      smoothedUserHeadingDegrees = normalizedRawHeading;
       return smoothedUserHeadingDegrees;
     }
 
@@ -13913,79 +14601,30 @@ class _MapScreenState extends State<MapScreen>
       nextLocation,
     );
 
-    final secondsSincePrevious = previousAcceptedHeadingLocationAt == null
-        ? null
-        : now.difference(previousAcceptedHeadingLocationAt!).inMilliseconds /
-              1000.0;
-
     var targetHeading = smoothedUserHeadingDegrees;
-    var acceptedTravelBearing = false;
 
-    // Very large jumps are almost always GPS correction/teleport events. Reset
-    // the heading sample anchor but do not spin the arrow to that fake bearing.
-    if (movedMeters > 120 &&
-        (secondsSincePrevious == null || secondsSincePrevious < 8)) {
-      previousAcceptedHeadingLocation = nextLocation;
-      previousAcceptedHeadingLocationAt = now;
-      return smoothedUserHeadingDegrees;
-    }
-
-    // The arrow should point by course-over-ground: where the marker is moving
-    // between recent coordinates. Raw heading can be a compass value, can freeze,
-    // or can lag behind, so use it only as a startup fallback.
-    final isMoving = speedMetersPerSecond >= 1.0;
-    final hasUsableAccuracy = accuracyMeters <= 40;
-    final minimumBearingDistance = speedMetersPerSecond >= 12.0
-        ? 3.0
-        : speedMetersPerSecond >= 5.0
-        ? 2.2
-        : speedMetersPerSecond >= 1.0
-        ? 1.6
-        : 4.0;
-
-    if (isMoving &&
-        hasUsableAccuracy &&
-        movedMeters >= minimumBearingDistance) {
+    // Tiny GPS movements can produce random bearings, which makes the triangle
+    // look like it is driving sideways. Use coordinate bearing only after real
+    // movement; otherwise trust the device heading only while actually moving.
+    if (movedMeters >= 5) {
       targetHeading = bearingBetweenLatLngDegrees(
         previousLocation,
         nextLocation,
       );
       previousAcceptedHeadingLocation = nextLocation;
-      previousAcceptedHeadingLocationAt = now;
-      hasAcceptedTravelHeading = true;
-      acceptedTravelBearing = true;
-    } else if (!isMoving && movedMeters < 2.0) {
-      // When stopped, slowly refresh the anchor so accumulated GPS drift does
-      // not become a fake direction when movement starts again.
-      previousAcceptedHeadingLocation = nextLocation;
-      previousAcceptedHeadingLocationAt = now;
-    } else if (!hasAcceptedTravelHeading &&
+    } else if (speedMetersPerSecond >= 2.0 &&
         rawHeading.isFinite &&
         rawHeading >= 0) {
       targetHeading = normalizedRawHeading;
     }
 
-    final smoothingAmount = acceptedTravelBearing
-        ? speedMetersPerSecond >= 12.0
-              ? 0.62
-              : speedMetersPerSecond >= 5.0
-              ? 0.48
-              : 0.34
-        : 0.06;
-
     smoothedUserHeadingDegrees = smoothHeadingDegrees(
       smoothedUserHeadingDegrees,
       targetHeading,
-      smoothingAmount,
+      speedMetersPerSecond >= 2.0 ? 0.22 : 0.10,
     );
 
     return smoothedUserHeadingDegrees;
-  }
-
-  double headingDeltaDegrees(double from, double to) {
-    final a = normalizedHeadingDegrees(from);
-    final b = normalizedHeadingDegrees(to);
-    return ((b - a + 540) % 360) - 180;
   }
 
   double smoothHeadingDegrees(double from, double to, double amount) {
@@ -14445,6 +15084,40 @@ class _PulsingTemporarySpotIconGlowState
   }
 }
 
+class _VerifiedSpotBadge extends StatelessWidget {
+  final double size;
+
+  const _VerifiedSpotBadge({this.size = 16});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        color: blue,
+        shape: BoxShape.circle,
+        border: Border.all(
+          color: Colors.white.withValues(alpha: 0.92),
+          width: math.max(1.0, size * 0.09),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: blue.withValues(alpha: 0.55),
+            blurRadius: math.max(5.0, size * 0.42),
+            spreadRadius: math.max(0.4, size * 0.04),
+          ),
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.34),
+            blurRadius: math.max(3.0, size * 0.24),
+          ),
+        ],
+      ),
+      child: Icon(Icons.check, color: Colors.white, size: size * 0.68),
+    );
+  }
+}
+
 class _TemporaryMapBadge extends StatelessWidget {
   const _TemporaryMapBadge();
 
@@ -14611,14 +15284,12 @@ class SosReportMapCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const sosColor = Color(0xFFFF2D55);
-
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: Colors.black.withValues(alpha: 0.88),
         borderRadius: BorderRadius.circular(22),
-        border: Border.all(color: sosColor.withValues(alpha: 0.42)),
+        border: Border.all(color: sosAlertColor.withValues(alpha: 0.42)),
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -14630,14 +15301,14 @@ class SosReportMapCard extends StatelessWidget {
                 width: 44,
                 height: 44,
                 decoration: BoxDecoration(
-                  color: sosColor.withValues(alpha: 0.18),
+                  color: sosAlertColor.withValues(alpha: 0.18),
                   borderRadius: BorderRadius.circular(14),
                 ),
                 child: const Center(
                   child: Text(
                     'SOS',
                     style: TextStyle(
-                      color: sosColor,
+                      color: sosAlertColor,
                       fontSize: 12,
                       fontWeight: FontWeight.w900,
                     ),
@@ -14682,9 +15353,9 @@ class SosReportMapCard extends StatelessWidget {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
             decoration: BoxDecoration(
-              color: sosColor.withValues(alpha: 0.14),
+              color: sosAlertColor.withValues(alpha: 0.14),
               borderRadius: BorderRadius.circular(999),
-              border: Border.all(color: sosColor.withValues(alpha: 0.26)),
+              border: Border.all(color: sosAlertColor.withValues(alpha: 0.26)),
             ),
             child: Text(
               trText(sosReasonLabel(report.reason)),
@@ -14749,7 +15420,7 @@ class SosReportMapCard extends StatelessWidget {
                 icon: const Icon(Icons.route, size: 18),
                 label: const Text('Open Waze'),
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: sosColor,
+                  backgroundColor: sosAlertColor,
                   foregroundColor: Colors.white,
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(14),
@@ -15041,6 +15712,10 @@ class SpotMapCard extends StatelessWidget {
                         ),
                       ),
                     ),
+                    if (spot.verifiedOnly) ...[
+                      const SizedBox(width: 8),
+                      const _VerifiedSpotBadge(size: 18),
+                    ],
                     const SizedBox(width: 8),
                     const Icon(Icons.star, color: blue, size: 16),
                     const SizedBox(width: 3),
@@ -15070,6 +15745,8 @@ class SpotMapCard extends StatelessWidget {
                   spacing: 7,
                   runSpacing: 7,
                   children: [
+                    if (spot.verifiedOnly)
+                      _SmallTag(label: 'Verified only', icon: Icons.verified),
                     if (spot.isTemporary)
                       _SmallTag(
                         label: spot.temporaryTimeLabel,
@@ -29563,9 +30240,99 @@ class AdminSpotReviewScreen extends StatelessWidget {
     }
   }
 
+  Future<String?> askRejectionReason(BuildContext context) async {
+    final controller = TextEditingController();
+
+    return await showDialog<String>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          backgroundColor: const Color(0xFF111827),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(22),
+          ),
+          title: const Text(
+            'Reject spot?',
+            style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900),
+          ),
+          content: TextField(
+            controller: controller,
+            autofocus: true,
+            maxLines: 4,
+            minLines: 3,
+            maxLength: 300,
+            style: const TextStyle(color: Colors.white),
+            decoration: InputDecoration(
+              counterStyle: const TextStyle(color: Colors.white38),
+              hintText: 'Write the reason the user will see...',
+              hintStyle: const TextStyle(color: Colors.white38),
+              filled: true,
+              fillColor: Colors.white.withOpacity(0.06),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(16),
+                borderSide: BorderSide(color: Colors.white.withOpacity(0.12)),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(16),
+                borderSide: BorderSide(color: Colors.white.withOpacity(0.12)),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(16),
+                borderSide: const BorderSide(color: Colors.redAccent),
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton.icon(
+              onPressed: () {
+                final reason = controller.text.trim();
+                if (reason.isEmpty) {
+                  ScaffoldMessenger.of(dialogContext).showSnackBar(
+                    const SnackBar(
+                      backgroundColor: Colors.redAccent,
+                      content: Text(
+                        'Write a rejection reason first.',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                  );
+                  return;
+                }
+
+                Navigator.pop(dialogContext, reason);
+              },
+              icon: const Icon(Icons.close),
+              label: const Text('Reject'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.redAccent,
+                foregroundColor: Colors.white,
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   Future<void> rejectSpot(BuildContext context) async {
+    final reason = await askRejectionReason(context);
+    if (reason == null || reason.trim().isEmpty) {
+      return;
+    }
+
     try {
-      await updateSpotStatus(spot, SpotStatus.rejected);
+      await updateSpotStatus(
+        spot,
+        SpotStatus.rejected,
+        rejectionReason: reason,
+      );
 
       if (!context.mounted) {
         return;
@@ -29575,7 +30342,7 @@ class AdminSpotReviewScreen extends StatelessWidget {
         const SnackBar(
           backgroundColor: Colors.redAccent,
           content: Text(
-            'Spot rejected.',
+            'Spot rejected and reason sent to the user.',
             style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
           ),
         ),
@@ -29673,6 +30440,47 @@ class AdminSpotReviewScreen extends StatelessWidget {
               height: 1.45,
             ),
           ),
+          if (spot.status == SpotStatus.rejected &&
+              spot.rejectionReason.trim().isNotEmpty) ...[
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: Colors.redAccent.withOpacity(0.12),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: Colors.redAccent.withOpacity(0.35)),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Icon(Icons.info_outline, color: Colors.redAccent),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Rejection reason',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          spot.rejectionReason,
+                          style: const TextStyle(
+                            color: Colors.white70,
+                            height: 1.35,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
           const SizedBox(height: 16),
           Wrap(
             spacing: 8,
