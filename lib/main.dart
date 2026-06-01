@@ -15598,12 +15598,6 @@ class _SpotPhotoCarouselState extends State<SpotPhotoCarousel> {
                         height: 58,
                         decoration: BoxDecoration(
                           borderRadius: BorderRadius.circular(14),
-                          border: Border.all(
-                            color: currentIndex == index
-                                ? blue
-                                : Colors.white24,
-                            width: currentIndex == index ? 2.2 : 1,
-                          ),
                           boxShadow: currentIndex == index
                               ? [
                                   BoxShadow(
@@ -15613,6 +15607,15 @@ class _SpotPhotoCarouselState extends State<SpotPhotoCarousel> {
                                   ),
                                 ]
                               : null,
+                        ),
+                        foregroundDecoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(
+                            color: currentIndex == index
+                                ? blue
+                                : Colors.white24,
+                            width: currentIndex == index ? 2.2 : 1,
+                          ),
                         ),
                         clipBehavior: Clip.antiAlias,
                         child: Stack(
@@ -22266,13 +22269,66 @@ class ChatConversationScreen extends StatefulWidget {
 
 class _ChatConversationScreenState extends State<ChatConversationScreen> {
   final messageController = TextEditingController();
+  final chatScrollController = ScrollController();
   bool isSending = false;
   bool isSharingChatLocation = false;
+  bool hasScrolledToLatestMessage = false;
+  bool scrollToLatestAfterNextMessage = false;
+  int renderedMessageCount = 0;
 
   @override
   void dispose() {
     messageController.dispose();
+    chatScrollController.dispose();
     super.dispose();
+  }
+
+  bool isNearLatestMessage() {
+    if (!chatScrollController.hasClients) {
+      return true;
+    }
+
+    final position = chatScrollController.position;
+    return position.maxScrollExtent - position.pixels < 140;
+  }
+
+  void scheduleScrollToLatestMessage({bool animated = false}) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !chatScrollController.hasClients) {
+        return;
+      }
+
+      final target = chatScrollController.position.maxScrollExtent;
+      if (animated) {
+        chatScrollController.animateTo(
+          target,
+          duration: const Duration(milliseconds: 220),
+          curve: Curves.easeOut,
+        );
+      } else {
+        chatScrollController.jumpTo(target);
+      }
+    });
+  }
+
+  void updateChatScrollForMessages(int messageCount) {
+    final firstMessageLayout = !hasScrolledToLatestMessage;
+    final receivedNewMessage = messageCount > renderedMessageCount;
+    final shouldFollowLatest =
+        firstMessageLayout ||
+        (receivedNewMessage &&
+            (scrollToLatestAfterNextMessage || isNearLatestMessage()));
+
+    renderedMessageCount = messageCount;
+    if (firstMessageLayout) {
+      hasScrolledToLatestMessage = true;
+    }
+    if (receivedNewMessage) {
+      scrollToLatestAfterNextMessage = false;
+    }
+    if (shouldFollowLatest) {
+      scheduleScrollToLatestMessage(animated: !firstMessageLayout);
+    }
   }
 
   Future<void> sendMessage() async {
@@ -22287,6 +22343,8 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
     try {
       await sendChatMessage(chatId: widget.chat.id, text: text);
       messageController.clear();
+      scrollToLatestAfterNextMessage = true;
+      scheduleScrollToLatestMessage(animated: true);
     } catch (error) {
       if (!mounted) {
         return;
@@ -22849,6 +22907,7 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
                   (first, second) =>
                       first.createdAtMillis.compareTo(second.createdAtMillis),
                 );
+                updateChatScrollForMessages(messages.length);
 
                 if (messages.isEmpty) {
                   return const Padding(
@@ -22874,6 +22933,7 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
                   }
 
                   return ListView(
+                    controller: chatScrollController,
                     padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
                     children: children,
                   );
@@ -25425,12 +25485,6 @@ class _GarageGalleryHeaderState extends State<_GarageGalleryHeader> {
                           height: 70,
                           decoration: BoxDecoration(
                             borderRadius: BorderRadius.circular(14),
-                            border: Border.all(
-                              color: currentIndex == index
-                                  ? blue
-                                  : Colors.white24,
-                              width: currentIndex == index ? 2.2 : 1,
-                            ),
                             boxShadow: currentIndex == index
                                 ? [
                                     BoxShadow(
@@ -25440,6 +25494,15 @@ class _GarageGalleryHeaderState extends State<_GarageGalleryHeader> {
                                     ),
                                   ]
                                 : null,
+                          ),
+                          foregroundDecoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(
+                              color: currentIndex == index
+                                  ? blue
+                                  : Colors.white24,
+                              width: currentIndex == index ? 2.2 : 1,
+                            ),
                           ),
                           clipBehavior: Clip.antiAlias,
                           child: Stack(
