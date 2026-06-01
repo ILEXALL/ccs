@@ -1690,12 +1690,6 @@ class CCSApp extends StatelessWidget {
 }
 
 const blue = Color(0xFF1565FF);
-const sosAlertColor = Color(0xFFFF2D55);
-
-Color policeAlertColor(double pulse) {
-  return Color.lerp(blue, sosAlertColor, pulse)!;
-}
-
 Color get night => const Color(0xFF050507);
 Color get panel => const Color(0xFF101014);
 Color get panelGlass => const Color(0xCC101014);
@@ -10823,7 +10817,9 @@ class _MapScreenState extends State<MapScreen>
   double currentMapRotationDegrees = 0;
   double currentUserHeadingDegrees = 0;
   LatLng? previousAcceptedHeadingLocation;
+  DateTime? previousAcceptedHeadingLocationAt;
   double smoothedUserHeadingDegrees = 0;
+  bool hasAcceptedTravelHeading = false;
   DateTime? lastNavigationPositionAt;
   bool mapCenteredOnCurrentUser = false;
   int? lastHandledMapFocusRequestToken;
@@ -11432,7 +11428,11 @@ class _MapScreenState extends State<MapScreen>
                 final progress = Curves.easeInOut.transform(
                   mapAlertPulseController.value,
                 );
-                final color = policeAlertColor(progress);
+                final color = Color.lerp(
+                  blue,
+                  const Color(0xFFFF2D55),
+                  progress,
+                )!;
                 return Container(
                   decoration: BoxDecoration(
                     color: color.withValues(
@@ -11502,6 +11502,8 @@ class _MapScreenState extends State<MapScreen>
     final markerInnerSize = showSosRadius
         ? 38.0
         : math.max(10.0, markerOuterSize - 8);
+    const sosColor = Color(0xFFFF2D55);
+
     return visibleSosReports.map((report) {
       return Marker(
         point: report.coordinates,
@@ -11529,19 +11531,15 @@ class _MapScreenState extends State<MapScreen>
                     : 0.82 + pulse * 0.14;
                 return Container(
                   decoration: BoxDecoration(
-                    color: sosAlertColor.withValues(alpha: alpha),
+                    color: sosColor.withValues(alpha: alpha),
                     shape: BoxShape.circle,
                     border: Border.all(
-                      color: sosAlertColor.withValues(
-                        alpha: 0.82 + pulse * 0.18,
-                      ),
+                      color: sosColor.withValues(alpha: 0.82 + pulse * 0.18),
                       width: showSosRadius ? 2.2 : 1.6,
                     ),
                     boxShadow: [
                       BoxShadow(
-                        color: sosAlertColor.withValues(
-                          alpha: 0.34 + pulse * 0.22,
-                        ),
+                        color: sosColor.withValues(alpha: 0.34 + pulse * 0.22),
                         blurRadius: showSosRadius
                             ? 16 + pulse * 10
                             : 9 + pulse * 5,
@@ -11556,10 +11554,10 @@ class _MapScreenState extends State<MapScreen>
                       width: markerInnerSize,
                       height: markerInnerSize,
                       decoration: BoxDecoration(
-                        color: showSosRadius ? panelGlass : sosAlertColor,
+                        color: showSosRadius ? panelGlass : sosColor,
                         shape: BoxShape.circle,
                         border: showSosRadius
-                            ? Border.all(color: sosAlertColor, width: 2)
+                            ? Border.all(color: sosColor, width: 2)
                             : null,
                       ),
                       child: Center(
@@ -11926,11 +11924,11 @@ class _MapScreenState extends State<MapScreen>
                               fontWeight: FontWeight.w800,
                             ),
                           ),
-                          selectedColor: sosAlertColor,
+                          selectedColor: const Color(0xFF6C5CFF),
                           backgroundColor: Colors.white.withValues(alpha: 0.06),
                           side: BorderSide(
                             color: selected
-                                ? sosAlertColor
+                                ? const Color(0xFF6C5CFF)
                                 : Colors.white12,
                           ),
                           onSelected: (_) {
@@ -11994,7 +11992,7 @@ class _MapScreenState extends State<MapScreen>
                     );
                   },
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: sosAlertColor,
+                    backgroundColor: const Color(0xFF6C5CFF),
                   ),
                   child: Text(
                     trText('Create SOS'),
@@ -12389,7 +12387,7 @@ class _MapScreenState extends State<MapScreen>
             ElevatedButton(
               onPressed: () => Navigator.pop(dialogContext, true),
               style: ElevatedButton.styleFrom(
-                backgroundColor: sosAlertColor,
+                backgroundColor: const Color(0xFF6C5CFF),
               ),
               child: const Text(
                 'Yes, still need',
@@ -12452,34 +12450,17 @@ class _MapScreenState extends State<MapScreen>
                 const SizedBox(height: 12),
                 ListTile(
                   contentPadding: const EdgeInsets.symmetric(horizontal: 6),
-                  leading: AnimatedBuilder(
-                    animation: mapAlertPulseController,
-                    builder: (context, child) {
-                      final pulse = Curves.easeInOut.transform(
-                        mapAlertPulseController.value,
-                      );
-                      final color = policeAlertColor(pulse);
-                      return Container(
-                        width: 44,
-                        height: 44,
-                        decoration: BoxDecoration(
-                          color: color.withValues(alpha: 0.18),
-                          borderRadius: BorderRadius.circular(14),
-                          border: Border.all(
-                            color: color.withValues(alpha: 0.72),
-                            width: 1.5,
-                          ),
-                          boxShadow: [
-                            BoxShadow(
-                              color: color.withValues(alpha: 0.32),
-                              blurRadius: 9,
-                              spreadRadius: 1,
-                            ),
-                          ],
-                        ),
-                        child: Icon(Icons.local_police, color: color),
-                      );
-                    },
+                  leading: Container(
+                    width: 44,
+                    height: 44,
+                    decoration: BoxDecoration(
+                      color: Colors.redAccent.withValues(alpha: 0.18),
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: const Icon(
+                      Icons.local_police,
+                      color: Colors.redAccent,
+                    ),
                   ),
                   title: const Text(
                     'Police',
@@ -12496,48 +12477,23 @@ class _MapScreenState extends State<MapScreen>
                 ),
                 ListTile(
                   contentPadding: const EdgeInsets.symmetric(horizontal: 6),
-                  leading: AnimatedBuilder(
-                    animation: mapAlertPulseController,
-                    builder: (context, child) {
-                      final pulse = Curves.easeInOut.transform(
-                        mapAlertPulseController.value,
-                      );
-                      return Container(
-                        width: 44,
-                        height: 44,
-                        decoration: BoxDecoration(
-                          color: sosAlertColor.withValues(
-                            alpha: 0.18 + pulse * 0.12,
-                          ),
-                          borderRadius: BorderRadius.circular(14),
-                          border: Border.all(
-                            color: sosAlertColor.withValues(
-                              alpha: 0.82 + pulse * 0.18,
-                            ),
-                            width: 1.6,
-                          ),
-                          boxShadow: [
-                            BoxShadow(
-                              color: sosAlertColor.withValues(
-                                alpha: 0.34 + pulse * 0.22,
-                              ),
-                              blurRadius: 9 + pulse * 5,
-                              spreadRadius: 1 + pulse * 1.5,
-                            ),
-                          ],
+                  leading: Container(
+                    width: 44,
+                    height: 44,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF6C5CFF).withValues(alpha: 0.18),
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: const Center(
+                      child: Text(
+                        'SOS',
+                        style: TextStyle(
+                          color: Color(0xFF6C5CFF),
+                          fontSize: 12,
+                          fontWeight: FontWeight.w900,
                         ),
-                        child: const Center(
-                          child: Text(
-                            'SOS',
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 12,
-                              fontWeight: FontWeight.w900,
-                            ),
-                          ),
-                        ),
-                      );
-                    },
+                      ),
+                    ),
                   ),
                   title: const Text(
                     'SOS',
@@ -13780,11 +13736,9 @@ class _MapScreenState extends State<MapScreen>
 
     final location = LatLng(position.latitude, position.longitude);
     final speed = position.speed.isFinite ? math.max(0.0, position.speed) : 0.0;
-    final heading = headingForNewUserLocation(
-      location,
-      position.heading,
-      speedMetersPerSecond: speed,
-    );
+    final accuracy = position.accuracy.isFinite
+        ? math.max(0.0, position.accuracy)
+        : 999.0;
 
     final currentDisplay = displayedUserLocation ?? location;
     final distanceToNewGps = distanceBetweenLatLngMeters(
@@ -13795,6 +13749,16 @@ class _MapScreenState extends State<MapScreen>
     final nextDisplay = distanceToNewGps > 80
         ? location
         : lerpLatLng(currentDisplay, location, speed >= 2.0 ? 0.35 : 0.18);
+
+    // Point the arrow in the same direction the marker is actually moving on
+    // screen. Using the smoothed display position here avoids sideways/backward
+    // rotations from one noisy raw GPS coordinate.
+    final heading = headingForNewUserLocation(
+      nextDisplay,
+      position.heading,
+      speedMetersPerSecond: speed,
+      accuracyMeters: accuracy,
+    );
 
     setState(() {
       currentUserLocation = location;
@@ -13922,6 +13886,7 @@ class _MapScreenState extends State<MapScreen>
     LatLng nextLocation,
     double rawHeading, {
     double speedMetersPerSecond = 0,
+    double accuracyMeters = 999,
   }) {
     final fallback = currentUserHeadingDegrees;
     final normalizedRawHeading = normalizedHeadingDegrees(
@@ -13929,12 +13894,17 @@ class _MapScreenState extends State<MapScreen>
       fallback: fallback,
     );
 
-    final previousLocation =
-        previousAcceptedHeadingLocation ?? currentUserLocation;
+    final now = DateTime.now();
+    final previousLocation = previousAcceptedHeadingLocation;
 
     if (previousLocation == null) {
       previousAcceptedHeadingLocation = nextLocation;
-      smoothedUserHeadingDegrees = normalizedRawHeading;
+      previousAcceptedHeadingLocationAt = now;
+
+      if (rawHeading.isFinite && rawHeading >= 0) {
+        smoothedUserHeadingDegrees = normalizedRawHeading;
+      }
+
       return smoothedUserHeadingDegrees;
     }
 
@@ -13943,30 +13913,79 @@ class _MapScreenState extends State<MapScreen>
       nextLocation,
     );
 
-    var targetHeading = smoothedUserHeadingDegrees;
+    final secondsSincePrevious = previousAcceptedHeadingLocationAt == null
+        ? null
+        : now.difference(previousAcceptedHeadingLocationAt!).inMilliseconds /
+              1000.0;
 
-    // Tiny GPS movements can produce random bearings, which makes the triangle
-    // look like it is driving sideways. Use coordinate bearing only after real
-    // movement; otherwise trust the device heading only while actually moving.
-    if (movedMeters >= 5) {
+    var targetHeading = smoothedUserHeadingDegrees;
+    var acceptedTravelBearing = false;
+
+    // Very large jumps are almost always GPS correction/teleport events. Reset
+    // the heading sample anchor but do not spin the arrow to that fake bearing.
+    if (movedMeters > 120 &&
+        (secondsSincePrevious == null || secondsSincePrevious < 8)) {
+      previousAcceptedHeadingLocation = nextLocation;
+      previousAcceptedHeadingLocationAt = now;
+      return smoothedUserHeadingDegrees;
+    }
+
+    // The arrow should point by course-over-ground: where the marker is moving
+    // between recent coordinates. Raw heading can be a compass value, can freeze,
+    // or can lag behind, so use it only as a startup fallback.
+    final isMoving = speedMetersPerSecond >= 1.0;
+    final hasUsableAccuracy = accuracyMeters <= 40;
+    final minimumBearingDistance = speedMetersPerSecond >= 12.0
+        ? 3.0
+        : speedMetersPerSecond >= 5.0
+        ? 2.2
+        : speedMetersPerSecond >= 1.0
+        ? 1.6
+        : 4.0;
+
+    if (isMoving &&
+        hasUsableAccuracy &&
+        movedMeters >= minimumBearingDistance) {
       targetHeading = bearingBetweenLatLngDegrees(
         previousLocation,
         nextLocation,
       );
       previousAcceptedHeadingLocation = nextLocation;
-    } else if (speedMetersPerSecond >= 2.0 &&
+      previousAcceptedHeadingLocationAt = now;
+      hasAcceptedTravelHeading = true;
+      acceptedTravelBearing = true;
+    } else if (!isMoving && movedMeters < 2.0) {
+      // When stopped, slowly refresh the anchor so accumulated GPS drift does
+      // not become a fake direction when movement starts again.
+      previousAcceptedHeadingLocation = nextLocation;
+      previousAcceptedHeadingLocationAt = now;
+    } else if (!hasAcceptedTravelHeading &&
         rawHeading.isFinite &&
         rawHeading >= 0) {
       targetHeading = normalizedRawHeading;
     }
 
+    final smoothingAmount = acceptedTravelBearing
+        ? speedMetersPerSecond >= 12.0
+              ? 0.62
+              : speedMetersPerSecond >= 5.0
+              ? 0.48
+              : 0.34
+        : 0.06;
+
     smoothedUserHeadingDegrees = smoothHeadingDegrees(
       smoothedUserHeadingDegrees,
       targetHeading,
-      speedMetersPerSecond >= 2.0 ? 0.22 : 0.10,
+      smoothingAmount,
     );
 
     return smoothedUserHeadingDegrees;
+  }
+
+  double headingDeltaDegrees(double from, double to) {
+    final a = normalizedHeadingDegrees(from);
+    final b = normalizedHeadingDegrees(to);
+    return ((b - a + 540) % 360) - 180;
   }
 
   double smoothHeadingDegrees(double from, double to, double amount) {
@@ -14592,12 +14611,14 @@ class SosReportMapCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    const sosColor = Color(0xFFFF2D55);
+
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: Colors.black.withValues(alpha: 0.88),
         borderRadius: BorderRadius.circular(22),
-        border: Border.all(color: sosAlertColor.withValues(alpha: 0.42)),
+        border: Border.all(color: sosColor.withValues(alpha: 0.42)),
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -14609,14 +14630,14 @@ class SosReportMapCard extends StatelessWidget {
                 width: 44,
                 height: 44,
                 decoration: BoxDecoration(
-                  color: sosAlertColor.withValues(alpha: 0.18),
+                  color: sosColor.withValues(alpha: 0.18),
                   borderRadius: BorderRadius.circular(14),
                 ),
                 child: const Center(
                   child: Text(
                     'SOS',
                     style: TextStyle(
-                      color: sosAlertColor,
+                      color: sosColor,
                       fontSize: 12,
                       fontWeight: FontWeight.w900,
                     ),
@@ -14661,11 +14682,9 @@ class SosReportMapCard extends StatelessWidget {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
             decoration: BoxDecoration(
-              color: sosAlertColor.withValues(alpha: 0.14),
+              color: sosColor.withValues(alpha: 0.14),
               borderRadius: BorderRadius.circular(999),
-              border: Border.all(
-                color: sosAlertColor.withValues(alpha: 0.26),
-              ),
+              border: Border.all(color: sosColor.withValues(alpha: 0.26)),
             ),
             child: Text(
               trText(sosReasonLabel(report.reason)),
@@ -14730,7 +14749,7 @@ class SosReportMapCard extends StatelessWidget {
                 icon: const Icon(Icons.route, size: 18),
                 label: const Text('Open Waze'),
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: sosAlertColor,
+                  backgroundColor: sosColor,
                   foregroundColor: Colors.white,
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(14),
