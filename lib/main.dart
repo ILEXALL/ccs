@@ -461,6 +461,33 @@ const _ruText = <String, String>{
   'Police marked on the map for 2 hours.':
       'Полиция отмечена на карте на 2 часа.',
   'Police nearby': 'Полиция поблизости',
+  'SOS': 'SOS',
+  'Help request': 'Запрос помощи',
+  'Need help': 'Нужна помощь',
+  'Ask nearby drivers for help.': 'Попросить водителей рядом о помощи.',
+  'Describe what happened and what help you need.': 'Опишите, что случилось и какая помощь нужна.',
+  'What happened?': 'Что случилось?',
+  'Create SOS': 'Создать SOS',
+  'SOS added on the map.': 'SOS добавлен на карту.',
+  'SOS removed from the map.': 'SOS удалён с карты.',
+  'Still need help?': 'Всё ещё нужна помощь?',
+  'You moved away from your SOS point. Do you still need help there?': 'Вы отъехали от точки SOS. Помощь там ещё нужна?',
+  'SOS reason battery': 'Сел аккумулятор',
+  'SOS reason tire': 'Прокол колеса',
+  'SOS reason fuel': 'Закончилось топливо',
+  'SOS reason towing': 'Нужна буксировка',
+  'SOS reason breakdown': 'Поломка',
+  'SOS reason other': 'Другое',
+  'Choose SOS reason': 'Выберите причину SOS',
+  'Only one active SOS is allowed.': 'Можно создать только один активный SOS.',
+  'Close your current SOS before creating a new one.': 'Закройте текущий SOS перед созданием нового.',
+  'Description looks like spam. Please write clearly what happened.': 'Описание похоже на спам. Напишите понятно, что случилось.',
+  'Police already marked nearby.': 'Полиция уже отмечена рядом.',
+  'In this area police is already marked.': 'В этом районе полиция уже отмечена.',
+  'No, remove': 'Нет, удалить',
+  'Yes, still need': 'Да, нужна',
+  'Open Waze': 'Открыть Waze',
+  'Write message': 'Написать',
   'Profile saved to your account.': 'Профиль сохранён в аккаунте.',
   'Rating saved.': 'Оценка сохранена.',
   'Remember me': 'Запомнить меня',
@@ -657,6 +684,9 @@ const _ruText = <String, String>{
   'Push notifications are connected through Firebase Cloud Messaging.':
       'Уведомления подключены через Firebase Cloud Messaging.',
   'you': 'вы',
+  'Yesterday': 'Вчера',
+  'Temporary event': 'Временный ивент',
+  'Temporary events': 'Временные ивенты',
 };
 
 const _lvText = <String, String>{
@@ -1004,6 +1034,33 @@ const _lvText = <String, String>{
   'Police marked on the map for 2 hours.':
       'Policija atzīmēta kartē uz 2 stundām.',
   'Police nearby': 'Policija tuvumā',
+  'SOS': 'SOS',
+  'Help request': 'Palīdzības pieprasījums',
+  'Need help': 'Vajadzīga palīdzība',
+  'Ask nearby drivers for help.': 'Palūgt palīdzību tuvumā esošajiem autovadītājiem.',
+  'Describe what happened and what help you need.': 'Aprakstiet, kas notika un kāda palīdzība vajadzīga.',
+  'What happened?': 'Kas notika?',
+  'Create SOS': 'Izveidot SOS',
+  'SOS added on the map.': 'SOS pievienots kartē.',
+  'SOS removed from the map.': 'SOS noņemts no kartes.',
+  'Still need help?': 'Palīdzība vēl vajadzīga?',
+  'You moved away from your SOS point. Do you still need help there?': 'Jūs aizbraucāt no SOS vietas. Vai palīdzība tur vēl ir vajadzīga?',
+  'SOS reason battery': 'Izlādējies akumulators',
+  'SOS reason tire': 'Pārdurta riepa',
+  'SOS reason fuel': 'Beigusies degviela',
+  'SOS reason towing': 'Nepieciešama vilkšana',
+  'SOS reason breakdown': 'Bojājums',
+  'SOS reason other': 'Cits',
+  'Choose SOS reason': 'Izvēlieties SOS iemeslu',
+  'Only one active SOS is allowed.': 'Atļauts tikai viens aktīvs SOS.',
+  'Close your current SOS before creating a new one.': 'Aizveriet pašreizējo SOS pirms jauna izveides.',
+  'Description looks like spam. Please write clearly what happened.': 'Apraksts izskatās pēc spama. Uzrakstiet skaidri, kas notika.',
+  'Police already marked nearby.': 'Policija jau ir atzīmēta tuvumā.',
+  'In this area police is already marked.': 'Šajā rajonā policija jau ir atzīmēta.',
+  'No, remove': 'Nē, noņemt',
+  'Yes, still need': 'Jā, vajag',
+  'Open Waze': 'Atvērt Waze',
+  'Write message': 'Rakstīt',
   'Profile saved to your account.': 'Profils saglabāts kontā.',
   'Rating saved.': 'Vērtējums saglabāts.',
   'Remember me': 'Atcerēties mani',
@@ -1198,6 +1255,9 @@ const _lvText = <String, String>{
   'Push notifications are connected through Firebase Cloud Messaging.':
       'Paziņojumi ir pieslēgti caur Firebase Cloud Messaging.',
   'you': 'jūs',
+  'Yesterday': 'Vakar',
+  'Temporary event': 'Pagaidu pasākums',
+  'Temporary events': 'Pagaidu pasākumi',
 };
 
 String trText(String value, {AppLanguage? language}) {
@@ -4405,6 +4465,10 @@ CollectionReference<Map<String, dynamic>> policeReportsCollection() {
   return FirebaseFirestore.instance.collection('police_reports');
 }
 
+CollectionReference<Map<String, dynamic>> sosReportsCollection() {
+  return FirebaseFirestore.instance.collection('sos_reports');
+}
+
 CollectionReference<Map<String, dynamic>> meetNotificationsCollection() {
   return FirebaseFirestore.instance.collection('meet_notifications');
 }
@@ -4617,6 +4681,99 @@ Future<void> createSpotReviewUpdateNotification(
       'reviewedByUid': currentUser.uid,
     },
   );
+}
+
+
+Future<void> createNewSpotNotificationForUsers(CarSpot spot) async {
+  final firebaseUser = FirebaseAuth.instance.currentUser;
+  if (firebaseUser == null || spot.status != SpotStatus.approved) {
+    return;
+  }
+
+  final type = spot.isTemporary ? 'temporary_event' : 'new_spot';
+  final title = spot.isTemporary ? 'Temporary events' : 'New spots';
+  final body = spot.isTemporary
+      ? '${spot.name} event was added in ${spot.cityCountry}.'
+      : '${spot.name} was added in ${spot.cityCountry}.';
+
+  try {
+    final usersSnapshot = await usersCollection().limit(500).get();
+    final batch = FirebaseFirestore.instance.batch();
+    var writes = 0;
+
+    for (final doc in usersSnapshot.docs) {
+      final userId = doc.id;
+      final data = doc.data();
+      if (userId == firebaseUser.uid || data['deleted'] == true) {
+        continue;
+      }
+
+      final nestedSettings = mapFromFirebase(data['settings']);
+      final enabled = data['newSpotNotifications'] is bool
+          ? data['newSpotNotifications'] == true
+          : boolFromFirebase(nestedSettings['newSpotNotifications'], true);
+      if (!enabled) {
+        continue;
+      }
+
+      final notificationId = '${type}_${spot.id}_$userId';
+      batch.set(userNotificationsCollection().doc(notificationId), {
+        'userId': userId,
+        'type': type,
+        'title': title,
+        'body': body,
+        'actorUserId': firebaseUser.uid,
+        'actorUsername': currentUser.username,
+        'spotId': spot.id,
+        'spotName': spot.name,
+        'cityCountry': spot.cityCountry,
+        'read': false,
+        'createdAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+      writes++;
+
+      if (writes >= 450) {
+        break;
+      }
+    }
+
+    if (writes > 0) {
+      await batch.commit();
+    }
+  } catch (error, stack) {
+    debugPrint('Could not create new spot notifications: $error');
+    debugPrint('$stack');
+  }
+}
+
+Future<void> createChatMessageNotification({
+  required ChatThreadData chat,
+  required String messageText,
+}) async {
+  final firebaseUser = FirebaseAuth.instance.currentUser;
+  if (firebaseUser == null) {
+    return;
+  }
+
+  final recipients = chat.memberIds
+      .where((uid) => uid.trim().isNotEmpty && uid != firebaseUser.uid)
+      .toSet();
+  for (final userId in recipients) {
+    await createUserNotification(
+      userId: userId,
+      type: 'chat_message',
+      title: 'Messages',
+      body: chat.isGroup
+          ? '@${currentUser.username} in ${chat.titleForCurrentUser(userId)}: $messageText'
+          : '@${currentUser.username}: $messageText',
+      settingName: 'newMessageNotifications',
+      notificationId: 'chat_${chat.id}_${DateTime.now().microsecondsSinceEpoch}_$userId',
+      extra: {
+        'chatId': chat.id,
+        'isGroup': chat.isGroup,
+      },
+    );
+  }
 }
 
 void startNotificationCenterUnreadWatcher() {
@@ -5315,16 +5472,31 @@ Future<String> createOrOpenDirectChat(FriendUserData user) async {
   final memberIds = [firebaseUser.uid, user.uid];
   final memberUsernames = [currentUser.username, user.username];
 
-  await chatsCollection().doc(chatId).set({
-    'isGroup': false,
-    'name': '',
-    'memberIds': memberIds,
-    'memberUsernames': memberUsernames,
-    'memberPhotoUrls': [currentUser.photoUrl ?? '', user.photoUrl ?? ''],
-    'photoUrl': '',
-    'updatedAt': FieldValue.serverTimestamp(),
-    'createdAt': FieldValue.serverTimestamp(),
-  }, SetOptions(merge: true));
+  final chatRef = chatsCollection().doc(chatId);
+  final existing = await chatRef.get();
+
+  if (!existing.exists) {
+    await chatRef.set({
+      'isGroup': false,
+      'name': '',
+      'memberIds': memberIds,
+      'memberUsernames': memberUsernames,
+      'memberPhotoUrls': [currentUser.photoUrl ?? '', user.photoUrl ?? ''],
+      'photoUrl': '',
+      'lastMessage': '',
+      'lastSenderUid': '',
+      'lastSenderUsername': '',
+      'updatedAt': FieldValue.serverTimestamp(),
+      'createdAt': FieldValue.serverTimestamp(),
+    });
+  } else {
+    await chatRef.set({
+      'memberIds': memberIds,
+      'memberUsernames': memberUsernames,
+      'memberPhotoUrls': [currentUser.photoUrl ?? '', user.photoUrl ?? ''],
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+  }
 
   return chatId;
 }
@@ -5382,6 +5554,7 @@ Future<String> createGroupChat({
 Future<void> sendChatMessage({
   required String chatId,
   required String text,
+  ChatThreadData? chat,
 }) async {
   final firebaseUser = FirebaseAuth.instance.currentUser;
 
@@ -5412,6 +5585,10 @@ Future<void> sendChatMessage({
     'lastSenderUsername': currentUser.username,
     'updatedAt': FieldValue.serverTimestamp(),
   }, SetOptions(merge: true));
+
+  if (chat != null) {
+    await createChatMessageNotification(chat: chat, messageText: cleanText);
+  }
 
   await sendPushNotificationEvent({
     'type': 'chat_message',
@@ -6384,6 +6561,123 @@ class PoliceReportData {
   }
 }
 
+
+class SosRequestDraft {
+  final String reason;
+  final String description;
+
+  const SosRequestDraft({required this.reason, required this.description});
+}
+
+const sosReasonLabels = <String, String>{
+  'battery': 'SOS reason battery',
+  'tire': 'SOS reason tire',
+  'fuel': 'SOS reason fuel',
+  'towing': 'SOS reason towing',
+  'breakdown': 'SOS reason breakdown',
+  'other': 'SOS reason other',
+};
+
+const sosBlockedTextParts = <String>[
+  'хуй',
+  'пизд',
+  'еб',
+  'бля',
+  'fuck',
+  'shit',
+  'spam',
+];
+
+bool sosDescriptionLooksLikeSpam(String value) {
+  final clean = value.trim().toLowerCase();
+  if (clean.length < 12) {
+    return true;
+  }
+
+  final lettersAndDigits = clean.replaceAll(RegExp(r'[^a-zа-яё0-9]', unicode: true), '');
+  if (lettersAndDigits.length < 8) {
+    return true;
+  }
+
+  final repeatedChars = RegExp(r'(.)\1{7,}', unicode: true);
+  if (repeatedChars.hasMatch(clean)) {
+    return true;
+  }
+
+  for (final part in sosBlockedTextParts) {
+    if (clean.contains(part)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+String sosReasonLabel(String reason) {
+  return sosReasonLabels[reason.trim()] ?? sosReasonLabels['other']!;
+}
+
+class SosReportData {
+  final String id;
+  final String uid;
+  final String username;
+  final String description;
+  final String reason;
+  final LatLng coordinates;
+  final int createdAtMillis;
+  final int expiresAtMillis;
+  final int updatedAtMillis;
+  final int confirmationRequestedAtMillis;
+  final String status;
+
+  const SosReportData({
+    required this.id,
+    required this.uid,
+    required this.username,
+    required this.description,
+    this.reason = 'other',
+    required this.coordinates,
+    required this.createdAtMillis,
+    required this.expiresAtMillis,
+    required this.updatedAtMillis,
+    this.confirmationRequestedAtMillis = 0,
+    this.status = 'active',
+  });
+
+  bool get isExpired =>
+      DateTime.now().millisecondsSinceEpoch >= expiresAtMillis;
+  bool get isActive => status != 'removed' && !isExpired;
+
+  factory SosReportData.fromFirestore(
+    DocumentSnapshot<Map<String, dynamic>> doc,
+  ) {
+    final data = doc.data() ?? {};
+    final geoPoint = data['coordinates'];
+    final coordinates = geoPoint is GeoPoint
+        ? LatLng(geoPoint.latitude, geoPoint.longitude)
+        : LatLng(
+            doubleFromFirebase(data['lat'], 56.9496),
+            doubleFromFirebase(data['lng'], 24.1052),
+          );
+
+    return SosReportData(
+      id: doc.id,
+      uid: stringFromFirebase(data['uid'], ''),
+      username: stringFromFirebase(data['username'], 'ccs_driver'),
+      description: stringFromFirebase(data['description'], ''),
+      reason: stringFromFirebase(data['reason'], 'other'),
+      coordinates: coordinates,
+      createdAtMillis: timestampMillisFromFirebase(data['createdAt']),
+      expiresAtMillis: timestampMillisFromFirebase(data['expiresAt']),
+      updatedAtMillis: timestampMillisFromFirebase(data['updatedAt']),
+      confirmationRequestedAtMillis: timestampMillisFromFirebase(
+        data['confirmationRequestedAt'],
+      ),
+      status: stringFromFirebase(data['status'], 'active'),
+    );
+  }
+}
+
 Future<void> saveCurrentUserFields(Map<String, Object?> data) async {
   final firebaseUser = FirebaseAuth.instance.currentUser;
 
@@ -6869,6 +7163,13 @@ Future<void> toggleSpotLike(
   if (currentlyLiked) {
     await likeRef.delete();
   } else {
+    final notificationId = 'spot_like_${likeRef.id}';
+    final alreadyNotified = await userNotificationsCollection()
+        .doc(notificationId)
+        .get()
+        .then((snapshot) => snapshot.exists)
+        .catchError((_) => false);
+
     await likeRef.set({
       'spotId': spotReviewKey(spot),
       'spotName': spot.name,
@@ -6877,11 +7178,14 @@ Future<void> toggleSpotLike(
       'username': currentUser.username,
       'createdAt': FieldValue.serverTimestamp(),
     });
-    await createSpotLikeNotification(spot, likeRef.id);
-    await sendPushNotificationEvent({
-      'type': 'spot_like',
-      'likeId': likeRef.id,
-    });
+
+    if (!alreadyNotified) {
+      await createSpotLikeNotification(spot, likeRef.id);
+      await sendPushNotificationEvent({
+        'type': 'spot_like',
+        'likeId': likeRef.id,
+      });
+    }
   }
 }
 
@@ -7650,6 +7954,7 @@ IconData notificationCenterIcon(NotificationCenterItem item) {
     'chat_message' => Icons.mark_chat_unread,
     'spot_review_update' => Icons.verified,
     'new_spot' => Icons.add_location_alt,
+    'temporary_event' => Icons.event_available,
     'friend_nearby' || 'friend_at_spot' => Icons.location_on,
     'spot_pending_review' => Icons.fact_check,
     _ => Icons.notifications,
@@ -7666,6 +7971,7 @@ Color notificationCenterColor(NotificationCenterItem item) {
     'spot_comment' || 'chat_message' => blue,
     'spot_review_update' => Colors.green,
     'new_spot' => const Color(0xFF9B35FF),
+    'temporary_event' => const Color(0xFFFF7A00),
     'friend_nearby' || 'friend_at_spot' => Colors.greenAccent.shade700,
     _ => blue,
   };
@@ -7731,6 +8037,9 @@ NotificationCenterItem notificationCenterItemFromDocument(
     'spot_like' => 'Likes on my spots',
     'spot_comment' => 'Comments',
     'spot_review_update' => 'Spot review updates',
+    'chat_message' => 'Messages',
+    'new_spot' => 'New spots',
+    'temporary_event' => 'Temporary events',
     'spot_pending_review' => 'Spot review updates',
     'spot_approved_by_admin' ||
     'spot_rejected_by_admin' => 'Spot review updates',
@@ -7750,6 +8059,9 @@ NotificationCenterItem notificationCenterItemFromDocument(
         spotName.trim().isEmpty
             ? '${actorUsername.trim().isEmpty ? 'Someone' : '@$actorUsername'} commented on your spot${comment.trim().isEmpty ? '.' : ': $comment'}'
             : '${actorUsername.trim().isEmpty ? 'Someone' : '@$actorUsername'} commented on $spotName${comment.trim().isEmpty ? '.' : ': $comment'}',
+      'chat_message' => body.trim().isEmpty ? 'New message.' : body,
+      'new_spot' => spotName.trim().isEmpty ? 'New spot was added.' : '$spotName was added.',
+      'temporary_event' => spotName.trim().isEmpty ? 'New temporary event was added.' : '$spotName temporary event was added.',
       'spot_review_update' =>
         status == 'approved'
             ? (spotName.trim().isEmpty
@@ -8791,38 +9103,142 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
           backgroundColor: Colors.transparent,
           extendBody: false,
           body: IndexedStack(index: index, children: screens),
-          bottomNavigationBar: BottomNavigationBar(
-            currentIndex: index,
-            onTap: (value) => setState(() => index = value),
-            selectedItemColor: blue,
-            unselectedItemColor: Colors.white54,
-            backgroundColor: panelGlass,
-            type: BottomNavigationBarType.fixed,
-            items: [
-              BottomNavigationBarItem(
-                icon: const Icon(Icons.location_on),
-                label: trText('Spots'),
+          bottomNavigationBar: SafeArea(
+            top: false,
+            child: Container(
+              height: 62,
+              decoration: BoxDecoration(
+                color: panelGlass,
+                border: const Border(top: BorderSide(color: Colors.white12)),
               ),
-              BottomNavigationBarItem(
-                icon: const Icon(Icons.map),
-                label: trText('Map'),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: _CcsBottomNavItem(
+                      icon: Icons.location_on,
+                      label: trText('Spots'),
+                      selected: index == 0,
+                      onTap: () => setState(() => index = 0),
+                    ),
+                  ),
+                  Expanded(
+                    child: _CcsBottomNavItem(
+                      icon: Icons.map,
+                      label: trText('Map'),
+                      selected: index == 1,
+                      onTap: () => setState(() => index = 1),
+                    ),
+                  ),
+                  Expanded(
+                    child: _CcsBottomNavItem(
+                      icon: Icons.add_circle_outline,
+                      label: trText('Add Spot Nav'),
+                      selected: index == 2,
+                      onTap: () => setState(() => index = 2),
+                      twoLineCentered: appUiPreferences.language != AppLanguage.en,
+                    ),
+                  ),
+                  Expanded(
+                    child: _CcsBottomNavItem(
+                      icon: Icons.chat_bubble_outline,
+                      label: trText('Chat'),
+                      selected: index == 3,
+                      onTap: () => setState(() => index = 3),
+                    ),
+                  ),
+                  Expanded(
+                    child: _CcsBottomNavItem(
+                      icon: Icons.person_outline,
+                      label: trText('Profile'),
+                      selected: index == 4,
+                      onTap: () => setState(() => index = 4),
+                    ),
+                  ),
+                ],
               ),
-              BottomNavigationBarItem(
-                icon: const Icon(Icons.add_circle_outline),
-                label: trText('Add Spot Nav'),
-              ),
-              BottomNavigationBarItem(
-                icon: const Icon(Icons.chat_bubble_outline),
-                label: trText('Chat'),
-              ),
-              BottomNavigationBarItem(
-                icon: const Icon(Icons.person_outline),
-                label: trText('Profile'),
-              ),
-            ],
+            ),
           ),
         );
       },
+    );
+  }
+}
+
+
+
+class _CcsBottomNavItem extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+  final bool twoLineCentered;
+
+  const _CcsBottomNavItem({
+    required this.icon,
+    required this.label,
+    required this.selected,
+    required this.onTap,
+    this.twoLineCentered = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final color = selected ? blue : Colors.white54;
+    final parts = label.split('\n');
+    final firstLine = parts.isEmpty ? label : parts.first;
+    final secondLine = parts.length > 1 ? parts.sublist(1).join(' ') : '';
+
+    // Keep every bottom-tab icon on the same Y level.
+    // RU/LV Add Spot uses two centered lines: first line aligned with other labels,
+    // second line sits below it. EN stays as the original single-line label.
+    return InkWell(
+      onTap: onTap,
+      child: SizedBox.expand(
+        child: Stack(
+          alignment: Alignment.topCenter,
+          children: [
+            Positioned(
+              top: 7,
+              child: Icon(icon, color: color, size: 22),
+            ),
+            Positioned(
+              top: 33,
+              left: 0,
+              right: 0,
+              child: Text(
+                twoLineCentered ? firstLine : label.replaceAll('\n', ' '),
+                textAlign: TextAlign.center,
+                maxLines: 1,
+                overflow: TextOverflow.visible,
+                style: TextStyle(
+                  color: color,
+                  fontSize: 10,
+                  height: 1.0,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+            if (twoLineCentered && secondLine.trim().isNotEmpty)
+              Positioned(
+                top: 43,
+                left: 0,
+                right: 0,
+                child: Text(
+                  secondLine,
+                  textAlign: TextAlign.center,
+                  maxLines: 1,
+                  overflow: TextOverflow.visible,
+                  style: TextStyle(
+                    color: color,
+                    fontSize: 10,
+                    height: 1.0,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -10279,16 +10695,17 @@ class MapScreen extends StatefulWidget {
   State<MapScreen> createState() => _MapScreenState();
 }
 
-class _MapScreenState extends State<MapScreen> {
+class _MapScreenState extends State<MapScreen> with SingleTickerProviderStateMixin {
   // Default map view: open Riga area first, do not auto-jump to the user.
   static const rigaCenter = LatLng(56.9496, 24.1052);
   static const rigaZoom = 11.25;
   static const fullSpotIconMinZoom = 11.25;
   static const navigationZoom = 16.35;
   static const Duration liveLocationUploadInterval = Duration(seconds: 30);
-  static const double liveLocationMinimumUploadDistanceMeters = 50;
+  static const double liveLocationMinimumUploadDistanceMeters = 0;
 
   final mapController = MapController();
+  late final AnimationController mapAlertPulseController;
   Timer? temporarySpotRefreshTimer;
   Timer? liveLocationUploadTimer;
   Timer? liveLocationPromptTimer;
@@ -10299,8 +10716,11 @@ class _MapScreenState extends State<MapScreen> {
   liveLocationSubscription;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>?
   policeReportSubscription;
+  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? sosReportSubscription;
+  Timer? sosDistanceCheckTimer;
   CarSpot? selectedSpot;
   PoliceReportData? selectedPoliceReport;
+  SosReportData? selectedSosReport;
   LiveLocationData? selectedLiveLocation;
   LatLng? currentUserLocation;
   LatLng? displayedUserLocation;
@@ -10310,9 +10730,14 @@ class _MapScreenState extends State<MapScreen> {
   double currentUserSpeedMetersPerSecond = 0;
   bool isLocatingUser = false;
   bool isAddingPoliceReport = false;
+  bool isAddingSosReport = false;
+  bool sosConfirmationDialogOpen = false;
   bool isVotingPoliceReport = false;
   bool isSharingLiveLocation = false;
   static const double policeReportVoteRadiusMeters = 300;
+  static const double policeReportDuplicateRadiusMeters = 500;
+  static const double sosAutoCheckRadiusMeters = 500;
+  static const Duration sosNoAnswerAutoRemoveDelay = Duration(minutes: 5);
   static const Duration policeReportCreatorVoteCooldown = Duration(minutes: 15);
   bool isTogglingLiveLocation = false;
   bool liveLocationPromptOpen = false;
@@ -10322,6 +10747,7 @@ class _MapScreenState extends State<MapScreen> {
   List<LiveLocationData> liveLocations = [];
   Set<String> friendLiveLocationUids = {};
   List<PoliceReportData> policeReports = [];
+  List<SosReportData> sosReports = [];
   LatLng currentMapCenter = rigaCenter;
   double currentMapZoom = rigaZoom;
   double currentMapRotationDegrees = 0;
@@ -10351,6 +10777,10 @@ class _MapScreenState extends State<MapScreen> {
   @override
   void initState() {
     super.initState();
+    mapAlertPulseController = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 3),
+    )..repeat(reverse: true);
     reviewSpots.addListener(refreshMap);
     spotCategoryFilters.addListener(refreshMap);
     mapFocusRequest.addListener(handleMapFocusRequest);
@@ -10365,6 +10795,11 @@ class _MapScreenState extends State<MapScreen> {
     startLiveLocationSync();
     loadFriendLiveLocationUids();
     startPoliceReportSync();
+    startSosReportSync();
+    sosDistanceCheckTimer = Timer.periodic(
+      const Duration(seconds: 30),
+      (_) => checkOwnSosDistance(),
+    );
   }
 
   void refreshMap() {
@@ -10375,6 +10810,7 @@ class _MapScreenState extends State<MapScreen> {
     setState(() {
       final spot = selectedSpot;
       final policeReport = selectedPoliceReport;
+      final sosReport = selectedSosReport;
       final liveLocation = selectedLiveLocation;
 
       if (spot != null &&
@@ -10385,6 +10821,10 @@ class _MapScreenState extends State<MapScreen> {
 
       if (policeReport != null && !policeReport.isActive) {
         selectedPoliceReport = null;
+      }
+
+      if (sosReport != null && !sosReport.isActive) {
+        selectedSosReport = null;
       }
 
       if (liveLocation != null && liveLocation.isExpired) {
@@ -10848,6 +11288,7 @@ class _MapScreenState extends State<MapScreen> {
             setState(() {
               selectedSpot = spot;
               selectedPoliceReport = null;
+              selectedSosReport = null;
               selectedLiveLocation = null;
             });
           },
@@ -10861,6 +11302,7 @@ class _MapScreenState extends State<MapScreen> {
     final allMarkers = [
       ...markers,
       ...policeReportMarkers,
+      ...sosReportMarkers,
       ...liveLocationMarkers,
     ];
     final userMarker = currentUserMarker;
@@ -10906,51 +11348,164 @@ class _MapScreenState extends State<MapScreen> {
             setState(() {
               selectedPoliceReport = report;
               selectedSpot = null;
+              selectedSosReport = null;
               selectedLiveLocation = null;
             });
           },
           child: Tooltip(
             message: 'Police marked by ${displayUsername(report.username)}',
-            child: Container(
-              decoration: BoxDecoration(
-                color: Colors.redAccent.withValues(
-                  alpha: showPoliceRadius ? 0.18 : 0.95,
-                ),
-                shape: BoxShape.circle,
-                border: Border.all(
-                  color: Colors.redAccent.withValues(
-                    alpha: showPoliceRadius ? 0.62 : 1,
-                  ),
-                  width: showPoliceRadius ? 2 : 1.5,
-                ),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.redAccent.withValues(alpha: 0.42),
-                    blurRadius: showPoliceRadius ? 18 : 10,
-                    spreadRadius: showPoliceRadius ? 4 : 1,
-                  ),
-                ],
-              ),
-              child: Center(
-                child: Container(
-                  width: markerInnerSize,
-                  height: markerInnerSize,
+            child: AnimatedBuilder(
+              animation: mapAlertPulseController,
+              builder: (context, child) {
+                final progress = Curves.easeInOut.transform(
+                  mapAlertPulseController.value,
+                );
+                final color = Color.lerp(
+                  blue,
+                  const Color(0xFFFF2D55),
+                  progress,
+                )!;
+                return Container(
                   decoration: BoxDecoration(
-                    color: showPoliceRadius ? panelGlass : Colors.redAccent,
+                    color: color.withValues(
+                      alpha: showPoliceRadius ? 0.14 : 0.90,
+                    ),
                     shape: BoxShape.circle,
-                    border: showPoliceRadius
-                        ? Border.all(color: Colors.redAccent, width: 2)
-                        : null,
+                    border: Border.all(
+                      color: color.withValues(alpha: showPoliceRadius ? 0.72 : 1),
+                      width: showPoliceRadius ? 2 : 1.5,
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: color.withValues(alpha: 0.32),
+                        blurRadius: showPoliceRadius ? 18 : 9,
+                        spreadRadius: showPoliceRadius ? 3 : 1,
+                      ),
+                    ],
                   ),
-                  child: showPoliceRadius
-                      ? const Icon(
-                          Icons.local_police,
-                          color: Colors.redAccent,
-                          size: 21,
-                        )
-                      : const SizedBox.shrink(),
-                ),
-              ),
+                  child: Center(
+                    child: Container(
+                      width: markerInnerSize,
+                      height: markerInnerSize,
+                      decoration: BoxDecoration(
+                        color: showPoliceRadius ? panelGlass : color,
+                        shape: BoxShape.circle,
+                        border: showPoliceRadius
+                            ? Border.all(color: color, width: 2)
+                            : null,
+                      ),
+                      child: showPoliceRadius
+                          ? Icon(
+                              Icons.local_police,
+                              color: color,
+                              size: 21,
+                            )
+                          : const SizedBox.shrink(),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        ),
+      );
+    }).toList();
+  }
+
+
+  List<SosReportData> get visibleSosReports {
+    return sosReports.where((report) => report.isActive).toList();
+  }
+
+  List<Marker> get sosReportMarkers {
+    final showSosRadius = currentMapZoom >= 14.2;
+    final markerOuterSize = showSosRadius
+        ? scaledMapIconValue(
+            zoom: currentMapZoom,
+            minZoom: 14.2,
+            maxZoom: 17,
+            minValue: 46,
+            maxValue: 82,
+          )
+        : scaledMapIconValue(
+            zoom: currentMapZoom,
+            minZoom: 4,
+            maxZoom: 14.2,
+            minValue: 15,
+            maxValue: 26,
+          );
+    final markerInnerSize = showSosRadius
+        ? 38.0
+        : math.max(10.0, markerOuterSize - 8);
+    const sosColor = Color(0xFFFF2D55);
+
+    return visibleSosReports.map((report) {
+      return Marker(
+        point: report.coordinates,
+        width: markerOuterSize,
+        height: markerOuterSize,
+        child: GestureDetector(
+          onTap: () {
+            setState(() {
+              selectedSosReport = report;
+              selectedSpot = null;
+              selectedPoliceReport = null;
+              selectedLiveLocation = null;
+            });
+          },
+          child: Tooltip(
+            message: 'SOS by ${displayUsername(report.username)}',
+            child: AnimatedBuilder(
+              animation: mapAlertPulseController,
+              builder: (context, child) {
+                final pulse = Curves.easeInOut.transform(
+                  mapAlertPulseController.value,
+                );
+                final alpha = showSosRadius
+                    ? 0.18 + pulse * 0.12
+                    : 0.82 + pulse * 0.14;
+                return Container(
+                  decoration: BoxDecoration(
+                    color: sosColor.withValues(alpha: alpha),
+                    shape: BoxShape.circle,
+                    border: Border.all(
+                      color: sosColor.withValues(alpha: 0.82 + pulse * 0.18),
+                      width: showSosRadius ? 2.2 : 1.6,
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: sosColor.withValues(alpha: 0.34 + pulse * 0.22),
+                        blurRadius: showSosRadius ? 16 + pulse * 10 : 9 + pulse * 5,
+                        spreadRadius: showSosRadius ? 2 + pulse * 4 : 1 + pulse * 1.5,
+                      ),
+                    ],
+                  ),
+                  child: Center(
+                    child: Container(
+                      width: markerInnerSize,
+                      height: markerInnerSize,
+                      decoration: BoxDecoration(
+                        color: showSosRadius ? panelGlass : sosColor,
+                        shape: BoxShape.circle,
+                        border: showSosRadius
+                            ? Border.all(color: sosColor, width: 2)
+                            : null,
+                      ),
+                      child: Center(
+                        child: Text(
+                          showSosRadius ? 'SOS' : '',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: 0.3,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                );
+              },
             ),
           ),
         ),
@@ -11055,6 +11610,7 @@ class _MapScreenState extends State<MapScreen> {
                   selectedLiveLocation = location;
                   selectedSpot = null;
                   selectedPoliceReport = null;
+                  selectedSosReport = null;
                 });
               },
               child: Tooltip(
@@ -11167,6 +11723,7 @@ class _MapScreenState extends State<MapScreen> {
       setState(() {
         selectedSpot = matchingSpot;
         selectedPoliceReport = null;
+        selectedSosReport = null;
         selectedLiveLocation = null;
         mapCenteredOnCurrentUser = false;
         currentMapZoom = 16.4;
@@ -11214,6 +11771,582 @@ class _MapScreenState extends State<MapScreen> {
             // Firestore rules may still be closed while this feature is being set up.
           },
         );
+  }
+
+
+  void startSosReportSync() {
+    sosReportSubscription?.cancel();
+    sosReportSubscription = sosReportsCollection()
+        .where('expiresAt', isGreaterThan: Timestamp.now())
+        .snapshots()
+        .listen(
+          (snapshot) {
+            if (!mounted) {
+              return;
+            }
+
+            final reports = snapshot.docs
+                .map((doc) => SosReportData.fromFirestore(doc))
+                .where((report) => report.isActive)
+                .toList();
+
+            setState(() {
+              sosReports = reports;
+
+              final selected = selectedSosReport;
+              if (selected != null) {
+                final stillVisible = reports.any(
+                  (report) => report.id == selected.id,
+                );
+                if (!stillVisible) {
+                  selectedSosReport = null;
+                }
+              }
+            });
+          },
+          onError: (_) {
+            // Firestore rules may still be closed while this feature is being set up.
+          },
+        );
+  }
+
+  Future<SosRequestDraft?> showSosDescriptionDialog() async {
+    String selectedReason = 'battery';
+    String description = '';
+    String? validationError;
+
+    return showDialog<SosRequestDraft>(
+      context: context,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              backgroundColor: panelGlass,
+              title: Text(
+                trText('Need help'),
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      trText('Choose SOS reason'),
+                      style: const TextStyle(
+                        color: Colors.white70,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: sosReasonLabels.entries.map((entry) {
+                        final selected = selectedReason == entry.key;
+                        return ChoiceChip(
+                          selected: selected,
+                          label: Text(
+                            trText(entry.value),
+                            style: TextStyle(
+                              color: selected ? Colors.white : Colors.white70,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                          selectedColor: const Color(0xFF6C5CFF),
+                          backgroundColor: Colors.white.withValues(alpha: 0.06),
+                          side: BorderSide(
+                            color: selected
+                                ? const Color(0xFF6C5CFF)
+                                : Colors.white12,
+                          ),
+                          onSelected: (_) {
+                            setDialogState(() {
+                              selectedReason = entry.key;
+                              validationError = null;
+                            });
+                          },
+                        );
+                      }).toList(),
+                    ),
+                    const SizedBox(height: 16),
+                    TextField(
+                      autofocus: true,
+                      minLines: 3,
+                      maxLines: 5,
+                      maxLength: 220,
+                      style: const TextStyle(color: Colors.white),
+                      onChanged: (value) {
+                        description = value;
+                        if (validationError != null) {
+                          setDialogState(() => validationError = null);
+                        }
+                      },
+                      decoration: InputDecoration(
+                        labelText: trText('What happened?'),
+                        hintText: trText(
+                          'Describe what happened and what help you need.',
+                        ),
+                        errorText: validationError == null
+                            ? null
+                            : trText(validationError!),
+                        border: const OutlineInputBorder(),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogContext),
+                  child: Text(trText('Cancel')),
+                ),
+                ElevatedButton(
+                  onPressed: () {
+                    final cleanDescription = description.trim();
+                    if (sosDescriptionLooksLikeSpam(cleanDescription)) {
+                      setDialogState(() {
+                        validationError =
+                            'Description looks like spam. Please write clearly what happened.';
+                      });
+                      return;
+                    }
+
+                    Navigator.pop(
+                      dialogContext,
+                      SosRequestDraft(
+                        reason: selectedReason,
+                        description: cleanDescription,
+                      ),
+                    );
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF6C5CFF),
+                  ),
+                  child: Text(
+                    trText('Create SOS'),
+                    style: const TextStyle(color: Colors.white),
+                  ),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Future<List<String>> loadSosVisibleUserIds(String fallbackUid) async {
+    try {
+      final snapshot = await usersCollection().limit(500).get();
+      final ids = snapshot.docs
+          .map((doc) => stringFromFirebase(doc.data()['uid'], doc.id))
+          .where((uid) => uid.trim().isNotEmpty)
+          .toList();
+      return uniqueNonEmptyStrings([fallbackUid, ...ids]);
+    } catch (_) {
+      return uniqueNonEmptyStrings([fallbackUid]);
+    }
+  }
+
+  Future<void> startSosLiveLocationSharing(Position position) async {
+    final firebaseUser = FirebaseAuth.instance.currentUser;
+
+    if (firebaseUser == null) {
+      return;
+    }
+
+    final now = DateTime.now();
+    const shareDuration = Duration(hours: 12);
+    final promptAt = now.add(shareDuration);
+    final expiresAt = promptAt.add(liveLocationRenewGracePeriod);
+    final location = LatLng(position.latitude, position.longitude);
+    final heading = headingForNewUserLocation(location, position.heading);
+    final visibleToUserIds = await loadSosVisibleUserIds(firebaseUser.uid);
+
+    liveLocationShareDuration = shareDuration;
+    liveLocationPromptAt = promptAt;
+    liveLocationExpiresAt = expiresAt;
+
+    await liveLocationsCollection().doc(firebaseUser.uid).set({
+      'uid': firebaseUser.uid,
+      'username': currentUser.username,
+      'name': currentUser.name,
+      'photoUrl': currentUser.photoUrl,
+      'role': roleName(currentUser.role),
+      'verified': currentUser.verified,
+      'heading': normalizedHeadingDegrees(
+        heading,
+        fallback: currentUserHeadingDegrees,
+      ),
+      'lat': position.latitude,
+      'lng': position.longitude,
+      'coordinates': GeoPoint(position.latitude, position.longitude),
+      'visibleToUserIds': visibleToUserIds,
+      'visibleToChatId': '',
+      'visibleToChatName': '',
+      'shareScope': 'sos',
+      'shareDurationMinutes': shareDuration.inMinutes,
+      'promptAt': Timestamp.fromDate(promptAt),
+      'expiresAt': Timestamp.fromDate(expiresAt),
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+
+    try {
+      await usersCollection().doc(firebaseUser.uid).set({
+        'isSharingLiveLocation': true,
+        'liveLocationExpiresAt': Timestamp.fromDate(expiresAt),
+        'liveLocationVisibleToUserIds': visibleToUserIds,
+        'lastSeenAt': FieldValue.serverTimestamp(),
+        'isOnline': true,
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    } catch (error, stack) {
+      debugPrint('SOS user live-location flag update failed: $error');
+      debugPrint('$stack');
+    }
+
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      currentUserLocation = location;
+      displayedUserLocation = location;
+      lastGpsUserLocation = location;
+      lastUploadedLiveLocation = location;
+      lastGpsUserLocationAt = DateTime.now();
+      currentUserHeadingDegrees = heading;
+      currentUserSpeedMetersPerSecond = math.max(0, position.speed);
+      isSharingLiveLocation = true;
+    });
+
+    scheduleLiveLocationTimers();
+    startNavigationTracking();
+    updateFollowCamera(location, heading);
+
+    final prompt = liveLocationPromptAt;
+    final expiry = liveLocationExpiresAt;
+    if (prompt != null && expiry != null) {
+      unawaited(
+        startNativeLiveLocationBackgroundService(
+          uid: firebaseUser.uid,
+          visibleToUserIds: visibleToUserIds,
+          shareScope: 'sos',
+          promptAt: prompt,
+          expiresAt: expiry,
+        ),
+      );
+    }
+
+    liveLocationUploadTimer?.cancel();
+    liveLocationUploadTimer = null;
+    ensureLiveLocationUploadLoop();
+  }
+
+  Future<void> addSosReportAtCurrentLocation() async {
+    if (isAddingSosReport) {
+      return;
+    }
+
+    final firebaseUser = FirebaseAuth.instance.currentUser;
+
+    if (firebaseUser == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          backgroundColor: Colors.redAccent,
+          content: Text(
+            'Log in before sharing your location.',
+            style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+          ),
+        ),
+      );
+      return;
+    }
+
+    final activeOwnSos = sosReports.any(
+      (report) => report.uid == firebaseUser.uid && report.isActive,
+    );
+    if (activeOwnSos) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: panelGlass,
+          content: Text(
+            trText('Only one active SOS is allowed.'),
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+      );
+      return;
+    }
+
+    try {
+      final existingOwnSos = await sosReportsCollection()
+          .where('uid', isEqualTo: firebaseUser.uid)
+          .where('status', isEqualTo: 'active')
+          .where('expiresAt', isGreaterThan: Timestamp.now())
+          .limit(1)
+          .get();
+      if (existingOwnSos.docs.isNotEmpty) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              backgroundColor: panelGlass,
+              content: Text(
+                trText('Close your current SOS before creating a new one.'),
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          );
+        }
+        return;
+      }
+    } catch (_) {
+      // Local check above still protects beta builds while rules/indexes are being updated.
+    }
+
+    final draft = await showSosDescriptionDialog();
+    if (draft == null || draft.description.isEmpty) {
+      return;
+    }
+
+    setState(() => isAddingSosReport = true);
+
+    final position = await getMapUserPosition(showErrors: true);
+
+    if (!mounted) {
+      return;
+    }
+
+    if (position == null) {
+      setState(() => isAddingSosReport = false);
+      return;
+    }
+
+    final now = DateTime.now();
+    final expiresAt = now.add(const Duration(hours: 12));
+    final location = LatLng(position.latitude, position.longitude);
+    final docRef = sosReportsCollection().doc();
+
+    try {
+      await docRef.set({
+        'uid': firebaseUser.uid,
+        'username': currentUser.username,
+        'description': draft.description,
+        'reason': draft.reason,
+        'lat': position.latitude,
+        'lng': position.longitude,
+        'coordinates': GeoPoint(position.latitude, position.longitude),
+        'createdAt': FieldValue.serverTimestamp(),
+        'expiresAt': Timestamp.fromDate(expiresAt),
+        'updatedAt': FieldValue.serverTimestamp(),
+        'confirmationRequestedAt': null,
+        'status': 'active',
+      });
+    } on FirebaseException catch (error) {
+      if (mounted) {
+        setState(() => isAddingSosReport = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: Colors.redAccent,
+            content: Text(
+              error.code == 'permission-denied'
+                  ? trText('SOS cannot be created until Firestore rules allow sos_reports.')
+                  : 'Could not create SOS: ${error.message ?? error.code}',
+              style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        );
+      }
+      return;
+    }
+
+    try {
+      await startSosLiveLocationSharing(position);
+    } catch (error, stack) {
+      debugPrint('SOS live location start failed: $error');
+      debugPrint('$stack');
+    }
+
+    if (!mounted) {
+      return;
+    }
+
+    final newReport = SosReportData(
+      id: docRef.id,
+      uid: firebaseUser.uid,
+      username: currentUser.username,
+      description: draft.description,
+      reason: draft.reason,
+      coordinates: location,
+      createdAtMillis: now.millisecondsSinceEpoch,
+      expiresAtMillis: expiresAt.millisecondsSinceEpoch,
+      updatedAtMillis: now.millisecondsSinceEpoch,
+    );
+
+    setState(() {
+      currentUserLocation = location;
+      selectedSpot = null;
+      selectedPoliceReport = null;
+      selectedSosReport = newReport;
+      selectedLiveLocation = null;
+      isAddingSosReport = false;
+    });
+
+    mapController.move(location, 15.5);
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        backgroundColor: panelGlass,
+        content: Text(
+          trText('SOS added on the map.'),
+          style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+        ),
+      ),
+    );
+  }
+
+  Future<void> removeSosReport(SosReportData report) async {
+    await sosReportsCollection().doc(report.id).set({
+      'status': 'removed',
+      'removedAt': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      selectedSosReport = null;
+      sosReports = sosReports.where((item) => item.id != report.id).toList();
+    });
+  }
+
+  Future<void> checkOwnSosDistance() async {
+    if (!mounted || sosConfirmationDialogOpen) {
+      return;
+    }
+
+    final firebaseUser = FirebaseAuth.instance.currentUser;
+    if (firebaseUser == null) {
+      return;
+    }
+
+    SosReportData? ownSos;
+    for (final report in sosReports) {
+      if (report.uid == firebaseUser.uid && report.isActive) {
+        ownSos = report;
+        break;
+      }
+    }
+
+    if (ownSos == null) {
+      return;
+    }
+
+    final position = await getMapUserPosition(showErrors: false);
+    if (!mounted || position == null) {
+      return;
+    }
+
+    final freshLocation = LatLng(position.latitude, position.longitude);
+    final distance = distanceBetweenLatLngMeters(
+      freshLocation,
+      ownSos.coordinates,
+    );
+
+    setState(() => currentUserLocation = freshLocation);
+
+    if (distance <= sosAutoCheckRadiusMeters) {
+      return;
+    }
+
+    final requestedAt = ownSos.confirmationRequestedAtMillis;
+    final now = DateTime.now();
+    if (requestedAt > 0) {
+      final requestedAtDate = DateTime.fromMillisecondsSinceEpoch(requestedAt);
+      if (now.difference(requestedAtDate) >= sosNoAnswerAutoRemoveDelay) {
+        await removeSosReport(ownSos);
+      }
+      return;
+    }
+
+    await sosReportsCollection().doc(ownSos.id).set({
+      'confirmationRequestedAt': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+
+    sosConfirmationDialogOpen = true;
+    final keep = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) {
+        return AlertDialog(
+          backgroundColor: panelGlass,
+          title: const Text(
+            'Still need help?',
+            style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900),
+          ),
+          content: const Text(
+            'You moved away from your SOS point. Do you still need help there?',
+            style: TextStyle(color: Colors.white70, height: 1.35),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: Text(trText('No, remove')),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF6C5CFF),
+              ),
+              child: const Text(
+                'Yes, still need',
+                style: TextStyle(color: Colors.white),
+              ),
+            ),
+          ],
+        );
+      },
+    ).timeout(sosNoAnswerAutoRemoveDelay, onTimeout: () => false);
+
+    sosConfirmationDialogOpen = false;
+
+    if (!mounted) {
+      return;
+    }
+
+    if (keep == true) {
+      await sosReportsCollection().doc(ownSos.id).set({
+        'confirmationRequestedAt': null,
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    } else {
+      await removeSosReport(ownSos);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: panelGlass,
+          content: Text(
+            trText('SOS removed from the map.'),
+            style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+          ),
+        ),
+      );
+    }
   }
 
   Future<void> showAddMapReportSheet() async {
@@ -11267,6 +12400,39 @@ class _MapScreenState extends State<MapScreen> {
                   ),
                   onTap: () => Navigator.pop(context, 'police'),
                 ),
+                ListTile(
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 6),
+                  leading: Container(
+                    width: 44,
+                    height: 44,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF6C5CFF).withValues(alpha: 0.18),
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: const Center(
+                      child: Text(
+                        'SOS',
+                        style: TextStyle(
+                          color: Color(0xFF6C5CFF),
+                          fontSize: 12,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    ),
+                  ),
+                  title: const Text(
+                    'SOS',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  subtitle: const Text(
+                    'Ask nearby drivers for help.',
+                    style: TextStyle(color: Colors.white54),
+                  ),
+                  onTap: () => Navigator.pop(context, 'sos'),
+                ),
               ],
             ),
           ),
@@ -11276,6 +12442,8 @@ class _MapScreenState extends State<MapScreen> {
 
     if (selected == 'police') {
       await addPoliceReportAtCurrentLocation();
+    } else if (selected == 'sos') {
+      await addSosReportAtCurrentLocation();
     }
   }
 
@@ -11380,6 +12548,72 @@ class _MapScreenState extends State<MapScreen> {
     final now = DateTime.now();
     final expiresAt = now.add(const Duration(hours: 2));
     final location = LatLng(position.latitude, position.longitude);
+
+    for (final report in visiblePoliceReports) {
+      final distance = distanceBetweenLatLngMeters(location, report.coordinates);
+      if (distance <= policeReportDuplicateRadiusMeters) {
+        setState(() => isAddingPoliceReport = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: panelGlass,
+            content: Text(
+              trText('In this area police is already marked.'),
+              style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        );
+        setState(() {
+          selectedSpot = null;
+          selectedPoliceReport = report;
+          selectedSosReport = null;
+          selectedLiveLocation = null;
+        });
+        mapController.move(report.coordinates, 15.5);
+        return;
+      }
+    }
+
+    try {
+      final activePoliceSnapshot = await policeReportsCollection()
+          .where('expiresAt', isGreaterThan: Timestamp.now())
+          .where('status', isEqualTo: 'active')
+          .get();
+      for (final doc in activePoliceSnapshot.docs) {
+        final report = PoliceReportData.fromFirestore(doc);
+        final distance = distanceBetweenLatLngMeters(location, report.coordinates);
+        if (distance <= policeReportDuplicateRadiusMeters) {
+          if (mounted) {
+            setState(() => isAddingPoliceReport = false);
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                backgroundColor: panelGlass,
+                content: Text(
+                  trText('In this area police is already marked.'),
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            );
+            setState(() {
+              selectedSpot = null;
+              selectedPoliceReport = report;
+              selectedSosReport = null;
+              selectedLiveLocation = null;
+            });
+            mapController.move(report.coordinates, 15.5);
+          }
+          return;
+        }
+      }
+    } catch (_) {
+      // Local visible reports are already checked. Server check is best-effort for beta.
+    }
+
     final docRef = policeReportsCollection().doc();
 
     await docRef.set({
@@ -11414,6 +12648,7 @@ class _MapScreenState extends State<MapScreen> {
       currentUserLocation = location;
       selectedSpot = null;
       selectedPoliceReport = newReport;
+      selectedSosReport = null;
       selectedLiveLocation = null;
       isAddingPoliceReport = false;
     });
@@ -11425,6 +12660,41 @@ class _MapScreenState extends State<MapScreen> {
         backgroundColor: panelGlass,
         content: Text(
           'Police marked on the map for 2 hours.',
+          style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+        ),
+      ),
+    );
+  }
+
+
+  Future<void> removePoliceReport(PoliceReportData report) async {
+    final firebaseUser = FirebaseAuth.instance.currentUser;
+
+    if (firebaseUser == null || (report.uid != firebaseUser.uid && !userRoleIsStaff(currentUser.role))) {
+      return;
+    }
+
+    await policeReportsCollection().doc(report.id).set({
+      'status': 'removed',
+      'removedByUid': firebaseUser.uid,
+      'removedAt': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      selectedPoliceReport = null;
+      policeReports = policeReports.where((item) => item.id != report.id).toList();
+    });
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        backgroundColor: panelGlass,
+        content: const Text(
+          'Police mark removed from the map.',
           style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
         ),
       ),
@@ -11515,11 +12785,11 @@ class _MapScreenState extends State<MapScreen> {
         }
 
         final data = snapshot.data() ?? <String, dynamic>{};
-        final stillThereBy = stringListFromFirebase(
+        final stillThereBy = List<String>.of(stringListFromFirebase(
           data['stillThereBy'],
           const [],
-        );
-        final notThereBy = stringListFromFirebase(data['notThereBy'], const []);
+        ));
+        final notThereBy = List<String>.of(stringListFromFirebase(data['notThereBy'], const []));
 
         stillThereBy.remove(firebaseUser.uid);
         notThereBy.remove(firebaseUser.uid);
@@ -11532,7 +12802,7 @@ class _MapScreenState extends State<MapScreen> {
 
         final shouldRemove =
             !stillThere &&
-            (notThereBy.length >= 2 || data['uid'] == firebaseUser.uid);
+            (notThereBy.length >= 3 || data['uid'] == firebaseUser.uid);
 
         if (shouldRemove) {
           removed = true;
@@ -11682,11 +12952,45 @@ class _MapScreenState extends State<MapScreen> {
                 cancelLiveLocationTimers(keepUploadTimer: false);
               }
             });
+
+            if (ownLocation != null && firebaseUser != null) {
+              ensureLiveLocationUploadLoop();
+              final promptAt = DateTime.fromMillisecondsSinceEpoch(
+                ownLocation.promptAtMillis,
+              );
+              final expiresAt = DateTime.fromMillisecondsSinceEpoch(
+                ownLocation.expiresAtMillis,
+              );
+              unawaited(
+                startNativeLiveLocationBackgroundService(
+                  uid: firebaseUser.uid,
+                  visibleToUserIds: ownLocation.visibleToUserIds.isEmpty
+                      ? [firebaseUser.uid]
+                      : ownLocation.visibleToUserIds,
+                  shareScope: ownLocation.shareScope.trim().isEmpty
+                      ? 'friends'
+                      : ownLocation.shareScope,
+                  promptAt: promptAt,
+                  expiresAt: expiresAt,
+                ),
+              );
+            }
           },
           onError: (_) {
             // Firestore rules may still be closed while this feature is being set up.
           },
         );
+  }
+
+  void ensureLiveLocationUploadLoop() {
+    if (liveLocationUploadTimer != null) {
+      return;
+    }
+
+    liveLocationUploadTimer = Timer.periodic(
+      liveLocationUploadInterval,
+      (_) => uploadLatestLiveLocation(),
+    );
   }
 
   void cancelLiveLocationTimers({bool keepUploadTimer = false}) {
@@ -11912,10 +13216,10 @@ class _MapScreenState extends State<MapScreen> {
         ? liveLocationMinimumUploadDistanceMeters
         : const Distance().as(LengthUnit.Meter, lastUploadedLocation, location);
 
-    // Keep local navigation smooth, but do not write GPS noise to Firebase.
-    // A user is considered standing still while they remain inside a 50m
-    // radius from the last uploaded live-location point.
-    if (movedSinceLastUpload < liveLocationMinimumUploadDistanceMeters) {
+    // Upload live location every 30 seconds while sharing is active.
+    // Local marker still updates smoothly between Firebase writes.
+    if (liveLocationMinimumUploadDistanceMeters > 0 &&
+        movedSinceLastUpload < liveLocationMinimumUploadDistanceMeters) {
       setState(() {
         currentUserLocation = location;
         displayedUserLocation ??= location;
@@ -12222,13 +13526,66 @@ class _MapScreenState extends State<MapScreen> {
     liveLocationAutoStopTimer?.cancel();
     liveLocationSubscription?.cancel();
     policeReportSubscription?.cancel();
+    sosReportSubscription?.cancel();
+    sosDistanceCheckTimer?.cancel();
     navigationPositionSubscription?.cancel();
     navigationPredictionTimer?.cancel();
     reviewSpots.removeListener(refreshMap);
     spotCategoryFilters.removeListener(refreshMap);
     mapFocusRequest.removeListener(handleMapFocusRequest);
+    mapAlertPulseController.dispose();
     mapController.dispose();
     super.dispose();
+  }
+
+
+  Future<void> openSosMessage(SosReportData report) async {
+    try {
+      final snapshot = await usersCollection().doc(report.uid).get();
+      if (!snapshot.exists) {
+        throw Exception('User profile is not available anymore.');
+      }
+
+      final user = FriendUserData.fromFirestore(snapshot);
+      if (!mounted) {
+        return;
+      }
+
+      await openMessageToUserFromContext(context, user);
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: Colors.redAccent,
+          content: Text(
+            'Could not open chat: $error',
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+      );
+    }
+  }
+
+  Future<void> openWazeRouteToLatLng(LatLng location) async {
+    final wazeAppUrl = Uri.parse(
+      'waze://?ll=${location.latitude},${location.longitude}&navigate=yes',
+    );
+    final wazeWebUrl = Uri.parse(
+      'https://waze.com/ul?ll=${location.latitude},${location.longitude}&navigate=yes',
+    );
+
+    if (await canLaunchUrl(wazeAppUrl)) {
+      await launchUrl(wazeAppUrl, mode: LaunchMode.externalApplication);
+      return;
+    }
+
+    await launchUrl(wazeWebUrl, mode: LaunchMode.externalApplication);
   }
 
   void openSpotDetails(CarSpot spot) {
@@ -12448,6 +13805,7 @@ class _MapScreenState extends State<MapScreen> {
       mapCenteredOnCurrentUser = true;
       selectedSpot = null;
       selectedPoliceReport = null;
+      selectedSosReport = null;
       selectedLiveLocation = null;
       isLocatingUser = false;
     });
@@ -12460,9 +13818,10 @@ class _MapScreenState extends State<MapScreen> {
   Widget build(BuildContext context) {
     final spot = selectedSpot;
     final policeReport = selectedPoliceReport;
+    final sosReport = selectedSosReport;
     final liveLocation = selectedLiveLocation;
     final hasBottomCard =
-        spot != null || policeReport != null || liveLocation != null;
+        spot != null || policeReport != null || sosReport != null || liveLocation != null;
 
     return Scaffold(
       backgroundColor: Colors.transparent,
@@ -12501,6 +13860,7 @@ class _MapScreenState extends State<MapScreen> {
               onTap: (_, _) => setState(() {
                 selectedSpot = null;
                 selectedPoliceReport = null;
+                selectedSosReport = null;
                 selectedLiveLocation = null;
               }),
             ),
@@ -12544,10 +13904,10 @@ class _MapScreenState extends State<MapScreen> {
             bottom: hasBottomCard ? 196 : 18,
             child: FloatingActionButton.small(
               heroTag: 'add_map_report',
-              onPressed: isAddingPoliceReport ? null : showAddMapReportSheet,
+              onPressed: (isAddingPoliceReport || isAddingSosReport) ? null : showAddMapReportSheet,
               backgroundColor: panelGlass,
               foregroundColor: Colors.white,
-              child: isAddingPoliceReport
+              child: (isAddingPoliceReport || isAddingSosReport)
                   ? const SizedBox(
                       width: 18,
                       height: 18,
@@ -12595,6 +13955,30 @@ class _MapScreenState extends State<MapScreen> {
                     votePoliceReport(policeReport, stillThere: true),
                 onNotThere: () =>
                     votePoliceReport(policeReport, stillThere: false),
+                onDelete: policeReport.uid == FirebaseAuth.instance.currentUser?.uid
+                    ? () => removePoliceReport(policeReport)
+                    : null,
+              ),
+            ),
+          if (sosReport != null)
+            Positioned(
+              left: 16,
+              right: 16,
+              bottom: 16,
+              child: SosReportMapCard(
+                report: sosReport,
+                isOwnReport:
+                    sosReport.uid == FirebaseAuth.instance.currentUser?.uid,
+                onOpenProfile: () => openUserProfile(
+                  context,
+                  uid: sosReport.uid,
+                  fallbackUsername: sosReport.username,
+                ),
+                onMessage: () => openSosMessage(sosReport),
+                onRoute: () => openWazeRouteToLatLng(sosReport.coordinates),
+                onDelete: sosReport.uid == FirebaseAuth.instance.currentUser?.uid
+                    ? () => removeSosReport(sosReport)
+                    : null,
               ),
             ),
           if (spot != null)
@@ -12945,6 +14329,228 @@ class _MapHeader extends StatelessWidget {
   }
 }
 
+
+class SosReportMapCard extends StatelessWidget {
+  final SosReportData report;
+  final bool isOwnReport;
+  final VoidCallback onOpenProfile;
+  final VoidCallback onMessage;
+  final VoidCallback onRoute;
+  final VoidCallback? onDelete;
+
+  const SosReportMapCard({
+    super.key,
+    required this.report,
+    this.isOwnReport = false,
+    required this.onOpenProfile,
+    required this.onMessage,
+    required this.onRoute,
+    this.onDelete,
+  });
+
+  String get timeLeftLabel {
+    final expiresAt = DateTime.fromMillisecondsSinceEpoch(
+      report.expiresAtMillis,
+    );
+    final left = expiresAt.difference(DateTime.now());
+
+    if (left.isNegative) {
+      return 'expired';
+    }
+
+    final hours = left.inHours;
+    final minutes = left.inMinutes.remainder(60);
+
+    if (hours > 0) {
+      return '${hours}h ${minutes}m left';
+    }
+
+    return '${left.inMinutes.clamp(0, 720)}m left';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    const sosColor = Color(0xFFFF2D55);
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.88),
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: sosColor.withValues(alpha: 0.42)),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  color: sosColor.withValues(alpha: 0.18),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: const Center(
+                  child: Text(
+                    'SOS',
+                    style: TextStyle(
+                      color: sosColor,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Help request',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 18,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    GestureDetector(
+                      onTap: isOwnReport ? null : onOpenProfile,
+                      child: Text(
+                        isOwnReport
+                            ? 'Your SOS - $timeLeftLabel'
+                            : '@${displayUsername(report.username)} - $timeLeftLabel',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: isOwnReport ? Colors.white54 : blue,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+            decoration: BoxDecoration(
+              color: sosColor.withValues(alpha: 0.14),
+              borderRadius: BorderRadius.circular(999),
+              border: Border.all(color: sosColor.withValues(alpha: 0.26)),
+            ),
+            child: Text(
+              trText(sosReasonLabel(report.reason)),
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 12,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ),
+          const SizedBox(height: 10),
+          Text(
+            report.description,
+            maxLines: 4,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              color: Colors.white70,
+              fontWeight: FontWeight.w700,
+              height: 1.28,
+            ),
+          ),
+          if (!isOwnReport) ...[
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: onOpenProfile,
+                    icon: const Icon(Icons.person_outline, size: 18),
+                    label: const Text('View Profile'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.white70,
+                      side: const BorderSide(color: Colors.white24),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: onMessage,
+                    icon: const Icon(Icons.chat_bubble_outline, size: 18),
+                    label: const Text('Write message'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.white70,
+                      side: const BorderSide(color: Colors.white24),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: onRoute,
+                icon: const Icon(Icons.route, size: 18),
+                label: const Text('Open Waze'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: sosColor,
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                ),
+              ),
+            ),
+          ] else ...[
+            if (onDelete != null) ...[
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: onDelete,
+                  icon: const Icon(Icons.delete_outline, size: 18),
+                  label: Text(trText('Delete SOS')),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: Colors.redAccent,
+                    side: const BorderSide(color: Colors.redAccent),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+            const SizedBox(height: 10),
+            Text(
+              trText('Other drivers can see this SOS and contact you.'),
+              style: const TextStyle(
+                color: Colors.white54,
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
 class PoliceReportMapCard extends StatelessWidget {
   final PoliceReportData report;
   final bool isBusy;
@@ -12952,6 +14558,7 @@ class PoliceReportMapCard extends StatelessWidget {
   final String voteHint;
   final VoidCallback onStillThere;
   final VoidCallback onNotThere;
+  final VoidCallback? onDelete;
 
   const PoliceReportMapCard({
     super.key,
@@ -12961,6 +14568,7 @@ class PoliceReportMapCard extends StatelessWidget {
     required this.voteHint,
     required this.onStillThere,
     required this.onNotThere,
+    this.onDelete,
   });
 
   String get timeLeftLabel {
@@ -13061,6 +14669,24 @@ class PoliceReportMapCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 12),
+          if (onDelete != null) ...[
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: isBusy ? null : onDelete,
+                icon: const Icon(Icons.delete_outline, size: 18),
+                label: Text(trText('Delete police mark')),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: Colors.redAccent,
+                  side: const BorderSide(color: Colors.redAccent),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 10),
+          ],
           if (!canVote)
             Container(
               width: double.infinity,
@@ -13356,15 +14982,6 @@ class LiveLocationMapCard extends StatelessWidget {
                       label: location.isExpired ? 'offline' : 'online',
                       icon: Icons.my_location,
                     ),
-                    if (location.shareScope.trim().isNotEmpty)
-                      _SmallTag(
-                        label: location.shareScope == 'group'
-                            ? 'Group share'
-                            : location.shareScope == 'direct'
-                            ? 'Chat share'
-                            : 'Friends share',
-                        icon: Icons.lock_outline,
-                      ),
                   ],
                 ),
                 const SizedBox(height: 12),
@@ -16636,8 +18253,9 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
       await spotRef.set(spotToFirestoreData(newSpot, includeCreatedAt: true));
 
       if (isAdminCreatedSpot) {
+        await createNewSpotNotificationForUsers(newSpot);
         await sendPushNotificationEvent({
-          'type': 'new_spot',
+          'type': newSpot.isTemporary ? 'temporary_event' : 'new_spot',
           'spotId': spotRef.id,
         });
       }
@@ -20528,6 +22146,63 @@ class ChatTitleAvatar extends StatelessWidget {
   }
 }
 
+
+String formatChatMessageTime(int createdAtMillis) {
+  if (createdAtMillis <= 0) {
+    return '';
+  }
+  final value = DateTime.fromMillisecondsSinceEpoch(createdAtMillis);
+  return '${twoDigits(value.hour)}:${twoDigits(value.minute)}';
+}
+
+String chatDateDividerLabel(int createdAtMillis) {
+  if (createdAtMillis <= 0) {
+    return '';
+  }
+  final value = DateTime.fromMillisecondsSinceEpoch(createdAtMillis);
+  final now = DateTime.now();
+  final today = DateTime(now.year, now.month, now.day);
+  final messageDay = DateTime(value.year, value.month, value.day);
+  final diffDays = today.difference(messageDay).inDays;
+
+  if (diffDays == 0) {
+    return trText('Today');
+  }
+  if (diffDays == 1) {
+    return trText('Yesterday');
+  }
+  return formatShortDate(value);
+}
+
+Widget chatDateDivider(String label) {
+  return Padding(
+    padding: const EdgeInsets.symmetric(vertical: 12),
+    child: Row(
+      children: [
+        const Expanded(child: Divider(color: Colors.white12)),
+        Container(
+          margin: const EdgeInsets.symmetric(horizontal: 10),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          decoration: BoxDecoration(
+            color: panelGlass,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: Colors.white12),
+          ),
+          child: Text(
+            label,
+            style: const TextStyle(
+              color: Colors.white54,
+              fontSize: 11,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ),
+        const Expanded(child: Divider(color: Colors.white12)),
+      ],
+    ),
+  );
+}
+
 class ChatConversationScreen extends StatefulWidget {
   final ChatThreadData chat;
 
@@ -21004,17 +22679,31 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
               height: 1.25,
             ),
           ),
-          if (message.edited) ...[
-            const SizedBox(height: 4),
-            Text(
-              'edited',
-              style: TextStyle(
-                color: Colors.white.withValues(alpha: 0.58),
-                fontSize: 10,
-                fontWeight: FontWeight.w700,
+          const SizedBox(height: 5),
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (message.edited) ...[
+                Text(
+                  'edited',
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.58),
+                    fontSize: 10,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(width: 6),
+              ],
+              Text(
+                formatChatMessageTime(message.createdAtMillis),
+                style: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.62),
+                  fontSize: 10,
+                  fontWeight: FontWeight.w800,
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ],
       ),
     );
@@ -21121,12 +22810,20 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
                 }
 
                 Widget listWithUsers(Map<String, FriendUserData> usersById) {
+                  String previousDateLabel = '';
+                  final children = <Widget>[];
+                  for (final message in messages) {
+                    final dateLabel = chatDateDividerLabel(message.createdAtMillis);
+                    if (dateLabel.isNotEmpty && dateLabel != previousDateLabel) {
+                      children.add(chatDateDivider(dateLabel));
+                      previousDateLabel = dateLabel;
+                    }
+                    children.add(messageBubble(message, currentUid, usersById));
+                  }
+
                   return ListView(
                     padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-                    children: [
-                      for (final message in messages)
-                        messageBubble(message, currentUid, usersById),
-                    ],
+                    children: children,
                   );
                 }
 
