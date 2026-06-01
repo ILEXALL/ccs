@@ -10822,7 +10822,9 @@ class _MapScreenState extends State<MapScreen>
   double currentMapZoom = rigaZoom;
   double currentMapRotationDegrees = 0;
   double currentUserHeadingDegrees = 0;
-  LatLng? previousUserLocationForHeading;
+  LatLng? previousAcceptedHeadingLocation;
+  double smoothedUserHeadingDegrees = 0;
+  DateTime? lastNavigationPositionAt;
   bool mapCenteredOnCurrentUser = false;
   int? lastHandledMapFocusRequestToken;
 
@@ -12032,7 +12034,12 @@ class _MapScreenState extends State<MapScreen>
     final promptAt = now.add(shareDuration);
     final expiresAt = promptAt.add(liveLocationRenewGracePeriod);
     final location = LatLng(position.latitude, position.longitude);
-    final heading = headingForNewUserLocation(location, position.heading);
+    final speed = position.speed.isFinite ? math.max(0.0, position.speed) : 0.0;
+    final heading = headingForNewUserLocation(
+      location,
+      position.heading,
+      speedMetersPerSecond: speed,
+    );
     final visibleToUserIds = await loadSosVisibleUserIds(firebaseUser.uid);
 
     liveLocationShareDuration = shareDuration;
@@ -12088,7 +12095,7 @@ class _MapScreenState extends State<MapScreen>
       lastUploadedLiveLocation = location;
       lastGpsUserLocationAt = DateTime.now();
       currentUserHeadingDegrees = heading;
-      currentUserSpeedMetersPerSecond = math.max(0, position.speed);
+      currentUserSpeedMetersPerSecond = speed;
       isSharingLiveLocation = true;
     });
 
@@ -13259,7 +13266,12 @@ class _MapScreenState extends State<MapScreen>
       ...friendUids,
     ]);
     final location = LatLng(position.latitude, position.longitude);
-    final heading = headingForNewUserLocation(location, position.heading);
+    final speed = position.speed.isFinite ? math.max(0.0, position.speed) : 0.0;
+    final heading = headingForNewUserLocation(
+      location,
+      position.heading,
+      speedMetersPerSecond: speed,
+    );
 
     await writeLiveLocation(
       position,
@@ -13295,7 +13307,7 @@ class _MapScreenState extends State<MapScreen>
       lastUploadedLiveLocation = location;
       lastGpsUserLocationAt = DateTime.now();
       currentUserHeadingDegrees = heading;
-      currentUserSpeedMetersPerSecond = math.max(0, position.speed);
+      currentUserSpeedMetersPerSecond = speed;
       isSharingLiveLocation = true;
       isTogglingLiveLocation = false;
     });
@@ -13332,7 +13344,12 @@ class _MapScreenState extends State<MapScreen>
     }
 
     final location = LatLng(position.latitude, position.longitude);
-    final heading = headingForNewUserLocation(location, position.heading);
+    final speed = position.speed.isFinite ? math.max(0.0, position.speed) : 0.0;
+    final heading = headingForNewUserLocation(
+      location,
+      position.heading,
+      speedMetersPerSecond: speed,
+    );
     final lastUploadedLocation = lastUploadedLiveLocation;
     final movedSinceLastUpload = lastUploadedLocation == null
         ? liveLocationMinimumUploadDistanceMeters
@@ -13348,7 +13365,7 @@ class _MapScreenState extends State<MapScreen>
         lastGpsUserLocation = location;
         lastGpsUserLocationAt = DateTime.now();
         currentUserHeadingDegrees = heading;
-        currentUserSpeedMetersPerSecond = math.max(0, position.speed);
+        currentUserSpeedMetersPerSecond = speed;
       });
 
       if (mapCenteredOnCurrentUser) {
@@ -13374,7 +13391,7 @@ class _MapScreenState extends State<MapScreen>
       lastUploadedLiveLocation = location;
       lastGpsUserLocationAt = DateTime.now();
       currentUserHeadingDegrees = heading;
-      currentUserSpeedMetersPerSecond = math.max(0, position.speed);
+      currentUserSpeedMetersPerSecond = speed;
     });
 
     if (mapCenteredOnCurrentUser) {
@@ -13528,7 +13545,12 @@ class _MapScreenState extends State<MapScreen>
     }
 
     final location = LatLng(position.latitude, position.longitude);
-    final heading = headingForNewUserLocation(location, position.heading);
+    final speed = position.speed.isFinite ? math.max(0.0, position.speed) : 0.0;
+    final heading = headingForNewUserLocation(
+      location,
+      position.heading,
+      speedMetersPerSecond: speed,
+    );
 
     await writeLiveLocation(
       position,
@@ -13725,10 +13747,19 @@ class _MapScreenState extends State<MapScreen>
   void startNavigationTracking() {
     navigationPositionSubscription ??=
         Geolocator.getPositionStream(
-          locationSettings: const LocationSettings(
-            accuracy: LocationAccuracy.high,
-            distanceFilter: 0,
-          ),
+          locationSettings: Platform.isAndroid
+              ? AndroidSettings(
+                  accuracy: LocationAccuracy.bestForNavigation,
+                  distanceFilter: 0,
+                  intervalDuration: const Duration(milliseconds: 500),
+                  forceLocationManager: false,
+                )
+              : AppleSettings(
+                  accuracy: LocationAccuracy.bestForNavigation,
+                  distanceFilter: 0,
+                  activityType: ActivityType.automotiveNavigation,
+                  pauseLocationUpdatesAutomatically: false,
+                ),
         ).listen(
           handleNavigationPosition,
           onError: (_) {
@@ -13737,7 +13768,7 @@ class _MapScreenState extends State<MapScreen>
         );
 
     navigationPredictionTimer ??= Timer.periodic(
-      const Duration(milliseconds: 120),
+      const Duration(milliseconds: 80),
       (_) => updatePredictedUserMarker(),
     );
   }
@@ -13748,20 +13779,35 @@ class _MapScreenState extends State<MapScreen>
     }
 
     final location = LatLng(position.latitude, position.longitude);
-    final heading = headingForNewUserLocation(location, position.heading);
     final speed = position.speed.isFinite ? math.max(0.0, position.speed) : 0.0;
+    final heading = headingForNewUserLocation(
+      location,
+      position.heading,
+      speedMetersPerSecond: speed,
+    );
+
+    final currentDisplay = displayedUserLocation ?? location;
+    final distanceToNewGps = distanceBetweenLatLngMeters(
+      currentDisplay,
+      location,
+    );
+
+    final nextDisplay = distanceToNewGps > 80
+        ? location
+        : lerpLatLng(currentDisplay, location, speed >= 2.0 ? 0.35 : 0.18);
 
     setState(() {
       currentUserLocation = location;
-      displayedUserLocation ??= location;
+      displayedUserLocation = nextDisplay;
       lastGpsUserLocation = location;
       lastGpsUserLocationAt = DateTime.now();
+      lastNavigationPositionAt = DateTime.now();
       currentUserHeadingDegrees = heading;
       currentUserSpeedMetersPerSecond = speed;
     });
 
     if (mapCenteredOnCurrentUser) {
-      updateFollowCamera(displayedUserLocation ?? location, heading);
+      updateFollowCamera(nextDisplay, heading);
     }
   }
 
@@ -13777,25 +13823,38 @@ class _MapScreenState extends State<MapScreen>
       return;
     }
 
+    final speed = currentUserSpeedMetersPerSecond.clamp(0.0, 38.0).toDouble();
+    final currentDisplay = displayedUserLocation ?? gpsLocation;
+
+    // If almost stopped, do not keep projecting forward. Gently settle back
+    // onto the latest GPS point instead of overshooting and snapping back.
+    if (speed < 0.8) {
+      final nextDisplay = lerpLatLng(currentDisplay, gpsLocation, 0.12);
+
+      setState(() => displayedUserLocation = nextDisplay);
+
+      if (mapCenteredOnCurrentUser) {
+        updateFollowCamera(nextDisplay, currentUserHeadingDegrees);
+      }
+
+      return;
+    }
+
     final secondsSinceGps =
         DateTime.now().difference(gpsTime).inMilliseconds / 1000.0;
-    final clampedSeconds = secondsSinceGps.clamp(0.0, 1.25).toDouble();
-    final clampedSpeed = currentUserSpeedMetersPerSecond
-        .clamp(0.0, 38.0)
-        .toDouble();
+    final predictedSeconds = secondsSinceGps.clamp(0.0, 0.75).toDouble();
     final predicted = projectLatLngMeters(
       gpsLocation,
       currentUserHeadingDegrees,
-      clampedSpeed * clampedSeconds,
+      speed * predictedSeconds,
     );
-    final currentDisplay = displayedUserLocation ?? gpsLocation;
     final distanceToGps = distanceBetweenLatLngMeters(
       currentDisplay,
       gpsLocation,
     );
     final nextDisplay = distanceToGps > 80
         ? gpsLocation
-        : lerpLatLng(currentDisplay, predicted, 0.22);
+        : lerpLatLng(currentDisplay, predicted, 0.16);
 
     setState(() => displayedUserLocation = nextDisplay);
 
@@ -13853,38 +13912,69 @@ class _MapScreenState extends State<MapScreen>
     }
 
     return Geolocator.getCurrentPosition(
-      locationSettings: const LocationSettings(accuracy: LocationAccuracy.high),
+      locationSettings: const LocationSettings(
+        accuracy: LocationAccuracy.bestForNavigation,
+      ),
     );
   }
 
-  double headingForNewUserLocation(LatLng nextLocation, double rawHeading) {
-    final previousLocation =
-        previousUserLocationForHeading ?? currentUserLocation;
+  double headingForNewUserLocation(
+    LatLng nextLocation,
+    double rawHeading, {
+    double speedMetersPerSecond = 0,
+  }) {
+    final fallback = currentUserHeadingDegrees;
     final normalizedRawHeading = normalizedHeadingDegrees(
       rawHeading,
-      fallback: currentUserHeadingDegrees,
+      fallback: fallback,
     );
 
+    final previousLocation =
+        previousAcceptedHeadingLocation ?? currentUserLocation;
+
     if (previousLocation == null) {
-      previousUserLocationForHeading = nextLocation;
-      return normalizedRawHeading;
+      previousAcceptedHeadingLocation = nextLocation;
+      smoothedUserHeadingDegrees = normalizedRawHeading;
+      return smoothedUserHeadingDegrees;
     }
 
-    final distanceMeters = distanceBetweenLatLngMeters(
+    final movedMeters = distanceBetweenLatLngMeters(
       previousLocation,
       nextLocation,
     );
 
-    previousUserLocationForHeading = nextLocation;
+    var targetHeading = smoothedUserHeadingDegrees;
 
-    // GPS heading is often 0 or frozen on some Android devices.
-    // Bearing between the previous and new coordinates makes the car icon turn
-    // correctly instead of visually driving sideways.
-    if (distanceMeters >= 3) {
-      return bearingBetweenLatLngDegrees(previousLocation, nextLocation);
+    // Tiny GPS movements can produce random bearings, which makes the triangle
+    // look like it is driving sideways. Use coordinate bearing only after real
+    // movement; otherwise trust the device heading only while actually moving.
+    if (movedMeters >= 5) {
+      targetHeading = bearingBetweenLatLngDegrees(
+        previousLocation,
+        nextLocation,
+      );
+      previousAcceptedHeadingLocation = nextLocation;
+    } else if (speedMetersPerSecond >= 2.0 &&
+        rawHeading.isFinite &&
+        rawHeading >= 0) {
+      targetHeading = normalizedRawHeading;
     }
 
-    return normalizedRawHeading;
+    smoothedUserHeadingDegrees = smoothHeadingDegrees(
+      smoothedUserHeadingDegrees,
+      targetHeading,
+      speedMetersPerSecond >= 2.0 ? 0.22 : 0.10,
+    );
+
+    return smoothedUserHeadingDegrees;
+  }
+
+  double smoothHeadingDegrees(double from, double to, double amount) {
+    final a = normalizedHeadingDegrees(from);
+    final b = normalizedHeadingDegrees(to);
+    final delta = ((b - a + 540) % 360) - 180;
+
+    return normalizedHeadingDegrees(a + delta * amount);
   }
 
   void updateFollowCamera(LatLng location, double headingDegrees) {
@@ -13912,7 +14002,12 @@ class _MapScreenState extends State<MapScreen>
     }
 
     final location = LatLng(position.latitude, position.longitude);
-    final heading = headingForNewUserLocation(location, position.heading);
+    final speed = position.speed.isFinite ? math.max(0.0, position.speed) : 0.0;
+    final heading = headingForNewUserLocation(
+      location,
+      position.heading,
+      speedMetersPerSecond: speed,
+    );
 
     setState(() {
       currentUserLocation = location;
@@ -13920,7 +14015,7 @@ class _MapScreenState extends State<MapScreen>
       lastGpsUserLocation = location;
       lastGpsUserLocationAt = DateTime.now();
       currentUserHeadingDegrees = heading;
-      currentUserSpeedMetersPerSecond = math.max(0, position.speed);
+      currentUserSpeedMetersPerSecond = speed;
       currentMapZoom = navigationZoom;
       currentMapRotationDegrees = heading;
       mapCenteredOnCurrentUser = true;
