@@ -28,7 +28,7 @@ const googleServerClientId =
 
 // Real Telegram login needs a small backend server.
 // Deploy ccs_app/telegram_auth_server, then paste its HTTPS URL here.
-const telegramAuthBaseUrl = 'https://y-beige-eta.vercel.app';
+const telegramAuthBaseUrl = 'https://ccs-wine.vercel.app';
 const pushNotificationUrl = '$telegramAuthBaseUrl/api/push-notification';
 const r2PresignUploadUrl =
     'https://ccs-telegram-auth-server.vercel.app/api/r2-presign-upload';
