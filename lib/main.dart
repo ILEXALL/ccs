@@ -465,13 +465,15 @@ const _ruText = <String, String>{
   'Help request': 'Запрос помощи',
   'Need help': 'Нужна помощь',
   'Ask nearby drivers for help.': 'Попросить водителей рядом о помощи.',
-  'Describe what happened and what help you need.': 'Опишите, что случилось и какая помощь нужна.',
+  'Describe what happened and what help you need.':
+      'Опишите, что случилось и какая помощь нужна.',
   'What happened?': 'Что случилось?',
   'Create SOS': 'Создать SOS',
   'SOS added on the map.': 'SOS добавлен на карту.',
   'SOS removed from the map.': 'SOS удалён с карты.',
   'Still need help?': 'Всё ещё нужна помощь?',
-  'You moved away from your SOS point. Do you still need help there?': 'Вы отъехали от точки SOS. Помощь там ещё нужна?',
+  'You moved away from your SOS point. Do you still need help there?':
+      'Вы отъехали от точки SOS. Помощь там ещё нужна?',
   'SOS reason battery': 'Сел аккумулятор',
   'SOS reason tire': 'Прокол колеса',
   'SOS reason fuel': 'Закончилось топливо',
@@ -480,10 +482,13 @@ const _ruText = <String, String>{
   'SOS reason other': 'Другое',
   'Choose SOS reason': 'Выберите причину SOS',
   'Only one active SOS is allowed.': 'Можно создать только один активный SOS.',
-  'Close your current SOS before creating a new one.': 'Закройте текущий SOS перед созданием нового.',
-  'Description looks like spam. Please write clearly what happened.': 'Описание похоже на спам. Напишите понятно, что случилось.',
+  'Close your current SOS before creating a new one.':
+      'Закройте текущий SOS перед созданием нового.',
+  'Description looks like spam. Please write clearly what happened.':
+      'Описание похоже на спам. Напишите понятно, что случилось.',
   'Police already marked nearby.': 'Полиция уже отмечена рядом.',
-  'In this area police is already marked.': 'В этом районе полиция уже отмечена.',
+  'In this area police is already marked.':
+      'В этом районе полиция уже отмечена.',
   'No, remove': 'Нет, удалить',
   'Yes, still need': 'Да, нужна',
   'Open Waze': 'Открыть Waze',
@@ -1037,14 +1042,17 @@ const _lvText = <String, String>{
   'SOS': 'SOS',
   'Help request': 'Palīdzības pieprasījums',
   'Need help': 'Vajadzīga palīdzība',
-  'Ask nearby drivers for help.': 'Palūgt palīdzību tuvumā esošajiem autovadītājiem.',
-  'Describe what happened and what help you need.': 'Aprakstiet, kas notika un kāda palīdzība vajadzīga.',
+  'Ask nearby drivers for help.':
+      'Palūgt palīdzību tuvumā esošajiem autovadītājiem.',
+  'Describe what happened and what help you need.':
+      'Aprakstiet, kas notika un kāda palīdzība vajadzīga.',
   'What happened?': 'Kas notika?',
   'Create SOS': 'Izveidot SOS',
   'SOS added on the map.': 'SOS pievienots kartē.',
   'SOS removed from the map.': 'SOS noņemts no kartes.',
   'Still need help?': 'Palīdzība vēl vajadzīga?',
-  'You moved away from your SOS point. Do you still need help there?': 'Jūs aizbraucāt no SOS vietas. Vai palīdzība tur vēl ir vajadzīga?',
+  'You moved away from your SOS point. Do you still need help there?':
+      'Jūs aizbraucāt no SOS vietas. Vai palīdzība tur vēl ir vajadzīga?',
   'SOS reason battery': 'Izlādējies akumulators',
   'SOS reason tire': 'Pārdurta riepa',
   'SOS reason fuel': 'Beigusies degviela',
@@ -1053,10 +1061,13 @@ const _lvText = <String, String>{
   'SOS reason other': 'Cits',
   'Choose SOS reason': 'Izvēlieties SOS iemeslu',
   'Only one active SOS is allowed.': 'Atļauts tikai viens aktīvs SOS.',
-  'Close your current SOS before creating a new one.': 'Aizveriet pašreizējo SOS pirms jauna izveides.',
-  'Description looks like spam. Please write clearly what happened.': 'Apraksts izskatās pēc spama. Uzrakstiet skaidri, kas notika.',
+  'Close your current SOS before creating a new one.':
+      'Aizveriet pašreizējo SOS pirms jauna izveides.',
+  'Description looks like spam. Please write clearly what happened.':
+      'Apraksts izskatās pēc spama. Uzrakstiet skaidri, kas notika.',
   'Police already marked nearby.': 'Policija jau ir atzīmēta tuvumā.',
-  'In this area police is already marked.': 'Šajā rajonā policija jau ir atzīmēta.',
+  'In this area police is already marked.':
+      'Šajā rajonā policija jau ir atzīmēta.',
   'No, remove': 'Nē, noņemt',
   'Yes, still need': 'Jā, vajag',
   'Open Waze': 'Atvērt Waze',
@@ -4683,7 +4694,6 @@ Future<void> createSpotReviewUpdateNotification(
   );
 }
 
-
 Future<void> createNewSpotNotificationForUsers(CarSpot spot) async {
   final firebaseUser = FirebaseAuth.instance.currentUser;
   if (firebaseUser == null || spot.status != SpotStatus.approved) {
@@ -4767,11 +4777,9 @@ Future<void> createChatMessageNotification({
           ? '@${currentUser.username} in ${chat.titleForCurrentUser(userId)}: $messageText'
           : '@${currentUser.username}: $messageText',
       settingName: 'newMessageNotifications',
-      notificationId: 'chat_${chat.id}_${DateTime.now().microsecondsSinceEpoch}_$userId',
-      extra: {
-        'chatId': chat.id,
-        'isGroup': chat.isGroup,
-      },
+      notificationId:
+          'chat_${chat.id}_${DateTime.now().microsecondsSinceEpoch}_$userId',
+      extra: {'chatId': chat.id, 'isGroup': chat.isGroup},
     );
   }
 }
@@ -6561,7 +6569,6 @@ class PoliceReportData {
   }
 }
 
-
 class SosRequestDraft {
   final String reason;
   final String description;
@@ -6594,7 +6601,10 @@ bool sosDescriptionLooksLikeSpam(String value) {
     return true;
   }
 
-  final lettersAndDigits = clean.replaceAll(RegExp(r'[^a-zа-яё0-9]', unicode: true), '');
+  final lettersAndDigits = clean.replaceAll(
+    RegExp(r'[^a-zа-яё0-9]', unicode: true),
+    '',
+  );
   if (lettersAndDigits.length < 8) {
     return true;
   }
@@ -8060,8 +8070,14 @@ NotificationCenterItem notificationCenterItemFromDocument(
             ? '${actorUsername.trim().isEmpty ? 'Someone' : '@$actorUsername'} commented on your spot${comment.trim().isEmpty ? '.' : ': $comment'}'
             : '${actorUsername.trim().isEmpty ? 'Someone' : '@$actorUsername'} commented on $spotName${comment.trim().isEmpty ? '.' : ': $comment'}',
       'chat_message' => body.trim().isEmpty ? 'New message.' : body,
-      'new_spot' => spotName.trim().isEmpty ? 'New spot was added.' : '$spotName was added.',
-      'temporary_event' => spotName.trim().isEmpty ? 'New temporary event was added.' : '$spotName temporary event was added.',
+      'new_spot' =>
+        spotName.trim().isEmpty
+            ? 'New spot was added.'
+            : '$spotName was added.',
+      'temporary_event' =>
+        spotName.trim().isEmpty
+            ? 'New temporary event was added.'
+            : '$spotName temporary event was added.',
       'spot_review_update' =>
         status == 'approved'
             ? (spotName.trim().isEmpty
@@ -9135,7 +9151,8 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                       label: trText('Add Spot Nav'),
                       selected: index == 2,
                       onTap: () => setState(() => index = 2),
-                      twoLineCentered: appUiPreferences.language != AppLanguage.en,
+                      twoLineCentered:
+                          appUiPreferences.language != AppLanguage.en,
                     ),
                   ),
                   Expanded(
@@ -9163,8 +9180,6 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     );
   }
 }
-
-
 
 class _CcsBottomNavItem extends StatelessWidget {
   final IconData icon;
@@ -9197,10 +9212,7 @@ class _CcsBottomNavItem extends StatelessWidget {
         child: Stack(
           alignment: Alignment.topCenter,
           children: [
-            Positioned(
-              top: 7,
-              child: Icon(icon, color: color, size: 22),
-            ),
+            Positioned(top: 7, child: Icon(icon, color: color, size: 22)),
             Positioned(
               top: 33,
               left: 0,
@@ -10695,7 +10707,8 @@ class MapScreen extends StatefulWidget {
   State<MapScreen> createState() => _MapScreenState();
 }
 
-class _MapScreenState extends State<MapScreen> with SingleTickerProviderStateMixin {
+class _MapScreenState extends State<MapScreen>
+    with SingleTickerProviderStateMixin {
   // Default map view: open Riga area first, do not auto-jump to the user.
   static const rigaCenter = LatLng(56.9496, 24.1052);
   static const rigaZoom = 11.25;
@@ -10716,7 +10729,8 @@ class _MapScreenState extends State<MapScreen> with SingleTickerProviderStateMix
   liveLocationSubscription;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>?
   policeReportSubscription;
-  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? sosReportSubscription;
+  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>?
+  sosReportSubscription;
   Timer? sosDistanceCheckTimer;
   CarSpot? selectedSpot;
   PoliceReportData? selectedPoliceReport;
@@ -11372,7 +11386,9 @@ class _MapScreenState extends State<MapScreen> with SingleTickerProviderStateMix
                     ),
                     shape: BoxShape.circle,
                     border: Border.all(
-                      color: color.withValues(alpha: showPoliceRadius ? 0.72 : 1),
+                      color: color.withValues(
+                        alpha: showPoliceRadius ? 0.72 : 1,
+                      ),
                       width: showPoliceRadius ? 2 : 1.5,
                     ),
                     boxShadow: [
@@ -11395,11 +11411,7 @@ class _MapScreenState extends State<MapScreen> with SingleTickerProviderStateMix
                             : null,
                       ),
                       child: showPoliceRadius
-                          ? Icon(
-                              Icons.local_police,
-                              color: color,
-                              size: 21,
-                            )
+                          ? Icon(Icons.local_police, color: color, size: 21)
                           : const SizedBox.shrink(),
                     ),
                   ),
@@ -11411,7 +11423,6 @@ class _MapScreenState extends State<MapScreen> with SingleTickerProviderStateMix
       );
     }).toList();
   }
-
 
   List<SosReportData> get visibleSosReports {
     return sosReports.where((report) => report.isActive).toList();
@@ -11475,8 +11486,12 @@ class _MapScreenState extends State<MapScreen> with SingleTickerProviderStateMix
                     boxShadow: [
                       BoxShadow(
                         color: sosColor.withValues(alpha: 0.34 + pulse * 0.22),
-                        blurRadius: showSosRadius ? 16 + pulse * 10 : 9 + pulse * 5,
-                        spreadRadius: showSosRadius ? 2 + pulse * 4 : 1 + pulse * 1.5,
+                        blurRadius: showSosRadius
+                            ? 16 + pulse * 10
+                            : 9 + pulse * 5,
+                        spreadRadius: showSosRadius
+                            ? 2 + pulse * 4
+                            : 1 + pulse * 1.5,
                       ),
                     ],
                   ),
@@ -11772,7 +11787,6 @@ class _MapScreenState extends State<MapScreen> with SingleTickerProviderStateMix
           },
         );
   }
-
 
   void startSosReportSync() {
     sosReportSubscription?.cancel();
@@ -12160,7 +12174,9 @@ class _MapScreenState extends State<MapScreen> with SingleTickerProviderStateMix
             backgroundColor: Colors.redAccent,
             content: Text(
               error.code == 'permission-denied'
-                  ? trText('SOS cannot be created until Firestore rules allow sos_reports.')
+                  ? trText(
+                      'SOS cannot be created until Firestore rules allow sos_reports.',
+                    )
                   : 'Could not create SOS: ${error.message ?? error.code}',
               style: const TextStyle(
                 color: Colors.white,
@@ -12550,7 +12566,10 @@ class _MapScreenState extends State<MapScreen> with SingleTickerProviderStateMix
     final location = LatLng(position.latitude, position.longitude);
 
     for (final report in visiblePoliceReports) {
-      final distance = distanceBetweenLatLngMeters(location, report.coordinates);
+      final distance = distanceBetweenLatLngMeters(
+        location,
+        report.coordinates,
+      );
       if (distance <= policeReportDuplicateRadiusMeters) {
         setState(() => isAddingPoliceReport = false);
         ScaffoldMessenger.of(context).showSnackBar(
@@ -12583,7 +12602,10 @@ class _MapScreenState extends State<MapScreen> with SingleTickerProviderStateMix
           .get();
       for (final doc in activePoliceSnapshot.docs) {
         final report = PoliceReportData.fromFirestore(doc);
-        final distance = distanceBetweenLatLngMeters(location, report.coordinates);
+        final distance = distanceBetweenLatLngMeters(
+          location,
+          report.coordinates,
+        );
         if (distance <= policeReportDuplicateRadiusMeters) {
           if (mounted) {
             setState(() => isAddingPoliceReport = false);
@@ -12666,11 +12688,12 @@ class _MapScreenState extends State<MapScreen> with SingleTickerProviderStateMix
     );
   }
 
-
   Future<void> removePoliceReport(PoliceReportData report) async {
     final firebaseUser = FirebaseAuth.instance.currentUser;
 
-    if (firebaseUser == null || (report.uid != firebaseUser.uid && !userRoleIsStaff(currentUser.role))) {
+    if (firebaseUser == null ||
+        (report.uid != firebaseUser.uid &&
+            !userRoleIsStaff(currentUser.role))) {
       return;
     }
 
@@ -12687,7 +12710,9 @@ class _MapScreenState extends State<MapScreen> with SingleTickerProviderStateMix
 
     setState(() {
       selectedPoliceReport = null;
-      policeReports = policeReports.where((item) => item.id != report.id).toList();
+      policeReports = policeReports
+          .where((item) => item.id != report.id)
+          .toList();
     });
 
     ScaffoldMessenger.of(context).showSnackBar(
@@ -12785,11 +12810,12 @@ class _MapScreenState extends State<MapScreen> with SingleTickerProviderStateMix
         }
 
         final data = snapshot.data() ?? <String, dynamic>{};
-        final stillThereBy = List<String>.of(stringListFromFirebase(
-          data['stillThereBy'],
-          const [],
-        ));
-        final notThereBy = List<String>.of(stringListFromFirebase(data['notThereBy'], const []));
+        final stillThereBy = List<String>.of(
+          stringListFromFirebase(data['stillThereBy'], const []),
+        );
+        final notThereBy = List<String>.of(
+          stringListFromFirebase(data['notThereBy'], const []),
+        );
 
         stillThereBy.remove(firebaseUser.uid);
         notThereBy.remove(firebaseUser.uid);
@@ -13538,7 +13564,6 @@ class _MapScreenState extends State<MapScreen> with SingleTickerProviderStateMix
     super.dispose();
   }
 
-
   Future<void> openSosMessage(SosReportData report) async {
     try {
       final snapshot = await usersCollection().doc(report.uid).get();
@@ -13821,7 +13846,10 @@ class _MapScreenState extends State<MapScreen> with SingleTickerProviderStateMix
     final sosReport = selectedSosReport;
     final liveLocation = selectedLiveLocation;
     final hasBottomCard =
-        spot != null || policeReport != null || sosReport != null || liveLocation != null;
+        spot != null ||
+        policeReport != null ||
+        sosReport != null ||
+        liveLocation != null;
 
     return Scaffold(
       backgroundColor: Colors.transparent,
@@ -13904,7 +13932,9 @@ class _MapScreenState extends State<MapScreen> with SingleTickerProviderStateMix
             bottom: hasBottomCard ? 196 : 18,
             child: FloatingActionButton.small(
               heroTag: 'add_map_report',
-              onPressed: (isAddingPoliceReport || isAddingSosReport) ? null : showAddMapReportSheet,
+              onPressed: (isAddingPoliceReport || isAddingSosReport)
+                  ? null
+                  : showAddMapReportSheet,
               backgroundColor: panelGlass,
               foregroundColor: Colors.white,
               child: (isAddingPoliceReport || isAddingSosReport)
@@ -13955,7 +13985,8 @@ class _MapScreenState extends State<MapScreen> with SingleTickerProviderStateMix
                     votePoliceReport(policeReport, stillThere: true),
                 onNotThere: () =>
                     votePoliceReport(policeReport, stillThere: false),
-                onDelete: policeReport.uid == FirebaseAuth.instance.currentUser?.uid
+                onDelete:
+                    policeReport.uid == FirebaseAuth.instance.currentUser?.uid
                     ? () => removePoliceReport(policeReport)
                     : null,
               ),
@@ -13976,7 +14007,8 @@ class _MapScreenState extends State<MapScreen> with SingleTickerProviderStateMix
                 ),
                 onMessage: () => openSosMessage(sosReport),
                 onRoute: () => openWazeRouteToLatLng(sosReport.coordinates),
-                onDelete: sosReport.uid == FirebaseAuth.instance.currentUser?.uid
+                onDelete:
+                    sosReport.uid == FirebaseAuth.instance.currentUser?.uid
                     ? () => removeSosReport(sosReport)
                     : null,
               ),
@@ -14328,7 +14360,6 @@ class _MapHeader extends StatelessWidget {
     );
   }
 }
-
 
 class SosReportMapCard extends StatelessWidget {
   final SosReportData report;
@@ -22146,7 +22177,6 @@ class ChatTitleAvatar extends StatelessWidget {
   }
 }
 
-
 String formatChatMessageTime(int createdAtMillis) {
   if (createdAtMillis <= 0) {
     return '';
@@ -22813,8 +22843,11 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
                   String previousDateLabel = '';
                   final children = <Widget>[];
                   for (final message in messages) {
-                    final dateLabel = chatDateDividerLabel(message.createdAtMillis);
-                    if (dateLabel.isNotEmpty && dateLabel != previousDateLabel) {
+                    final dateLabel = chatDateDividerLabel(
+                      message.createdAtMillis,
+                    );
+                    if (dateLabel.isNotEmpty &&
+                        dateLabel != previousDateLabel) {
                       children.add(chatDateDivider(dateLabel));
                       previousDateLabel = dateLabel;
                     }
