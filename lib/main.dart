@@ -8261,11 +8261,9 @@ Future<void> markNotificationCenterItemsRead(
     if (serverNotificationIds.isNotEmpty) {
       final headers = await firebaseNotificationHeaders();
       if (headers != null) {
-        await patchJsonToUrl(
-          pushNotificationUrl,
-          {'notificationIds': serverNotificationIds},
-          headers: headers,
-        );
+        await patchJsonToUrl(pushNotificationUrl, {
+          'notificationIds': serverNotificationIds,
+        }, headers: headers);
       }
     }
 
