@@ -1,7 +1,6 @@
 {
   "name": "ccs-telegram-auth-server",
   "version": "1.0.0",
-  "type": "module",
   "private": true,
   "scripts": {
     "dev": "vercel dev",
@@ -13,6 +12,6 @@
     "firebase-admin": "^13.0.0"
   },
   "devDependencies": {
-    "vercel": "^54.6.1"
+    "vercel": "^45.6.1"
   }
 }
