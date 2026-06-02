@@ -114,6 +114,93 @@ class AppUiPreferences extends ChangeNotifier {
 
 final appUiPreferences = AppUiPreferences();
 
+class MaintenanceModeConfig {
+  final bool maintenanceEnabled;
+  final String maintenanceTitle;
+  final String maintenanceMessage;
+  final bool allowAdminBypass;
+
+  const MaintenanceModeConfig({
+    required this.maintenanceEnabled,
+    required this.maintenanceTitle,
+    required this.maintenanceMessage,
+    required this.allowAdminBypass,
+  });
+
+  static const disabled = MaintenanceModeConfig(
+    maintenanceEnabled: false,
+    maintenanceTitle: 'Maintenance',
+    maintenanceMessage: 'CCS will be back shortly.',
+    allowAdminBypass: false,
+  );
+
+  factory MaintenanceModeConfig.fromSnapshot(
+    DocumentSnapshot<Map<String, dynamic>> snapshot,
+  ) {
+    if (!snapshot.exists) {
+      return disabled;
+    }
+
+    final data = snapshot.data() ?? const <String, dynamic>{};
+    return MaintenanceModeConfig(
+      maintenanceEnabled: data['maintenanceEnabled'] == true,
+      maintenanceTitle: stringFromFirebase(
+        data['maintenanceTitle'],
+        'Maintenance',
+      ),
+      maintenanceMessage: stringFromFirebase(
+        data['maintenanceMessage'],
+        'CCS will be back shortly.',
+      ),
+      allowAdminBypass: data['allowAdminBypass'] == true,
+    );
+  }
+}
+
+final maintenanceModeConfig = ValueNotifier<MaintenanceModeConfig>(
+  MaintenanceModeConfig.disabled,
+);
+final maintenanceAccessRevision = ValueNotifier<int>(0);
+StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>?
+maintenanceModeSubscription;
+
+DocumentReference<Map<String, dynamic>> maintenanceModeDocument() {
+  return FirebaseFirestore.instance.collection('app_config').doc('main');
+}
+
+void refreshMaintenanceAccess() {
+  maintenanceAccessRevision.value += 1;
+}
+
+Future<void> refreshMaintenanceMode() async {
+  if (!firebaseReady) {
+    return;
+  }
+
+  try {
+    final snapshot = await maintenanceModeDocument().get();
+    maintenanceModeConfig.value = MaintenanceModeConfig.fromSnapshot(snapshot);
+  } catch (error) {
+    debugPrint('Maintenance config refresh failed: $error');
+  }
+}
+
+Future<void> initializeMaintenanceMode() async {
+  await maintenanceModeSubscription?.cancel();
+  await refreshMaintenanceMode();
+
+  maintenanceModeSubscription = maintenanceModeDocument().snapshots().listen(
+    (snapshot) {
+      maintenanceModeConfig.value = MaintenanceModeConfig.fromSnapshot(
+        snapshot,
+      );
+    },
+    onError: (Object error) {
+      debugPrint('Maintenance config watcher failed: $error');
+    },
+  );
+}
+
 const _ruText = <String, String>{
   'Spots': 'Споты',
   'Map': 'Карта',
@@ -135,6 +222,7 @@ const _ruText = <String, String>{
       'Здесь будут появляться последние обновления CCS.',
   'CCS notification center is ready.': 'Центр уведомлений CCS готов к работе.',
   'Refresh': 'Обновить',
+  'Retry': 'Повторить',
   'Approved car spots': 'Одобренные автомобильные споты',
   'Filters': 'Фильтры',
   'Explore filters': 'Фильтры спотов',
@@ -484,6 +572,8 @@ const _ruText = <String, String>{
   'Only one active SOS is allowed.': 'Можно создать только один активный SOS.',
   'Close your current SOS before creating a new one.':
       'Закройте текущий SOS перед созданием нового.',
+  'Close the current SOS or wait one minute before creating another one.':
+      'Закройте текущий SOS или подождите одну минуту перед созданием нового.',
   'Description looks like spam. Please write clearly what happened.':
       'Описание похоже на спам. Напишите понятно, что случилось.',
   'Police already marked nearby.': 'Полиция уже отмечена рядом.',
@@ -715,6 +805,7 @@ const _lvText = <String, String>{
       'Šeit parādīsies jaunākie CCS atjauninājumi.',
   'CCS notification center is ready.': 'CCS paziņojumu centrs ir gatavs.',
   'Refresh': 'Atjaunot',
+  'Retry': 'Mēģināt vēlreiz',
   'Approved car spots': 'Apstiprinātas auto vietas',
   'Filters': 'Filtri',
   'Explore filters': 'Vietu filtri',
@@ -1063,6 +1154,8 @@ const _lvText = <String, String>{
   'Only one active SOS is allowed.': 'Atļauts tikai viens aktīvs SOS.',
   'Close your current SOS before creating a new one.':
       'Aizveriet pašreizējo SOS pirms jauna izveides.',
+  'Close the current SOS or wait one minute before creating another one.':
+      'Aizveriet pašreizējo SOS vai uzgaidiet vienu minūti pirms jauna izveides.',
   'Description looks like spam. Please write clearly what happened.':
       'Apraksts izskatās pēc spama. Uzrakstiet skaidri, kas notika.',
   'Police already marked nearby.': 'Policija jau ir atzīmēta tuvumā.',
@@ -1603,6 +1696,7 @@ Future<void> main() async {
       options: DefaultFirebaseOptions.currentPlatform,
     );
     firebaseReady = true;
+    await initializeMaintenanceMode();
     FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
 
     // Google Sign-In needs one setup call before we use the login button.
@@ -1673,9 +1767,11 @@ class CCSApp extends StatelessWidget {
             ),
           ),
           builder: (context, child) {
-            return Stack(
-              fit: StackFit.expand,
-              children: [const AppMapBackground(), if (child != null) child],
+            return MaintenanceModeGate(
+              child: Stack(
+                fit: StackFit.expand,
+                children: [const AppMapBackground(), if (child != null) child],
+              ),
             );
           },
           home:
@@ -1686,6 +1782,122 @@ class CCSApp extends StatelessWidget {
               : const SplashScreen(),
         );
       },
+    );
+  }
+}
+
+class MaintenanceModeGate extends StatelessWidget {
+  final Widget child;
+
+  const MaintenanceModeGate({super.key, required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: Listenable.merge([
+        maintenanceModeConfig,
+        maintenanceAccessRevision,
+      ]),
+      builder: (context, _) {
+        final config = maintenanceModeConfig.value;
+        final isSignedIn = FirebaseAuth.instance.currentUser != null;
+        final canAdminBypass =
+            isSignedIn &&
+            config.allowAdminBypass &&
+            currentUser.role == UserRole.admin;
+
+        // Keep login reachable so an administrator can authenticate during maintenance.
+        if (!config.maintenanceEnabled || !isSignedIn || canAdminBypass) {
+          return child;
+        }
+
+        return MaintenanceModeScreen(config: config);
+      },
+    );
+  }
+}
+
+class MaintenanceModeScreen extends StatelessWidget {
+  final MaintenanceModeConfig config;
+
+  const MaintenanceModeScreen({super.key, required this.config});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      body: Stack(
+        fit: StackFit.expand,
+        children: [
+          Image.asset('assets/bg.png', fit: BoxFit.cover),
+          Container(color: Colors.black.withValues(alpha: 0.82)),
+          SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 30),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const _CcsWordmark(width: 196),
+                  const SizedBox(height: 38),
+                  const Icon(
+                    Icons.build_circle_outlined,
+                    size: 54,
+                    color: blue,
+                  ),
+                  const SizedBox(height: 22),
+                  material.Text(
+                    config.maintenanceTitle,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 25,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 420),
+                    child: material.Text(
+                      config.maintenanceMessage,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        color: Colors.white70,
+                        fontSize: 15,
+                        height: 1.45,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 30),
+                  ElevatedButton.icon(
+                    onPressed: () => unawaited(refreshMaintenanceMode()),
+                    icon: const Icon(Icons.refresh, color: Colors.white),
+                    label: const Text(
+                      'Retry',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: blue,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 26,
+                        vertical: 15,
+                      ),
+                      elevation: 10,
+                      shadowColor: blue.withValues(alpha: 0.36),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -2859,6 +3071,11 @@ AppUser currentUser = const AppUser(
   country: '',
 );
 
+void setCurrentUser(AppUser value) {
+  currentUser = value;
+  refreshMaintenanceAccess();
+}
+
 String roleName(UserRole role) {
   switch (role) {
     case UserRole.admin:
@@ -2930,15 +3147,17 @@ Future<void> signOutCurrentAccount() async {
     await FirebaseAuth.instance.signOut();
   } catch (_) {}
 
-  currentUser = const AppUser(
-    uid: '',
-    name: '',
-    username: '',
+  setCurrentUser(
+    const AppUser(
+      uid: '',
+      name: '',
+      username: '',
     email: '',
     role: UserRole.user,
     verified: false,
-    city: '',
-    country: '',
+      city: '',
+      country: '',
+    ),
   );
 
   reviewSpots.value = [];
@@ -2975,6 +3194,9 @@ SpotStatus spotStatusFromFirebase(Object? value) {
   }
 }
 
+const minProfileUsernameLength = 3;
+const maxProfileUsernameLength = 30;
+
 String cleanProfileUsername(String value) {
   return value
       .trim()
@@ -2983,6 +3205,23 @@ String cleanProfileUsername(String value) {
       .replaceAll(RegExp(r'[^a-zA-Z0-9_]+'), '')
       .replaceAll(RegExp(r'_+'), '_')
       .replaceAll(RegExp(r'^_|_$'), '');
+}
+
+String boundedProfileUsername(String value) {
+  final cleanValue = cleanProfileUsername(value);
+  return cleanValue.length <= maxProfileUsernameLength
+      ? cleanValue
+      : cleanValue.substring(0, maxProfileUsernameLength);
+}
+
+String usernameWithSuffix(String value, String suffix) {
+  final cleanValue = boundedProfileUsername(value);
+  final cleanSuffix = cleanProfileUsername(suffix);
+  final maxBaseLength = maxProfileUsernameLength - cleanSuffix.length - 1;
+  final compactValue = cleanValue.length <= maxBaseLength
+      ? cleanValue
+      : cleanValue.substring(0, maxBaseLength);
+  return '${compactValue}_$cleanSuffix';
 }
 
 String usernameKey(String value) {
@@ -3006,7 +3245,7 @@ String makeUsernameFromFirebaseUser(User user) {
       : (emailName != null && emailName.isNotEmpty)
       ? emailName
       : 'ccs_driver';
-  final cleanName = cleanProfileUsername(rawName);
+  final cleanName = boundedProfileUsername(rawName);
 
   return cleanName.isEmpty ? 'ccs_driver' : cleanName;
 }
@@ -3044,7 +3283,8 @@ Future<UsernameAvailability> checkUsernameAvailabilityForCurrentUser(
   final firebaseUser = FirebaseAuth.instance.currentUser;
   final cleanUsername = cleanProfileUsername(username);
 
-  if (cleanUsername.length < 3) {
+  if (cleanUsername.length < minProfileUsernameLength ||
+      cleanUsername.length > maxProfileUsernameLength) {
     return UsernameAvailability.invalid;
   }
 
@@ -3085,7 +3325,7 @@ String usernameAvailabilityText(UsernameAvailability availability) {
     case UsernameAvailability.taken:
       return 'This nickname is already taken.';
     case UsernameAvailability.invalid:
-      return 'Nickname must be at least 3 characters.';
+      return 'Nickname must be 3 to 30 characters.';
     case UsernameAvailability.error:
       return 'Could not check nickname availability.';
   }
@@ -3140,11 +3380,12 @@ Future<String> reserveUsernameForCurrentUser({
 
   final cleanPreferred = cleanProfileUsername(preferredUsername);
 
-  if (cleanPreferred.length < 3) {
+  if (cleanPreferred.length < minProfileUsernameLength ||
+      cleanPreferred.length > maxProfileUsernameLength) {
     throw FirebaseException(
       plugin: 'cloud_firestore',
-      code: 'username-too-short',
-      message: 'Nickname must be at least 3 characters.',
+      code: 'username-invalid-length',
+      message: 'Nickname must be 3 to 30 characters.',
     );
   }
 
@@ -3154,8 +3395,8 @@ Future<String> reserveUsernameForCurrentUser({
     final candidate = attempt == 0
         ? cleanPreferred
         : attempt == 1
-        ? '${cleanPreferred}_$suffix'
-        : '${cleanPreferred}_${suffix}_$attempt';
+        ? usernameWithSuffix(cleanPreferred, suffix)
+        : usernameWithSuffix(cleanPreferred, '${suffix}_$attempt');
     final key = usernameKey(candidate);
     final usernameRef = usernamesCollection().doc(key);
     final previousKey = previousUsername == null
@@ -3225,9 +3466,11 @@ Future<AppUser?> loadCurrentFirebaseUser() async {
   }
 
   try {
-    currentUser = await saveFirebaseUser(
-      firebaseUser,
-      provider: providerNameForFirebaseUser(firebaseUser),
+    setCurrentUser(
+      await saveFirebaseUser(
+        firebaseUser,
+        provider: providerNameForFirebaseUser(firebaseUser),
+      ),
     );
     return currentUser;
   } catch (_) {
@@ -3281,7 +3524,7 @@ Future<AppUser> saveFirebaseUser(
       ? usernameOverride!.trim()
       : makeUsernameFromFirebaseUser(firebaseUser);
   final username = await reserveUsernameForCurrentUser(
-    preferredUsername: rawUsername,
+    preferredUsername: boundedProfileUsername(rawUsername),
     previousUsername: data?['username'] as String?,
     allowFallback: true,
   );
@@ -3446,14 +3689,16 @@ Future<AppUser> signInWithTelegramAndSaveUser() async {
       ? telegramUsername
       : 'telegram_$telegramId';
 
-  currentUser = await saveFirebaseUser(
-    firebaseUser,
-    provider: 'telegram',
-    displayNameOverride: fullName.isEmpty ? '$fallbackUsername' : fullName,
-    usernameOverride: fallbackUsername,
-    emailOverride: '',
-    photoUrlOverride: photoUrl.isEmpty ? null : photoUrl,
-    telegramUsername: fallbackUsername,
+  setCurrentUser(
+    await saveFirebaseUser(
+      firebaseUser,
+      provider: 'telegram',
+      displayNameOverride: fullName.isEmpty ? '$fallbackUsername' : fullName,
+      usernameOverride: fallbackUsername,
+      emailOverride: '',
+      photoUrlOverride: photoUrl.isEmpty ? null : photoUrl,
+      telegramUsername: fallbackUsername,
+    ),
   );
   startFirebaseSpotSync();
   unawaited(initializePushNotificationsForCurrentUser());
@@ -3723,7 +3968,7 @@ Future<AppUser> signInWithGoogleAndSaveUser() async {
     throw Exception('Firebase login finished without a user.');
   }
 
-  currentUser = await saveFirebaseUser(firebaseUser, provider: 'google');
+  setCurrentUser(await saveFirebaseUser(firebaseUser, provider: 'google'));
   startFirebaseSpotSync();
   unawaited(initializePushNotificationsForCurrentUser());
   return currentUser;
@@ -13137,7 +13382,7 @@ class _MapScreenState extends State<MapScreen>
     if (location == null) {
       return;
     }
-    final docRef = sosReportsCollection().doc();
+    final docRef = sosReportsCollection().doc(firebaseUser.uid);
 
     try {
       await docRef.set({
@@ -13163,7 +13408,7 @@ class _MapScreenState extends State<MapScreen>
             content: Text(
               error.code == 'permission-denied'
                   ? trText(
-                      'SOS cannot be created until Firestore rules allow sos_reports.',
+                      'Close the current SOS or wait one minute before creating another one.',
                     )
                   : 'Could not create SOS: ${error.message ?? error.code}',
               style: const TextStyle(
@@ -24564,18 +24809,20 @@ Future<void> saveProfileToFirebase(UserProfileData profile) async {
     nextAvatarPath = null;
   }
 
-  currentUser = AppUser(
-    uid: currentUser.uid,
-    name: currentUser.name,
-    username: cleanUsername,
-    email: currentUser.email,
-    photoUrl: nextPhotoUrl,
-    bio: profile.bio,
-    avatarPath: nextAvatarPath,
-    role: currentUser.role,
-    verified: currentUser.verified,
-    city: cityCountry[0],
-    country: cityCountry[1],
+  setCurrentUser(
+    AppUser(
+      uid: currentUser.uid,
+      name: currentUser.name,
+      username: cleanUsername,
+      email: currentUser.email,
+      photoUrl: nextPhotoUrl,
+      bio: profile.bio,
+      avatarPath: nextAvatarPath,
+      role: currentUser.role,
+      verified: currentUser.verified,
+      city: cityCountry[0],
+      country: cityCountry[1],
+    ),
   );
 
   final nextSettings = userSettings.value.copyWith(
@@ -27511,7 +27758,8 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
 
     final cleanUsername = cleanProfileUsername(usernameController.text);
 
-    if (cleanUsername.length < 3) {
+    if (cleanUsername.length < minProfileUsernameLength ||
+        cleanUsername.length > maxProfileUsernameLength) {
       setState(() => usernameAvailability = UsernameAvailability.invalid);
       return;
     }
@@ -28432,18 +28680,20 @@ class AdminVerifiedUsersScreen extends StatelessWidget {
       }, SetOptions(merge: true));
 
       if (user.uid == currentUser.uid) {
-        currentUser = AppUser(
-          uid: currentUser.uid,
-          name: currentUser.name,
-          username: currentUser.username,
-          email: currentUser.email,
-          photoUrl: currentUser.photoUrl,
-          bio: currentUser.bio,
-          avatarPath: currentUser.avatarPath,
-          role: currentUser.role,
-          verified: verified || userRoleIsStaff(currentUser.role),
-          city: currentUser.city,
-          country: currentUser.country,
+        setCurrentUser(
+          AppUser(
+            uid: currentUser.uid,
+            name: currentUser.name,
+            username: currentUser.username,
+            email: currentUser.email,
+            photoUrl: currentUser.photoUrl,
+            bio: currentUser.bio,
+            avatarPath: currentUser.avatarPath,
+            role: currentUser.role,
+            verified: verified || userRoleIsStaff(currentUser.role),
+            city: currentUser.city,
+            country: currentUser.country,
+          ),
         );
       }
     } catch (error) {

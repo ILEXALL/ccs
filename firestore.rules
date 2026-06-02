@@ -65,6 +65,71 @@ service cloud.firestore {
         && data.get('banned', false) != true;
     }
 
+    function validUsername(username) {
+      return username is string
+        && username.size() >= 3
+        && username.size() <= 30
+        && username.matches('^[a-zA-Z0-9_]+$');
+    }
+
+    function validUsernameKey(username, usernameKey) {
+      return usernameKey is string
+        && usernameKey == username.lower()
+        && usernameKey.matches('^[a-z0-9_]{3,30}$');
+    }
+
+    function usernameReservationOwnedBy(userId, username, usernameKey) {
+      let reservation = get(
+        /databases/$(database)/documents/usernames/$(usernameKey)
+      );
+      return validUsername(username)
+        && validUsernameKey(username, usernameKey)
+        && reservation.data.uid == userId
+        && reservation.data.username == username
+        && reservation.data.usernameKey == usernameKey;
+    }
+
+    function validUsernameReservation(usernameKey) {
+      return request.resource.data.keys().hasOnly([
+          'uid',
+          'username',
+          'usernameKey',
+          'updatedAt'
+        ])
+        && request.resource.data.uid == currentUid()
+        && validUsername(request.resource.data.username)
+        && validUsernameKey(request.resource.data.username, usernameKey)
+        && request.resource.data.usernameKey == usernameKey
+        && request.resource.data.updatedAt == request.time;
+    }
+
+    function selfUsernameValidOrUnchanged() {
+      return !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+          'username',
+          'usernameKey'
+        ])
+        || usernameReservationOwnedBy(
+          currentUid(),
+          request.resource.data.username,
+          request.resource.data.usernameKey
+        );
+    }
+
+    function validMaintenanceConfig() {
+      return request.resource.data.keys().hasOnly([
+          'maintenanceEnabled',
+          'maintenanceTitle',
+          'maintenanceMessage',
+          'allowAdminBypass'
+        ])
+        && request.resource.data.maintenanceEnabled is bool
+        && request.resource.data.maintenanceTitle is string
+        && request.resource.data.maintenanceTitle.size() <= 100
+        && request.resource.data.maintenanceMessage is string
+        && request.resource.data.maintenanceMessage.size() <= 500
+        && request.resource.data.allowAdminBypass is bool;
+    }
+
     function selfUserEditableKeys() {
       return [
         'uid',
@@ -119,6 +184,11 @@ service cloud.firestore {
     function validNewUser(userId) {
       return request.resource.data.uid == userId
         && request.resource.data.email is string
+        && usernameReservationOwnedBy(
+          userId,
+          request.resource.data.username,
+          request.resource.data.usernameKey
+        )
         && request.resource.data.get('role', 'user') == 'user'
         && request.resource.data.get('verified', false) != true
         && request.resource.data.get('banned', false) != true
@@ -176,6 +246,14 @@ service cloud.firestore {
         && (
           request.resource.data.get('verifiedOnly', false) != true
           || isVerifiedOrStaff()
+        )
+        && (
+          isStaff()
+          || (
+            request.resource.data.get('ownerUid', '') == ''
+            && request.resource.data.get('ownerUsername', '') == ''
+            && request.resource.data.get('rating', 0) == 0
+          )
         );
     }
 
@@ -274,6 +352,69 @@ service cloud.firestore {
         || (
           currentUid() in request.resource.data.notThereBy
           && request.resource.data.notThereBy.size() >= 3
+        );
+    }
+
+    function validNewSosReport(reportId) {
+      return reportId == currentUid()
+        && request.resource.data.keys().hasOnly([
+          'uid',
+          'username',
+          'description',
+          'reason',
+          'lat',
+          'lng',
+          'coordinates',
+          'createdAt',
+          'expiresAt',
+          'updatedAt',
+          'confirmationRequestedAt',
+          'status'
+        ])
+        && request.resource.data.uid == currentUid()
+        && request.resource.data.username is string
+        && request.resource.data.description is string
+        && request.resource.data.description.size() >= 12
+        && request.resource.data.description.size() <= 500
+        && request.resource.data.reason in [
+          'battery',
+          'tire',
+          'fuel',
+          'towing',
+          'breakdown',
+          'other'
+        ]
+        && request.resource.data.lat is number
+        && request.resource.data.lng is number
+        && request.resource.data.lat >= -90
+        && request.resource.data.lat <= 90
+        && request.resource.data.lng >= -180
+        && request.resource.data.lng <= 180
+        && request.resource.data.coordinates is latlng
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.expiresAt is timestamp
+        && request.resource.data.expiresAt > request.time
+        && request.resource.data.expiresAt
+          <= request.time + duration.value(13, 'h')
+        && request.resource.data.updatedAt == request.time
+        && request.resource.data.get('confirmationRequestedAt', null) == null
+        && request.resource.data.status == 'active';
+    }
+
+    function ownerCanRestartSos(reportId) {
+      return isActiveUser()
+        && resource.data.uid == currentUid()
+        && validNewSosReport(reportId)
+        && (
+          (
+            resource.data.status == 'removed'
+            && resource.data.updatedAt is timestamp
+            && resource.data.updatedAt + duration.value(1, 'm') <= request.time
+          )
+          || (
+            resource.data.expiresAt is timestamp
+            && resource.data.expiresAt <= request.time
+          )
         );
     }
 
@@ -403,6 +544,14 @@ service cloud.firestore {
         );
     }
 
+    match /app_config/{configId} {
+      allow read: if configId == 'main';
+      allow create, update: if configId == 'main'
+        && isAdmin()
+        && validMaintenanceConfig();
+      allow delete: if configId == 'main' && isAdmin();
+    }
+
     match /users/{userId} {
       allow read: if isSignedIn();
       allow create: if isOwner(userId) && validNewUser(userId);
@@ -410,6 +559,7 @@ service cloud.firestore {
         isOwner(userId)
         && isActiveUser()
         && userProtectedFieldsUnchanged()
+        && selfUsernameValidOrUnchanged()
         && request.resource.data.diff(resource.data).affectedKeys()
           .hasOnly(selfUserEditableKeys())
       ) || isAdmin() || moderatorCanUpdateUser();
@@ -419,14 +569,10 @@ service cloud.firestore {
     match /usernames/{usernameKey} {
       allow read: if isSignedIn();
       allow create: if isSignedIn()
-        && request.resource.data.uid == currentUid()
-        && request.resource.data.username is string
-        && request.resource.data.usernameKey == usernameKey;
+        && validUsernameReservation(usernameKey);
       allow update: if isActiveUser()
         && resource.data.uid == currentUid()
-        && request.resource.data.uid == currentUid()
-        && request.resource.data.username is string
-        && request.resource.data.usernameKey == usernameKey
+        && validUsernameReservation(usernameKey)
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           'uid',
           'username',
@@ -533,44 +679,36 @@ service cloud.firestore {
 
     match /sos_reports/{reportId} {
       allow read: if isActiveUser();
-      allow create: if isActiveUser()
-        && request.resource.data.uid == currentUid()
-        && request.resource.data.username is string
-        && request.resource.data.description is string
-        && request.resource.data.reason is string
-        && request.resource.data.lat is number
-        && request.resource.data.lng is number
-        && request.resource.data.coordinates is latlng
-        && request.resource.data.createdAt is timestamp
-        && request.resource.data.expiresAt is timestamp
-        && request.resource.data.updatedAt is timestamp
-        && request.resource.data.status == 'active';
-      allow update: if isActiveUser()
-        && (resource.data.uid == currentUid() || isStaff())
-        && request.resource.data.uid == resource.data.uid
-        && request.resource.data.username == resource.data.username
-        && request.resource.data.lat == resource.data.lat
-        && request.resource.data.lng == resource.data.lng
-        && request.resource.data.coordinates == resource.data.coordinates
-        && request.resource.data.createdAt == resource.data.createdAt
-        && request.resource.data.reason == resource.data.reason
-        && request.resource.data.description == resource.data.description
-        && request.resource.data.status in ['active', 'removed']
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-          'status',
-          'updatedAt',
-          'expiresAt',
-          'confirmationRequestedAt',
-          'removedByUid',
-          'removedAt'
-        ])
-        && (
-          !request.resource.data.keys().hasAny(['removedByUid'])
-          || request.resource.data.removedByUid == currentUid()
-          || isStaff()
+      allow create: if isActiveUser() && validNewSosReport(reportId);
+      allow update: if ownerCanRestartSos(reportId)
+        || (
+          isActiveUser()
+          && (resource.data.uid == currentUid() || isStaff())
+          && resource.data.status == 'active'
+          && request.resource.data.uid == resource.data.uid
+          && request.resource.data.username == resource.data.username
+          && request.resource.data.lat == resource.data.lat
+          && request.resource.data.lng == resource.data.lng
+          && request.resource.data.coordinates == resource.data.coordinates
+          && request.resource.data.createdAt == resource.data.createdAt
+          && request.resource.data.expiresAt == resource.data.expiresAt
+          && request.resource.data.reason == resource.data.reason
+          && request.resource.data.description == resource.data.description
+          && request.resource.data.status in ['active', 'removed']
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'status',
+            'updatedAt',
+            'confirmationRequestedAt',
+            'removedByUid',
+            'removedAt'
+          ])
+          && (
+            !request.resource.data.keys().hasAny(['removedByUid'])
+            || request.resource.data.removedByUid == currentUid()
+            || isStaff()
+          )
         );
-      allow delete: if isStaff()
-        || (isActiveUser() && resource.data.uid == currentUid());
+      allow delete: if isStaff();
     }
 
     match /live_locations/{userId} {
@@ -744,12 +882,12 @@ service cloud.firestore {
     }
 
     match /chats/{chatId} {
-      allow read: if isChatMember(chatId);
+      allow read: if isSignedIn() && currentUid() in resource.data.memberIds;
       allow create: if isActiveUser()
         && request.resource.data.memberIds is list
         && currentUid() in request.resource.data.memberIds
         && request.resource.data.memberIds.size() >= 2;
-      allow update: if isChatMember(chatId)
+      allow update: if isSignedIn() && currentUid() in resource.data.memberIds
         && (
           (
             chatMembershipUnchanged()
