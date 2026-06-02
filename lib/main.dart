@@ -2334,6 +2334,20 @@ const spotCategoryIconAssets = {
   'Food': 'assets/spot_icons/food.png',
 };
 
+const spotCategoryLightIconAssets = {
+  'Drift': 'assets/spot_icons/drift_light.png',
+  'Photo': 'assets/spot_icons/photo_light.png',
+  'Meet': 'assets/spot_icons/meet_light.png',
+  'Drive': 'assets/spot_icons/drive_light.png',
+  'Service': 'assets/spot_icons/service_light.png',
+  'Detailing': 'assets/spot_icons/detailing_light.png',
+  'Wash': 'assets/spot_icons/wash_light.png',
+  'Store': 'assets/spot_icons/store_light.png',
+  'Drag': 'assets/spot_icons/drag_light.png',
+  'Off-road': 'assets/spot_icons/offroad_light.png',
+  'Food': 'assets/spot_icons/food_light.png',
+};
+
 const spotCategoryColors = {
   'Drift': Color(0xFFFF7A00),
   'Photo': Color(0xFF9B35FF),
@@ -2352,8 +2366,13 @@ const regularUserCarIconAsset = 'assets/user_cars/car_blue.png';
 const verifiedUserCarIconAsset = 'assets/user_cars/car_green.png';
 const friendUserCarIconAsset = 'assets/user_cars/car_purple.png';
 
-String spotIconAssetPathForCategory(String category) {
-  return spotCategoryIconAssets[category] ?? spotCategoryIconAssets['Photo']!;
+String spotIconAssetPathForCategory(String category, {CcsMapStyle? mapStyle}) {
+  final assets = mapStyle == CcsMapStyle.light
+      ? spotCategoryLightIconAssets
+      : spotCategoryIconAssets;
+  return assets[category] ??
+      assets['Photo'] ??
+      spotCategoryIconAssets['Photo']!;
 }
 
 String primarySpotCategory(CarSpot spot) {
@@ -2366,8 +2385,11 @@ String primarySpotCategory(CarSpot spot) {
   return 'Photo';
 }
 
-String spotIconAssetPathForSpot(CarSpot spot) {
-  return spotIconAssetPathForCategory(primarySpotCategory(spot));
+String spotIconAssetPathForSpot(CarSpot spot, {CcsMapStyle? mapStyle}) {
+  return spotIconAssetPathForCategory(
+    primarySpotCategory(spot),
+    mapStyle: mapStyle,
+  );
 }
 
 Color spotColorForCategory(String category) {
@@ -5268,13 +5290,13 @@ Future<void> blockUser(FriendUserData user) async {
   await blockedUsersCollection()
       .doc(blockedUserIdFor(firebaseUser.uid, user.uid))
       .set({
-    'blockerUid': firebaseUser.uid,
-    'blockedUid': user.uid,
-    'blockedUsername': user.username,
-    'blockedName': user.name,
-    'blockedPhotoUrl': user.photoUrl ?? '',
-    'createdAt': FieldValue.serverTimestamp(),
-  }, SetOptions(merge: true));
+        'blockerUid': firebaseUser.uid,
+        'blockedUid': user.uid,
+        'blockedUsername': user.username,
+        'blockedName': user.name,
+        'blockedPhotoUrl': user.photoUrl ?? '',
+        'createdAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
 }
 
 Future<void> unblockUser(String blockedUid) async {
@@ -6119,7 +6141,8 @@ Future<void> sendChatMessage({
       (uid) => uid != firebaseUser.uid,
       orElse: () => '',
     );
-    if (otherUid.isNotEmpty && await isDirectChatBlocked(firebaseUser.uid, otherUid)) {
+    if (otherUid.isNotEmpty &&
+        await isDirectChatBlocked(firebaseUser.uid, otherUid)) {
       throw FirebaseException(
         plugin: 'cloud_firestore',
         code: 'user-blocked',
@@ -8784,10 +8807,13 @@ NotificationCenterItem notificationCenterItemFromJson(Object? value) {
   final spotName = pickString('spotName', '');
   final rejectionReason = pickString('rejectionReason', '');
   final chatId = pickFirstString(['chatId', 'threadId', 'conversationId'], '');
-  final actorUid = pickFirstString(
-    ['actorUserId', 'senderUid', 'fromUid', 'friendUid', 'addedByUid'],
-    '',
-  );
+  final actorUid = pickFirstString([
+    'actorUserId',
+    'senderUid',
+    'fromUid',
+    'friendUid',
+    'addedByUid',
+  ], '');
   var body = pickString('body', '');
 
   if ((type == 'spot_review_update' || type == 'spot_decision') &&
@@ -8816,7 +8842,12 @@ NotificationCenterItem notificationCenterItemFromJson(Object? value) {
     chatId: chatId,
     userId: pickString('userId', ''),
     actorUserId: actorUid,
-    addedByUid: pickFirstString(['addedByUid', 'friendUid', 'senderUid', 'fromUid'], ''),
+    addedByUid: pickFirstString([
+      'addedByUid',
+      'friendUid',
+      'senderUid',
+      'fromUid',
+    ], ''),
     status: status,
     rejectionReason: rejectionReason,
   );
@@ -8865,7 +8896,9 @@ NotificationCenterItem notificationCenterItemFromDocument(
         spotName.trim().isEmpty
             ? '${actorUsername.trim().isEmpty ? 'Someone' : '@$actorUsername'} commented on your spot${comment.trim().isEmpty ? '.' : ': $comment'}'
             : '${actorUsername.trim().isEmpty ? 'Someone' : '@$actorUsername'} commented on $spotName${comment.trim().isEmpty ? '.' : ': $comment'}',
-      'chat_message' || 'message' || 'direct_message' => body.trim().isEmpty ? 'New message.' : body,
+      'chat_message' ||
+      'message' ||
+      'direct_message' => body.trim().isEmpty ? 'New message.' : body,
       'new_spot' =>
         spotName.trim().isEmpty
             ? 'New spot was added.'
@@ -8913,7 +8946,8 @@ NotificationCenterItem notificationCenterItemFromDocument(
   final cleanReason = rejectionReason.trim();
   final rejectedWithoutReason =
       cleanReason.isNotEmpty &&
-      (((type == 'spot_review_update' || type == 'spot_decision') && status == 'rejected') ||
+      (((type == 'spot_review_update' || type == 'spot_decision') &&
+              status == 'rejected') ||
           type == 'spot_rejected_by_admin') &&
       !body.toLowerCase().contains('reason:') &&
       body.toLowerCase().contains('rejected');
@@ -8934,21 +8968,30 @@ NotificationCenterItem notificationCenterItemFromDocument(
     spotName: spotName,
     chatId: stringFromFirebase(
       data['chatId'],
-      stringFromFirebase(data['threadId'], stringFromFirebase(data['conversationId'], '')),
+      stringFromFirebase(
+        data['threadId'],
+        stringFromFirebase(data['conversationId'], ''),
+      ),
     ),
     userId: stringFromFirebase(data['userId'], ''),
     actorUserId: stringFromFirebase(
       data['actorUserId'],
       stringFromFirebase(
         data['senderUid'],
-        stringFromFirebase(data['fromUid'], stringFromFirebase(data['friendUid'], '')),
+        stringFromFirebase(
+          data['fromUid'],
+          stringFromFirebase(data['friendUid'], ''),
+        ),
       ),
     ),
     addedByUid: stringFromFirebase(
       data['addedByUid'],
       stringFromFirebase(
         data['friendUid'],
-        stringFromFirebase(data['senderUid'], stringFromFirebase(data['fromUid'], '')),
+        stringFromFirebase(
+          data['senderUid'],
+          stringFromFirebase(data['fromUid'], ''),
+        ),
       ),
     ),
     status: status,
@@ -9508,7 +9551,9 @@ Future<void> openNotificationCenterItem(
     }
   }
 
-  if (item.type == 'chat_message' || item.type == 'message' || item.type == 'direct_message') {
+  if (item.type == 'chat_message' ||
+      item.type == 'message' ||
+      item.type == 'direct_message') {
     final cleanChatId = item.chatId.trim();
     if (cleanChatId.isNotEmpty) {
       try {
@@ -9526,7 +9571,9 @@ Future<void> openNotificationCenterItem(
           return;
         }
       } catch (error) {
-        debugPrint('Could not open chatId=$cleanChatId from notification: $error');
+        debugPrint(
+          'Could not open chatId=$cleanChatId from notification: $error',
+        );
       }
     }
 
@@ -12111,6 +12158,20 @@ extension CcsMapStylePresentation on CcsMapStyle {
     return this == CcsMapStyle.light ? const Color(0xFFE8EDF2) : night;
   }
 
+  Color get mapLabelColor {
+    return this == CcsMapStyle.light ? Colors.black : Colors.white;
+  }
+
+  Color get mapMutedLabelColor {
+    return this == CcsMapStyle.light ? Colors.black54 : Colors.white54;
+  }
+
+  Color get mapLabelShadowColor {
+    return this == CcsMapStyle.light
+        ? Colors.white.withValues(alpha: 0.82)
+        : Colors.black;
+  }
+
   List<double> get tileColorMatrix {
     final brightness = this == CcsMapStyle.dark ? 1.20 : 0.86;
     return [
@@ -12754,7 +12815,7 @@ class _MapScreenState extends State<MapScreen>
       final mapStartLabelBottom = math.max(0.0, iconTopPadding - 14);
 
       Widget iconWidget() {
-        final asset = spotIconAssetPathForSpot(spot);
+        final asset = spotIconAssetPathForSpot(spot, mapStyle: mapStyle);
         final image = Image.asset(
           asset,
           fit: BoxFit.contain,
@@ -12832,13 +12893,16 @@ class _MapScreenState extends State<MapScreen>
                     textAlign: TextAlign.center,
                     style: TextStyle(
                       color: closedNow || isTemporaryUpcoming
-                          ? Colors.white.withValues(alpha: 0.46)
-                          : Colors.white.withValues(alpha: 0.74),
+                          ? mapStyle.mapMutedLabelColor
+                          : mapStyle.mapLabelColor.withValues(alpha: 0.82),
                       fontSize: labelFontSize,
                       fontWeight: FontWeight.w800,
                       letterSpacing: 0.2,
-                      shadows: const [
-                        Shadow(color: Colors.black, blurRadius: 5),
+                      shadows: [
+                        Shadow(
+                          color: mapStyle.mapLabelShadowColor,
+                          blurRadius: 5,
+                        ),
                       ],
                     ),
                   ),
@@ -13249,12 +13313,17 @@ class _MapScreenState extends State<MapScreen>
                             overflow: TextOverflow.ellipsis,
                             textAlign: TextAlign.center,
                             style: TextStyle(
-                              color: Colors.white.withValues(alpha: 0.74),
+                              color: mapStyle.mapLabelColor.withValues(
+                                alpha: 0.82,
+                              ),
                               fontSize: labelFontSize,
                               fontWeight: FontWeight.w800,
                               letterSpacing: 0.2,
-                              shadows: const [
-                                Shadow(color: Colors.black, blurRadius: 5),
+                              shadows: [
+                                Shadow(
+                                  color: mapStyle.mapLabelShadowColor,
+                                  blurRadius: 5,
+                                ),
                               ],
                             ),
                           ),
@@ -24144,7 +24213,11 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
     setState(() => isSending = true);
 
     try {
-      await sendChatMessage(chatId: widget.chat.id, text: text, chat: widget.chat);
+      await sendChatMessage(
+        chatId: widget.chat.id,
+        text: text,
+        chat: widget.chat,
+      );
       messageController.clear();
       scrollToLatestAfterNextMessage = true;
       scheduleScrollToLatestMessage(animated: true);
@@ -26219,7 +26292,10 @@ class BlacklistScreen extends StatelessWidget {
             itemBuilder: (context, index) {
               final data = docs[index].data();
               final blockedUid = stringFromFirebase(data['blockedUid'], '');
-              final username = stringFromFirebase(data['blockedUsername'], 'ccs_driver');
+              final username = stringFromFirebase(
+                data['blockedUsername'],
+                'ccs_driver',
+              );
               final name = stringFromFirebase(data['blockedName'], username);
 
               return Container(
