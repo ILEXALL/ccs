@@ -526,6 +526,25 @@ service cloud.firestore {
         && data.userId in chatData(data.chatId).memberIds;
     }
 
+    function validFriendRequestNotification() {
+      let data = request.resource.data;
+      return data.type == 'friend_request'
+        && data.friendRequestId is string
+        && data.fromUid == currentUid()
+        && exists(
+          /databases/$(database)/documents/friend_requests/$(data.friendRequestId)
+        )
+        && get(
+          /databases/$(database)/documents/friend_requests/$(data.friendRequestId)
+        ).data.fromUid == currentUid()
+        && get(
+          /databases/$(database)/documents/friend_requests/$(data.friendRequestId)
+        ).data.toUid == data.userId
+        && get(
+          /databases/$(database)/documents/friend_requests/$(data.friendRequestId)
+        ).data.status == 'pending';
+    }
+
     function validUserNotificationCreate() {
       let data = request.resource.data;
       return isActiveUser()
@@ -541,6 +560,7 @@ service cloud.firestore {
           || validSpotLikeNotification()
           || validSpotCommentNotification()
           || validChatMessageNotification()
+          || validFriendRequestNotification()
         );
     }
 

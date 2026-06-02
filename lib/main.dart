@@ -441,6 +441,10 @@ const _ruText = <String, String>{
   'Admins publish instantly. User spots wait for review.':
       'Споты администраторов публикуются сразу. Остальные ждут проверки.',
   'Approved spots': 'Одобренные споты',
+  'CCS Dark': 'CCS Тёмная',
+  'CCS Light': 'CCS Светлая',
+  'Auto': 'Авто',
+  'Automatic map style': 'Автоматическая карта',
   'Are you sure you want to delete this comment?':
       'Вы уверены, что хотите удалить комментарий?',
   'By continuing, you agree to our Terms & Privacy Policy':
@@ -1024,6 +1028,10 @@ const _lvText = <String, String>{
   'Admins publish instantly. User spots wait for review.':
       'Administratoru vietas publicē uzreiz. Citas vietas gaida pārbaudi.',
   'Approved spots': 'Apstiprinātās vietas',
+  'CCS Dark': 'CCS Tumša',
+  'CCS Light': 'CCS Gaiša',
+  'Auto': 'Auto',
+  'Automatic map style': 'Automātiska karte',
   'Are you sure you want to delete this comment?':
       'Vai tiešām vēlaties dzēst komentāru?',
   'By continuing, you agree to our Terms & Privacy Policy':
@@ -5189,6 +5197,19 @@ CollectionReference<Map<String, dynamic>> friendRequestsCollection() {
   return FirebaseFirestore.instance.collection('friend_requests');
 }
 
+Stream<int> incomingFriendRequestCountStream() {
+  final firebaseUser = FirebaseAuth.instance.currentUser;
+  if (firebaseUser == null) {
+    return Stream.value(0);
+  }
+
+  return friendRequestsCollection()
+      .where('toUid', isEqualTo: firebaseUser.uid)
+      .where('status', isEqualTo: 'pending')
+      .snapshots()
+      .map((snapshot) => snapshot.docs.length);
+}
+
 CollectionReference<Map<String, dynamic>> friendshipsCollection() {
   return FirebaseFirestore.instance.collection('friendships');
 }
@@ -5424,9 +5445,14 @@ Future<void> sendFriendRequestToUser(FriendUserData user) async {
     return;
   }
 
-  await friendRequestsCollection()
-      .doc(friendRequestIdFor(firebaseUser.uid, user.uid))
-      .set({
+  final requestId = friendRequestIdFor(firebaseUser.uid, user.uid);
+  final outgoingRef = friendRequestsCollection().doc(requestId);
+  final outgoing = await outgoingRef.get();
+  if (outgoing.exists && outgoing.data()?['status'] == 'pending') {
+    return;
+  }
+
+  await outgoingRef.set({
         'fromUid': firebaseUser.uid,
         'fromUsername': currentUser.username,
         'fromName': currentUser.name,
@@ -5437,6 +5463,20 @@ Future<void> sendFriendRequestToUser(FriendUserData user) async {
         'createdAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
+
+  await createUserNotification(
+    userId: user.uid,
+    type: 'friend_request',
+    title: 'New friend request',
+    body: '@${currentUser.username} sent you a friend request.',
+    settingName: 'friendRequestNotifications',
+    notificationId: 'friend_request_$requestId',
+    extra: {
+      'friendRequestId': requestId,
+      'fromUid': firebaseUser.uid,
+      'friendUsername': currentUser.username,
+    },
+  );
 }
 
 Future<void> acceptFriendRequest(FriendRequestData request) async {
@@ -5870,13 +5910,6 @@ Future<String> createOrOpenDirectChat(FriendUserData user) async {
       'updatedAt': FieldValue.serverTimestamp(),
       'createdAt': FieldValue.serverTimestamp(),
     });
-  } else {
-    await chatRef.set({
-      'memberIds': memberIds,
-      'memberUsernames': memberUsernames,
-      'memberPhotoUrls': [currentUser.photoUrl ?? '', user.photoUrl ?? ''],
-      'updatedAt': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
   }
 
   return chatId;
@@ -8431,6 +8464,7 @@ class NotificationCenterItem {
           chatId.trim().isNotEmpty ||
           addedByUid.trim().isNotEmpty ||
           userId.trim().isNotEmpty ||
+          type == 'friend_request' ||
           type == 'spot_pending_review');
 }
 
@@ -8489,6 +8523,7 @@ IconData notificationCenterIcon(NotificationCenterItem item) {
     'spot_rejected_by_admin' => Icons.cancel,
     'new_spot' => Icons.add_location_alt,
     'temporary_event' => Icons.event_available,
+    'friend_request' => Icons.person_add_alt_1,
     'friend_nearby' || 'friend_at_spot' => Icons.location_on,
     _ => Icons.notifications,
   };
@@ -8514,6 +8549,7 @@ Color notificationCenterColor(NotificationCenterItem item) {
     'spot_pending_review' => blue,
     'new_spot' => const Color(0xFF9B35FF),
     'temporary_event' => const Color(0xFFFF7A00),
+    'friend_request' => blue,
     'friend_nearby' || 'friend_at_spot' => Colors.greenAccent.shade700,
     _ => blue,
   };
@@ -8632,6 +8668,7 @@ NotificationCenterItem notificationCenterItemFromDocument(
     'spot_pending_review' => 'Spot review updates',
     'spot_approved_by_admin' ||
     'spot_rejected_by_admin' => 'Spot review updates',
+    'friend_request' => 'New friend request',
     'friend_nearby' || 'friend_at_spot' => 'Live location',
     'project_news' => 'Project news',
     _ => 'CCS',
@@ -8677,6 +8714,10 @@ NotificationCenterItem notificationCenterItemFromDocument(
         spotName.trim().isEmpty
             ? 'Spot rejected${rejectionReason.trim().isEmpty ? '.' : '. Reason: $rejectionReason'}'
             : '$spotName rejected${reviewedBy.trim().isEmpty ? '' : ' by $reviewedBy'}${rejectionReason.trim().isEmpty ? '.' : '. Reason: $rejectionReason'}',
+      'friend_request' =>
+        friendUsername.trim().isEmpty
+            ? 'Someone sent you a friend request.'
+            : '@$friendUsername sent you a friend request.',
       'friend_nearby' =>
         friendUsername.trim().isEmpty
             ? 'A friend is nearby.'
@@ -9281,6 +9322,14 @@ Future<void> openNotificationCenterItem(
         ),
       );
     }
+    return;
+  }
+
+  if (item.type == 'friend_request') {
+    Navigator.push(
+      context,
+      appPageRoute(builder: (_) => const FriendsScreen(initialTabIndex: 1)),
+    );
     return;
   }
 
@@ -11796,6 +11845,76 @@ class CurrentUserTrianglePainter extends CustomPainter {
   bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
+enum CcsMapStyle { dark, light }
+
+const ccsMapStylePreferenceKey = 'ccs_map_style';
+const ccsAdaptiveMapStylePreferenceKey = 'ccs_adaptive_map_style';
+
+CcsMapStyle mapStyleForLocalTime(DateTime time) {
+  return time.hour >= 7 && time.hour < 21
+      ? CcsMapStyle.light
+      : CcsMapStyle.dark;
+}
+
+extension CcsMapStylePresentation on CcsMapStyle {
+  String get label {
+    switch (this) {
+      case CcsMapStyle.dark:
+        return 'CCS Dark';
+      case CcsMapStyle.light:
+        return 'CCS Light';
+    }
+  }
+
+  IconData get icon {
+    switch (this) {
+      case CcsMapStyle.dark:
+        return Icons.dark_mode_outlined;
+      case CcsMapStyle.light:
+        return Icons.light_mode_outlined;
+    }
+  }
+
+  String get tileUrl {
+    switch (this) {
+      case CcsMapStyle.dark:
+        return 'https://basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png';
+      case CcsMapStyle.light:
+        return 'https://basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png';
+    }
+  }
+
+  Color get backgroundColor {
+    return this == CcsMapStyle.light ? const Color(0xFFE8EDF2) : night;
+  }
+
+  List<double> get tileColorMatrix {
+    final brightness = this == CcsMapStyle.dark ? 1.20 : 0.86;
+    return [
+      brightness,
+      0,
+      0,
+      0,
+      0,
+      0,
+      brightness,
+      0,
+      0,
+      0,
+      0,
+      0,
+      brightness,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+    ];
+  }
+}
+
 class MapScreen extends StatefulWidget {
   final bool isVisible;
 
@@ -11818,6 +11937,7 @@ class _MapScreenState extends State<MapScreen>
   final mapController = MapController();
   late final AnimationController mapAlertPulseController;
   Timer? temporarySpotRefreshTimer;
+  Timer? adaptiveMapStyleTimer;
   Timer? liveLocationUploadTimer;
   Timer? liveLocationPromptTimer;
   Timer? liveLocationAutoStopTimer;
@@ -11870,6 +11990,8 @@ class _MapScreenState extends State<MapScreen>
   bool mapCenteredOnCurrentUser = false;
   bool mapCameraReady = false;
   int? lastHandledMapFocusRequestToken;
+  CcsMapStyle mapStyle = CcsMapStyle.dark;
+  bool adaptiveMapStyleEnabled = false;
 
   double scaledMapIconValue({
     required double zoom,
@@ -11911,6 +12033,11 @@ class _MapScreenState extends State<MapScreen>
     loadFriendLiveLocationUids();
     startPoliceReportSync();
     startSosReportSync();
+    unawaited(loadMapStylePreference());
+    adaptiveMapStyleTimer = Timer.periodic(
+      const Duration(minutes: 1),
+      (_) => refreshAdaptiveMapStyle(),
+    );
     sosDistanceCheckTimer = Timer.periodic(
       const Duration(seconds: 30),
       (_) => checkOwnSosDistance(),
@@ -11924,6 +12051,105 @@ class _MapScreenState extends State<MapScreen>
       restoreMapCamera();
       handleMapFocusRequest();
     });
+  }
+
+  Future<void> loadMapStylePreference() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final savedStyle = prefs.getString(ccsMapStylePreferenceKey);
+      final savedManualStyle = CcsMapStyle.values.firstWhere(
+        (style) => style.name == savedStyle,
+        orElse: () => CcsMapStyle.dark,
+      );
+      final nextAdaptiveMapStyleEnabled =
+          prefs.getBool(ccsAdaptiveMapStylePreferenceKey) ?? false;
+      final nextStyle = nextAdaptiveMapStyleEnabled
+          ? mapStyleForLocalTime(DateTime.now())
+          : savedManualStyle;
+
+      if (!mounted ||
+          (nextStyle == mapStyle &&
+              nextAdaptiveMapStyleEnabled == adaptiveMapStyleEnabled)) {
+        return;
+      }
+
+      setState(() {
+        mapStyle = nextStyle;
+        adaptiveMapStyleEnabled = nextAdaptiveMapStyleEnabled;
+      });
+    } catch (_) {}
+  }
+
+  Future<void> setMapStyle(CcsMapStyle value) async {
+    if (value == mapStyle && !adaptiveMapStyleEnabled) {
+      return;
+    }
+
+    setState(() {
+      mapStyle = value;
+      adaptiveMapStyleEnabled = false;
+    });
+
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(ccsMapStylePreferenceKey, value.name);
+      await prefs.setBool(ccsAdaptiveMapStylePreferenceKey, false);
+    } catch (_) {}
+  }
+
+  Future<void> setAdaptiveMapStyle(bool enabled) async {
+    final nextStyle = enabled ? mapStyleForLocalTime(DateTime.now()) : mapStyle;
+
+    if (enabled == adaptiveMapStyleEnabled && nextStyle == mapStyle) {
+      return;
+    }
+
+    setState(() {
+      adaptiveMapStyleEnabled = enabled;
+      mapStyle = nextStyle;
+    });
+
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(ccsAdaptiveMapStylePreferenceKey, enabled);
+      if (!enabled) {
+        await prefs.setString(ccsMapStylePreferenceKey, nextStyle.name);
+      }
+    } catch (_) {}
+  }
+
+  void refreshAdaptiveMapStyle() {
+    if (!mounted || !adaptiveMapStyleEnabled) {
+      return;
+    }
+
+    final nextStyle = mapStyleForLocalTime(DateTime.now());
+    if (nextStyle != mapStyle) {
+      setState(() => mapStyle = nextStyle);
+    }
+  }
+
+  List<SourceAttribution> get mapAttributions {
+    return [
+      TextSourceAttribution(
+        'CARTO',
+        onTap: () => unawaited(
+          launchUrl(
+            Uri.parse('https://carto.com/basemaps'),
+            mode: LaunchMode.externalApplication,
+          ),
+        ),
+      ),
+      TextSourceAttribution(
+        'OpenStreetMap contributors',
+        onTap: () => unawaited(
+          launchUrl(
+            Uri.parse('https://www.openstreetmap.org/copyright'),
+            mode: LaunchMode.externalApplication,
+          ),
+        ),
+      ),
+    ];
   }
 
   @override
@@ -14853,6 +15079,7 @@ class _MapScreenState extends State<MapScreen>
   @override
   void dispose() {
     temporarySpotRefreshTimer?.cancel();
+    adaptiveMapStyleTimer?.cancel();
     liveLocationUploadTimer?.cancel();
     liveLocationPromptTimer?.cancel();
     liveLocationAutoStopTimer?.cancel();
@@ -15259,7 +15486,7 @@ class _MapScreenState extends State<MapScreen>
               initialRotation: currentMapRotationDegrees,
               minZoom: 4,
               maxZoom: 18,
-              backgroundColor: night,
+              backgroundColor: mapStyle.backgroundColor,
               onPositionChanged: (camera, hasGesture) {
                 if (!isValidLatLng(camera.center) || !camera.zoom.isFinite) {
                   WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -15298,24 +15525,41 @@ class _MapScreenState extends State<MapScreen>
               }),
             ),
             children: [
-              TileLayer(
-                urlTemplate:
-                    'https://basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',
-                userAgentPackageName: 'com.example.ccs_app',
-                maxNativeZoom: 19,
+              ColorFiltered(
+                colorFilter: ColorFilter.matrix(mapStyle.tileColorMatrix),
+                child: TileLayer(
+                  key: ValueKey(mapStyle),
+                  urlTemplate: mapStyle.tileUrl,
+                  userAgentPackageName: 'com.example.ccs_app',
+                  maxNativeZoom: 19,
+                ),
               ),
               MarkerLayer(markers: allMapMarkers),
+              RichAttributionWidget(
+                attributions: mapAttributions,
+                showFlutterMapAttribution: false,
+                popupBackgroundColor: panelGlass,
+              ),
             ],
           ),
           SafeArea(
             child: Column(
               children: [
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 10),
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
                   child: _MapHeader(
                     isSharingLiveLocation: isSharingLiveLocation,
                     isBusy: isTogglingLiveLocation,
                     onShareChanged: toggleLiveLocationSharing,
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                  child: MapStyleSelector(
+                    selectedStyle: mapStyle,
+                    adaptiveEnabled: adaptiveMapStyleEnabled,
+                    onSelected: setMapStyle,
+                    onAdaptiveChanged: setAdaptiveMapStyle,
                   ),
                 ),
                 Padding(
@@ -15334,7 +15578,7 @@ class _MapScreenState extends State<MapScreen>
           ),
           Positioned(
             left: 16,
-            bottom: hasBottomCard ? 196 : 18,
+            bottom: hasBottomCard ? 218 : 50,
             child: FloatingActionButton.small(
               heroTag: 'add_map_report',
               onPressed: (isAddingPoliceReport || isAddingSosReport)
@@ -15356,7 +15600,7 @@ class _MapScreenState extends State<MapScreen>
           ),
           Positioned(
             right: 16,
-            bottom: hasBottomCard ? 196 : 18,
+            bottom: hasBottomCard ? 218 : 50,
             child: FloatingActionButton.small(
               heroTag: 'current_location',
               onPressed: isLocatingUser ? null : () => moveToCurrentLocation(),
@@ -15443,6 +15687,130 @@ class _MapScreenState extends State<MapScreen>
                 ),
               ),
             ),
+        ],
+      ),
+    );
+  }
+}
+
+class MapStyleSelector extends StatelessWidget {
+  final CcsMapStyle selectedStyle;
+  final bool adaptiveEnabled;
+  final ValueChanged<CcsMapStyle> onSelected;
+  final ValueChanged<bool> onAdaptiveChanged;
+
+  const MapStyleSelector({
+    super.key,
+    required this.selectedStyle,
+    required this.adaptiveEnabled,
+    required this.onSelected,
+    required this.onAdaptiveChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 48,
+      padding: const EdgeInsets.all(4),
+      decoration: BoxDecoration(
+        color: panelGlass,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.white12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.24),
+            blurRadius: 16,
+            offset: const Offset(0, 7),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          for (final style in CcsMapStyle.values)
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 2),
+                child: Material(
+                  color: selectedStyle == style
+                      ? blue.withValues(alpha: 0.22)
+                      : Colors.transparent,
+                  borderRadius: BorderRadius.circular(8),
+                  child: InkWell(
+                    onTap: () => onSelected(style),
+                    borderRadius: BorderRadius.circular(8),
+                    child: Container(
+                      height: double.infinity,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(
+                          color: selectedStyle == style
+                              ? blue
+                              : Colors.transparent,
+                        ),
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            style.icon,
+                            size: 16,
+                            color: selectedStyle == style
+                                ? blue
+                                : Colors.white60,
+                          ),
+                          const SizedBox(width: 5),
+                          Flexible(
+                            child: Text(
+                              style.label,
+                              maxLines: 1,
+                              overflow: TextOverflow.fade,
+                              softWrap: false,
+                              style: TextStyle(
+                                color: selectedStyle == style
+                                    ? Colors.white
+                                    : Colors.white70,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          Container(
+            width: 1,
+            height: 24,
+            margin: const EdgeInsets.symmetric(horizontal: 4),
+            color: Colors.white12,
+          ),
+          Tooltip(
+            message: trText('Automatic map style'),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  'Auto',
+                  style: TextStyle(
+                    color: adaptiveEnabled ? blue : Colors.white60,
+                    fontSize: 10,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                Transform.scale(
+                  scale: 0.58,
+                  child: Switch(
+                    value: adaptiveEnabled,
+                    activeThumbColor: blue,
+                    onChanged: onAdaptiveChanged,
+                  ),
+                ),
+              ],
+            ),
+          ),
         ],
       ),
     );
@@ -15721,77 +16089,41 @@ class _MapHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(14),
+      height: 46,
+      padding: const EdgeInsets.only(left: 14, right: 4),
       decoration: BoxDecoration(
         color: Colors.black.withValues(alpha: 0.78),
-        borderRadius: BorderRadius.circular(22),
-        border: Border.all(color: Colors.white12),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: isSharingLiveLocation ? blue : Colors.white12,
+        ),
       ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
+      child: Row(
         children: [
-          Row(
-            children: [
-              Container(
-                width: 42,
-                height: 42,
-                decoration: BoxDecoration(
-                  color: blue.withValues(alpha: 0.18),
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                child: const Icon(Icons.map, color: blue),
-              ),
-              const SizedBox(width: 12),
-              const Expanded(
-                child: Text(
-                  'Approved spots',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: Colors.white70,
-                    fontSize: 13,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ),
-            ],
+          Icon(
+            Icons.near_me_outlined,
+            size: 17,
+            color: isSharingLiveLocation ? blue : Colors.white60,
           ),
-          const SizedBox(height: 10),
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.only(left: 12),
-            decoration: BoxDecoration(
-              color: isSharingLiveLocation
-                  ? blue.withValues(alpha: 0.18)
-                  : panelGlass,
-              borderRadius: BorderRadius.circular(999),
-              border: Border.all(
-                color: isSharingLiveLocation ? blue : Colors.white12,
+          const SizedBox(width: 8),
+          const Expanded(
+            child: Text(
+              'Share live location',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: Colors.white70,
+                fontSize: 11,
+                fontWeight: FontWeight.w800,
               ),
             ),
-            child: Row(
-              children: [
-                const Expanded(
-                  child: Text(
-                    'Share live location',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: Colors.white70,
-                      fontSize: 11,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                ),
-                Transform.scale(
-                  scale: 0.74,
-                  child: Switch(
-                    value: isSharingLiveLocation,
-                    activeThumbColor: blue,
-                    onChanged: isBusy ? null : onShareChanged,
-                  ),
-                ),
-              ],
+          ),
+          Transform.scale(
+            scale: 0.72,
+            child: Switch(
+              value: isSharingLiveLocation,
+              activeThumbColor: blue,
+              onChanged: isBusy ? null : onShareChanged,
             ),
           ),
         ],
@@ -17007,7 +17339,7 @@ class _SpotPhotoCarouselState extends State<SpotPhotoCarousel> {
         if (sources.length > 1)
           Container(
             width: double.infinity,
-            padding: const EdgeInsets.fromLTRB(14, 10, 14, 12),
+            padding: const EdgeInsets.fromLTRB(12, 7, 12, 8),
             color: Colors.black,
             child: Row(
               children: [
@@ -17018,9 +17350,9 @@ class _SpotPhotoCarouselState extends State<SpotPhotoCarousel> {
                       onLongPress: () => openGallery(index),
                       child: AnimatedContainer(
                         duration: const Duration(milliseconds: 160),
-                        height: 58,
+                        height: 46,
                         decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(14),
+                          borderRadius: BorderRadius.circular(11),
                           boxShadow: currentIndex == index
                               ? [
                                   BoxShadow(
@@ -17032,7 +17364,7 @@ class _SpotPhotoCarouselState extends State<SpotPhotoCarousel> {
                               : null,
                         ),
                         foregroundDecoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(14),
+                          borderRadius: BorderRadius.circular(11),
                           border: Border.all(
                             color: currentIndex == index
                                 ? blue
@@ -17056,7 +17388,7 @@ class _SpotPhotoCarouselState extends State<SpotPhotoCarousel> {
                       ),
                     ),
                   ),
-                  if (index != sources.length - 1) const SizedBox(width: 8),
+                  if (index != sources.length - 1) const SizedBox(width: 6),
                 ],
               ],
             ),
@@ -17204,6 +17536,29 @@ class _SpotDetailScreenState extends State<SpotDetailScreen> {
     setState(() => spot = spot.copyWith(rating: rating));
   }
 
+  void showSpotOnMap() {
+    if (spot.isTemporary && !spot.isTemporaryLocationAvailableNow) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          backgroundColor: Colors.redAccent,
+          content: Text(
+            'Location not available yet',
+            style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+          ),
+        ),
+      );
+      return;
+    }
+
+    mapFocusRequest.value = MapFocusRequest(
+      spotId: spot.id,
+      coordinates: spot.coordinates,
+    );
+
+    // MainScreen listens to mapFocusRequest and switches to the Map tab.
+    Navigator.of(context).maybePop();
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -17235,9 +17590,14 @@ class _SpotDetailScreenState extends State<SpotDetailScreen> {
       ),
       body: ListView(
         children: [
-          SpotPhotoCarousel(spot: spot, height: 300),
+          SpotPhotoCarousel(
+            spot: spot,
+            height: (MediaQuery.sizeOf(context).width * 0.82)
+                .clamp(300.0, 360.0)
+                .toDouble(),
+          ),
           Padding(
-            padding: const EdgeInsets.all(20),
+            padding: const EdgeInsets.fromLTRB(14, 14, 14, 20),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -17251,7 +17611,7 @@ class _SpotDetailScreenState extends State<SpotDetailScreen> {
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
                           color: Colors.white,
-                          fontSize: 32,
+                          fontSize: 27,
                           fontWeight: FontWeight.w900,
                         ),
                       ),
@@ -17262,19 +17622,19 @@ class _SpotDetailScreenState extends State<SpotDetailScreen> {
                     ],
                   ],
                 ),
-                const SizedBox(height: 8),
+                const SizedBox(height: 5),
                 Text(
                   spot.cityCountry,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(color: Colors.white70, fontSize: 15),
                 ),
-                const SizedBox(height: 18),
+                const SizedBox(height: 11),
                 SpotDetailEngagementPanel(
                   spot: spot,
                   onRatingChanged: updateVisibleRating,
                 ),
-                const SizedBox(height: 12),
+                const SizedBox(height: 9),
                 Row(
                   children: [
                     if (spot.createdAtMillis > 0) ...[
@@ -17323,16 +17683,18 @@ class _SpotDetailScreenState extends State<SpotDetailScreen> {
                     ),
                   ],
                 ),
-                const SizedBox(height: 18),
+                const SizedBox(height: 11),
+                SpotRouteActions(spot: spot, onShowMap: showSpotOnMap),
+                const SizedBox(height: 13),
                 Text(
                   spot.description,
                   style: const TextStyle(
                     color: Colors.white70,
-                    fontSize: 16,
-                    height: 1.45,
+                    fontSize: 15,
+                    height: 1.35,
                   ),
                 ),
-                const SizedBox(height: 22),
+                const SizedBox(height: 12),
                 Wrap(
                   spacing: 8,
                   runSpacing: 8,
@@ -17352,59 +17714,8 @@ class _SpotDetailScreenState extends State<SpotDetailScreen> {
                       _SmallTag(label: category, icon: Icons.local_offer),
                   ],
                 ),
-                const SizedBox(height: 22),
-                SaveSpotButton(spot: spot),
-                const SizedBox(height: 12),
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton.icon(
-                    onPressed: () {
-                      if (spot.isTemporary &&
-                          !spot.isTemporaryLocationAvailableNow) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            backgroundColor: Colors.redAccent,
-                            content: Text(
-                              'Location not available yet',
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                          ),
-                        );
-                        return;
-                      }
-
-                      mapFocusRequest.value = MapFocusRequest(
-                        spotId: spot.id,
-                        coordinates: spot.coordinates,
-                      );
-
-                      // Do not pop back to the first route here. Some users reach
-                      // MainScreen from Splash/Login, so route.isFirst can be the
-                      // login screen. Only close the spot details page; MainScreen
-                      // listens to mapFocusRequest and switches to the Map tab.
-                      Navigator.of(context).maybePop();
-                    },
-                    icon: const Icon(Icons.map_outlined),
-                    label: const Text('Show on map'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: blue,
-                      foregroundColor: Colors.white,
-                      elevation: 10,
-                      shadowColor: blue.withValues(alpha: 0.28),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(16),
-                      ),
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                SpotRouteActions(spot: spot),
                 if (spot.supportsContacts) ...[
-                  const SizedBox(height: 24),
+                  const SizedBox(height: 16),
                   SpotBusinessStatusCard(spot: spot),
                 ],
                 if (currentUserCanManageSpotBusiness(spot)) ...[
@@ -17439,49 +17750,49 @@ class _SpotDetailScreenState extends State<SpotDetailScreen> {
                   ),
                 ],
                 if (spot.hasContactInfo) ...[
-                  const SizedBox(height: 24),
+                  const SizedBox(height: 16),
                   SpotContactSection(spot: spot),
                 ],
-                const SizedBox(height: 24),
-                const Text(
-                  'Video link',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 18,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-                const SizedBox(height: 10),
-                InkWell(
-                  onTap: () => launchExternalUrl(context, spot.reelLink),
-                  borderRadius: BorderRadius.circular(16),
-                  child: Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(14),
-                    decoration: BoxDecoration(
-                      color: panelGlass,
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(color: Colors.white12),
+                if (spot.reelLink.trim().isNotEmpty) ...[
+                  const SizedBox(height: 16),
+                  const Text(
+                    'Video link',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w800,
                     ),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            spot.reelLink.isEmpty
-                                ? 'No video link added'
-                                : spot.reelLink,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(color: Colors.white70),
+                  ),
+                  const SizedBox(height: 8),
+                  InkWell(
+                    onTap: () => launchExternalUrl(context, spot.reelLink),
+                    borderRadius: BorderRadius.circular(14),
+                    child: Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(11),
+                      decoration: BoxDecoration(
+                        color: panelGlass,
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: Colors.white12),
+                      ),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              spot.reelLink,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(color: Colors.white70),
+                            ),
                           ),
-                        ),
-                        const SizedBox(width: 10),
-                        const Icon(Icons.open_in_new, color: blue, size: 18),
-                      ],
+                          const SizedBox(width: 10),
+                          const Icon(Icons.open_in_new, color: blue, size: 18),
+                        ],
+                      ),
                     ),
                   ),
-                ),
-                const SizedBox(height: 24),
+                ],
+                const SizedBox(height: 18),
                 SpotReviewsSection(spot: spot),
               ],
             ),
@@ -17938,13 +18249,20 @@ class _SpotDetailEngagementPanelState extends State<SpotDetailEngagementPanel> {
   Widget starButton(int value, int currentRating) {
     final selected = value <= currentRating;
 
-    return IconButton(
-      visualDensity: VisualDensity.compact,
-      onPressed: isSavingRating ? null : () => submitRating(value),
-      icon: Icon(
-        selected ? Icons.star : Icons.star_border,
-        color: selected ? blue : Colors.white38,
-        size: 26,
+    return SizedBox(
+      width: 27,
+      height: 30,
+      child: IconButton(
+        padding: EdgeInsets.zero,
+        constraints: const BoxConstraints.tightFor(width: 27, height: 30),
+        visualDensity: VisualDensity.compact,
+        tooltip: '$value',
+        onPressed: isSavingRating ? null : () => submitRating(value),
+        icon: Icon(
+          selected ? Icons.star : Icons.star_border,
+          color: selected ? blue : Colors.white38,
+          size: 21,
+        ),
       ),
     );
   }
@@ -17953,121 +18271,107 @@ class _SpotDetailEngagementPanelState extends State<SpotDetailEngagementPanel> {
   Widget build(BuildContext context) {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       decoration: BoxDecoration(
         color: panelGlass,
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(14),
         border: Border.all(color: Colors.white12),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: Row(
         children: [
-          Row(
-            children: [
-              const Icon(Icons.star, color: blue, size: 19),
-              const SizedBox(width: 7),
-              Text(
-                '${widget.spot.rating.toStringAsFixed(1)} spot rating',
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w900,
-                ),
-              ),
-              const Spacer(),
-              StreamBuilder<bool>(
-                stream: watchCurrentUserLikedSpot(widget.spot),
-                builder: (context, likedSnapshot) {
-                  final liked = likedSnapshot.data ?? false;
+          const Icon(Icons.star, color: blue, size: 18),
+          const SizedBox(width: 4),
+          Text(
+            widget.spot.rating.toStringAsFixed(1),
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 14,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          const SizedBox(width: 8),
+          Container(width: 1, height: 22, color: Colors.white12),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Tooltip(
+              message: trText('Your rating'),
+              child: StreamBuilder<int>(
+                stream: watchCurrentUserSpotRating(widget.spot),
+                builder: (context, ratingSnapshot) {
+                  final currentRating = ratingSnapshot.data ?? 0;
 
-                  return StreamBuilder<int>(
-                    stream: watchSpotLikeCount(widget.spot),
-                    builder: (context, countSnapshot) {
-                      final likeCount = countSnapshot.data ?? 0;
-
-                      return InkWell(
-                        onTap: () =>
-                            toggleSpotLike(context, widget.spot, liked),
-                        borderRadius: BorderRadius.circular(16),
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 14,
-                            vertical: 10,
-                          ),
-                          decoration: BoxDecoration(
-                            color: liked
-                                ? Colors.redAccent.withValues(alpha: 0.18)
-                                : Colors.white.withValues(alpha: 0.06),
-                            borderRadius: BorderRadius.circular(16),
-                            border: Border.all(
-                              color: liked ? Colors.redAccent : Colors.white12,
-                            ),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(
-                                liked ? Icons.favorite : Icons.favorite_border,
-                                color: liked
-                                    ? Colors.redAccent
-                                    : Colors.white70,
-                                size: 23,
-                              ),
-                              const SizedBox(width: 7),
-                              Text(
-                                liked ? 'Liked' : 'Like',
-                                style: TextStyle(
-                                  color: liked
-                                      ? Colors.redAccent
-                                      : Colors.white,
-                                  fontWeight: FontWeight.w900,
-                                ),
-                              ),
-                              const SizedBox(width: 6),
-                              Text(
-                                '$likeCount',
-                                style: const TextStyle(
-                                  color: Colors.white70,
-                                  fontWeight: FontWeight.w800,
-                                ),
-                              ),
-                            ],
+                  return Row(
+                    children: [
+                      for (var i = 1; i <= 5; i++) starButton(i, currentRating),
+                      if (isSavingRating) ...[
+                        const SizedBox(width: 3),
+                        const SizedBox(
+                          width: 13,
+                          height: 13,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: blue,
                           ),
                         ),
-                      );
-                    },
+                      ],
+                    ],
                   );
                 },
               ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          const Text(
-            'Your rating',
-            style: TextStyle(
-              color: Colors.white70,
-              fontWeight: FontWeight.w800,
             ),
           ),
-          StreamBuilder<int>(
-            stream: watchCurrentUserSpotRating(widget.spot),
-            builder: (context, ratingSnapshot) {
-              final currentRating = ratingSnapshot.data ?? 0;
+          StreamBuilder<bool>(
+            stream: watchCurrentUserLikedSpot(widget.spot),
+            builder: (context, likedSnapshot) {
+              final liked = likedSnapshot.data ?? false;
 
-              return Row(
-                children: [
-                  for (var i = 1; i <= 5; i++) starButton(i, currentRating),
-                  if (isSavingRating) ...[
-                    const SizedBox(width: 8),
-                    const SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: blue,
+              return StreamBuilder<int>(
+                stream: watchSpotLikeCount(widget.spot),
+                builder: (context, countSnapshot) {
+                  final likeCount = countSnapshot.data ?? 0;
+
+                  return Tooltip(
+                    message: trText(liked ? 'Liked' : 'Like'),
+                    child: InkWell(
+                      onTap: () =>
+                          toggleSpotLike(context, widget.spot, liked),
+                      borderRadius: BorderRadius.circular(999),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 9,
+                          vertical: 7,
+                        ),
+                        decoration: BoxDecoration(
+                          color: liked
+                              ? Colors.redAccent.withValues(alpha: 0.16)
+                              : Colors.white.withValues(alpha: 0.05),
+                          borderRadius: BorderRadius.circular(999),
+                          border: Border.all(
+                            color: liked ? Colors.redAccent : Colors.white12,
+                          ),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              liked ? Icons.favorite : Icons.favorite_border,
+                              color: liked ? Colors.redAccent : Colors.white70,
+                              size: 18,
+                            ),
+                            const SizedBox(width: 5),
+                            Text(
+                              '$likeCount',
+                              style: const TextStyle(
+                                color: Colors.white70,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
-                  ],
-                ],
+                  );
+                },
               );
             },
           ),
@@ -18079,8 +18383,13 @@ class _SpotDetailEngagementPanelState extends State<SpotDetailEngagementPanel> {
 
 class SpotRouteActions extends StatefulWidget {
   final CarSpot spot;
+  final VoidCallback onShowMap;
 
-  const SpotRouteActions({super.key, required this.spot});
+  const SpotRouteActions({
+    super.key,
+    required this.spot,
+    required this.onShowMap,
+  });
 
   @override
   State<SpotRouteActions> createState() => _SpotRouteActionsState();
@@ -18124,55 +18433,9 @@ class _SpotRouteActionsState extends State<SpotRouteActions> {
 
   @override
   Widget build(BuildContext context) {
-    if (widget.spot.isTemporary &&
-        !widget.spot.isTemporaryLocationAvailableNow) {
-      return Container(
-        width: double.infinity,
-        padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(
-          color: panelGlass,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: Colors.white12),
-        ),
-        child: Row(
-          children: [
-            Container(
-              width: 42,
-              height: 42,
-              decoration: BoxDecoration(
-                color: Colors.orangeAccent.withValues(alpha: 0.14),
-                borderRadius: BorderRadius.circular(14),
-              ),
-              child: const Icon(
-                Icons.visibility_off_outlined,
-                color: Colors.orangeAccent,
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Location not available yet',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w900,
-                    ),
-                  ),
-                  const SizedBox(height: 3),
-                  Text(
-                    widget.spot.temporaryLocationAvailableAtLabel,
-                    style: const TextStyle(color: Colors.white54),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      );
-    }
-
+    final locationAvailable =
+        !widget.spot.isTemporary ||
+        widget.spot.isTemporaryLocationAvailableNow;
     final distanceText = distanceKm == null
         ? (isLoadingDistance ? 'Checking distance...' : 'Distance unavailable')
         : '${formatDistanceKm(distanceKm!)} away';
@@ -18182,57 +18445,96 @@ class _SpotRouteActionsState extends State<SpotRouteActions> {
 
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
         color: panelGlass,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(14),
         border: Border.all(color: Colors.white12),
       ),
-      child: Row(
+      child: Column(
         children: [
-          Container(
-            width: 42,
-            height: 42,
-            decoration: BoxDecoration(
-              color: blue.withValues(alpha: 0.16),
-              borderRadius: BorderRadius.circular(14),
-            ),
-            child: const Icon(Icons.route, color: blue),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  distanceText,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w900,
+          Row(
+            children: [
+              SaveSpotButton(spot: widget.spot, compact: true),
+              const SizedBox(width: 8),
+              Expanded(
+                child: SizedBox(
+                  height: 42,
+                  child: OutlinedButton.icon(
+                    onPressed: locationAvailable ? widget.onShowMap : null,
+                    icon: const Icon(Icons.map_outlined, size: 17),
+                    label: const Text('Map'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: blue,
+                      side: BorderSide(
+                        color: locationAvailable ? blue : Colors.white12,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
                   ),
                 ),
-                const SizedBox(height: 3),
-                Text(timeText, style: const TextStyle(color: Colors.white54)),
-              ],
-            ),
-          ),
-          const SizedBox(width: 10),
-          SizedBox(
-            height: 42,
-            child: ElevatedButton.icon(
-              onPressed: () => openWazeRoute(context, widget.spot),
-              icon: const Icon(Icons.navigation, size: 17),
-              label: const Text('Waze'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: blue,
-                foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(14),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: SizedBox(
+                  height: 42,
+                  child: ElevatedButton.icon(
+                    onPressed: locationAvailable
+                        ? () => openWazeRoute(context, widget.spot)
+                        : null,
+                    icon: const Icon(Icons.navigation, size: 17),
+                    label: const Text('Waze'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: blue,
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                  ),
                 ),
               ),
-            ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Icon(
+                locationAvailable
+                    ? Icons.route_outlined
+                    : Icons.visibility_off_outlined,
+                color: locationAvailable ? blue : Colors.orangeAccent,
+                size: 15,
+              ),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  locationAvailable
+                      ? distanceText
+                      : 'Location not available yet',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: locationAvailable
+                        ? Colors.white70
+                        : Colors.orangeAccent,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                locationAvailable
+                    ? timeText
+                    : widget.spot.temporaryLocationAvailableAtLabel,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(color: Colors.white54, fontSize: 12),
+              ),
+            ],
           ),
         ],
       ),
@@ -20107,8 +20409,6 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
               ),
             ),
           ),
-          const SizedBox(height: 16),
-          _MySubmissionsSection(),
         ],
       ),
     );
@@ -20161,141 +20461,6 @@ class _PendingBadge extends StatelessWidget {
           color: color,
           fontSize: 12,
           fontWeight: FontWeight.w900,
-        ),
-      ),
-    );
-  }
-}
-
-class _MySubmissionsSection extends StatelessWidget {
-  const _MySubmissionsSection();
-
-  @override
-  Widget build(BuildContext context) {
-    return ValueListenableBuilder<List<CarSpot>>(
-      valueListenable: submittedSpots,
-      builder: (context, spots, _) {
-        return Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: panelGlass,
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: Colors.white12),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'My submissions',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 18,
-                  fontWeight: FontWeight.w900,
-                ),
-              ),
-              const SizedBox(height: 6),
-              const Text(
-                'Your created spots are saved here. Pending spots wait for review; live spots are already public.',
-                style: TextStyle(color: Colors.white54, height: 1.3),
-              ),
-              const SizedBox(height: 14),
-              if (spots.isEmpty)
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(14),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.06),
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(color: Colors.white12),
-                  ),
-                  child: const Text(
-                    'No submitted spots yet.',
-                    style: TextStyle(color: Colors.white54),
-                  ),
-                )
-              else
-                ...spots.map(
-                  (spot) => Padding(
-                    padding: const EdgeInsets.only(bottom: 10),
-                    child: _SubmittedSpotTile(spot: spot),
-                  ),
-                ),
-            ],
-          ),
-        );
-      },
-    );
-  }
-}
-
-class _SubmittedSpotTile extends StatelessWidget {
-  final CarSpot spot;
-
-  const _SubmittedSpotTile({required this.spot});
-
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      onTap: () {
-        Navigator.push(
-          context,
-          appPageRoute(builder: (_) => SpotDetailScreen(spot: spot)),
-        );
-      },
-      borderRadius: BorderRadius.circular(16),
-      child: Container(
-        padding: const EdgeInsets.all(10),
-        decoration: BoxDecoration(
-          color: Colors.white.withValues(alpha: 0.06),
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: Colors.white12),
-        ),
-        child: Row(
-          children: [
-            SpotPhoto(
-              spot: spot,
-              width: 72,
-              height: 72,
-              borderRadius: BorderRadius.circular(12),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    spot.name,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 16,
-                      fontWeight: FontWeight.w900,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    spot.cityCountry,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(color: Colors.white54),
-                  ),
-                  const SizedBox(height: 8),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    crossAxisAlignment: WrapCrossAlignment.center,
-                    children: [
-                      _PendingBadge(status: spot.status),
-                      for (final category in spot.categories.take(2))
-                        _SmallTag(label: category, icon: Icons.local_offer),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-            const Icon(Icons.chevron_right, color: Colors.white38),
-          ],
         ),
       ),
     );
@@ -25207,12 +25372,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
       body: ValueListenableBuilder<List<CarSpot>>(
         valueListenable: submittedSpots,
         builder: (context, spots, _) {
-          final pendingCount = spots
-              .where((spot) => spot.status == SpotStatus.pending)
-              .length;
-
           return ListView(
-            padding: const EdgeInsets.fromLTRB(20, 18, 20, 28),
+            padding: const EdgeInsets.fromLTRB(14, 12, 14, 24),
             children: [
               _ProfileHeader(
                 profile: profile,
@@ -25220,9 +25381,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 spotsValue: '${spots.length} spots',
                 onEdit: editProfile,
               ),
-              const SizedBox(height: 16),
-              const _ProfileSocialLinksSection(),
-              const SizedBox(height: 16),
+              const SizedBox(height: 12),
               for (var i = 0; i < cars.length; i++) ...[
                 _GarageCard(car: cars[i], onEdit: () => editGarage(i)),
                 const SizedBox(height: 16),
@@ -25240,6 +25399,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 icon: Icons.group_add,
                 title: 'Friends',
                 subtitle: 'Send requests, accept invites, and manage friends',
+                badgeCountStream: incomingFriendRequestCountStream(),
                 onTap: openFriends,
               ),
               const SizedBox(height: 10),
@@ -25590,34 +25750,6 @@ class PublicUserProfileScreen extends StatelessWidget {
         const SizedBox(height: 12),
         messageButton(context, profile),
         const SizedBox(height: 16),
-        Row(
-          children: [
-            Expanded(
-              child: _ProfileStatTile(
-                icon: Icons.directions_car,
-                value: '${visibleGarage.length}',
-                label: 'Cars',
-              ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: _ProfileStatTile(
-                icon: Icons.location_on,
-                value: profile.city.trim().isEmpty ? 'Riga' : profile.city,
-                label: 'Base',
-              ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: _ProfileStatTile(
-                icon: profile.verified ? Icons.verified : Icons.person,
-                value: profile.verified ? 'Yes' : 'No',
-                label: 'Verified',
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 16),
         socialLinks(profile),
         const SizedBox(height: 16),
         if (visibleGarage.isEmpty)
@@ -25730,7 +25862,9 @@ class PublicUserProfileScreen extends StatelessWidget {
 }
 
 class FriendsScreen extends StatefulWidget {
-  const FriendsScreen({super.key});
+  final int initialTabIndex;
+
+  const FriendsScreen({super.key, this.initialTabIndex = 0});
 
   @override
   State<FriendsScreen> createState() => _FriendsScreenState();
@@ -26444,6 +26578,7 @@ class _FriendsScreenState extends State<FriendsScreen> {
   Widget build(BuildContext context) {
     return DefaultTabController(
       length: 3,
+      initialIndex: widget.initialTabIndex,
       child: Scaffold(
         backgroundColor: Colors.transparent,
         appBar: AppBar(
@@ -26457,7 +26592,7 @@ class _FriendsScreenState extends State<FriendsScreen> {
             tabs: [
               Tab(icon: const Icon(Icons.group), text: trText('Friends')),
               Tab(
-                icon: const Icon(Icons.mark_email_unread_outlined),
+                icon: const _IncomingFriendRequestTabIcon(),
                 text: trText('Requests'),
               ),
               Tab(icon: const Icon(Icons.person_search), text: trText('Find')),
@@ -26485,6 +26620,26 @@ class _FriendsScreenState extends State<FriendsScreen> {
   }
 }
 
+class _IncomingFriendRequestTabIcon extends StatelessWidget {
+  const _IncomingFriendRequestTabIcon();
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<int>(
+      stream: incomingFriendRequestCountStream(),
+      initialData: 0,
+      builder: (context, snapshot) {
+        final count = snapshot.data ?? 0;
+        return Badge(
+          isLabelVisible: count > 0,
+          label: Text(count > 9 ? '9+' : '$count'),
+          child: const Icon(Icons.mark_email_unread_outlined),
+        );
+      },
+    );
+  }
+}
+
 class _ProfileHeader extends StatelessWidget {
   final UserProfileData profile;
   final String garageValue;
@@ -26501,10 +26656,10 @@ class _ProfileHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(18),
+      padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: panelGlass,
-        borderRadius: BorderRadius.circular(22),
+        borderRadius: BorderRadius.circular(18),
         border: Border.all(color: Colors.white12),
       ),
       child: Column(
@@ -26512,8 +26667,8 @@ class _ProfileHeader extends StatelessWidget {
           Row(
             children: [
               Container(
-                width: 74,
-                height: 74,
+                width: 68,
+                height: 68,
                 decoration: BoxDecoration(
                   color: blue.withValues(alpha: 0.18),
                   shape: BoxShape.circle,
@@ -26569,7 +26724,7 @@ class _ProfileHeader extends StatelessWidget {
                         ),
                 ),
               ),
-              const SizedBox(width: 14),
+              const SizedBox(width: 12),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -26583,7 +26738,7 @@ class _ProfileHeader extends StatelessWidget {
                             overflow: TextOverflow.ellipsis,
                             style: const TextStyle(
                               color: Colors.white,
-                              fontSize: 24,
+                              fontSize: 22,
                               fontWeight: FontWeight.w900,
                             ),
                           ),
@@ -26597,11 +26752,11 @@ class _ProfileHeader extends StatelessWidget {
                     const SizedBox(height: 4),
                     Text(
                       profile.bio,
-                      maxLines: 2,
+                      maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(color: Colors.white54),
                     ),
-                    const SizedBox(height: 10),
+                    const SizedBox(height: 8),
                     SizedBox(
                       width: double.infinity,
                       child: FittedBox(
@@ -26633,13 +26788,15 @@ class _ProfileHeader extends StatelessWidget {
               ),
             ],
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 10),
+          const _CompactProfileSocialLinks(),
+          const SizedBox(height: 10),
           SizedBox(
             width: double.infinity,
-            height: 46,
+            height: 38,
             child: OutlinedButton.icon(
               onPressed: onEdit,
-              icon: const Icon(Icons.edit, size: 18),
+              icon: const Icon(Icons.edit, size: 16),
               label: const Text('Edit Profile'),
               style: OutlinedButton.styleFrom(
                 foregroundColor: Colors.white,
@@ -26724,55 +26881,6 @@ class _MiniProfileInfoChip extends StatelessWidget {
                 fontWeight: FontWeight.w800,
               ),
             ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _ProfileStatTile extends StatelessWidget {
-  final IconData icon;
-  final String value;
-  final String label;
-
-  const _ProfileStatTile({
-    required this.icon,
-    required this.value,
-    required this.label,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      height: 104,
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: panelGlass,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: Colors.white12),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(icon, color: blue, size: 21),
-          const Spacer(),
-          Text(
-            value,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 18,
-              fontWeight: FontWeight.w900,
-            ),
-          ),
-          const SizedBox(height: 2),
-          Text(
-            label,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(color: Colors.white38, fontSize: 12),
           ),
         ],
       ),
@@ -27103,8 +27211,8 @@ class _GarageCard extends StatelessWidget {
   }
 }
 
-class _ProfileSocialLinksSection extends StatelessWidget {
-  const _ProfileSocialLinksSection();
+class _CompactProfileSocialLinks extends StatelessWidget {
+  const _CompactProfileSocialLinks();
 
   @override
   Widget build(BuildContext context) {
@@ -27113,19 +27221,19 @@ class _ProfileSocialLinksSection extends StatelessWidget {
       builder: (context, settings, _) {
         final links = <Widget>[
           if (settings.instagram.trim().isNotEmpty)
-            _SocialLinkRow(
+            _CompactSocialLinkButton(
               icon: Icons.camera_alt,
               label: 'Instagram',
               value: settings.instagram,
             ),
           if (settings.tiktok.trim().isNotEmpty)
-            _SocialLinkRow(
+            _CompactSocialLinkButton(
               icon: Icons.music_note,
               label: 'TikTok',
               value: settings.tiktok,
             ),
           if (settings.telegram.trim().isNotEmpty)
-            _SocialLinkRow(
+            _CompactSocialLinkButton(
               icon: Icons.send,
               label: 'Telegram',
               value: settings.telegram,
@@ -27136,33 +27244,66 @@ class _ProfileSocialLinksSection extends StatelessWidget {
           return const SizedBox.shrink();
         }
 
-        return Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: panelGlass,
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: Colors.white12),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'Social links',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 18,
-                  fontWeight: FontWeight.w900,
-                ),
-              ),
-              const SizedBox(height: 12),
-              for (var index = 0; index < links.length; index++) ...[
-                if (index > 0) const SizedBox(height: 10),
-                links[index],
-              ],
+        return Row(
+          children: [
+            for (var index = 0; index < links.length; index++) ...[
+              if (index > 0) const SizedBox(width: 7),
+              Expanded(child: links[index]),
             ],
-          ),
+          ],
         );
       },
+    );
+  }
+}
+
+class _CompactSocialLinkButton extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String value;
+
+  const _CompactSocialLinkButton({
+    required this.icon,
+    required this.label,
+    required this.value,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: label,
+      child: InkWell(
+        onTap: () => launchExternalUrl(context, value.trim()),
+        borderRadius: BorderRadius.circular(11),
+        child: Container(
+          height: 34,
+          padding: const EdgeInsets.symmetric(horizontal: 8),
+          decoration: BoxDecoration(
+            color: blue.withValues(alpha: 0.10),
+            borderRadius: BorderRadius.circular(11),
+            border: Border.all(color: blue.withValues(alpha: 0.24)),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(icon, color: blue, size: 16),
+              const SizedBox(width: 5),
+              Flexible(
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Colors.white70,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
@@ -27640,6 +27781,7 @@ class _ProfileActionTile extends StatelessWidget {
   final String subtitle;
   final VoidCallback onTap;
   final Color color;
+  final Stream<int>? badgeCountStream;
 
   const _ProfileActionTile({
     required this.icon,
@@ -27647,6 +27789,7 @@ class _ProfileActionTile extends StatelessWidget {
     required this.subtitle,
     required this.onTap,
     this.color = blue,
+    this.badgeCountStream,
   });
 
   @override
@@ -27694,6 +27837,38 @@ class _ProfileActionTile extends StatelessWidget {
                 ],
               ),
             ),
+            if (badgeCountStream != null) ...[
+              StreamBuilder<int>(
+                stream: badgeCountStream,
+                initialData: 0,
+                builder: (context, snapshot) {
+                  final count = snapshot.data ?? 0;
+                  if (count <= 0) {
+                    return const SizedBox.shrink();
+                  }
+
+                  return Container(
+                    margin: const EdgeInsets.only(right: 6),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 4,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.redAccent,
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                    child: Text(
+                      count > 9 ? '9+' : '$count',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ],
             const Icon(Icons.chevron_right, color: Colors.white38),
           ],
         ),
