@@ -5456,16 +5456,16 @@ Future<void> sendFriendRequestToUser(FriendUserData user) async {
   }
 
   await outgoingRef.set({
-        'fromUid': firebaseUser.uid,
-        'fromUsername': currentUser.username,
-        'fromName': currentUser.name,
-        'toUid': user.uid,
-        'toUsername': user.username,
-        'toName': user.name,
-        'status': 'pending',
-        'createdAt': FieldValue.serverTimestamp(),
-        'updatedAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
+    'fromUid': firebaseUser.uid,
+    'fromUsername': currentUser.username,
+    'fromName': currentUser.name,
+    'toUid': user.uid,
+    'toUsername': user.username,
+    'toName': user.name,
+    'status': 'pending',
+    'createdAt': FieldValue.serverTimestamp(),
+    'updatedAt': FieldValue.serverTimestamp(),
+  }, SetOptions(merge: true));
 
   await createUserNotification(
     userId: user.uid,
@@ -18332,8 +18332,7 @@ class _SpotDetailEngagementPanelState extends State<SpotDetailEngagementPanel> {
                   return Tooltip(
                     message: trText(liked ? 'Liked' : 'Like'),
                     child: InkWell(
-                      onTap: () =>
-                          toggleSpotLike(context, widget.spot, liked),
+                      onTap: () => toggleSpotLike(context, widget.spot, liked),
                       borderRadius: BorderRadius.circular(999),
                       child: Container(
                         padding: const EdgeInsets.symmetric(
@@ -18433,8 +18432,7 @@ class _SpotRouteActionsState extends State<SpotRouteActions> {
   @override
   Widget build(BuildContext context) {
     final locationAvailable =
-        !widget.spot.isTemporary ||
-        widget.spot.isTemporaryLocationAvailableNow;
+        !widget.spot.isTemporary || widget.spot.isTemporaryLocationAvailableNow;
     final distanceText = distanceKm == null
         ? (isLoadingDistance ? 'Checking distance...' : 'Distance unavailable')
         : '${formatDistanceKm(distanceKm!)} away';
