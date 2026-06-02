@@ -1616,6 +1616,7 @@ Future<void> main() async {
 
     rememberMeEnabled = await loadRememberMePreference();
     await loadSpotCategoryFiltersPreference();
+    await loadSavedSpotsFromPrefs();
 
     final appUser = await loadCurrentFirebaseUser();
     if (appUser != null) {
@@ -2156,6 +2157,8 @@ final mapFocusRequest = ValueNotifier<MapFocusRequest?>(null);
 final spotCategoryFilters = ValueNotifier<Set<String>>({
   ...spotCategoryOptions,
 });
+const savedSpotsKey = 'saved_spot_ids_v1';
+Set<String> savedSpotIds = {};
 
 Set<String> sanitizedSpotCategoryFilters(Iterable<String> categories) {
   final validCategories = spotCategoryOptions.toSet();
@@ -2188,6 +2191,55 @@ Future<void> saveSpotCategoryFiltersPreference(Set<String> categories) async {
       categories.toList()..sort(),
     );
   } catch (_) {}
+}
+
+Future<void> loadSavedSpotsFromPrefs() async {
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    savedSpotIds = (prefs.getStringList(savedSpotsKey) ?? const <String>[])
+        .map((id) => id.trim())
+        .where((id) => id.isNotEmpty)
+        .toSet();
+    restoreSavedSpotsFromFirebaseCache();
+  } catch (_) {}
+}
+
+Future<void> saveSavedSpotIds() async {
+  try {
+    savedSpotIds = savedSpots.value
+        .map((spot) => spot.id.trim())
+        .where((id) => id.isNotEmpty)
+        .toSet();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList(savedSpotsKey, savedSpotIds.toList());
+  } catch (_) {}
+}
+
+void restoreSavedSpotsFromFirebaseCache() {
+  if (savedSpotIds.isEmpty) {
+    if (savedSpots.value.isNotEmpty) {
+      savedSpots.value = [];
+    }
+    return;
+  }
+
+  final availableById = <String, CarSpot>{
+    for (final spot in reviewSpots.value)
+      if (spot.id.trim().isNotEmpty) spot.id.trim(): spot,
+  };
+  final restored = savedSpotIds
+      .map((id) => availableById[id])
+      .whereType<CarSpot>()
+      .toList();
+  final unchanged =
+      restored.length == savedSpots.value.length &&
+      restored.every(
+        (spot) => savedSpots.value.any((saved) => isSameSpot(saved, spot)),
+      );
+
+  if (!unchanged) {
+    savedSpots.value = restored;
+  }
 }
 
 void updateSpotCategoryFilters(Set<String> categories) {
@@ -2795,16 +2847,16 @@ class AppUser {
   });
 }
 
-// Fallback user for preview/testing before a Firebase login happens.
+// Keep the fallback unprivileged until Firebase login finishes.
 AppUser currentUser = const AppUser(
-  uid: 'mock_user',
-  name: 'Aleksej',
-  username: 'pasegorov8',
+  uid: '',
+  name: '',
+  username: '',
   email: '',
-  role: UserRole.admin,
-  verified: true,
-  city: 'Riga',
-  country: 'Latvia',
+  role: UserRole.user,
+  verified: false,
+  city: '',
+  country: '',
 );
 
 String roleName(UserRole role) {
@@ -2879,19 +2931,20 @@ Future<void> signOutCurrentAccount() async {
   } catch (_) {}
 
   currentUser = const AppUser(
-    uid: 'mock_user',
-    name: 'Aleksej',
-    username: 'pasegorov8',
+    uid: '',
+    name: '',
+    username: '',
     email: '',
     role: UserRole.user,
     verified: false,
-    city: 'Riga',
-    country: 'Latvia',
+    city: '',
+    country: '',
   );
 
   reviewSpots.value = [];
   submittedSpots.value = [];
   savedSpots.value = [];
+  unawaited(saveSavedSpotIds());
   userSettings.value = defaultUserSettings();
   garageCars.value = defaultGarageCars();
 }
@@ -4133,13 +4186,11 @@ class CarSpot {
 
   factory CarSpot.fromFirestore(DocumentSnapshot<Map<String, dynamic>> doc) {
     final data = doc.data() ?? {};
-    final geoPoint = data['coordinates'];
-    final coordinates = geoPoint is GeoPoint
-        ? LatLng(geoPoint.latitude, geoPoint.longitude)
-        : LatLng(
-            doubleFromFirebase(data['lat'], 56.9496),
-            doubleFromFirebase(data['lng'], 24.1052),
-          );
+    final coordinates = safeLatLngFromFirestoreCoordinates(
+      data['coordinates'],
+      data['lat'],
+      data['lng'],
+    );
 
     return CarSpot(
       id: doc.id,
@@ -4194,8 +4245,16 @@ String stringFromFirebase(Object? value, String fallback) {
 }
 
 double doubleFromFirebase(Object? value, double fallback) {
+  double? parsed;
+
   if (value is num) {
-    return value.toDouble();
+    parsed = value.toDouble();
+  } else if (value is String) {
+    parsed = double.tryParse(value.trim().replaceAll(',', '.'));
+  }
+
+  if (parsed != null && parsed.isFinite) {
+    return parsed;
   }
 
   return fallback;
@@ -4292,6 +4351,61 @@ Map<String, dynamic> mapFromFirebase(Object? value) {
   }
 
   return <String, dynamic>{};
+}
+
+const LatLng fallbackRigaLatLng = LatLng(56.9496, 24.1052);
+
+bool isValidLatLngValues(double? latitude, double? longitude) {
+  return latitude != null &&
+      longitude != null &&
+      latitude.isFinite &&
+      longitude.isFinite &&
+      latitude >= -90 &&
+      latitude <= 90 &&
+      longitude >= -180 &&
+      longitude <= 180;
+}
+
+bool isValidLatLng(LatLng? value) {
+  return value != null &&
+      isValidLatLngValues(value.latitude, value.longitude);
+}
+
+LatLng safeLatLng(
+  double? latitude,
+  double? longitude, {
+  LatLng fallback = fallbackRigaLatLng,
+}) {
+  if (isValidLatLngValues(latitude, longitude)) {
+    return LatLng(latitude!, longitude!);
+  }
+
+  return fallback;
+}
+
+LatLng safeLatLngFromFirestoreCoordinates(
+  Object? coordinates,
+  Object? lat,
+  Object? lng, {
+  LatLng fallback = fallbackRigaLatLng,
+}) {
+  if (coordinates is GeoPoint) {
+    return safeLatLng(coordinates.latitude, coordinates.longitude, fallback: fallback);
+  }
+
+  return safeLatLng(
+    doubleFromFirebase(lat, fallback.latitude),
+    doubleFromFirebase(lng, fallback.longitude),
+    fallback: fallback,
+  );
+}
+
+LatLng? safeLatLngFromPosition(Position position) {
+  if (!isValidLatLngValues(position.latitude, position.longitude)) {
+    return null;
+  }
+
+  return LatLng(position.latitude, position.longitude);
 }
 
 bool userBanIsActive(Map<String, dynamic>? data) {
@@ -4446,13 +4560,11 @@ class LiveLocationData {
     DocumentSnapshot<Map<String, dynamic>> doc,
   ) {
     final data = doc.data() ?? {};
-    final geoPoint = data['coordinates'];
-    final coordinates = geoPoint is GeoPoint
-        ? LatLng(geoPoint.latitude, geoPoint.longitude)
-        : LatLng(
-            doubleFromFirebase(data['lat'], 56.9496),
-            doubleFromFirebase(data['lng'], 24.1052),
-          );
+    final coordinates = safeLatLngFromFirestoreCoordinates(
+      data['coordinates'],
+      data['lat'],
+      data['lng'],
+    );
 
     final role = roleFromFirebase(data['role']);
 
@@ -6253,6 +6365,10 @@ Future<String> detectCityCountryForCoordinates(LatLng coordinates) async {
 }
 
 double distanceBetweenLatLngMeters(LatLng first, LatLng second) {
+  if (!isValidLatLng(first) || !isValidLatLng(second)) {
+    return double.infinity;
+  }
+
   return const Distance().as(LengthUnit.Meter, first, second);
 }
 
@@ -6315,8 +6431,12 @@ Future<CarSpot?> findNearbySpotBlockingPermanentSpotCreation(
 }
 
 double normalizedHeadingDegrees(double value, {double fallback = 0}) {
+  final safeFallback = fallback.isFinite && fallback >= 0
+      ? fallback % 360
+      : 0.0;
+
   if (!value.isFinite || value < 0) {
-    return fallback;
+    return safeFallback;
   }
 
   final normalized = value % 360;
@@ -6350,8 +6470,8 @@ LatLng projectLatLngMeters(
   double bearingDegrees,
   double distanceMeters,
 ) {
-  if (distanceMeters <= 0 || !distanceMeters.isFinite) {
-    return origin;
+  if (!isValidLatLng(origin) || distanceMeters <= 0 || !distanceMeters.isFinite) {
+    return isValidLatLng(origin) ? origin : fallbackRigaLatLng;
   }
 
   const earthRadiusMeters = 6371000.0;
@@ -6371,14 +6491,23 @@ LatLng projectLatLngMeters(
         math.cos(angularDistance) - math.sin(lat1) * math.sin(lat2),
       );
 
-  return LatLng(lat2 * 180 / math.pi, lng2 * 180 / math.pi);
+  return safeLatLng(lat2 * 180 / math.pi, lng2 * 180 / math.pi, fallback: origin);
 }
 
 LatLng lerpLatLng(LatLng from, LatLng to, double amount) {
+  if (!isValidLatLng(from)) {
+    return isValidLatLng(to) ? to : fallbackRigaLatLng;
+  }
+
+  if (!isValidLatLng(to)) {
+    return from;
+  }
+
   final t = amount.clamp(0.0, 1.0).toDouble();
-  return LatLng(
+  return safeLatLng(
     from.latitude + (to.latitude - from.latitude) * t,
     from.longitude + (to.longitude - from.longitude) * t,
+    fallback: from,
   );
 }
 
@@ -6565,13 +6694,11 @@ class PoliceReportData {
     DocumentSnapshot<Map<String, dynamic>> doc,
   ) {
     final data = doc.data() ?? {};
-    final geoPoint = data['coordinates'];
-    final coordinates = geoPoint is GeoPoint
-        ? LatLng(geoPoint.latitude, geoPoint.longitude)
-        : LatLng(
-            doubleFromFirebase(data['lat'], 56.9496),
-            doubleFromFirebase(data['lng'], 24.1052),
-          );
+    final coordinates = safeLatLngFromFirestoreCoordinates(
+      data['coordinates'],
+      data['lat'],
+      data['lng'],
+    );
 
     return PoliceReportData(
       id: doc.id,
@@ -6681,13 +6808,11 @@ class SosReportData {
     DocumentSnapshot<Map<String, dynamic>> doc,
   ) {
     final data = doc.data() ?? {};
-    final geoPoint = data['coordinates'];
-    final coordinates = geoPoint is GeoPoint
-        ? LatLng(geoPoint.latitude, geoPoint.longitude)
-        : LatLng(
-            doubleFromFirebase(data['lat'], 56.9496),
-            doubleFromFirebase(data['lng'], 24.1052),
-          );
+    final coordinates = safeLatLngFromFirestoreCoordinates(
+      data['coordinates'],
+      data['lat'],
+      data['lng'],
+    );
 
     return SosReportData(
       id: doc.id,
@@ -6766,6 +6891,19 @@ Future<void> updateCurrentUserOnlinePresence({required bool isOnline}) async {
 
 CollectionReference<Map<String, dynamic>> spotsCollection() {
   return FirebaseFirestore.instance.collection('spots');
+}
+
+Query<Map<String, dynamic>> approvedSpotsForCurrentUserQuery() {
+  var query = spotsCollection().where(
+    'status',
+    isEqualTo: spotStatusName(SpotStatus.approved),
+  );
+
+  if (!currentUserCanUseVerifiedOnlySpots) {
+    query = query.where('verifiedOnly', isEqualTo: false);
+  }
+
+  return query;
 }
 
 Future<String> uploadSpotPhoto({
@@ -6932,6 +7070,7 @@ void _publishFirebaseSpotCaches() {
   submittedSpots.value = firebaseSpots
       .where((spot) => spot.addedByUid == currentUid)
       .toList();
+  restoreSavedSpotsFromFirebaseCache();
 }
 
 void _listenToSpotQuery({
@@ -6967,9 +7106,9 @@ void startFirebaseSpotSync() {
   // Staff get a separate limited review queue.
   _listenToSpotQuery(
     source: 'approved',
-    query: spotsCollection()
-        .where('status', isEqualTo: spotStatusName(SpotStatus.approved))
-        .limit(firebaseApprovedSpotsListenLimit),
+    query: approvedSpotsForCurrentUserQuery().limit(
+      firebaseApprovedSpotsListenLimit,
+    ),
   );
 
   final currentUid = FirebaseAuth.instance.currentUser?.uid ?? currentUser.uid;
@@ -7015,9 +7154,7 @@ Future<void> refreshFirebaseSpotsFromServer() async {
 
   await loadQuery(
     'approved',
-    spotsCollection()
-        .where('status', isEqualTo: spotStatusName(SpotStatus.approved))
-        .limit(firebaseApprovedSpotsListenLimit),
+    approvedSpotsForCurrentUserQuery().limit(firebaseApprovedSpotsListenLimit),
   );
 
   if (currentUid.trim().isNotEmpty && currentUid != 'mock_user') {
@@ -7728,6 +7865,7 @@ Future<void> deleteSpotFromFirebase(CarSpot spot) async {
   savedSpots.value = savedSpots.value
       .where((item) => !isSameSpot(item, spot))
       .toList();
+  unawaited(saveSavedSpotIds());
 }
 
 class SplashScreen extends StatefulWidget {
@@ -9519,6 +9657,7 @@ class MainScreen extends StatefulWidget {
 
 class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   int index = 0;
+  bool hasOpenedMap = false;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>?
   meetNotificationSubscription;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>?
@@ -9529,12 +9668,14 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   Timer? onlinePresenceRefreshTimer;
   bool isCheckingFriendLocationNotifications = false;
 
-  final screens = const [
-    ExploreScreen(),
-    MapScreen(),
-    AddSpotScreen(),
-    ChatScreen(),
-    ProfileScreen(),
+  List<Widget> get screens => [
+    const ExploreScreen(),
+    hasOpenedMap
+        ? MapScreen(isVisible: index == 1)
+        : const SizedBox.shrink(),
+    const AddSpotScreen(),
+    const ChatScreen(),
+    const ProfileScreen(),
   ];
 
   @override
@@ -9560,9 +9701,23 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       return;
     }
 
-    if (index != 1) {
-      setState(() => index = 1);
+    if (index != 1 || !hasOpenedMap) {
+      setState(() {
+        hasOpenedMap = true;
+        index = 1;
+      });
     }
+  }
+
+  void openMapTab() {
+    if (index == 1 && hasOpenedMap) {
+      return;
+    }
+
+    setState(() {
+      hasOpenedMap = true;
+      index = 1;
+    });
   }
 
   @override
@@ -9835,7 +9990,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                       icon: Icons.map,
                       label: trText('Map'),
                       selected: index == 1,
-                      onTap: () => setState(() => index = 1),
+                      onTap: openMapTab,
                     ),
                   ),
                   Expanded(
@@ -11397,7 +11552,9 @@ class CurrentUserTrianglePainter extends CustomPainter {
 }
 
 class MapScreen extends StatefulWidget {
-  const MapScreen({super.key});
+  final bool isVisible;
+
+  const MapScreen({super.key, required this.isVisible});
 
   @override
   State<MapScreen> createState() => _MapScreenState();
@@ -11466,6 +11623,7 @@ class _MapScreenState extends State<MapScreen>
   double smoothedUserHeadingDegrees = 0;
   DateTime? lastNavigationPositionAt;
   bool mapCenteredOnCurrentUser = false;
+  bool mapCameraReady = false;
   int? lastHandledMapFocusRequestToken;
 
   double scaledMapIconValue({
@@ -11512,6 +11670,39 @@ class _MapScreenState extends State<MapScreen>
       const Duration(seconds: 30),
       (_) => checkOwnSosDistance(),
     );
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !widget.isVisible) {
+        return;
+      }
+
+      mapCameraReady = true;
+      restoreMapCamera();
+      handleMapFocusRequest();
+    });
+  }
+
+  @override
+  void didUpdateWidget(covariant MapScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+
+    if (oldWidget.isVisible == widget.isVisible) {
+      return;
+    }
+
+    if (!widget.isVisible) {
+      mapCameraReady = false;
+      return;
+    }
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !widget.isVisible) {
+        return;
+      }
+
+      mapCameraReady = true;
+      restoreMapCamera();
+      handleMapFocusRequest();
+    });
   }
 
   void refreshMap() {
@@ -12045,7 +12236,7 @@ class _MapScreenState extends State<MapScreen>
       allMarkers.add(userMarker);
     }
 
-    return allMarkers;
+    return allMarkers.where((marker) => isValidLatLng(marker.point)).toList();
   }
 
   List<PoliceReportData> get visiblePoliceReports {
@@ -12436,6 +12627,39 @@ class _MapScreenState extends State<MapScreen>
     );
   }
 
+  void moveMapCamera(
+    LatLng location,
+    double zoom, {
+    double? rotationDegrees,
+  }) {
+    if (!isValidLatLng(location) || !zoom.isFinite) {
+      return;
+    }
+
+    final safeZoom = zoom.clamp(4.0, 18.0).toDouble();
+    final safeRotation = normalizedHeadingDegrees(
+      rotationDegrees ?? currentMapRotationDegrees,
+    );
+
+    currentMapCenter = location;
+    currentMapZoom = safeZoom;
+    currentMapRotationDegrees = safeRotation;
+
+    if (!widget.isVisible || !mapCameraReady) {
+      return;
+    }
+
+    mapController.moveAndRotate(location, safeZoom, safeRotation);
+  }
+
+  void restoreMapCamera() {
+    moveMapCamera(
+      isValidLatLng(currentMapCenter) ? currentMapCenter : rigaCenter,
+      currentMapZoom.isFinite ? currentMapZoom : rigaZoom,
+      rotationDegrees: currentMapRotationDegrees,
+    );
+  }
+
   void handleMapFocusRequest() {
     final request = mapFocusRequest.value;
 
@@ -12463,10 +12687,10 @@ class _MapScreenState extends State<MapScreen>
       });
     }
 
-    mapController.moveAndRotate(
+    moveMapCamera(
       request.coordinates,
       16.4,
-      currentMapRotationDegrees,
+      rotationDegrees: currentMapRotationDegrees,
     );
   }
 
@@ -12574,37 +12798,74 @@ class _MapScreenState extends State<MapScreen>
                       ),
                     ),
                     const SizedBox(height: 10),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
+                    Column(
                       children: sosReasonLabels.entries.map((entry) {
                         final selected = selectedReason == entry.key;
-                        return ChoiceChip(
-                          selected: selected,
-                          label: Text(
-                            trText(entry.value),
-                            style: TextStyle(
-                              color: selected ? Colors.white : Colors.white70,
-                              fontWeight: FontWeight.w800,
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: 8),
+                          child: InkWell(
+                            borderRadius: BorderRadius.circular(10),
+                            onTap: () {
+                              setDialogState(() {
+                                selectedReason = entry.key;
+                                validationError = null;
+                              });
+                            },
+                            child: AnimatedContainer(
+                              duration: const Duration(milliseconds: 160),
+                              width: double.infinity,
+                              constraints: const BoxConstraints(minHeight: 42),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 9,
+                              ),
+                              decoration: BoxDecoration(
+                                color: selected
+                                    ? sosAlertColor
+                                    : Colors.white.withValues(alpha: 0.06),
+                                borderRadius: BorderRadius.circular(10),
+                                border: Border.all(
+                                  color: selected
+                                      ? sosAlertColor
+                                      : Colors.white12,
+                                ),
+                              ),
+                              child: Row(
+                                children: [
+                                  SizedBox(
+                                    width: 18,
+                                    child: selected
+                                        ? const Icon(
+                                            Icons.check,
+                                            size: 16,
+                                            color: Colors.white,
+                                          )
+                                        : null,
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: Text(
+                                      trText(entry.value),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(
+                                        color: selected
+                                            ? Colors.white
+                                            : Colors.white70,
+                                        fontWeight: FontWeight.w800,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
                             ),
                           ),
-                          selectedColor: sosAlertColor,
-                          backgroundColor: Colors.white.withValues(alpha: 0.06),
-                          side: BorderSide(
-                            color: selected ? sosAlertColor : Colors.white12,
-                          ),
-                          onSelected: (_) {
-                            setDialogState(() {
-                              selectedReason = entry.key;
-                              validationError = null;
-                            });
-                          },
                         );
                       }).toList(),
                     ),
-                    const SizedBox(height: 16),
+                    const SizedBox(height: 8),
                     TextField(
-                      autofocus: true,
+                      autofocus: false,
                       minLines: 3,
                       maxLines: 5,
                       maxLength: 220,
@@ -12693,7 +12954,10 @@ class _MapScreenState extends State<MapScreen>
     const shareDuration = Duration(hours: 12);
     final promptAt = now.add(shareDuration);
     final expiresAt = promptAt.add(liveLocationRenewGracePeriod);
-    final location = LatLng(position.latitude, position.longitude);
+    final location = safeLatLngFromPosition(position);
+    if (location == null) {
+      return;
+    }
     final speed = position.speed.isFinite ? math.max(0.0, position.speed) : 0.0;
     final heading = headingForNewUserLocation(
       location,
@@ -12869,7 +13133,10 @@ class _MapScreenState extends State<MapScreen>
 
     final now = DateTime.now();
     final expiresAt = now.add(const Duration(hours: 12));
-    final location = LatLng(position.latitude, position.longitude);
+    final location = safeLatLngFromPosition(position);
+    if (location == null) {
+      return;
+    }
     final docRef = sosReportsCollection().doc();
 
     try {
@@ -12942,7 +13209,7 @@ class _MapScreenState extends State<MapScreen>
       isAddingSosReport = false;
     });
 
-    mapController.move(location, 15.5);
+    moveMapCamera(location, 15.5);
 
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -12999,7 +13266,10 @@ class _MapScreenState extends State<MapScreen>
       return;
     }
 
-    final freshLocation = LatLng(position.latitude, position.longitude);
+    final freshLocation = safeLatLngFromPosition(position);
+    if (freshLocation == null) {
+      return;
+    }
     final distance = distanceBetweenLatLngMeters(
       freshLocation,
       ownSos.coordinates,
@@ -13324,7 +13594,10 @@ class _MapScreenState extends State<MapScreen>
 
     final now = DateTime.now();
     final expiresAt = now.add(const Duration(hours: 2));
-    final location = LatLng(position.latitude, position.longitude);
+    final location = safeLatLngFromPosition(position);
+    if (location == null) {
+      return;
+    }
 
     for (final report in visiblePoliceReports) {
       final distance = distanceBetweenLatLngMeters(
@@ -13351,7 +13624,7 @@ class _MapScreenState extends State<MapScreen>
           selectedSosReport = null;
           selectedLiveLocation = null;
         });
-        mapController.move(report.coordinates, 15.5);
+        moveMapCamera(report.coordinates, 15.5);
         return;
       }
     }
@@ -13388,7 +13661,7 @@ class _MapScreenState extends State<MapScreen>
               selectedSosReport = null;
               selectedLiveLocation = null;
             });
-            mapController.move(report.coordinates, 15.5);
+            moveMapCamera(report.coordinates, 15.5);
           }
           return;
         }
@@ -13436,7 +13709,7 @@ class _MapScreenState extends State<MapScreen>
       isAddingPoliceReport = false;
     });
 
-    mapController.move(location, 15.5);
+    moveMapCamera(location, 15.5);
 
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -13520,7 +13793,10 @@ class _MapScreenState extends State<MapScreen>
       return;
     }
 
-    final freshLocation = LatLng(position.latitude, position.longitude);
+    final freshLocation = safeLatLngFromPosition(position);
+    if (freshLocation == null) {
+      return;
+    }
     final distance = const Distance().as(
       LengthUnit.Meter,
       freshLocation,
@@ -13923,7 +14199,10 @@ class _MapScreenState extends State<MapScreen>
       firebaseUser.uid,
       ...friendUids,
     ]);
-    final location = LatLng(position.latitude, position.longitude);
+    final location = safeLatLngFromPosition(position);
+    if (location == null) {
+      return;
+    }
     final speed = position.speed.isFinite ? math.max(0.0, position.speed) : 0.0;
     final heading = headingForNewUserLocation(
       location,
@@ -14001,7 +14280,10 @@ class _MapScreenState extends State<MapScreen>
       return;
     }
 
-    final location = LatLng(position.latitude, position.longitude);
+    final location = safeLatLngFromPosition(position);
+    if (location == null) {
+      return;
+    }
     final speed = position.speed.isFinite ? math.max(0.0, position.speed) : 0.0;
     final heading = headingForNewUserLocation(
       location,
@@ -14202,7 +14484,10 @@ class _MapScreenState extends State<MapScreen>
       return;
     }
 
-    final location = LatLng(position.latitude, position.longitude);
+    final location = safeLatLngFromPosition(position);
+    if (location == null) {
+      return;
+    }
     final speed = position.speed.isFinite ? math.max(0.0, position.speed) : 0.0;
     final heading = headingForNewUserLocation(
       location,
@@ -14436,7 +14721,10 @@ class _MapScreenState extends State<MapScreen>
       return;
     }
 
-    final location = LatLng(position.latitude, position.longitude);
+    final location = safeLatLngFromPosition(position);
+    if (location == null) {
+      return;
+    }
     final speed = position.speed.isFinite ? math.max(0.0, position.speed) : 0.0;
     final heading = headingForNewUserLocation(
       location,
@@ -14636,9 +14924,20 @@ class _MapScreenState extends State<MapScreen>
   }
 
   void updateFollowCamera(LatLng location, double headingDegrees) {
-    currentMapZoom = navigationZoom;
-    currentMapRotationDegrees = headingDegrees;
-    mapController.moveAndRotate(location, navigationZoom, headingDegrees);
+    if (!isValidLatLng(location)) {
+      return;
+    }
+
+    final safeHeading = normalizedHeadingDegrees(
+      headingDegrees,
+      fallback: currentMapRotationDegrees,
+    );
+
+    moveMapCamera(
+      location,
+      navigationZoom,
+      rotationDegrees: safeHeading,
+    );
   }
 
   Future<void> moveToCurrentLocation({bool showErrors = true}) async {
@@ -14659,7 +14958,10 @@ class _MapScreenState extends State<MapScreen>
       return;
     }
 
-    final location = LatLng(position.latitude, position.longitude);
+    final location = safeLatLngFromPosition(position);
+    if (location == null) {
+      return;
+    }
     final speed = position.speed.isFinite ? math.max(0.0, position.speed) : 0.0;
     final heading = headingForNewUserLocation(
       location,
@@ -14714,7 +15016,16 @@ class _MapScreenState extends State<MapScreen>
               maxZoom: 18,
               backgroundColor: night,
               onPositionChanged: (camera, hasGesture) {
-                final nextZoom = camera.zoom;
+                if (!isValidLatLng(camera.center) || !camera.zoom.isFinite) {
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    if (mounted) {
+                      restoreMapCamera();
+                    }
+                  });
+                  return;
+                }
+
+                final nextZoom = camera.zoom.clamp(4.0, 18.0).toDouble();
                 final nextRotation = normalizedHeadingDegrees(
                   camera.rotation,
                   fallback: currentMapRotationDegrees,
@@ -15941,17 +16252,18 @@ class SaveSpotButton extends StatelessWidget {
   const SaveSpotButton({super.key, required this.spot, this.compact = false});
 
   bool isSaved(List<CarSpot> spots) {
-    return spots.any((savedSpot) => savedSpot.name == spot.name);
+    return spots.any((savedSpot) => isSameSpot(savedSpot, spot));
   }
 
   void toggleSaved(BuildContext context, bool saved) {
     if (saved) {
       savedSpots.value = savedSpots.value
-          .where((savedSpot) => savedSpot.name != spot.name)
+          .where((savedSpot) => !isSameSpot(savedSpot, spot))
           .toList();
     } else {
       savedSpots.value = [spot, ...savedSpots.value];
     }
+    unawaited(saveSavedSpotIds());
 
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -16268,7 +16580,7 @@ double distanceToSpotInKm(Position position, CarSpot spot) {
 
   return distance.as(
     LengthUnit.Kilometer,
-    LatLng(position.latitude, position.longitude),
+    safeLatLng(position.latitude, position.longitude),
     spot.coordinates,
   );
 }
@@ -18526,7 +18838,7 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
       }
 
       final first = locations.first;
-      await applySelectedLocation(LatLng(first.latitude, first.longitude));
+      await applySelectedLocation(safeLatLng(first.latitude, first.longitude));
     } catch (error) {
       if (!mounted) {
         return;
@@ -18645,7 +18957,10 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
         return;
       }
 
-      final location = LatLng(position.latitude, position.longitude);
+      final location = safeLatLngFromPosition(position);
+    if (location == null) {
+      return;
+    }
 
       try {
         final placemarks = await placemarkFromCoordinates(
@@ -24551,6 +24866,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   void openAdminPanel() {
+    final firebaseUser = FirebaseAuth.instance.currentUser;
+    if (firebaseUser == null || !userRoleIsStaff(currentUser.role)) {
+      return;
+    }
+
     Navigator.push(
       context,
       appPageRoute(builder: (_) => const AdminReviewScreen()),
@@ -29470,6 +29790,21 @@ class _AdminEditSpotScreenState extends State<AdminEditSpotScreen> {
 
   Future<void> saveSpot() async {
     final firebaseUser = FirebaseAuth.instance.currentUser;
+    final isOwner = widget.spot.addedByUid == firebaseUser?.uid;
+    final isStaff = userRoleIsStaff(currentUser.role);
+    if (firebaseUser == null || (!isOwner && !isStaff)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          backgroundColor: Colors.redAccent,
+          content: Text(
+            'Only the assigned owner or an admin can edit this spot.',
+            style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+          ),
+        ),
+      );
+      return;
+    }
+
     final cleanName = nameController.text.trim();
     final cleanCity = cityController.text.trim();
     final cleanDescription = descriptionController.text.trim();
@@ -29485,18 +29820,6 @@ class _AdminEditSpotScreenState extends State<AdminEditSpotScreen> {
     final cleanEmail = emailController.text.trim();
     final supportsContacts = spotCategorySupportsContacts(selectedCategory);
     final owner = supportsContacts ? selectedOwner : null;
-
-    if (firebaseUser == null) {
-      showAdminActionError(
-        context,
-        message: 'Could not save spot',
-        error: FirebaseException(
-          plugin: 'firebase_auth',
-          code: 'not-logged-in',
-        ),
-      );
-      return;
-    }
 
     if (widget.spot.id.trim().isEmpty) {
       showAdminActionError(
@@ -29649,7 +29972,7 @@ class _AdminEditSpotScreenState extends State<AdminEditSpotScreen> {
         name: cleanName,
         cityCountry: cleanCity.isEmpty ? widget.spot.cityCountry : cleanCity,
         description: cleanDescription,
-        coordinates: LatLng(editedLatitude, editedLongitude),
+        coordinates: safeLatLng(editedLatitude, editedLongitude),
         categories: [selectedCategory],
         reelLink: cleanReel,
         contactPhone: supportsContacts ? cleanPhone : '',

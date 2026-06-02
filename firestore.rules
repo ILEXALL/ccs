@@ -1,0 +1,820 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function currentUid() {
+      return request.auth.uid;
+    }
+
+    function userDoc(userId) {
+      return get(/databases/$(database)/documents/users/$(userId));
+    }
+
+    function currentUserData() {
+      return userDoc(currentUid()).data;
+    }
+
+    function isNotBanned() {
+      let data = currentUserData();
+      return data.get('banned', false) != true
+        || (
+          data.get('bannedUntil', null) is timestamp
+          && data.bannedUntil < request.time
+        );
+    }
+
+    function isActiveUser() {
+      return isSignedIn()
+        && currentUserData().get('deleted', false) != true
+        && isNotBanned();
+    }
+
+    function isAdmin() {
+      return isActiveUser() && currentUserData().get('role', 'user') == 'admin';
+    }
+
+    function isModerator() {
+      return isActiveUser()
+        && currentUserData().get('role', 'user') == 'moderator';
+    }
+
+    function isStaff() {
+      return isAdmin() || isModerator();
+    }
+
+    function isVerifiedOrStaff() {
+      return isActiveUser()
+        && (
+          isStaff()
+          || currentUserData().get('verified', false) == true
+        );
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && currentUid() == userId;
+    }
+
+    function isAdminUid(userId) {
+      let data = userDoc(userId).data;
+      return data.get('role', 'user') == 'admin'
+        && data.get('deleted', false) != true
+        && data.get('banned', false) != true;
+    }
+
+    function selfUserEditableKeys() {
+      return [
+        'uid',
+        'name',
+        'username',
+        'usernameKey',
+        'email',
+        'photoUrl',
+        'bio',
+        'avatarPath',
+        'city',
+        'country',
+        'settings',
+        'garage',
+        'provider',
+        'telegramUsername',
+        'instagram',
+        'tiktok',
+        'telegram',
+        'reviewNotifications',
+        'likeNotifications',
+        'commentNotifications',
+        'newSpotNotifications',
+        'newMessageNotifications',
+        'publicProfile',
+        'showGarage',
+        'fcmTokens',
+        'fcmTokenUpdatedAt',
+        'lastFcmTokenPlatform',
+        'isOnline',
+        'lastSeenAt',
+        'isSharingLiveLocation',
+        'liveLocationExpiresAt',
+        'liveLocationShareDurationMinutes',
+        'liveLocationVisibleToUserIds',
+        'updatedAt'
+      ];
+    }
+
+    function userProtectedFieldsUnchanged() {
+      return request.resource.data.get('role', 'user')
+          == resource.data.get('role', 'user')
+        && request.resource.data.get('verified', false)
+          == resource.data.get('verified', false)
+        && request.resource.data.get('banned', false)
+          == resource.data.get('banned', false)
+        && request.resource.data.get('deleted', false)
+          == resource.data.get('deleted', false)
+        && request.resource.data.uid == resource.data.uid;
+    }
+
+    function validNewUser(userId) {
+      return request.resource.data.uid == userId
+        && request.resource.data.email is string
+        && request.resource.data.get('role', 'user') == 'user'
+        && request.resource.data.get('verified', false) != true
+        && request.resource.data.get('banned', false) != true
+        && request.resource.data.get('deleted', false) != true;
+    }
+
+    function moderatorCanUpdateUser() {
+      return isModerator()
+        && resource.data.get('role', 'user') == 'user'
+        && request.resource.data.get('role', 'user')
+          == resource.data.get('role', 'user')
+        && request.resource.data.get('verified', false)
+          == resource.data.get('verified', false)
+        && request.resource.data.get('deleted', false)
+          == resource.data.get('deleted', false)
+        && request.resource.data.uid == resource.data.uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'banned',
+          'bannedUntil',
+          'bannedByUid',
+          'bannedBy',
+          'bannedAt',
+          'unbannedByUid',
+          'unbannedBy',
+          'unbannedAt',
+          'updatedAt'
+        ]);
+    }
+
+    function canReadSpot() {
+      return isActiveUser()
+        && (
+          isStaff()
+          || resource.data.addedByUid == currentUid()
+          || (
+            resource.data.status == 'approved'
+            && (
+              resource.data.get('verifiedOnly', false) != true
+              || isVerifiedOrStaff()
+            )
+          )
+        );
+    }
+
+    function validNewSpot() {
+      return request.resource.data.addedByUid == currentUid()
+        && request.resource.data.name is string
+        && request.resource.data.cityCountry is string
+        && request.resource.data.categories is list
+        && request.resource.data.status in ['pending', 'approved']
+        && (
+          request.resource.data.status == 'pending'
+          || isStaff()
+        )
+        && (
+          request.resource.data.get('verifiedOnly', false) != true
+          || isVerifiedOrStaff()
+        );
+    }
+
+    function ownerCanEditSpot() {
+      return isActiveUser()
+        && resource.data.addedByUid == currentUid()
+        && request.resource.data.addedByUid == resource.data.addedByUid
+        && request.resource.data.status == 'edited'
+        && (
+          request.resource.data.get('verifiedOnly', false) != true
+          || isVerifiedOrStaff()
+        )
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'name',
+          'cityCountry',
+          'description',
+          'lat',
+          'lng',
+          'coordinates',
+          'categories',
+          'reelLink',
+          'contactPhone',
+          'contactInstagram',
+          'contactEmail',
+          'openingHours',
+          'photoUrl',
+          'photoUrls',
+          'verifiedOnly',
+          'isTemporary',
+          'startsAt',
+          'expiresAt',
+          'showOnMapAt',
+          'status',
+          'editReviewStatus',
+          'editChangeSummary',
+          'editedBy',
+          'editedByUid',
+          'editedAt',
+          'updatedAt'
+        ]);
+    }
+
+    function businessOwnerCanEditSpot() {
+      return isActiveUser()
+        && resource.data.get('ownerUid', '') == currentUid()
+        && request.resource.data.get('ownerUid', '')
+          == resource.data.get('ownerUid', '')
+        && request.resource.data.get('businessEditedByUid', '') == currentUid()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'contactPhone',
+          'contactInstagram',
+          'contactEmail',
+          'openingHours',
+          'businessEditedBy',
+          'businessEditedByUid',
+          'businessEditedAt',
+          'updatedAt'
+        ]);
+    }
+
+    function signedInUserCanRefreshSpotRating() {
+      return isActiveUser()
+        && request.resource.data.rating is number
+        && request.resource.data.rating >= 0
+        && request.resource.data.rating <= 5
+        && request.resource.data.ratingCount is int
+        && request.resource.data.ratingCount >= 0
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'rating',
+          'ratingCount',
+          'reviewCount',
+          'reviewUpdatedAt',
+          'updatedAt'
+        ]);
+    }
+
+    function listChangedOnlyByCurrentUser(before, after) {
+      return after.toSet().difference(before.toSet()).hasOnly([currentUid()])
+        && before.toSet().difference(after.toSet()).hasOnly([currentUid()]);
+    }
+
+    function policeReportIdentityUnchanged() {
+      return request.resource.data.uid == resource.data.uid
+        && request.resource.data.username == resource.data.username
+        && request.resource.data.lat == resource.data.lat
+        && request.resource.data.lng == resource.data.lng
+        && request.resource.data.coordinates == resource.data.coordinates
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.expiresAt == resource.data.expiresAt;
+    }
+
+    function policeReportRemovalAllowed() {
+      return request.resource.data.status != 'removed'
+        || resource.data.uid == currentUid()
+        || isStaff()
+        || (
+          currentUid() in request.resource.data.notThereBy
+          && request.resource.data.notThereBy.size() >= 3
+        );
+    }
+
+    function isFriendRequestParticipant() {
+      return isSignedIn()
+        && (
+          resource.data.fromUid == currentUid()
+          || resource.data.toUid == currentUid()
+          || isAdmin()
+        );
+    }
+
+    function isFriendshipParticipant() {
+      return isSignedIn()
+        && (
+          currentUid() in resource.data.userIds
+          || isAdmin()
+        );
+    }
+
+    function friendshipAccepted(firstUid, secondUid) {
+      return (
+        existsAfter(
+          /databases/$(database)/documents/friend_requests/$(firstUid + '_' + secondUid)
+        )
+        && getAfter(
+          /databases/$(database)/documents/friend_requests/$(firstUid + '_' + secondUid)
+        ).data.status == 'accepted'
+      ) || (
+        existsAfter(
+          /databases/$(database)/documents/friend_requests/$(secondUid + '_' + firstUid)
+        )
+        && getAfter(
+          /databases/$(database)/documents/friend_requests/$(secondUid + '_' + firstUid)
+        ).data.status == 'accepted'
+      );
+    }
+
+    function chatData(chatId) {
+      return get(/databases/$(database)/documents/chats/$(chatId)).data;
+    }
+
+    function isChatMember(chatId) {
+      return isSignedIn() && currentUid() in chatData(chatId).memberIds;
+    }
+
+    function chatOwnerUid(chatId) {
+      let data = chatData(chatId);
+      return data.get('ownerUid', data.memberIds[0]);
+    }
+
+    function isChatOwner(chatId) {
+      return isSignedIn() && currentUid() == chatOwnerUid(chatId);
+    }
+
+    function isChatModerator(chatId) {
+      return isSignedIn()
+        && currentUid() in chatData(chatId).get('moderatorIds', []);
+    }
+
+    function canManageChat(chatId) {
+      return isChatOwner(chatId) || isChatModerator(chatId) || isStaff();
+    }
+
+    function chatMembershipUnchanged() {
+      return request.resource.data.memberIds == resource.data.memberIds
+        && request.resource.data.isGroup == resource.data.isGroup;
+    }
+
+    function notificationTargetsSpotOwner() {
+      let spot = get(
+        /databases/$(database)/documents/spots/$(request.resource.data.spotId)
+      ).data;
+      return request.resource.data.userId == spot.addedByUid
+        || request.resource.data.userId == spot.get('ownerUid', '');
+    }
+
+    function validSpotLikeNotification() {
+      let data = request.resource.data;
+      return data.type == 'spot_like'
+        && data.spotId is string
+        && exists(/databases/$(database)/documents/spots/$(data.spotId))
+        && notificationTargetsSpotOwner()
+        && exists(
+          /databases/$(database)/documents/spot_likes/$(data.spotId + '_' + currentUid())
+        );
+    }
+
+    function validSpotCommentNotification() {
+      let data = request.resource.data;
+      let review = get(
+        /databases/$(database)/documents/spot_reviews/$(data.reviewId)
+      ).data;
+      return data.type == 'spot_comment'
+        && data.spotId is string
+        && data.reviewId is string
+        && exists(/databases/$(database)/documents/spots/$(data.spotId))
+        && exists(/databases/$(database)/documents/spot_reviews/$(data.reviewId))
+        && review.userId == currentUid()
+        && review.spotId == data.spotId
+        && notificationTargetsSpotOwner();
+    }
+
+    function validChatMessageNotification() {
+      let data = request.resource.data;
+      return data.type == 'chat_message'
+        && data.chatId is string
+        && currentUid() in chatData(data.chatId).memberIds
+        && data.userId in chatData(data.chatId).memberIds;
+    }
+
+    function validUserNotificationCreate() {
+      let data = request.resource.data;
+      return isActiveUser()
+        && data.userId is string
+        && data.userId != currentUid()
+        && data.actorUserId == currentUid()
+        && data.type is string
+        && data.title is string
+        && data.body is string
+        && data.read == false
+        && (
+          isStaff()
+          || validSpotLikeNotification()
+          || validSpotCommentNotification()
+          || validChatMessageNotification()
+        );
+    }
+
+    match /users/{userId} {
+      allow read: if isSignedIn();
+      allow create: if isOwner(userId) && validNewUser(userId);
+      allow update: if (
+        isOwner(userId)
+        && isActiveUser()
+        && userProtectedFieldsUnchanged()
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(selfUserEditableKeys())
+      ) || isAdmin() || moderatorCanUpdateUser();
+      allow delete: if isAdmin();
+    }
+
+    match /usernames/{usernameKey} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn()
+        && request.resource.data.uid == currentUid()
+        && request.resource.data.username is string
+        && request.resource.data.usernameKey == usernameKey;
+      allow update: if isActiveUser()
+        && resource.data.uid == currentUid()
+        && request.resource.data.uid == currentUid()
+        && request.resource.data.username is string
+        && request.resource.data.usernameKey == usernameKey
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'uid',
+          'username',
+          'usernameKey',
+          'updatedAt'
+        ]);
+      allow delete: if isAdmin()
+        || (isActiveUser() && resource.data.uid == currentUid());
+    }
+
+    match /spots/{spotId} {
+      allow read: if canReadSpot();
+      allow create: if isActiveUser() && validNewSpot();
+      allow update: if isStaff()
+        || ownerCanEditSpot()
+        || businessOwnerCanEditSpot()
+        || signedInUserCanRefreshSpotRating();
+      allow delete: if isStaff();
+    }
+
+    match /spot_reviews/{reviewId} {
+      allow read: if isActiveUser();
+      allow create: if isActiveUser()
+        && request.resource.data.userId == currentUid()
+        && request.resource.data.spotId is string
+        && request.resource.data.username is string
+        && (
+          request.resource.data.get('type', 'comment')
+            in ['comment', 'rating']
+        );
+      allow update: if isActiveUser()
+        && resource.data.userId == currentUid()
+        && request.resource.data.userId == resource.data.userId
+        && request.resource.data.spotId == resource.data.spotId
+        && request.resource.data.username == resource.data.username
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'comment',
+          'rating',
+          'edited',
+          'updatedAt'
+        ]);
+      allow delete: if isActiveUser()
+        && (resource.data.userId == currentUid() || isStaff());
+    }
+
+    match /spot_likes/{likeId} {
+      allow read: if isActiveUser();
+      allow create: if isActiveUser()
+        && request.resource.data.userId == currentUid()
+        && (
+          request.resource.data.get('spotId', '') != ''
+          || request.resource.data.get('commentId', '') != ''
+        );
+      allow delete: if isActiveUser()
+        && (resource.data.userId == currentUid() || isStaff());
+      allow update: if false;
+    }
+
+    match /police_reports/{reportId} {
+      allow read: if isActiveUser();
+      allow create: if isActiveUser()
+        && request.resource.data.uid == currentUid()
+        && request.resource.data.username is string
+        && request.resource.data.lat is number
+        && request.resource.data.lng is number
+        && request.resource.data.coordinates is latlng
+        && request.resource.data.createdAt is timestamp
+        && request.resource.data.expiresAt is timestamp
+        && request.resource.data.updatedAt is timestamp
+        && request.resource.data.status == 'active'
+        && request.resource.data.stillThereBy is list
+        && request.resource.data.notThereBy is list
+        && request.resource.data.stillThereBy.size() == 0
+        && request.resource.data.notThereBy.size() == 0;
+      allow update: if isActiveUser()
+        && policeReportIdentityUnchanged()
+        && request.resource.data.status in ['active', 'removed']
+        && request.resource.data.stillThereBy is list
+        && request.resource.data.notThereBy is list
+        && listChangedOnlyByCurrentUser(
+          resource.data.stillThereBy,
+          request.resource.data.stillThereBy
+        )
+        && listChangedOnlyByCurrentUser(
+          resource.data.notThereBy,
+          request.resource.data.notThereBy
+        )
+        && policeReportRemovalAllowed()
+        && (
+          !request.resource.data.keys().hasAny(['removedByUid'])
+          || request.resource.data.removedByUid == currentUid()
+          || isStaff()
+        )
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'stillThereBy',
+          'notThereBy',
+          'updatedAt',
+          'status',
+          'removedByUid',
+          'removedAt'
+        ]);
+      allow delete: if isStaff();
+    }
+
+    match /sos_reports/{reportId} {
+      allow read: if isActiveUser();
+      allow create: if isActiveUser()
+        && request.resource.data.uid == currentUid()
+        && request.resource.data.username is string
+        && request.resource.data.description is string
+        && request.resource.data.reason is string
+        && request.resource.data.lat is number
+        && request.resource.data.lng is number
+        && request.resource.data.coordinates is latlng
+        && request.resource.data.createdAt is timestamp
+        && request.resource.data.expiresAt is timestamp
+        && request.resource.data.updatedAt is timestamp
+        && request.resource.data.status == 'active';
+      allow update: if isActiveUser()
+        && (resource.data.uid == currentUid() || isStaff())
+        && request.resource.data.uid == resource.data.uid
+        && request.resource.data.username == resource.data.username
+        && request.resource.data.lat == resource.data.lat
+        && request.resource.data.lng == resource.data.lng
+        && request.resource.data.coordinates == resource.data.coordinates
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.reason == resource.data.reason
+        && request.resource.data.description == resource.data.description
+        && request.resource.data.status in ['active', 'removed']
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'status',
+          'updatedAt',
+          'expiresAt',
+          'confirmationRequestedAt',
+          'removedByUid',
+          'removedAt'
+        ])
+        && (
+          !request.resource.data.keys().hasAny(['removedByUid'])
+          || request.resource.data.removedByUid == currentUid()
+          || isStaff()
+        );
+      allow delete: if isStaff()
+        || (isActiveUser() && resource.data.uid == currentUid());
+    }
+
+    match /live_locations/{userId} {
+      allow read: if isActiveUser()
+        && (
+          userId == currentUid()
+          || isStaff()
+          || currentUid() in resource.data.visibleToUserIds
+        );
+      allow create, update: if isOwner(userId)
+        && isActiveUser()
+        && request.resource.data.uid == currentUid()
+        && request.resource.data.username is string
+        && request.resource.data.lat is number
+        && request.resource.data.lng is number
+        && request.resource.data.coordinates is latlng
+        && request.resource.data.visibleToUserIds is list
+        && currentUid() in request.resource.data.visibleToUserIds
+        && request.resource.data.expiresAt is timestamp;
+      allow delete: if isOwner(userId) || isStaff();
+    }
+
+    match /meet_notifications/{notificationId} {
+      allow read: if isActiveUser()
+        && resource.data.userId == currentUid();
+      allow create: if isStaff()
+        && request.resource.data.userId is string
+        && request.resource.data.spotId is string
+        && request.resource.data.spotName is string
+        && request.resource.data.read == false;
+      allow update: if isActiveUser()
+        && resource.data.userId == currentUid()
+        && request.resource.data.userId == resource.data.userId
+        && request.resource.data.spotId == resource.data.spotId
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'read',
+          'readAt'
+        ]);
+      allow delete: if isStaff()
+        || (isActiveUser() && resource.data.userId == currentUid());
+    }
+
+    match /admin_notifications/{notificationId} {
+      allow read: if isActiveUser()
+        && resource.data.userId == currentUid();
+      allow create: if isActiveUser()
+        && request.resource.data.userId is string
+        && isAdminUid(request.resource.data.userId)
+        && request.resource.data.type is string
+        && request.resource.data.spotId is string
+        && request.resource.data.spotName is string
+        && request.resource.data.read == false
+        && (
+          isStaff()
+          || (
+            request.resource.data.type == 'spot_pending_review'
+            && request.resource.data.addedByUid == currentUid()
+          )
+        );
+      allow update: if isActiveUser()
+        && resource.data.userId == currentUid()
+        && request.resource.data.userId == resource.data.userId
+        && request.resource.data.spotId == resource.data.spotId
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'read',
+          'readAt'
+        ]);
+      allow delete: if isStaff()
+        || (isActiveUser() && resource.data.userId == currentUid());
+    }
+
+    match /user_notifications/{notificationId} {
+      allow read: if isActiveUser()
+        && resource.data.userId == currentUid();
+      allow create: if validUserNotificationCreate();
+      allow update: if isActiveUser()
+        && resource.data.userId == currentUid()
+        && request.resource.data.userId == resource.data.userId
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'read',
+          'readAt'
+        ]);
+      allow delete: if isStaff()
+        || (isActiveUser() && resource.data.userId == currentUid());
+    }
+
+    match /project_news/{newsId} {
+      allow read: if isSignedIn();
+      allow create, update, delete: if isAdmin();
+    }
+
+    match /friend_location_notifications/{notificationId} {
+      allow read: if isActiveUser()
+        && resource.data.userId == currentUid();
+      allow create: if isActiveUser()
+        && request.resource.data.userId == currentUid()
+        && request.resource.data.friendUid is string
+        && request.resource.data.friendUid != currentUid()
+        && request.resource.data.friendUsername is string
+        && request.resource.data.type in ['friend_nearby', 'friend_at_spot']
+        && request.resource.data.read == false;
+      allow update: if isActiveUser()
+        && resource.data.userId == currentUid()
+        && request.resource.data.userId == resource.data.userId
+        && request.resource.data.friendUid == resource.data.friendUid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'friendUsername',
+          'friendName',
+          'friendLat',
+          'friendLng',
+          'friendCoordinates',
+          'type',
+          'distanceMeters',
+          'spotId',
+          'spotName',
+          'spotCategory',
+          'read',
+          'readAt',
+          'lastNotifiedAtMillis',
+          'createdAt',
+          'updatedAt'
+        ]);
+      allow delete: if isStaff()
+        || (isActiveUser() && resource.data.userId == currentUid());
+    }
+
+    match /friend_requests/{requestId} {
+      allow read: if isFriendRequestParticipant();
+      allow create: if isActiveUser()
+        && request.resource.data.fromUid == currentUid()
+        && request.resource.data.toUid is string
+        && request.resource.data.toUid != currentUid()
+        && request.resource.data.fromUsername is string
+        && request.resource.data.toUsername is string
+        && request.resource.data.status == 'pending';
+      allow update: if isActiveUser()
+        && request.resource.data.fromUid == resource.data.fromUid
+        && request.resource.data.toUid == resource.data.toUid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'status',
+          'respondedAt',
+          'updatedAt'
+        ])
+        && (
+          (
+            resource.data.toUid == currentUid()
+            && request.resource.data.status in ['accepted', 'declined']
+          )
+          || isStaff()
+        );
+      allow delete: if isActiveUser()
+        && (
+          resource.data.fromUid == currentUid()
+          || resource.data.toUid == currentUid()
+          || isStaff()
+        );
+    }
+
+    match /friendships/{friendshipId} {
+      allow read: if isFriendshipParticipant();
+      allow create: if isActiveUser()
+        && request.resource.data.userIds is list
+        && request.resource.data.userIds.size() == 2
+        && currentUid() in request.resource.data.userIds
+        && friendshipAccepted(
+          request.resource.data.userIds[0],
+          request.resource.data.userIds[1]
+        );
+      allow update: if false;
+      allow delete: if isFriendshipParticipant();
+    }
+
+    match /chats/{chatId} {
+      allow read: if isChatMember(chatId);
+      allow create: if isActiveUser()
+        && request.resource.data.memberIds is list
+        && currentUid() in request.resource.data.memberIds
+        && request.resource.data.memberIds.size() >= 2;
+      allow update: if isChatMember(chatId)
+        && (
+          (
+            chatMembershipUnchanged()
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+              'name',
+              'photoUrl',
+              'avatarUrl',
+              'description',
+              'lastMessage',
+              'lastSenderUid',
+              'lastSenderUsername',
+              'updatedAt'
+            ])
+          )
+          || (
+            canManageChat(chatId)
+            && request.resource.data.isGroup == resource.data.isGroup
+            && request.resource.data.memberIds is list
+            && request.resource.data.memberIds.hasAll(resource.data.memberIds)
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+              'name',
+              'photoUrl',
+              'avatarUrl',
+              'description',
+              'memberIds',
+              'memberUsernames',
+              'memberPhotoUrls',
+              'moderatorIds',
+              'ownerUid',
+              'lastMessage',
+              'lastSenderUid',
+              'lastSenderUsername',
+              'updatedAt'
+            ])
+          )
+        );
+      allow delete: if isStaff();
+
+      match /messages/{messageId} {
+        allow read: if isChatMember(chatId);
+        allow create: if isChatMember(chatId)
+          && request.resource.data.senderUid == currentUid()
+          && request.resource.data.senderUsername is string
+          && request.resource.data.text is string;
+        allow update: if isChatMember(chatId)
+          && (
+            resource.data.senderUid == currentUid()
+            || canManageChat(chatId)
+          )
+          && request.resource.data.senderUid == resource.data.senderUid
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'text',
+            'edited',
+            'updatedAt'
+          ]);
+        allow delete: if isChatMember(chatId)
+          && (
+            resource.data.senderUid == currentUid()
+            || canManageChat(chatId)
+          );
+      }
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
