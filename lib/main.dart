@@ -372,6 +372,11 @@ const _ruText = <String, String>{
   'Save Group': 'Сохранить группу',
   'No messages yet': 'Сообщений пока нет',
   'Friends': 'Друзья',
+  'Blacklist': 'Чёрный список',
+  'Blocked users': 'Заблокированные пользователи',
+  'No blocked users': 'Заблокированных пользователей нет',
+  'Block user': 'Заблокировать пользователя',
+  'Unblock': 'Разблокировать',
   'Send requests, accept invites, and manage friends':
       'Отправляйте заявки, принимайте приглашения и управляйте друзьями',
   'Add another car': 'Добавить автомобиль',
@@ -960,6 +965,11 @@ const _lvText = <String, String>{
   'Save Group': 'Saglabāt grupu',
   'No messages yet': 'Ziņu vēl nav',
   'Friends': 'Draugi',
+  'Blacklist': 'Melnais saraksts',
+  'Blocked users': 'Bloķētie lietotāji',
+  'No blocked users': 'Bloķētu lietotāju nav',
+  'Block user': 'Bloķēt lietotāju',
+  'Unblock': 'Atbloķēt',
   'Send requests, accept invites, and manage friends':
       'Sūtiet pieprasījumus, pieņemiet ielūgumus un pārvaldiet draugus',
   'Add another car': 'Pievienot auto',
@@ -5160,7 +5170,13 @@ Future<void> createChatMessageNotification({
       settingName: 'newMessageNotifications',
       notificationId:
           'chat_${chat.id}_${DateTime.now().microsecondsSinceEpoch}_$userId',
-      extra: {'chatId': chat.id, 'isGroup': chat.isGroup},
+      extra: {
+        'chatId': chat.id,
+        'isGroup': chat.isGroup,
+        'senderUid': firebaseUser.uid,
+        'senderUsername': currentUser.username,
+        'actorUserId': firebaseUser.uid,
+      },
     );
   }
 }
@@ -5212,6 +5228,61 @@ Stream<int> incomingFriendRequestCountStream() {
 
 CollectionReference<Map<String, dynamic>> friendshipsCollection() {
   return FirebaseFirestore.instance.collection('friendships');
+}
+
+CollectionReference<Map<String, dynamic>> blockedUsersCollection() {
+  return FirebaseFirestore.instance.collection('blocked_users');
+}
+
+String blockedUserIdFor(String blockerUid, String blockedUid) {
+  return '${blockerUid.trim()}_${blockedUid.trim()}';
+}
+
+Future<bool> isUserBlockedBy(String blockerUid, String blockedUid) async {
+  final cleanBlocker = blockerUid.trim();
+  final cleanBlocked = blockedUid.trim();
+  if (cleanBlocker.isEmpty || cleanBlocked.isEmpty) {
+    return false;
+  }
+
+  final snapshot = await blockedUsersCollection()
+      .doc(blockedUserIdFor(cleanBlocker, cleanBlocked))
+      .get();
+  return snapshot.exists;
+}
+
+Future<bool> isDirectChatBlocked(String firstUid, String secondUid) async {
+  return await isUserBlockedBy(firstUid, secondUid) ||
+      await isUserBlockedBy(secondUid, firstUid);
+}
+
+Future<void> blockUser(FriendUserData user) async {
+  final firebaseUser = FirebaseAuth.instance.currentUser;
+  if (firebaseUser == null || user.uid.trim().isEmpty) {
+    return;
+  }
+
+  await blockedUsersCollection()
+      .doc(blockedUserIdFor(firebaseUser.uid, user.uid))
+      .set({
+    'blockerUid': firebaseUser.uid,
+    'blockedUid': user.uid,
+    'blockedUsername': user.username,
+    'blockedName': user.name,
+    'blockedPhotoUrl': user.photoUrl ?? '',
+    'createdAt': FieldValue.serverTimestamp(),
+  }, SetOptions(merge: true));
+}
+
+Future<void> unblockUser(String blockedUid) async {
+  final firebaseUser = FirebaseAuth.instance.currentUser;
+  if (firebaseUser == null || blockedUid.trim().isEmpty) {
+    return;
+  }
+
+  await blockedUsersCollection()
+      .doc(blockedUserIdFor(firebaseUser.uid, blockedUid))
+      .delete();
 }
 
 CollectionReference<Map<String, dynamic>>
@@ -5889,6 +5960,22 @@ Future<String> createOrOpenDirectChat(FriendUserData user) async {
     );
   }
 
+  if (user.uid.trim().isEmpty || user.uid == firebaseUser.uid) {
+    throw FirebaseException(
+      plugin: 'cloud_firestore',
+      code: 'invalid-user',
+      message: 'This user profile is not available anymore.',
+    );
+  }
+
+  if (await isDirectChatBlocked(firebaseUser.uid, user.uid)) {
+    throw FirebaseException(
+      plugin: 'cloud_firestore',
+      code: 'user-blocked',
+      message: 'Messages are blocked with this user.',
+    );
+  }
+
   final chatId = directChatIdFor(firebaseUser.uid, user.uid);
   final memberIds = [firebaseUser.uid, user.uid];
   final memberUsernames = [currentUser.username, user.username];
@@ -5910,6 +5997,12 @@ Future<String> createOrOpenDirectChat(FriendUserData user) async {
       'updatedAt': FieldValue.serverTimestamp(),
       'createdAt': FieldValue.serverTimestamp(),
     });
+  } else {
+    await chatRef.set({
+      'memberIds': FieldValue.arrayUnion(memberIds),
+      'memberUsernames': FieldValue.arrayUnion(memberUsernames),
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
   }
 
   return chatId;
@@ -5980,34 +6073,84 @@ Future<void> sendChatMessage({
     );
   }
 
+  final cleanChatId = chatId.trim();
   final cleanText = text.trim();
 
   if (cleanText.isEmpty) {
     return;
   }
 
-  final messageRef = await chatMessagesCollection(chatId).add({
+  if (cleanChatId.isEmpty) {
+    throw FirebaseException(
+      plugin: 'cloud_firestore',
+      code: 'invalid-chat',
+      message: 'Chat is not available anymore.',
+    );
+  }
+
+  final chatRef = chatsCollection().doc(cleanChatId);
+  ChatThreadData? notificationChat = chat;
+
+  final chatSnapshot = await chatRef.get();
+  if (!chatSnapshot.exists) {
+    throw FirebaseException(
+      plugin: 'cloud_firestore',
+      code: 'chat-not-found',
+      message: 'Chat is not available anymore.',
+    );
+  }
+
+  final freshChat = ChatThreadData.fromFirestore(chatSnapshot);
+  notificationChat ??= freshChat;
+
+  if (!freshChat.memberIds.contains(firebaseUser.uid)) {
+    throw FirebaseException(
+      plugin: 'cloud_firestore',
+      code: 'permission-denied',
+      message: 'You are not a member of this chat.',
+    );
+  }
+
+  if (!freshChat.isGroup) {
+    final otherUid = freshChat.memberIds.firstWhere(
+      (uid) => uid != firebaseUser.uid,
+      orElse: () => '',
+    );
+    if (otherUid.isNotEmpty && await isDirectChatBlocked(firebaseUser.uid, otherUid)) {
+      throw FirebaseException(
+        plugin: 'cloud_firestore',
+        code: 'user-blocked',
+        message: 'Messages are blocked with this user.',
+      );
+    }
+  }
+
+  final messageRef = await chatMessagesCollection(cleanChatId).add({
     'senderUid': firebaseUser.uid,
     'senderUsername': currentUser.username,
     'text': cleanText,
     'createdAt': FieldValue.serverTimestamp(),
+    'updatedAt': FieldValue.serverTimestamp(),
   });
 
-  await chatsCollection().doc(chatId).set({
+  await chatRef.set({
     'lastMessage': cleanText,
     'lastSenderUid': firebaseUser.uid,
     'lastSenderUsername': currentUser.username,
     'updatedAt': FieldValue.serverTimestamp(),
   }, SetOptions(merge: true));
 
-  if (chat != null) {
-    await createChatMessageNotification(chat: chat, messageText: cleanText);
-  }
+  await createChatMessageNotification(
+    chat: notificationChat,
+    messageText: cleanText,
+  );
 
   await sendPushNotificationEvent({
     'type': 'chat_message',
-    'chatId': chatId,
+    'chatId': cleanChatId,
     'messageId': messageRef.id,
+    'senderUid': firebaseUser.uid,
+    'senderUsername': currentUser.username,
   });
 }
 
@@ -8122,7 +8265,14 @@ Future<void> updateSpotStatus(
     await sendPushNotificationEvent({
       'type': 'spot_decision',
       'spotId': spot.id,
+      'spotName': updatedSpot.name,
       'status': spotStatusName(status),
+      'title': 'Spot review updates',
+      'body': status == SpotStatus.approved
+          ? '${updatedSpot.name} was approved.'
+          : cleanRejectionReason.isEmpty
+          ? '${updatedSpot.name} was rejected.'
+          : '${updatedSpot.name} was rejected. Reason: $cleanRejectionReason',
       if (cleanRejectionReason.isNotEmpty)
         'rejectionReason': cleanRejectionReason,
     });
@@ -8399,6 +8549,7 @@ class NotificationCenterItem {
   final String spotName;
   final String chatId;
   final String userId;
+  final String actorUserId;
   final String addedByUid;
   final String status;
   final String rejectionReason;
@@ -8416,6 +8567,7 @@ class NotificationCenterItem {
     this.spotName = '',
     this.chatId = '',
     this.userId = '',
+    this.actorUserId = '',
     this.addedByUid = '',
     this.status = '',
     this.rejectionReason = '',
@@ -8435,6 +8587,7 @@ class NotificationCenterItem {
     String? spotName,
     String? chatId,
     String? userId,
+    String? actorUserId,
     String? addedByUid,
     String? status,
     String? rejectionReason,
@@ -8452,6 +8605,7 @@ class NotificationCenterItem {
       spotName: spotName ?? this.spotName,
       chatId: chatId ?? this.chatId,
       userId: userId ?? this.userId,
+      actorUserId: actorUserId ?? this.actorUserId,
       addedByUid: addedByUid ?? this.addedByUid,
       status: status ?? this.status,
       rejectionReason: rejectionReason ?? this.rejectionReason,
@@ -8462,6 +8616,7 @@ class NotificationCenterItem {
       !projectNews &&
       (spotId.trim().isNotEmpty ||
           chatId.trim().isNotEmpty ||
+          actorUserId.trim().isNotEmpty ||
           addedByUid.trim().isNotEmpty ||
           userId.trim().isNotEmpty ||
           type == 'friend_request' ||
@@ -8514,7 +8669,7 @@ IconData notificationCenterIcon(NotificationCenterItem item) {
     'spot_like' => Icons.favorite,
     'spot_comment' => Icons.chat_bubble,
     'chat_message' => Icons.mark_chat_unread,
-    'spot_review_update' =>
+    'spot_review_update' || 'spot_decision' =>
       notificationCenterItemIsRejected(item)
           ? Icons.cancel
           : Icons.check_circle,
@@ -8542,7 +8697,7 @@ Color notificationCenterColor(NotificationCenterItem item) {
   return switch (item.type) {
     'spot_like' => Colors.redAccent,
     'spot_comment' || 'chat_message' => blue,
-    'spot_review_update' =>
+    'spot_review_update' || 'spot_decision' =>
       notificationCenterItemIsRejected(item) ? Colors.redAccent : Colors.green,
     'spot_rejected_by_admin' => Colors.redAccent,
     'spot_approved_by_admin' => Colors.green,
@@ -8605,13 +8760,28 @@ NotificationCenterItem notificationCenterItemFromJson(Object? value) {
     return 0;
   }
 
+  String pickFirstString(List<String> keys, String fallback) {
+    for (final key in keys) {
+      final value = pickString(key, '');
+      if (value.trim().isNotEmpty) {
+        return value;
+      }
+    }
+    return fallback;
+  }
+
   final type = pickString('type', 'notification');
   final status = pickString('status', '');
   final spotName = pickString('spotName', '');
   final rejectionReason = pickString('rejectionReason', '');
+  final chatId = pickFirstString(['chatId', 'threadId', 'conversationId'], '');
+  final actorUid = pickFirstString(
+    ['actorUserId', 'senderUid', 'fromUid', 'friendUid', 'addedByUid'],
+    '',
+  );
   var body = pickString('body', '');
 
-  if (type == 'spot_review_update' &&
+  if ((type == 'spot_review_update' || type == 'spot_decision') &&
       status == 'rejected' &&
       rejectionReason.trim().isNotEmpty &&
       !body.toLowerCase().contains('reason:')) {
@@ -8634,9 +8804,10 @@ NotificationCenterItem notificationCenterItemFromJson(Object? value) {
     projectNews: data['projectNews'] == true || payload['projectNews'] == true,
     spotId: pickString('spotId', ''),
     spotName: spotName,
-    chatId: pickString('chatId', ''),
+    chatId: chatId,
     userId: pickString('userId', ''),
-    addedByUid: pickString('addedByUid', ''),
+    actorUserId: actorUid,
+    addedByUid: pickFirstString(['addedByUid', 'friendUid', 'senderUid', 'fromUid'], ''),
     status: status,
     rejectionReason: rejectionReason,
   );
@@ -8661,8 +8832,8 @@ NotificationCenterItem notificationCenterItemFromDocument(
   final title = stringFromFirebase(data['title'], switch (type) {
     'spot_like' => 'Likes on my spots',
     'spot_comment' => 'Comments',
-    'spot_review_update' => 'Spot review updates',
-    'chat_message' => 'Messages',
+    'spot_review_update' || 'spot_decision' => 'Spot review updates',
+    'chat_message' || 'message' || 'direct_message' => 'Messages',
     'new_spot' => 'New spots',
     'temporary_event' => 'Temporary events',
     'spot_pending_review' => 'Spot review updates',
@@ -8685,7 +8856,7 @@ NotificationCenterItem notificationCenterItemFromDocument(
         spotName.trim().isEmpty
             ? '${actorUsername.trim().isEmpty ? 'Someone' : '@$actorUsername'} commented on your spot${comment.trim().isEmpty ? '.' : ': $comment'}'
             : '${actorUsername.trim().isEmpty ? 'Someone' : '@$actorUsername'} commented on $spotName${comment.trim().isEmpty ? '.' : ': $comment'}',
-      'chat_message' => body.trim().isEmpty ? 'New message.' : body,
+      'chat_message' || 'message' || 'direct_message' => body.trim().isEmpty ? 'New message.' : body,
       'new_spot' =>
         spotName.trim().isEmpty
             ? 'New spot was added.'
@@ -8694,7 +8865,7 @@ NotificationCenterItem notificationCenterItemFromDocument(
         spotName.trim().isEmpty
             ? 'New temporary event was added.'
             : '$spotName temporary event was added.',
-      'spot_review_update' =>
+      'spot_review_update' || 'spot_decision' =>
         status == 'approved'
             ? (spotName.trim().isEmpty
                   ? 'Your spot was approved.'
@@ -8733,7 +8904,7 @@ NotificationCenterItem notificationCenterItemFromDocument(
   final cleanReason = rejectionReason.trim();
   final rejectedWithoutReason =
       cleanReason.isNotEmpty &&
-      ((type == 'spot_review_update' && status == 'rejected') ||
+      (((type == 'spot_review_update' || type == 'spot_decision') && status == 'rejected') ||
           type == 'spot_rejected_by_admin') &&
       !body.toLowerCase().contains('reason:') &&
       body.toLowerCase().contains('rejected');
@@ -8752,9 +8923,25 @@ NotificationCenterItem notificationCenterItemFromDocument(
     projectNews: projectNews,
     spotId: stringFromFirebase(data['spotId'], ''),
     spotName: spotName,
-    chatId: stringFromFirebase(data['chatId'], ''),
+    chatId: stringFromFirebase(
+      data['chatId'],
+      stringFromFirebase(data['threadId'], stringFromFirebase(data['conversationId'], '')),
+    ),
     userId: stringFromFirebase(data['userId'], ''),
-    addedByUid: stringFromFirebase(data['addedByUid'], ''),
+    actorUserId: stringFromFirebase(
+      data['actorUserId'],
+      stringFromFirebase(
+        data['senderUid'],
+        stringFromFirebase(data['fromUid'], stringFromFirebase(data['friendUid'], '')),
+      ),
+    ),
+    addedByUid: stringFromFirebase(
+      data['addedByUid'],
+      stringFromFirebase(
+        data['friendUid'],
+        stringFromFirebase(data['senderUid'], stringFromFirebase(data['fromUid'], '')),
+      ),
+    ),
     status: status,
     rejectionReason: rejectionReason,
   );
@@ -9280,48 +9467,77 @@ Future<void> openNotificationCenterItem(
     unawaited(item.reference!.set({'read': true}, SetOptions(merge: true)));
   }
 
-  final cleanChatId = item.chatId.trim();
-  if (cleanChatId.isNotEmpty) {
+  Future<bool> tryOpenDirectChatByUid(String uid) async {
+    final cleanUid = uid.trim();
+    if (cleanUid.isEmpty) {
+      return false;
+    }
+
     try {
-      final doc = await chatsCollection().doc(cleanChatId).get();
-      if (!context.mounted) return;
-      if (doc.exists) {
-        Navigator.push(
-          context,
-          appPageRoute(
-            builder: (_) =>
-                ChatConversationScreen(chat: ChatThreadData.fromFirestore(doc)),
-          ),
-        );
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            backgroundColor: Colors.redAccent,
-            content: Text(
-              'Chat is not available anymore.',
-              style: TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ),
-        );
+      final userDoc = await usersCollection().doc(cleanUid).get();
+      if (!context.mounted || !userDoc.exists) {
+        return false;
       }
-    } catch (error) {
-      if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          backgroundColor: Colors.redAccent,
-          content: Text(
-            'Could not open chat: $error',
-            style: const TextStyle(
-              color: Colors.white,
-              fontWeight: FontWeight.w700,
-            ),
+      final user = FriendUserData.fromFirestore(userDoc);
+      final chatId = await createOrOpenDirectChat(user);
+      final chatDoc = await chatsCollection().doc(chatId).get();
+      if (!context.mounted || !chatDoc.exists) {
+        return false;
+      }
+      Navigator.push(
+        context,
+        appPageRoute(
+          builder: (_) => ChatConversationScreen(
+            chat: ChatThreadData.fromFirestore(chatDoc),
           ),
         ),
       );
+      return true;
+    } catch (error) {
+      debugPrint('Could not open direct chat from notification: $error');
+      return false;
     }
+  }
+
+  if (item.type == 'chat_message' || item.type == 'message' || item.type == 'direct_message') {
+    final cleanChatId = item.chatId.trim();
+    if (cleanChatId.isNotEmpty) {
+      try {
+        final doc = await chatsCollection().doc(cleanChatId).get();
+        if (!context.mounted) return;
+        if (doc.exists) {
+          Navigator.push(
+            context,
+            appPageRoute(
+              builder: (_) => ChatConversationScreen(
+                chat: ChatThreadData.fromFirestore(doc),
+              ),
+            ),
+          );
+          return;
+        }
+      } catch (error) {
+        debugPrint('Could not open chatId=$cleanChatId from notification: $error');
+      }
+    }
+
+    final senderUid = item.actorUserId.trim().isNotEmpty
+        ? item.actorUserId.trim()
+        : item.addedByUid.trim();
+    if (await tryOpenDirectChatByUid(senderUid)) {
+      return;
+    }
+
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        backgroundColor: Colors.redAccent,
+        content: Text(
+          'Chat is not available anymore.',
+          style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+        ),
+      ),
+    );
     return;
   }
 
@@ -23931,7 +24147,7 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
     setState(() => isSending = true);
 
     try {
-      await sendChatMessage(chatId: widget.chat.id, text: text);
+      await sendChatMessage(chatId: widget.chat.id, text: text, chat: widget.chat);
       messageController.clear();
       scrollToLatestAfterNextMessage = true;
       scheduleScrollToLatestMessage(animated: true);
@@ -25277,6 +25493,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
+  void openBlacklist() {
+    Navigator.push(
+      context,
+      appPageRoute(builder: (_) => const BlacklistScreen()),
+    );
+  }
+
   void openAdminPanel() {
     final firebaseUser = FirebaseAuth.instance.currentUser;
     if (firebaseUser == null || !userRoleIsStaff(currentUser.role)) {
@@ -25401,6 +25624,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 subtitle: 'Send requests, accept invites, and manage friends',
                 badgeCountStream: incomingFriendRequestCountStream(),
                 onTap: openFriends,
+              ),
+              const SizedBox(height: 10),
+              _ProfileActionTile(
+                icon: Icons.block,
+                title: 'Blacklist',
+                subtitle: 'Blocked users',
+                onTap: openBlacklist,
               ),
               const SizedBox(height: 10),
               if (userRoleIsStaff(currentUser.role)) ...[
@@ -25683,6 +25913,85 @@ class PublicUserProfileScreen extends StatelessWidget {
     );
   }
 
+  Widget blockUserButton(BuildContext context, PublicUserProfileData profile) {
+    if (profile.uid == currentUser.uid) {
+      return const SizedBox.shrink();
+    }
+
+    final user = FriendUserData(
+      uid: profile.uid,
+      username: profile.username,
+      name: profile.name,
+      email: profile.email,
+      photoUrl: profile.photoUrl,
+      avatarPath: profile.avatarPath,
+      verified: profile.verified,
+      role: profile.role,
+      banned: false,
+      deleted: false,
+    );
+
+    return FutureBuilder<bool>(
+      future: isUserBlockedBy(currentUser.uid, profile.uid),
+      builder: (context, snapshot) {
+        final blocked = snapshot.data == true;
+        return SizedBox(
+          width: double.infinity,
+          height: 46,
+          child: OutlinedButton.icon(
+            onPressed: () async {
+              try {
+                if (blocked) {
+                  await unblockUser(profile.uid);
+                } else {
+                  await blockUser(user);
+                }
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      backgroundColor: blocked ? blue : Colors.redAccent,
+                      content: Text(
+                        blocked ? 'User unblocked.' : 'User blocked.',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                  );
+                }
+              } catch (error) {
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      backgroundColor: Colors.redAccent,
+                      content: Text(
+                        'Could not update blacklist: $error',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                  );
+                }
+              }
+            },
+            icon: Icon(blocked ? Icons.lock_open : Icons.block),
+            label: Text(blocked ? 'Unblock' : 'Block user'),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: blocked ? blue : Colors.redAccent,
+              side: BorderSide(color: blocked ? blue : Colors.redAccent),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   Widget socialLinks(PublicUserProfileData profile) {
     final settings = profile.settings;
     final links = <Widget>[
@@ -25749,6 +26058,8 @@ class PublicUserProfileScreen extends StatelessWidget {
         profileHeader(profile),
         const SizedBox(height: 12),
         messageButton(context, profile),
+        const SizedBox(height: 10),
+        blockUserButton(context, profile),
         const SizedBox(height: 16),
         socialLinks(profile),
         const SizedBox(height: 16),
@@ -25851,6 +26162,103 @@ class PublicUserProfileScreen extends StatelessWidget {
                 profile.copyWith(
                   isSharingLiveLocation: isSharingLiveLocation,
                   liveLocationExpiresAtMillis: liveLocationExpiresAtMillis,
+                ),
+              );
+            },
+          );
+        },
+      ),
+    );
+  }
+}
+
+class BlacklistScreen extends StatelessWidget {
+  const BlacklistScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final firebaseUser = FirebaseAuth.instance.currentUser;
+
+    if (firebaseUser == null) {
+      return const Scaffold(
+        backgroundColor: Colors.transparent,
+        body: Center(child: Text('Log in required')),
+      );
+    }
+
+    return Scaffold(
+      backgroundColor: Colors.transparent,
+      appBar: AppBar(
+        title: const Text('Blacklist'),
+        backgroundColor: Colors.transparent,
+        foregroundColor: blue,
+      ),
+      body: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+        stream: blockedUsersCollection()
+            .where('blockerUid', isEqualTo: firebaseUser.uid)
+            .snapshots(),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting &&
+              !snapshot.hasData) {
+            return const Center(child: CircularProgressIndicator());
+          }
+
+          final docs = snapshot.data?.docs ?? const [];
+          if (docs.isEmpty) {
+            return const Padding(
+              padding: EdgeInsets.all(20),
+              child: EmptyStateCard(
+                icon: Icons.block,
+                title: 'No blocked users',
+                text: 'Blocked users will appear here.',
+              ),
+            );
+          }
+
+          return ListView.separated(
+            padding: const EdgeInsets.fromLTRB(20, 18, 20, 28),
+            itemCount: docs.length,
+            separatorBuilder: (_, _) => const SizedBox(height: 10),
+            itemBuilder: (context, index) {
+              final data = docs[index].data();
+              final blockedUid = stringFromFirebase(data['blockedUid'], '');
+              final username = stringFromFirebase(data['blockedUsername'], 'ccs_driver');
+              final name = stringFromFirebase(data['blockedName'], username);
+
+              return Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: panelGlass,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: Colors.white12),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.block, color: Colors.redAccent),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            '@$username',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                          Text(
+                            name,
+                            style: const TextStyle(color: Colors.white54),
+                          ),
+                        ],
+                      ),
+                    ),
+                    TextButton(
+                      onPressed: () => unawaited(unblockUser(blockedUid)),
+                      child: const Text('Unblock'),
+                    ),
+                  ],
                 ),
               );
             },
