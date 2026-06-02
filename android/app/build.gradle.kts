@@ -9,7 +9,12 @@ plugins {
 
 android {
     namespace = "com.example.ccs_app"
-    compileSdk = flutter.compileSdkVersion
+
+    // Required by current Android plugins:
+    // geolocator_android, google_sign_in_android, shared_preferences_android,
+    // url_launcher_android, package_info_plus and AndroidX core/browser.
+    compileSdk = 36
+
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
@@ -18,12 +23,14 @@ android {
     }
 
     defaultConfig {
-        // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
+        // TODO: Specify your own unique Application ID before publishing.
         applicationId = "com.example.ccs_app"
-        // You can update the following values to match your application needs.
-        // For more information, see: https://flutter.dev/to/review-gradle-config.
+
         minSdk = flutter.minSdkVersion
-        targetSdk = flutter.targetSdkVersion
+
+        // This can stay lower than compileSdk, but 36 is okay for debug/dev.
+        targetSdk = 36
+
         versionCode = flutter.versionCode
         versionName = flutter.versionName
     }
@@ -46,3 +53,4 @@ kotlin {
 flutter {
     source = "../.."
 }
+
