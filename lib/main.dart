@@ -3152,9 +3152,9 @@ Future<void> signOutCurrentAccount() async {
       uid: '',
       name: '',
       username: '',
-    email: '',
-    role: UserRole.user,
-    verified: false,
+      email: '',
+      role: UserRole.user,
+      verified: false,
       city: '',
       country: '',
     ),
@@ -4612,8 +4612,7 @@ bool isValidLatLngValues(double? latitude, double? longitude) {
 }
 
 bool isValidLatLng(LatLng? value) {
-  return value != null &&
-      isValidLatLngValues(value.latitude, value.longitude);
+  return value != null && isValidLatLngValues(value.latitude, value.longitude);
 }
 
 LatLng safeLatLng(
@@ -4635,7 +4634,11 @@ LatLng safeLatLngFromFirestoreCoordinates(
   LatLng fallback = fallbackRigaLatLng,
 }) {
   if (coordinates is GeoPoint) {
-    return safeLatLng(coordinates.latitude, coordinates.longitude, fallback: fallback);
+    return safeLatLng(
+      coordinates.latitude,
+      coordinates.longitude,
+      fallback: fallback,
+    );
   }
 
   return safeLatLng(
@@ -6715,7 +6718,9 @@ LatLng projectLatLngMeters(
   double bearingDegrees,
   double distanceMeters,
 ) {
-  if (!isValidLatLng(origin) || distanceMeters <= 0 || !distanceMeters.isFinite) {
+  if (!isValidLatLng(origin) ||
+      distanceMeters <= 0 ||
+      !distanceMeters.isFinite) {
     return isValidLatLng(origin) ? origin : fallbackRigaLatLng;
   }
 
@@ -6736,7 +6741,11 @@ LatLng projectLatLngMeters(
         math.cos(angularDistance) - math.sin(lat1) * math.sin(lat2),
       );
 
-  return safeLatLng(lat2 * 180 / math.pi, lng2 * 180 / math.pi, fallback: origin);
+  return safeLatLng(
+    lat2 * 180 / math.pi,
+    lng2 * 180 / math.pi,
+    fallback: origin,
+  );
 }
 
 LatLng lerpLatLng(LatLng from, LatLng to, double amount) {
@@ -9915,9 +9924,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
 
   List<Widget> get screens => [
     const ExploreScreen(),
-    hasOpenedMap
-        ? MapScreen(isVisible: index == 1)
-        : const SizedBox.shrink(),
+    hasOpenedMap ? MapScreen(isVisible: index == 1) : const SizedBox.shrink(),
     const AddSpotScreen(),
     const ChatScreen(),
     const ProfileScreen(),
@@ -12872,11 +12879,7 @@ class _MapScreenState extends State<MapScreen>
     );
   }
 
-  void moveMapCamera(
-    LatLng location,
-    double zoom, {
-    double? rotationDegrees,
-  }) {
+  void moveMapCamera(LatLng location, double zoom, {double? rotationDegrees}) {
     if (!isValidLatLng(location) || !zoom.isFinite) {
       return;
     }
@@ -15178,11 +15181,7 @@ class _MapScreenState extends State<MapScreen>
       fallback: currentMapRotationDegrees,
     );
 
-    moveMapCamera(
-      location,
-      navigationZoom,
-      rotationDegrees: safeHeading,
-    );
+    moveMapCamera(location, navigationZoom, rotationDegrees: safeHeading);
   }
 
   Future<void> moveToCurrentLocation({bool showErrors = true}) async {
@@ -19203,9 +19202,9 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
       }
 
       final location = safeLatLngFromPosition(position);
-    if (location == null) {
-      return;
-    }
+      if (location == null) {
+        return;
+      }
 
       try {
         final placemarks = await placemarkFromCoordinates(
