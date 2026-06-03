@@ -2359,10 +2359,7 @@ const regularUserCarIconAsset = 'assets/user_cars/car_blue.png';
 const verifiedUserCarIconAsset = 'assets/user_cars/car_green.png';
 const friendUserCarIconAsset = 'assets/user_cars/car_purple.png';
 
-String spotIconAssetPathForCategory(
-  String category, {
-  CcsMapStyle? mapStyle,
-}) {
+String spotIconAssetPathForCategory(String category, {CcsMapStyle? mapStyle}) {
   final assets = mapStyle == CcsMapStyle.light
       ? spotCategoryLightIconAssets
       : spotCategoryIconAssets;
@@ -2383,10 +2380,7 @@ String primarySpotCategory(CarSpot spot) {
   return 'Photo';
 }
 
-String spotIconAssetPathForSpot(
-  CarSpot spot, {
-  CcsMapStyle? mapStyle,
-}) {
+String spotIconAssetPathForSpot(CarSpot spot, {CcsMapStyle? mapStyle}) {
   return spotIconAssetPathForCategory(
     primarySpotCategory(spot),
     mapStyle: mapStyle,
@@ -3193,9 +3187,9 @@ Future<void> signOutCurrentAccount() async {
       uid: '',
       name: '',
       username: '',
-    email: '',
-    role: UserRole.user,
-    verified: false,
+      email: '',
+      role: UserRole.user,
+      verified: false,
       city: '',
       country: '',
     ),
@@ -4653,8 +4647,7 @@ bool isValidLatLngValues(double? latitude, double? longitude) {
 }
 
 bool isValidLatLng(LatLng? value) {
-  return value != null &&
-      isValidLatLngValues(value.latitude, value.longitude);
+  return value != null && isValidLatLngValues(value.latitude, value.longitude);
 }
 
 LatLng safeLatLng(
@@ -4676,7 +4669,11 @@ LatLng safeLatLngFromFirestoreCoordinates(
   LatLng fallback = fallbackRigaLatLng,
 }) {
   if (coordinates is GeoPoint) {
-    return safeLatLng(coordinates.latitude, coordinates.longitude, fallback: fallback);
+    return safeLatLng(
+      coordinates.latitude,
+      coordinates.longitude,
+      fallback: fallback,
+    );
   }
 
   return safeLatLng(
@@ -5486,16 +5483,16 @@ Future<void> sendFriendRequestToUser(FriendUserData user) async {
   }
 
   await outgoingRef.set({
-        'fromUid': firebaseUser.uid,
-        'fromUsername': currentUser.username,
-        'fromName': currentUser.name,
-        'toUid': user.uid,
-        'toUsername': user.username,
-        'toName': user.name,
-        'status': 'pending',
-        'createdAt': FieldValue.serverTimestamp(),
-        'updatedAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
+    'fromUid': firebaseUser.uid,
+    'fromUsername': currentUser.username,
+    'fromName': currentUser.name,
+    'toUid': user.uid,
+    'toUsername': user.username,
+    'toName': user.name,
+    'status': 'pending',
+    'createdAt': FieldValue.serverTimestamp(),
+    'updatedAt': FieldValue.serverTimestamp(),
+  }, SetOptions(merge: true));
 
   await createUserNotification(
     userId: user.uid,
@@ -6781,7 +6778,9 @@ LatLng projectLatLngMeters(
   double bearingDegrees,
   double distanceMeters,
 ) {
-  if (!isValidLatLng(origin) || distanceMeters <= 0 || !distanceMeters.isFinite) {
+  if (!isValidLatLng(origin) ||
+      distanceMeters <= 0 ||
+      !distanceMeters.isFinite) {
     return isValidLatLng(origin) ? origin : fallbackRigaLatLng;
   }
 
@@ -6802,7 +6801,11 @@ LatLng projectLatLngMeters(
         math.cos(angularDistance) - math.sin(lat1) * math.sin(lat2),
       );
 
-  return safeLatLng(lat2 * 180 / math.pi, lng2 * 180 / math.pi, fallback: origin);
+  return safeLatLng(
+    lat2 * 180 / math.pi,
+    lng2 * 180 / math.pi,
+    fallback: origin,
+  );
 }
 
 LatLng lerpLatLng(LatLng from, LatLng to, double amount) {
@@ -9997,9 +10000,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
 
   List<Widget> get screens => [
     const ExploreScreen(),
-    hasOpenedMap
-        ? MapScreen(isVisible: index == 1)
-        : const SizedBox.shrink(),
+    hasOpenedMap ? MapScreen(isVisible: index == 1) : const SizedBox.shrink(),
     const AddSpotScreen(),
     const ChatScreen(),
     const ProfileScreen(),
@@ -10066,6 +10067,8 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
 
     meetNotificationSubscription = meetNotificationsCollection()
         .where('userId', isEqualTo: firebaseUser.uid)
+        .where('read', isEqualTo: false)
+        .limit(20)
         .snapshots()
         .listen((snapshot) async {
           for (final change in snapshot.docChanges) {
@@ -10123,6 +10126,8 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
 
     adminNotificationSubscription = adminNotificationsCollection()
         .where('userId', isEqualTo: firebaseUser.uid)
+        .where('read', isEqualTo: false)
+        .limit(20)
         .snapshots()
         .listen((snapshot) async {
           for (final change in snapshot.docChanges) {
@@ -10191,6 +10196,8 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     friendLocationNotificationSubscription =
         friendLocationNotificationsCollection()
             .where('userId', isEqualTo: firebaseUser.uid)
+            .where('read', isEqualTo: false)
+            .limit(20)
             .snapshots()
             .listen((snapshot) async {
               for (final change in snapshot.docChanges) {
@@ -10251,7 +10258,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   void startFriendLocationNotificationChecks() {
     runFriendLocationNotificationCheck();
     friendLocationCheckTimer = Timer.periodic(
-      const Duration(seconds: 45),
+      const Duration(minutes: 5),
       (_) => runFriendLocationNotificationCheck(),
     );
   }
@@ -11835,47 +11842,98 @@ class _SpotCommentComposerSheetState extends State<_SpotCommentComposerSheet> {
   }
 }
 
-class CurrentUserTrianglePainter extends CustomPainter {
+class CurrentUserPulseDot extends StatelessWidget {
+  final Animation<double> animation;
+
+  const CurrentUserPulseDot({super.key, required this.animation});
+
   @override
-  void paint(Canvas canvas, Size size) {
-    final centerX = size.width / 2;
-    final triangle = ui.Path()
-      ..moveTo(centerX, size.height * 0.10)
-      ..lineTo(size.width * 0.22, size.height * 0.86)
-      ..quadraticBezierTo(
-        centerX,
-        size.height * 0.72,
-        size.width * 0.78,
-        size.height * 0.86,
-      )
-      ..close();
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: animation,
+      builder: (context, child) {
+        final pulse = Curves.easeInOutCubic.transform(animation.value);
+        final outerSize = 30 + pulse * 20;
+        final middleSize = 22 + pulse * 8;
 
-    final shadowPaint = Paint()
-      ..color = const Color(0xFF4DDCFF).withValues(alpha: 0.32)
-      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 8);
-    canvas.drawPath(triangle.shift(const Offset(0, 2)), shadowPaint);
-
-    final fillPaint = Paint()
-      ..shader = const LinearGradient(
-        begin: Alignment.topCenter,
-        end: Alignment.bottomCenter,
-        colors: [Color(0xFF9BEFFF), Color(0xFF1AAFFF)],
-      ).createShader(Offset.zero & size);
-    canvas.drawPath(triangle, fillPaint);
-
-    final borderPaint = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 2.4
-      ..strokeJoin = StrokeJoin.round
-      ..color = Colors.white.withValues(alpha: 0.92);
-    canvas.drawPath(triangle, borderPaint);
-
-    final centerPaint = Paint()..color = Colors.white.withValues(alpha: 0.85);
-    canvas.drawCircle(Offset(centerX, size.height * 0.51), 3.6, centerPaint);
+        return Center(
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              Container(
+                width: outerSize,
+                height: outerSize,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: const Color(
+                      0xFF25D9FF,
+                    ).withValues(alpha: 0.48 - pulse * 0.24),
+                    width: 1.4,
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: const Color(
+                        0xFF00B7FF,
+                      ).withValues(alpha: 0.36 - pulse * 0.12),
+                      blurRadius: 16 + pulse * 14,
+                      spreadRadius: 2 + pulse * 5,
+                    ),
+                  ],
+                ),
+              ),
+              Container(
+                width: middleSize,
+                height: middleSize,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: const Color(0xFF1AAFFF).withValues(alpha: 0.16),
+                  border: Border.all(
+                    color: const Color(0xFF7EEBFF).withValues(alpha: 0.62),
+                    width: 1,
+                  ),
+                ),
+              ),
+              Container(
+                width: 13,
+                height: 13,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: const RadialGradient(
+                    colors: [
+                      Colors.white,
+                      Color(0xFF85F4FF),
+                      Color(0xFF008DFF),
+                    ],
+                    stops: [0.0, 0.42, 1.0],
+                  ),
+                  border: Border.all(
+                    color: Colors.white.withValues(alpha: 0.88),
+                    width: 1.5,
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: const Color(0xFF00C8FF).withValues(alpha: 0.72),
+                      blurRadius: 11 + pulse * 6,
+                      spreadRadius: 1.6,
+                    ),
+                  ],
+                ),
+              ),
+              Container(
+                width: 4.2,
+                height: 4.2,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: Colors.white.withValues(alpha: 0.92),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
   }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
 enum CcsMapStyle { dark, light }
@@ -13081,7 +13139,9 @@ class _MapScreenState extends State<MapScreen>
                             overflow: TextOverflow.ellipsis,
                             textAlign: TextAlign.center,
                             style: TextStyle(
-                              color: mapStyle.mapLabelColor.withValues(alpha: 0.82),
+                              color: mapStyle.mapLabelColor.withValues(
+                                alpha: 0.82,
+                              ),
                               fontSize: labelFontSize,
                               fontWeight: FontWeight.w800,
                               letterSpacing: 0.2,
@@ -13137,30 +13197,17 @@ class _MapScreenState extends State<MapScreen>
 
     return Marker(
       point: location,
-      width: 42,
-      height: 42,
+      width: 54,
+      height: 54,
       rotate: false,
       child: Tooltip(
         message: 'Your location',
-        child: Transform.rotate(
-          angle: headingRadiansForMap(
-            currentUserHeadingDegrees,
-            currentMapRotationDegrees,
-          ),
-          child: CustomPaint(
-            painter: CurrentUserTrianglePainter(),
-            child: const SizedBox(width: 42, height: 42),
-          ),
-        ),
+        child: CurrentUserPulseDot(animation: mapAlertPulseController),
       ),
     );
   }
 
-  void moveMapCamera(
-    LatLng location,
-    double zoom, {
-    double? rotationDegrees,
-  }) {
+  void moveMapCamera(LatLng location, double zoom, {double? rotationDegrees}) {
     if (!isValidLatLng(location) || !zoom.isFinite) {
       return;
     }
@@ -15413,11 +15460,15 @@ class _MapScreenState extends State<MapScreen>
     );
 
     final previousLocation =
-        previousAcceptedHeadingLocation ?? currentUserLocation ?? lastGpsUserLocation;
+        previousAcceptedHeadingLocation ??
+        currentUserLocation ??
+        lastGpsUserLocation;
 
     if (previousLocation == null) {
       previousAcceptedHeadingLocation = nextLocation;
-      smoothedUserHeadingDegrees = hasRawHeading ? normalizedRawHeading : fallback;
+      smoothedUserHeadingDegrees = hasRawHeading
+          ? normalizedRawHeading
+          : fallback;
       return smoothedUserHeadingDegrees;
     }
 
@@ -15428,7 +15479,9 @@ class _MapScreenState extends State<MapScreen>
     final speed = speedMetersPerSecond.isFinite
         ? math.max(0.0, speedMetersPerSecond)
         : 0.0;
-    final accuracy = accuracyMeters.isFinite ? math.max(0.0, accuracyMeters) : 0.0;
+    final accuracy = accuracyMeters.isFinite
+        ? math.max(0.0, accuracyMeters)
+        : 0.0;
     final movementThreshold = math.max(
       gpsCourseBaseMovementMeters,
       math.min(8.0, accuracy * 0.35),
@@ -15491,11 +15544,7 @@ class _MapScreenState extends State<MapScreen>
       fallback: currentMapRotationDegrees,
     );
 
-    moveMapCamera(
-      location,
-      navigationZoom,
-      rotationDegrees: safeHeading,
-    );
+    moveMapCamera(location, navigationZoom, rotationDegrees: safeHeading);
   }
 
   Future<void> moveToCurrentLocation({bool showErrors = true}) async {
@@ -18415,8 +18464,7 @@ class _SpotDetailEngagementPanelState extends State<SpotDetailEngagementPanel> {
                   return Tooltip(
                     message: trText(liked ? 'Liked' : 'Like'),
                     child: InkWell(
-                      onTap: () =>
-                          toggleSpotLike(context, widget.spot, liked),
+                      onTap: () => toggleSpotLike(context, widget.spot, liked),
                       borderRadius: BorderRadius.circular(999),
                       child: Container(
                         padding: const EdgeInsets.symmetric(
@@ -18516,8 +18564,7 @@ class _SpotRouteActionsState extends State<SpotRouteActions> {
   @override
   Widget build(BuildContext context) {
     final locationAvailable =
-        !widget.spot.isTemporary ||
-        widget.spot.isTemporaryLocationAvailableNow;
+        !widget.spot.isTemporary || widget.spot.isTemporaryLocationAvailableNow;
     final distanceText = distanceKm == null
         ? (isLoadingDistance ? 'Checking distance...' : 'Distance unavailable')
         : '${formatDistanceKm(distanceKm!)} away';
@@ -19587,9 +19634,9 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
       }
 
       final location = safeLatLngFromPosition(position);
-    if (location == null) {
-      return;
-    }
+      if (location == null) {
+        return;
+      }
 
       try {
         final placemarks = await placemarkFromCoordinates(
@@ -20144,8 +20191,6 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
           message: 'Firebase did not return the saved spot.',
         );
       }
-
-      await refreshFirebaseSpotsFromServer();
 
       if (!mounted) {
         return;
@@ -21502,7 +21547,7 @@ class _SpotOwnerSelectorState extends State<SpotOwnerSelector> {
 
   Widget ownerResults() {
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-      stream: usersCollection().orderBy('usernameKey').snapshots(),
+      stream: usersCollection().orderBy('usernameKey').limit(200).snapshots(),
       builder: (context, snapshot) {
         final users =
             snapshot.data?.docs
@@ -22715,6 +22760,42 @@ List<FriendUserData> chatMembersFromSnapshot(
   ];
 }
 
+Future<List<FriendUserData>> loadChatMembers(ChatThreadData chat) async {
+  final members = <FriendUserData>[];
+
+  for (final uid in chat.memberIds) {
+    if (uid.trim().isEmpty) {
+      continue;
+    }
+
+    try {
+      final snapshot = await usersCollection().doc(uid).get();
+      members.add(
+        snapshot.exists
+            ? FriendUserData.fromFirestore(snapshot)
+            : fallbackChatMember(chat, uid),
+      );
+    } catch (_) {
+      members.add(fallbackChatMember(chat, uid));
+    }
+  }
+
+  return members;
+}
+
+Stream<List<FriendUserData>> watchCurrentFriendUsers() {
+  final firebaseUser = FirebaseAuth.instance.currentUser;
+
+  if (firebaseUser == null) {
+    return Stream.value(const <FriendUserData>[]);
+  }
+
+  return friendshipsCollection()
+      .where('userIds', arrayContains: firebaseUser.uid)
+      .snapshots()
+      .asyncMap((_) => loadCurrentFriendUsers());
+}
+
 FriendUserData fallbackMessageSender(ChatMessageData message) {
   final username = message.senderUsername.trim().isEmpty
       ? 'ccs_driver'
@@ -23693,15 +23774,15 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
   }
 
   Widget membersSection() {
-    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-      stream: usersCollection().snapshots(),
+    return FutureBuilder<List<FriendUserData>>(
+      future: loadChatMembers(widget.chat),
       builder: (context, snapshot) {
-        final members = snapshot.hasData
-            ? chatMembersFromSnapshot(snapshot.data!, widget.chat)
-            : [
-                for (final uid in widget.chat.memberIds)
-                  fallbackChatMember(widget.chat, uid),
-              ];
+        final members =
+            snapshot.data ??
+            [
+              for (final uid in widget.chat.memberIds)
+                fallbackChatMember(widget.chat, uid),
+            ];
 
         return Container(
           padding: const EdgeInsets.all(14),
@@ -24618,18 +24699,15 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
                   return listWithUsers(const <String, FriendUserData>{});
                 }
 
-                return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                  stream: usersCollection().snapshots(),
+                return FutureBuilder<List<FriendUserData>>(
+                  future: loadChatMembers(widget.chat),
                   builder: (context, usersSnapshot) {
-                    final members = usersSnapshot.hasData
-                        ? chatMembersFromSnapshot(
-                            usersSnapshot.data!,
-                            widget.chat,
-                          )
-                        : [
-                            for (final uid in widget.chat.memberIds)
-                              fallbackChatMember(widget.chat, uid),
-                          ];
+                    final members =
+                        usersSnapshot.data ??
+                        [
+                          for (final uid in widget.chat.memberIds)
+                            fallbackChatMember(widget.chat, uid),
+                        ];
                     final usersById = <String, FriendUserData>{
                       for (final member in members) member.uid: member,
                     };
@@ -26263,52 +26341,47 @@ class _FriendsScreenState extends State<FriendsScreen> {
       );
     }
 
-    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-      stream: usersCollection().snapshots(),
-      builder: (context, _) {
-        return FutureBuilder<List<FriendUserData>>(
-          future: loadCurrentFriendUsers(),
-          builder: (context, snapshot) {
-            final friends = snapshot.data ?? const <FriendUserData>[];
+    return StreamBuilder<List<FriendUserData>>(
+      stream: watchCurrentFriendUsers(),
+      builder: (context, snapshot) {
+        final friends = snapshot.data ?? const <FriendUserData>[];
 
-            if (snapshot.connectionState == ConnectionState.waiting) {
-              return const Center(
-                child: Padding(
-                  padding: EdgeInsets.all(24),
-                  child: CircularProgressIndicator(color: blue),
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(
+            child: Padding(
+              padding: EdgeInsets.all(24),
+              child: CircularProgressIndicator(color: blue),
+            ),
+          );
+        }
+
+        if (friends.isEmpty) {
+          return const EmptyStateCard(
+            icon: Icons.group_outlined,
+            title: 'No friends yet',
+            text: 'Use Find Users to send your first friend request.',
+          );
+        }
+
+        return Column(
+          children: [
+            for (final user in friends)
+              friendUserTile(
+                user: user,
+                subtitle: user.name,
+                onTap: () => openUserProfile(
+                  context,
+                  uid: user.uid,
+                  fallbackUsername: user.username,
                 ),
-              );
-            }
-
-            if (friends.isEmpty) {
-              return const EmptyStateCard(
-                icon: Icons.group_outlined,
-                title: 'No friends yet',
-                text: 'Use Find Users to send your first friend request.',
-              );
-            }
-
-            return Column(
-              children: [
-                for (final user in friends)
-                  friendUserTile(
-                    user: user,
-                    subtitle: user.name,
-                    onTap: () => openUserProfile(
-                      context,
-                      uid: user.uid,
-                      fallbackUsername: user.username,
-                    ),
-                    trailing: actionButton(
-                      label: 'Remove',
-                      color: Colors.redAccent,
-                      outlined: true,
-                      onPressed: () => removeFriend(user),
-                    ),
-                  ),
-              ],
-            );
-          },
+                trailing: actionButton(
+                  label: 'Remove',
+                  color: Colors.redAccent,
+                  outlined: true,
+                  onPressed: () => removeFriend(user),
+                ),
+              ),
+          ],
         );
       },
     );
@@ -26536,110 +26609,122 @@ class _FriendsScreenState extends State<FriendsScreen> {
           ),
         ),
         const SizedBox(height: 16),
-        StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-          stream: usersCollection().orderBy('usernameKey').snapshots(),
-          builder: (context, snapshot) {
-            final users =
-                snapshot.data?.docs
-                    .map((doc) => FriendUserData.fromFirestore(doc))
-                    .where((user) => user.canAppearInUserLists)
-                    .where((user) => user.uid != firebaseUser.uid)
-                    .where((user) {
-                      if (searchText.isEmpty) {
-                        return true;
-                      }
+        if (searchText.length < 2)
+          const EmptyStateCard(
+            icon: Icons.person_search,
+            title: 'Search users',
+            text: 'Type at least 2 characters to search.',
+          )
+        else
+          StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+            stream: usersCollection()
+                .orderBy('usernameKey')
+                .limit(50)
+                .snapshots(),
+            builder: (context, snapshot) {
+              final users =
+                  snapshot.data?.docs
+                      .map((doc) => FriendUserData.fromFirestore(doc))
+                      .where((user) => user.canAppearInUserLists)
+                      .where((user) => user.uid != firebaseUser.uid)
+                      .where((user) {
+                        if (searchText.isEmpty) {
+                          return true;
+                        }
 
-                      return user.username.toLowerCase().contains(searchText) ||
-                          user.name.toLowerCase().contains(searchText);
-                    })
-                    .toList() ??
-                <FriendUserData>[];
+                        return user.username.toLowerCase().contains(
+                              searchText,
+                            ) ||
+                            user.name.toLowerCase().contains(searchText);
+                      })
+                      .toList() ??
+                  <FriendUserData>[];
 
-            users.sort((a, b) {
-              final onlineCompare = b.appearsOnline.toString().compareTo(
-                a.appearsOnline.toString(),
-              );
-              if (onlineCompare != 0) {
-                return onlineCompare;
+              users.sort((a, b) {
+                final onlineCompare = b.appearsOnline.toString().compareTo(
+                  a.appearsOnline.toString(),
+                );
+                if (onlineCompare != 0) {
+                  return onlineCompare;
+                }
+
+                return a.username.toLowerCase().compareTo(
+                  b.username.toLowerCase(),
+                );
+              });
+
+              if (users.isEmpty) {
+                return const EmptyStateCard(
+                  icon: Icons.person_search,
+                  title: 'No users found',
+                  text: 'Try searching by nickname or name.',
+                );
               }
 
-              return a.username.toLowerCase().compareTo(
-                b.username.toLowerCase(),
-              );
-            });
+              return Column(
+                children: [
+                  for (final user in users)
+                    FutureBuilder<String>(
+                      future: friendStatusLabelForUser(
+                        firebaseUser.uid,
+                        user.uid,
+                      ),
+                      builder: (context, statusSnapshot) {
+                        final status = statusSnapshot.data ?? 'loading';
+                        final isFriend = status == 'friends';
+                        final incoming = status == 'incoming';
+                        final outgoing = status == 'outgoing';
 
-            if (users.isEmpty) {
-              return const EmptyStateCard(
-                icon: Icons.person_search,
-                title: 'No users found',
-                text: 'Try searching by nickname or name.',
-              );
-            }
-
-            return Column(
-              children: [
-                for (final user in users)
-                  FutureBuilder<String>(
-                    future: friendStatusLabelForUser(
-                      firebaseUser.uid,
-                      user.uid,
+                        return friendUserTile(
+                          user: user,
+                          subtitle: user.name,
+                          onTap: () => openUserProfile(
+                            context,
+                            uid: user.uid,
+                            fallbackUsername: user.username,
+                          ),
+                          trailing: incoming
+                              ? actionButton(
+                                  label: 'Accept',
+                                  onPressed: () async {
+                                    final doc = await friendRequestsCollection()
+                                        .doc(
+                                          friendRequestIdFor(
+                                            user.uid,
+                                            firebaseUser.uid,
+                                          ),
+                                        )
+                                        .get();
+                                    if (doc.exists) {
+                                      await acceptRequest(
+                                        FriendRequestData.fromFirestore(doc),
+                                      );
+                                    }
+                                  },
+                                )
+                              : actionButton(
+                                  label: isFriend
+                                      ? 'Friends'
+                                      : outgoing
+                                      ? 'Sent'
+                                      : status == 'loading'
+                                      ? '...'
+                                      : 'Add',
+                                  outlined: isFriend || outgoing,
+                                  onPressed:
+                                      (isFriend ||
+                                          outgoing ||
+                                          status == 'loading')
+                                      ? null
+                                      : () => sendRequest(user),
+                                ),
+                        );
+                      },
                     ),
-                    builder: (context, statusSnapshot) {
-                      final status = statusSnapshot.data ?? 'loading';
-                      final isFriend = status == 'friends';
-                      final incoming = status == 'incoming';
-                      final outgoing = status == 'outgoing';
-
-                      return friendUserTile(
-                        user: user,
-                        subtitle: user.name,
-                        onTap: () => openUserProfile(
-                          context,
-                          uid: user.uid,
-                          fallbackUsername: user.username,
-                        ),
-                        trailing: incoming
-                            ? actionButton(
-                                label: 'Accept',
-                                onPressed: () async {
-                                  final doc = await friendRequestsCollection()
-                                      .doc(
-                                        friendRequestIdFor(
-                                          user.uid,
-                                          firebaseUser.uid,
-                                        ),
-                                      )
-                                      .get();
-                                  if (doc.exists) {
-                                    await acceptRequest(
-                                      FriendRequestData.fromFirestore(doc),
-                                    );
-                                  }
-                                },
-                              )
-                            : actionButton(
-                                label: isFriend
-                                    ? 'Friends'
-                                    : outgoing
-                                    ? 'Sent'
-                                    : status == 'loading'
-                                    ? '...'
-                                    : 'Add',
-                                outlined: isFriend || outgoing,
-                                onPressed:
-                                    (isFriend ||
-                                        outgoing ||
-                                        status == 'loading')
-                                    ? null
-                                    : () => sendRequest(user),
-                              ),
-                      );
-                    },
-                  ),
-              ],
-            );
-          },
-        ),
+                ],
+              );
+            },
+          ),
       ],
     );
   }
@@ -28972,7 +29057,7 @@ class AdminVerifiedUsersScreen extends StatelessWidget {
         foregroundColor: blue,
       ),
       body: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-        stream: usersCollection().orderBy('usernameKey').snapshots(),
+        stream: usersCollection().orderBy('usernameKey').limit(200).snapshots(),
         builder: (context, snapshot) {
           final users =
               snapshot.data?.docs
@@ -29541,7 +29626,7 @@ class AdminUsersScreen extends StatelessWidget {
         foregroundColor: blue,
       ),
       body: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-        stream: usersCollection().orderBy('usernameKey').snapshots(),
+        stream: usersCollection().orderBy('usernameKey').limit(200).snapshots(),
         builder: (context, snapshot) {
           final users =
               snapshot.data?.docs
@@ -30610,8 +30695,6 @@ class _AdminEditSpotScreenState extends State<AdminEditSpotScreen> {
             (item) => isSameSpot(item, widget.spot) ? visibleUpdatedSpot : item,
           )
           .toList();
-
-      await refreshFirebaseSpotsFromServer();
 
       if (!mounted) {
         return;
