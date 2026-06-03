@@ -330,6 +330,19 @@ service cloud.firestore {
         ]);
     }
 
+    function signedInUserCanUpdateSpotCounters() {
+      return isActiveUser()
+        && request.resource.data.get('likeCount', 0) is int
+        && request.resource.data.get('likeCount', 0) >= 0
+        && request.resource.data.get('commentCount', 0) is int
+        && request.resource.data.get('commentCount', 0) >= 0
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'likeCount',
+          'commentCount',
+          'updatedAt'
+        ]);
+    }
+
     function listChangedOnlyByCurrentUser(before, after) {
       return after.toSet().difference(before.toSet()).hasOnly([currentUid()])
         && before.toSet().difference(after.toSet()).hasOnly([currentUid()]);
@@ -459,6 +472,10 @@ service cloud.firestore {
 
     function isChatMember(chatId) {
       return isSignedIn() && currentUid() in chatData(chatId).memberIds;
+    }
+
+    function chatExists(chatId) {
+      return exists(/databases/$(database)/documents/chats/$(chatId));
     }
 
     function chatOwnerUid(chatId) {
@@ -609,7 +626,8 @@ service cloud.firestore {
       allow update: if isStaff()
         || ownerCanEditSpot()
         || businessOwnerCanEditSpot()
-        || signedInUserCanRefreshSpotRating();
+        || signedInUserCanRefreshSpotRating()
+        || signedInUserCanUpdateSpotCounters();
       allow delete: if isStaff();
     }
 
@@ -902,8 +920,55 @@ service cloud.firestore {
       allow delete: if isFriendshipParticipant();
     }
 
+    match /blocked_users/{blockId} {
+      allow get: if isActiveUser()
+        && (
+          !exists(/databases/$(database)/documents/blocked_users/$(blockId))
+          || resource.data.blockerUid == currentUid()
+          || resource.data.blockedUid == currentUid()
+        );
+      allow list: if isActiveUser()
+        && resource.data.blockerUid == currentUid();
+      allow create: if isActiveUser()
+        && request.resource.data.blockerUid == currentUid()
+        && request.resource.data.blockedUid is string
+        && request.resource.data.blockedUid != currentUid()
+        && blockId == currentUid() + '_' + request.resource.data.blockedUid
+        && request.resource.data.keys().hasOnly([
+          'blockerUid',
+          'blockedUid',
+          'blockedUsername',
+          'blockedName',
+          'blockedPhotoUrl',
+          'createdAt',
+          'updatedAt'
+        ]);
+      allow update: if isActiveUser()
+        && resource.data.blockerUid == currentUid()
+        && request.resource.data.blockerUid == resource.data.blockerUid
+        && request.resource.data.blockedUid == resource.data.blockedUid
+        && blockId == currentUid() + '_' + resource.data.blockedUid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'blockerUid',
+          'blockedUid',
+          'blockedUsername',
+          'blockedName',
+          'blockedPhotoUrl',
+          'createdAt',
+          'updatedAt'
+        ]);
+      allow delete: if isActiveUser()
+        && resource.data.blockerUid == currentUid();
+    }
+
     match /chats/{chatId} {
-      allow read: if isSignedIn() && currentUid() in resource.data.memberIds;
+      allow get: if isSignedIn()
+        && (
+          !chatExists(chatId)
+          || currentUid() in resource.data.memberIds
+        );
+      allow list: if isSignedIn()
+        && currentUid() in resource.data.memberIds;
       allow create: if isActiveUser()
         && request.resource.data.memberIds is list
         && currentUid() in request.resource.data.memberIds
