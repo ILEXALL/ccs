@@ -26562,7 +26562,9 @@ class _FriendsScreenState extends State<FriendsScreen> {
         return;
       }
 
-      setState(() => usersFuture = usersSearchFuture(nextSearchText));
+      setState(() {
+        usersFuture = usersSearchFuture(nextSearchText);
+      });
     });
   }
 
