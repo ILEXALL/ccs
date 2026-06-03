@@ -5406,7 +5406,7 @@ class FriendUserData {
         (liveLocationPublic ||
             liveLocationShareScope == 'public' ||
             liveLocationShareScope == 'sos' ||
-        (uid == currentUid ||
+            (uid == currentUid ||
                 liveLocationVisibleToUserIds.contains(currentUid)));
   }
 
@@ -13864,8 +13864,8 @@ class _MapScreenState extends State<MapScreen>
     if (prompt != null && expiry != null) {
       unawaited(
         startNativeLiveLocationBackgroundService(
-        uid: firebaseUser.uid,
-        visibleToUserIds: visibleToUserIds,
+          uid: firebaseUser.uid,
+          visibleToUserIds: visibleToUserIds,
           shareScope: 'sos',
           promptAt: prompt,
           expiresAt: expiry,
@@ -14789,10 +14789,7 @@ class _MapScreenState extends State<MapScreen>
     final firebaseUser = FirebaseAuth.instance.currentUser;
     final byUid = <String, LiveLocationData>{};
 
-    for (final location in [
-      ...scopedLiveLocations,
-      ...publicLiveLocations,
-    ]) {
+    for (final location in [...scopedLiveLocations, ...publicLiveLocations]) {
       if (location.isExpired ||
           !liveLocationVisibleForCurrentUser(location, firebaseUser)) {
         continue;
@@ -15400,8 +15397,7 @@ class _MapScreenState extends State<MapScreen>
       final shareScope = ownLocation?.shareScope.trim().isNotEmpty == true
           ? ownLocation!.shareScope
           : 'public';
-      final visibleToUserIds =
-          ownLocation?.visibleToUserIds.isNotEmpty == true
+      final visibleToUserIds = ownLocation?.visibleToUserIds.isNotEmpty == true
           ? ownLocation!.visibleToUserIds
           : [firebaseUser.uid];
 
@@ -24072,7 +24068,8 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
     return FutureBuilder<List<FriendUserData>>(
       future: membersFuture,
       builder: (context, snapshot) {
-        final members = snapshot.data ??
+        final members =
+            snapshot.data ??
             [
               for (final uid in widget.chat.memberIds)
                 fallbackChatMember(widget.chat, uid),
@@ -25007,7 +25004,8 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
                 return FutureBuilder<List<FriendUserData>>(
                   future: chatMembersFuture,
                   builder: (context, usersSnapshot) {
-                    final members = usersSnapshot.data ??
+                    final members =
+                        usersSnapshot.data ??
                         [
                           for (final uid in widget.chat.memberIds)
                             fallbackChatMember(widget.chat, uid),
