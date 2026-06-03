@@ -54,6 +54,7 @@ const liveLocationDurationChoices = <Duration>[
   Duration(hours: 4),
 ];
 const liveLocationRenewGracePeriod = Duration(minutes: 10);
+const publicLiveLocationAudience = '__public__';
 StreamSubscription<String>? pushTokenRefreshSubscription;
 StreamSubscription<RemoteMessage>? foregroundPushSubscription;
 StreamSubscription<QuerySnapshot<Map<String, dynamic>>>?
@@ -603,6 +604,7 @@ const _ruText = <String, String>{
   'Send the first message.': 'Отправьте первое сообщение.',
   'Sent requests': 'Отправленные заявки',
   'Service info updated.': 'Данные сервиса обновлены.',
+  'Share with everyone': 'Делиться со всеми',
   'Share live location': 'Поделиться геопозицией в реальном времени',
   'Share live location?': 'Поделиться геопозицией?',
   'You are about to share your live location. People who have access to this share will be able to see you on the map until sharing expires or you stop it.':
@@ -1194,6 +1196,7 @@ const _lvText = <String, String>{
   'Send the first message.': 'Nosūtiet pirmo ziņu.',
   'Sent requests': 'Nosūtītie pieprasījumi',
   'Service info updated.': 'Servisa informācija atjaunināta.',
+  'Share with everyone': 'Kopīgot visiem',
   'Share live location': 'Kopīgot atrašanās vietu tiešsaistē',
   'Share live location?': 'Kopīgot atrašanās vietu tiešsaistē?',
   'You are about to share your live location. People who have access to this share will be able to see you on the map until sharing expires or you stop it.':
@@ -13787,7 +13790,10 @@ class _MapScreenState extends State<MapScreen>
       position.heading,
       speedMetersPerSecond: speed,
     );
-    final visibleToUserIds = uniqueNonEmptyStrings([firebaseUser.uid]);
+    final visibleToUserIds = uniqueNonEmptyStrings([
+      firebaseUser.uid,
+      publicLiveLocationAudience,
+    ]);
 
     liveLocationShareDuration = shareDuration;
     liveLocationPromptAt = promptAt;
@@ -14900,7 +14906,7 @@ class _MapScreenState extends State<MapScreen>
         );
 
     publicLiveLocationSubscription = liveLocationsCollection()
-        .where('shareScope', whereIn: const ['sos', 'public'])
+        .where('visibleToUserIds', arrayContains: publicLiveLocationAudience)
         .limit(100)
         .snapshots()
         .listen(
@@ -15056,7 +15062,10 @@ class _MapScreenState extends State<MapScreen>
       return;
     }
 
-    final visibleToUserIds = uniqueNonEmptyStrings([firebaseUser.uid]);
+    final visibleToUserIds = uniqueNonEmptyStrings([
+      firebaseUser.uid,
+      publicLiveLocationAudience,
+    ]);
     final location = safeLatLngFromPosition(position);
     if (location == null) {
       return;
@@ -15247,7 +15256,7 @@ class _MapScreenState extends State<MapScreen>
           stringListFromFirebase(existingData?['visibleToUserIds'], [
             firebaseUser.uid,
           ]),
-    );
+    ).where((uid) => uid != publicLiveLocationAudience).toList();
     final nextVisibleToChatId =
         visibleToChatId ??
         stringFromFirebase(existingData?['visibleToChatId'], '');
@@ -15262,6 +15271,11 @@ class _MapScreenState extends State<MapScreen>
             existingData?['publicLocation'] == true ||
             nextShareScope == 'public' ||
             nextShareScope == 'sos');
+    final storedVisibleToUserIds = uniqueNonEmptyStrings([
+      if (nextVisibleToUserIds.isEmpty) firebaseUser.uid,
+      ...nextVisibleToUserIds,
+      if (nextPublicLocation) publicLiveLocationAudience,
+    ]);
 
     await docRef.set({
       'uid': firebaseUser.uid,
@@ -15277,9 +15291,7 @@ class _MapScreenState extends State<MapScreen>
       'lat': position.latitude,
       'lng': position.longitude,
       'coordinates': GeoPoint(position.latitude, position.longitude),
-      'visibleToUserIds': nextVisibleToUserIds.isEmpty
-          ? [firebaseUser.uid]
-          : nextVisibleToUserIds,
+      'visibleToUserIds': storedVisibleToUserIds,
       'visibleToChatId': nextVisibleToChatId,
       'visibleToChatName': nextVisibleToChatName,
       'shareScope': nextShareScope,
@@ -15294,9 +15306,7 @@ class _MapScreenState extends State<MapScreen>
       'isSharingLiveLocation': true,
       'liveLocationExpiresAt': Timestamp.fromDate(expiresAt),
       'liveLocationShareDurationMinutes': duration.inMinutes,
-      'liveLocationVisibleToUserIds': nextVisibleToUserIds.isEmpty
-          ? [firebaseUser.uid]
-          : nextVisibleToUserIds,
+      'liveLocationVisibleToUserIds': storedVisibleToUserIds,
       'liveLocationShareScope': nextShareScope,
       'liveLocationPublic': nextPublicLocation,
       'lastSeenAt': FieldValue.serverTimestamp(),
@@ -16511,12 +16521,12 @@ class _MapHeader extends StatelessWidget {
             color: isSharingLiveLocation ? blue : Colors.white60,
           ),
           const SizedBox(width: 8),
-          const Expanded(
+          Expanded(
             child: Text(
-              'Share with everyone',
+              trText('Share with everyone'),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: TextStyle(
+              style: const TextStyle(
                 color: Colors.white70,
                 fontSize: 11,
                 fontWeight: FontWeight.w800,
@@ -26523,7 +26533,7 @@ class FriendsScreen extends StatefulWidget {
 class _FriendsScreenState extends State<FriendsScreen> {
   final searchController = TextEditingController();
   String searchText = '';
-  Future<QuerySnapshot<Map<String, dynamic>>>? usersFuture;
+  Future<List<FriendUserData>>? usersFuture;
   Timer? userSearchDebounce;
 
   @override
@@ -26533,15 +26543,36 @@ class _FriendsScreenState extends State<FriendsScreen> {
     super.dispose();
   }
 
-  Future<QuerySnapshot<Map<String, dynamic>>> usersSearchFuture(String value) {
+  Future<List<FriendUserData>> usersSearchFuture(String value) async {
     final query = usernameKey(value);
 
-    return usersCollection()
+    final snapshot = await usersCollection()
+        .where('usernameKey', isGreaterThanOrEqualTo: query)
+        .where('usernameKey', isLessThanOrEqualTo: '$query\uf8ff')
         .orderBy('usernameKey')
-        .startAt([query])
-        .endAt(['$query\uf8ff'])
         .limit(30)
-        .get();
+        .get()
+        .timeout(const Duration(seconds: 8));
+
+    final firebaseUser = FirebaseAuth.instance.currentUser;
+    final users = snapshot.docs
+        .map((doc) => FriendUserData.fromFirestore(doc))
+        .where((user) => user.canAppearInUserLists)
+        .where((user) => user.uid != firebaseUser?.uid)
+        .toList();
+
+    users.sort((a, b) {
+      final onlineCompare = b.appearsOnline.toString().compareTo(
+        a.appearsOnline.toString(),
+      );
+      if (onlineCompare != 0) {
+        return onlineCompare;
+      }
+
+      return a.username.toLowerCase().compareTo(b.username.toLowerCase());
+    });
+
+    return users;
   }
 
   void queueUsersSearch(String value) {
@@ -27155,34 +27186,9 @@ class _FriendsScreenState extends State<FriendsScreen> {
             ),
           )
         else
-          FutureBuilder<QuerySnapshot<Map<String, dynamic>>>(
+          FutureBuilder<List<FriendUserData>>(
             future: usersFuture,
             builder: (context, snapshot) {
-              final users =
-                  snapshot.data?.docs
-                      .map((doc) => FriendUserData.fromFirestore(doc))
-                      .where((user) => user.canAppearInUserLists)
-                      .where((user) => user.uid != firebaseUser.uid)
-                      .where((user) {
-                        return user.username.toLowerCase().contains(searchText) ||
-                            user.name.toLowerCase().contains(searchText);
-                      })
-                      .toList() ??
-                  <FriendUserData>[];
-
-              users.sort((a, b) {
-                final onlineCompare = b.appearsOnline.toString().compareTo(
-                  a.appearsOnline.toString(),
-                );
-                if (onlineCompare != 0) {
-                  return onlineCompare;
-                }
-
-                return a.username.toLowerCase().compareTo(
-                  b.username.toLowerCase(),
-                );
-              });
-
               if (snapshot.connectionState == ConnectionState.waiting) {
                 return const Center(
                   child: Padding(
@@ -27192,11 +27198,21 @@ class _FriendsScreenState extends State<FriendsScreen> {
                 );
               }
 
+              if (snapshot.hasError) {
+                return const EmptyStateCard(
+                  icon: Icons.search_off,
+                  title: 'Could not search users',
+                  text: 'Try again in a moment.',
+                );
+              }
+
+              final users = snapshot.data ?? const <FriendUserData>[];
+
               if (users.isEmpty) {
                 return const EmptyStateCard(
                   icon: Icons.person_search,
-                  title: 'No users found',
-                  text: 'Try searching by nickname.',
+                  title: 'No such nickname exists',
+                  text: 'Check the nickname and try again.',
                 );
               }
 
