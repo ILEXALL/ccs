@@ -16,6 +16,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:image/image.dart' as img;
 import 'package:latlong2/latlong.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -41,6 +42,7 @@ const int r2SpotPhotoMaxLongSide = 1280;
 const int r2AvatarPhotoMaxLongSide = 768;
 const int r2GaragePhotoMaxLongSide = 1280;
 const int r2JpegQuality = 76;
+const String r2ImageCacheControl = 'public, max-age=31536000, immutable';
 const double garagePhotoAspectRatio = 1.45;
 
 String? googleSignInSetupError;
@@ -3798,6 +3800,226 @@ bool isNetworkUrl(String? value) {
   return cleanValue.startsWith('http://') || cleanValue.startsWith('https://');
 }
 
+Future<Directory>? _ccsImageCacheDirectoryFuture;
+final Map<String, Future<File>> _ccsImageCacheDownloads = {};
+
+Future<Directory> ccsImageCacheDirectory() {
+  return _ccsImageCacheDirectoryFuture ??= () async {
+    final baseDirectory = await getTemporaryDirectory();
+    final cacheDirectory = Directory(
+      '${baseDirectory.path}${Platform.pathSeparator}ccs_image_cache_v1',
+    );
+
+    if (!await cacheDirectory.exists()) {
+      await cacheDirectory.create(recursive: true);
+    }
+
+    return cacheDirectory;
+  }();
+}
+
+String ccsCachedImageExtension(String url) {
+  final uri = Uri.tryParse(url);
+  final path = (uri?.path ?? url).toLowerCase();
+
+  if (path.endsWith('.png')) {
+    return 'png';
+  }
+  if (path.endsWith('.webp')) {
+    return 'webp';
+  }
+  if (path.endsWith('.gif')) {
+    return 'gif';
+  }
+
+  return 'jpg';
+}
+
+String ccsCachedImageFileName(String url) {
+  var hash = 0x811c9dc5;
+
+  for (final codeUnit in url.codeUnits) {
+    hash ^= codeUnit;
+    hash = (hash * 0x01000193) & 0xffffffff;
+  }
+
+  return '${hash.toRadixString(16).padLeft(8, '0')}.${ccsCachedImageExtension(url)}';
+}
+
+Future<File> ccsCachedImageFile(String url) {
+  final cleanUrl = url.trim();
+
+  return _ccsImageCacheDownloads.putIfAbsent(cleanUrl, () async {
+    try {
+      final cacheDirectory = await ccsImageCacheDirectory();
+      final file = File(
+        '${cacheDirectory.path}${Platform.pathSeparator}${ccsCachedImageFileName(cleanUrl)}',
+      );
+
+      if (await file.exists() && await file.length() > 0) {
+        return file;
+      }
+
+      final tempFile = File('${file.path}.download');
+      final client = HttpClient()
+        ..connectionTimeout = const Duration(seconds: 15);
+
+      try {
+        final request = await client.getUrl(Uri.parse(cleanUrl));
+        request.headers.set(HttpHeaders.acceptHeader, 'image/*');
+        final response = await request.close().timeout(
+          const Duration(seconds: 25),
+        );
+
+        if (response.statusCode < 200 || response.statusCode >= 300) {
+          throw Exception('Image request failed ${response.statusCode}');
+        }
+
+        final sink = tempFile.openWrite();
+        await response.pipe(sink);
+
+        if (!await tempFile.exists() || await tempFile.length() == 0) {
+          throw Exception('Downloaded image is empty.');
+        }
+
+        if (await file.exists()) {
+          await file.delete();
+        }
+
+        return tempFile.rename(file.path);
+      } catch (_) {
+        if (await tempFile.exists()) {
+          await tempFile.delete();
+        }
+        rethrow;
+      } finally {
+        client.close(force: true);
+      }
+    } finally {
+      _ccsImageCacheDownloads.remove(cleanUrl);
+    }
+  });
+}
+
+class CcsCachedNetworkImage extends StatefulWidget {
+  final String url;
+  final double? width;
+  final double? height;
+  final BoxFit? fit;
+  final AlignmentGeometry alignment;
+  final ImageErrorWidgetBuilder? errorBuilder;
+  final WidgetBuilder? placeholder;
+  final FilterQuality filterQuality;
+
+  const CcsCachedNetworkImage(
+    this.url, {
+    super.key,
+    this.width,
+    this.height,
+    this.fit,
+    this.alignment = Alignment.center,
+    this.errorBuilder,
+    this.placeholder,
+    this.filterQuality = FilterQuality.low,
+  });
+
+  @override
+  State<CcsCachedNetworkImage> createState() => _CcsCachedNetworkImageState();
+}
+
+class _CcsCachedNetworkImageState extends State<CcsCachedNetworkImage> {
+  File? cachedFile;
+  Object? loadError;
+  StackTrace? loadStack;
+  String requestedUrl = '';
+
+  @override
+  void initState() {
+    super.initState();
+    loadImage();
+  }
+
+  @override
+  void didUpdateWidget(CcsCachedNetworkImage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+
+    if (oldWidget.url != widget.url) {
+      loadImage();
+    }
+  }
+
+  Future<void> loadImage() async {
+    final cleanUrl = widget.url.trim();
+    requestedUrl = cleanUrl;
+    setState(() {
+      cachedFile = null;
+      loadError = null;
+      loadStack = null;
+    });
+
+    if (!isNetworkUrl(cleanUrl)) {
+      setState(() => loadError = Exception('Invalid image URL.'));
+      return;
+    }
+
+    try {
+      final file = await ccsCachedImageFile(cleanUrl);
+
+      if (!mounted || requestedUrl != cleanUrl) {
+        return;
+      }
+
+      setState(() => cachedFile = file);
+    } catch (error, stack) {
+      if (!mounted || requestedUrl != cleanUrl) {
+        return;
+      }
+
+      setState(() {
+        loadError = error;
+        loadStack = stack;
+      });
+    }
+  }
+
+  Widget fallback(BuildContext context) {
+    final error = loadError;
+
+    if (error != null && widget.errorBuilder != null) {
+      return widget.errorBuilder!(context, error, loadStack);
+    }
+
+    if (widget.placeholder != null) {
+      return widget.placeholder!(context);
+    }
+
+    return SizedBox(
+      width: widget.width,
+      height: widget.height,
+      child: Container(color: Colors.white10),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final file = cachedFile;
+
+    if (file == null) {
+      return fallback(context);
+    }
+
+    return Image.file(
+      file,
+      width: widget.width,
+      height: widget.height,
+      fit: widget.fit,
+      alignment: widget.alignment,
+      filterQuality: widget.filterQuality,
+      errorBuilder: widget.errorBuilder,
+    );
+  }
+}
+
 String imageContentTypeForPath(String path) {
   // R2 uploads are normalized to compressed JPEGs to keep storage and bandwidth low.
   return 'image/jpeg';
@@ -3925,12 +4147,14 @@ Future<void> putBytesToPresignedUrl({
   required String uploadUrl,
   required List<int> bytes,
   required String contentType,
+  String cacheControl = r2ImageCacheControl,
 }) async {
   final client = HttpClient();
 
   try {
     final request = await client.putUrl(Uri.parse(uploadUrl));
     request.headers.set(HttpHeaders.contentTypeHeader, contentType);
+    request.headers.set(HttpHeaders.cacheControlHeader, cacheControl);
     request.contentLength = bytes.length;
     request.add(bytes);
 
@@ -3949,10 +4173,12 @@ Future<String> uploadImageBytesToR2({
   required String r2Path,
   required List<int> bytes,
   String contentType = 'image/jpeg',
+  String cacheControl = r2ImageCacheControl,
 }) async {
   final presignData = await postJsonToUrl(r2PresignUploadUrl, {
     'path': safeR2Path(r2Path),
     'contentType': contentType,
+    'cacheControl': cacheControl,
   });
 
   final uploadUrl = stringFromFirebase(presignData['uploadUrl'], '');
@@ -3966,6 +4192,7 @@ Future<String> uploadImageBytesToR2({
     uploadUrl: uploadUrl,
     bytes: bytes,
     contentType: contentType,
+    cacheControl: cacheControl,
   );
 
   return publicUrl;
@@ -7410,7 +7637,7 @@ Future<String> uploadSpotPhoto({
 
   final timestamp = DateTime.now().millisecondsSinceEpoch;
   final r2Path = photoIndex == 0
-      ? 'spots/$spotId/main.jpg'
+      ? 'spots/$spotId/main_$timestamp.jpg'
       : 'spots/$spotId/gallery/photo_${photoIndex + 1}_$timestamp.jpg';
 
   return uploadImageToR2(
@@ -7425,7 +7652,8 @@ Future<String> uploadUserAvatarPhoto({
   required String userId,
   required String localPhotoPath,
 }) async {
-  final r2Path = 'users/$userId/avatar.jpg';
+  final timestamp = DateTime.now().millisecondsSinceEpoch;
+  final r2Path = 'users/$userId/avatar_$timestamp.jpg';
 
   return uploadImageToR2(
     r2Path: r2Path,
@@ -7447,7 +7675,7 @@ Future<String> uploadGarageCarPhoto({
 
   final timestamp = DateTime.now().millisecondsSinceEpoch;
   final r2Path = photoIndex == 0
-      ? 'garage/$userId/car_${carIndex}_cover.jpg'
+      ? 'garage/$userId/car_${carIndex}_cover_$timestamp.jpg'
       : 'garage/$userId/car_$carIndex/photo_${photoIndex + 1}_$timestamp.jpg';
 
   return uploadImageToR2(
@@ -17657,7 +17885,7 @@ Widget spotPhotoImage(
     );
   }
 
-  return Image.network(
+  return CcsCachedNetworkImage(
     source,
     width: width,
     height: height,
@@ -21648,7 +21876,7 @@ class _SpotOwnerSelectorState extends State<SpotOwnerSelector> {
         child: localFileExists(user.avatarPath)
             ? Image.file(File(user.avatarPath!), fit: BoxFit.cover)
             : (user.photoUrl != null && user.photoUrl!.trim().isNotEmpty)
-            ? Image.network(
+            ? CcsCachedNetworkImage(
                 user.photoUrl!,
                 fit: BoxFit.cover,
                 errorBuilder: (_, _, _) => Center(
@@ -22423,7 +22651,7 @@ Widget chatAvatarWidget(ChatThreadData chat, String currentUid) {
 
   if (!chat.isGroup && isNetworkUrl(photoUrl)) {
     return ClipOval(
-      child: Image.network(
+      child: CcsCachedNetworkImage(
         photoUrl,
         width: 46,
         height: 46,
@@ -22436,7 +22664,7 @@ Widget chatAvatarWidget(ChatThreadData chat, String currentUid) {
 
   if (chat.isGroup && isNetworkUrl(chat.avatarUrl)) {
     return ClipOval(
-      child: Image.network(
+      child: CcsCachedNetworkImage(
         chat.avatarUrl,
         width: 46,
         height: 46,
@@ -22784,7 +23012,7 @@ class ChatThreadTile extends StatelessWidget {
       final photoUrl = chat.photoUrl.trim();
       if (isNetworkUrl(photoUrl)) {
         return ClipOval(
-          child: Image.network(
+          child: CcsCachedNetworkImage(
             photoUrl,
             width: 46,
             height: 46,
@@ -22955,7 +23183,7 @@ class UserAvatarCircle extends StatelessWidget {
         child: localFileExists(user.avatarPath)
             ? Image.file(File(user.avatarPath!), fit: BoxFit.cover)
             : isNetworkUrl(user.photoUrl)
-            ? Image.network(
+            ? CcsCachedNetworkImage(
                 user.photoUrl!,
                 fit: BoxFit.cover,
                 errorBuilder: (_, _, _) => Center(
@@ -23965,7 +24193,7 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
   Widget avatarPreview() {
     if (isNetworkUrl(photoUrl)) {
       return ClipOval(
-        child: Image.network(
+        child: CcsCachedNetworkImage(
           photoUrl,
           width: 96,
           height: 96,
@@ -24216,7 +24444,7 @@ class ChatTitleAvatar extends StatelessWidget {
 
     if (isNetworkUrl(photoUrl)) {
       return ClipOval(
-        child: Image.network(
+        child: CcsCachedNetworkImage(
           photoUrl,
           width: 34,
           height: 34,
@@ -25963,7 +26191,7 @@ class PublicUserProfileScreen extends StatelessWidget {
         child: localFileExists(profile.avatarPath)
             ? Image.file(File(profile.avatarPath!), fit: BoxFit.cover)
             : isNetworkUrl(profile.photoUrl)
-            ? Image.network(
+            ? CcsCachedNetworkImage(
                 profile.photoUrl!,
                 fit: BoxFit.cover,
                 errorBuilder: (_, _, _) => fallback(),
@@ -26716,7 +26944,7 @@ class _FriendsScreenState extends State<FriendsScreen> {
             child: localFileExists(avatarPath)
                 ? Image.file(File(avatarPath!), fit: BoxFit.cover)
                 : (photoUrl != null && photoUrl.trim().isNotEmpty)
-                ? Image.network(
+                ? CcsCachedNetworkImage(
                     photoUrl,
                     fit: BoxFit.cover,
                     errorBuilder: (_, _, _) => Center(
@@ -27416,7 +27644,7 @@ class _ProfileHeader extends StatelessWidget {
                           },
                         )
                       : isNetworkUrl(profile.photoUrl)
-                      ? Image.network(
+                      ? CcsCachedNetworkImage(
                           profile.photoUrl!,
                           fit: BoxFit.cover,
                           errorBuilder: (_, _, _) {
@@ -28206,7 +28434,7 @@ Widget garagePhotoImage(
   }
 
   if (isNetworkUrl(source)) {
-    return Image.network(
+    return CcsCachedNetworkImage(
       source,
       width: width,
       height: height,
@@ -28787,7 +29015,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                           : (isNetworkUrl(avatarPath) ||
                                 (currentUser.photoUrl?.trim().isNotEmpty ??
                                     false))
-                          ? Image.network(
+                          ? CcsCachedNetworkImage(
                               isNetworkUrl(avatarPath)
                                   ? avatarPath!
                                   : currentUser.photoUrl!,
@@ -31359,7 +31587,7 @@ class _AdminEditSpotScreenState extends State<AdminEditSpotScreen> {
             errorBuilder: (_, _, _) =>
                 _SpotPhotoPlaceholder(width: 88, height: 88),
           )
-        : Image.network(
+        : CcsCachedNetworkImage(
             source,
             width: 88,
             height: 88,
