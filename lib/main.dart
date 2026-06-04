@@ -60,6 +60,367 @@ StreamSubscription<QuerySnapshot<Map<String, dynamic>>>?
 notificationCenterUnreadSubscription;
 final notificationCenterUnreadCount = ValueNotifier<int>(0);
 
+const bool firestoreDebugTrackerEnabled = true;
+
+class FirestoreDebugStats {
+  int reads = 0;
+  int writes = 0;
+  int deletes = 0;
+  int events = 0;
+  DateTime? lastAt;
+
+  int get total => reads + writes + deletes;
+}
+
+class FirestoreDebugEvent {
+  final String label;
+  final String operation;
+  final int count;
+  final DateTime at;
+
+  const FirestoreDebugEvent({
+    required this.label,
+    required this.operation,
+    required this.count,
+    required this.at,
+  });
+}
+
+class FirestoreDebugTracker extends ChangeNotifier {
+  final Map<String, FirestoreDebugStats> statsByLabel = {};
+  final List<FirestoreDebugEvent> recentEvents = [];
+
+  void recordRead(String label, int count) => _record(label, 'R', count);
+  void recordWrite(String label, int count) => _record(label, 'W', count);
+  void recordDelete(String label, int count) => _record(label, 'D', count);
+
+  void _record(String label, String operation, int count) {
+    if (!firestoreDebugTrackerEnabled || count <= 0) {
+      return;
+    }
+
+    final cleanLabel = label.trim().isEmpty ? 'unknown' : label.trim();
+    final stats = statsByLabel.putIfAbsent(cleanLabel, FirestoreDebugStats.new);
+
+    switch (operation) {
+      case 'R':
+        stats.reads += count;
+        break;
+      case 'W':
+        stats.writes += count;
+        break;
+      case 'D':
+        stats.deletes += count;
+        break;
+    }
+
+    stats.events += 1;
+    stats.lastAt = DateTime.now();
+
+    recentEvents.insert(
+      0,
+      FirestoreDebugEvent(
+        label: cleanLabel,
+        operation: operation,
+        count: count,
+        at: stats.lastAt!,
+      ),
+    );
+    if (recentEvents.length > 80) {
+      recentEvents.removeRange(80, recentEvents.length);
+    }
+
+    debugPrint(
+      '🔥 FIRESTORE $operation [$cleanLabel]: $count ops '
+      '(total R ${stats.reads}, W ${stats.writes}, D ${stats.deletes})',
+    );
+    notifyListeners();
+  }
+
+  void reset() {
+    statsByLabel.clear();
+    recentEvents.clear();
+    notifyListeners();
+  }
+
+  int get totalReads =>
+      statsByLabel.values.fold(0, (total, item) => total + item.reads);
+  int get totalWrites =>
+      statsByLabel.values.fold(0, (total, item) => total + item.writes);
+  int get totalDeletes =>
+      statsByLabel.values.fold(0, (total, item) => total + item.deletes);
+}
+
+final firestoreDebugTracker = FirestoreDebugTracker();
+final firestoreDebugButtonVisible = ValueNotifier<bool>(true);
+const firestoreDebugButtonVisibleKey = 'firestore_debug_button_visible';
+
+Future<void> loadFirestoreDebugButtonPreference() async {
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    firestoreDebugButtonVisible.value =
+        prefs.getBool(firestoreDebugButtonVisibleKey) ?? true;
+  } catch (_) {}
+}
+
+Future<void> saveFirestoreDebugButtonPreference(bool value) async {
+  firestoreDebugButtonVisible.value = value;
+
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(firestoreDebugButtonVisibleKey, value);
+  } catch (_) {}
+}
+
+Future<QuerySnapshot<Map<String, dynamic>>> trackedQueryGet(
+  String label,
+  Query<Map<String, dynamic>> query, [
+  GetOptions? options,
+]) async {
+  final snapshot = await query.get(options);
+  firestoreDebugTracker.recordRead(label, snapshot.docs.length);
+  return snapshot;
+}
+
+Future<DocumentSnapshot<Map<String, dynamic>>> trackedDocGet(
+  String label,
+  DocumentReference<Map<String, dynamic>> ref, [
+  GetOptions? options,
+]) async {
+  final snapshot = await ref.get(options);
+  firestoreDebugTracker.recordRead(label, 1);
+  return snapshot;
+}
+
+Stream<QuerySnapshot<Map<String, dynamic>>> trackedQuerySnapshots(
+  String label,
+  Query<Map<String, dynamic>> query,
+) {
+  var firstSnapshot = true;
+
+  return query.snapshots().map((snapshot) {
+    final readCount = firstSnapshot
+        ? snapshot.docs.length
+        : snapshot.docChanges.length;
+    firstSnapshot = false;
+    firestoreDebugTracker.recordRead(label, readCount);
+    return snapshot;
+  });
+}
+
+Stream<DocumentSnapshot<Map<String, dynamic>>> trackedDocSnapshots(
+  String label,
+  DocumentReference<Map<String, dynamic>> ref,
+) {
+  var firstSnapshot = true;
+
+  return ref.snapshots().map((snapshot) {
+    firestoreDebugTracker.recordRead(label, firstSnapshot ? 1 : 1);
+    firstSnapshot = false;
+    return snapshot;
+  });
+}
+
+class FirestoreDebugScreen extends StatelessWidget {
+  const FirestoreDebugScreen({super.key});
+
+  String _timeLabel(DateTime? value) {
+    if (value == null) {
+      return '-';
+    }
+
+    return '${twoDigits(value.hour)}:${twoDigits(value.minute)}:${twoDigits(value.second)}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: firestoreDebugTracker,
+      builder: (context, _) {
+        final entries = firestoreDebugTracker.statsByLabel.entries.toList()
+          ..sort((first, second) {
+            final readCompare = second.value.reads.compareTo(first.value.reads);
+            if (readCompare != 0) {
+              return readCompare;
+            }
+            return second.value.total.compareTo(first.value.total);
+          });
+        final logs = firestoreDebugTracker.recentEvents;
+
+        return Scaffold(
+          backgroundColor: Colors.transparent,
+          appBar: AppBar(
+            title: const Text('Firestore debug'),
+            backgroundColor: Colors.transparent,
+            foregroundColor: blue,
+            actions: [
+              IconButton(
+                tooltip: 'Reset counters',
+                onPressed: firestoreDebugTracker.reset,
+                icon: const Icon(Icons.restart_alt),
+              ),
+            ],
+          ),
+          body: ListView(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
+            children: [
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: panelGlass,
+                  borderRadius: BorderRadius.circular(18),
+                  border: Border.all(color: Colors.white12),
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: _FirestoreDebugTotal(
+                        label: 'Reads',
+                        value: firestoreDebugTracker.totalReads,
+                        icon: Icons.download_outlined,
+                      ),
+                    ),
+                    Expanded(
+                      child: _FirestoreDebugTotal(
+                        label: 'Writes',
+                        value: firestoreDebugTracker.totalWrites,
+                        icon: Icons.upload_outlined,
+                      ),
+                    ),
+                    Expanded(
+                      child: _FirestoreDebugTotal(
+                        label: 'Deletes',
+                        value: firestoreDebugTracker.totalDeletes,
+                        icon: Icons.delete_outline,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 14),
+              const Text(
+                'Top features',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              const SizedBox(height: 8),
+              if (entries.isEmpty)
+                const EmptyStateCard(
+                  icon: Icons.bug_report_outlined,
+                  title: 'No Firestore calls tracked yet',
+                  text: 'Use the app for a minute, then return here.',
+                )
+              else
+                ...entries.map((entry) {
+                  return Container(
+                    margin: const EdgeInsets.only(bottom: 8),
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: panelGlass,
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(color: Colors.white10),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          entry.key,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          'R ${entry.value.reads}  •  W ${entry.value.writes}  •  D ${entry.value.deletes}  •  events ${entry.value.events}  •  last ${_timeLabel(entry.value.lastAt)}',
+                          style: const TextStyle(
+                            color: Colors.white60,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                }),
+              const SizedBox(height: 14),
+              const Text(
+                'Recent events',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              const SizedBox(height: 8),
+              if (logs.isEmpty)
+                const Text(
+                  'No recent events yet.',
+                  style: TextStyle(color: Colors.white54),
+                )
+              else
+                ...logs.map((entry) {
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 6),
+                    child: Text(
+                      '${_timeLabel(entry.at)}  ${entry.operation}  ${entry.count}  ${entry.label}',
+                      style: const TextStyle(
+                        color: Colors.white60,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  );
+                }),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _FirestoreDebugTotal extends StatelessWidget {
+  final String label;
+  final int value;
+  final IconData icon;
+
+  const _FirestoreDebugTotal({
+    required this.label,
+    required this.value,
+    required this.icon,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        Icon(icon, color: blue, size: 20),
+        const SizedBox(height: 6),
+        Text(
+          '$value',
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 20,
+            fontWeight: FontWeight.w900,
+          ),
+        ),
+        Text(
+          label,
+          style: const TextStyle(
+            color: Colors.white54,
+            fontSize: 11,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 enum AppLanguage { en, ru, lv }
 
 class AppUiPreferences extends ChangeNotifier {
@@ -1723,6 +2084,7 @@ Future<void> main() async {
     final appUser = await loadCurrentFirebaseUser();
     if (appUser != null) {
       startFirebaseSpotSync();
+      unawaited(startCurrentUserLikedSpotsSync());
       unawaited(initializePushNotificationsForCurrentUser());
     }
   } catch (error) {
@@ -3169,6 +3531,7 @@ Future<void> signOutCurrentAccount() async {
   await notificationCenterUnreadSubscription?.cancel();
   notificationCenterUnreadSubscription = null;
   notificationCenterUnreadCount.value = 0;
+  await stopCurrentUserLikedSpotsSync();
 
   // Best effort: mark the user offline before signing out.
   await updateCurrentUserOnlinePresence(isOnline: false);
@@ -3736,6 +4099,7 @@ Future<AppUser> signInWithTelegramAndSaveUser() async {
     ),
   );
   startFirebaseSpotSync();
+  unawaited(startCurrentUserLikedSpotsSync());
   unawaited(initializePushNotificationsForCurrentUser());
   return currentUser;
 }
@@ -4005,6 +4369,7 @@ Future<AppUser> signInWithGoogleAndSaveUser() async {
 
   setCurrentUser(await saveFirebaseUser(firebaseUser, provider: 'google'));
   startFirebaseSpotSync();
+  unawaited(startCurrentUserLikedSpotsSync());
   unawaited(initializePushNotificationsForCurrentUser());
   return currentUser;
 }
@@ -4162,6 +4527,9 @@ class CarSpot {
   final String description;
   final List<String> categories;
   final double rating;
+  final int ratingCount;
+  final int likeCount;
+  final int commentCount;
   final String photoUrl;
   final List<String> photoUrls;
   final String? localPhotoPath;
@@ -4199,6 +4567,9 @@ class CarSpot {
     required this.description,
     required this.categories,
     required this.rating,
+    this.ratingCount = 0,
+    this.likeCount = 0,
+    this.commentCount = 0,
     required this.photoUrl,
     this.photoUrls = const [],
     this.localPhotoPath,
@@ -4237,6 +4608,9 @@ class CarSpot {
     String? description,
     List<String>? categories,
     double? rating,
+    int? ratingCount,
+    int? likeCount,
+    int? commentCount,
     String? photoUrl,
     List<String>? photoUrls,
     String? localPhotoPath,
@@ -4276,6 +4650,9 @@ class CarSpot {
       description: description ?? this.description,
       categories: categories ?? this.categories,
       rating: rating ?? this.rating,
+      ratingCount: ratingCount ?? this.ratingCount,
+      likeCount: likeCount ?? this.likeCount,
+      commentCount: commentCount ?? this.commentCount,
       photoUrl: photoUrl ?? this.photoUrl,
       photoUrls: photoUrls ?? this.photoUrls,
       localPhotoPath: localPhotoPath ?? this.localPhotoPath,
@@ -4483,6 +4860,9 @@ class CarSpot {
       ),
       categories: stringListFromFirebase(data['categories'], const ['Photo']),
       rating: doubleFromFirebase(data['rating'], 0),
+      ratingCount: intFromFirebase(data['ratingCount'], 0),
+      likeCount: intFromFirebase(data['likeCount'], 0),
+      commentCount: intFromFirebase(data['commentCount'], 0),
       photoUrl: stringFromFirebase(data['photoUrl'], ''),
       photoUrls: stringListFromFirebase(data['photoUrls'], const []),
       reelLink: stringFromFirebase(data['reelLink'], ''),
@@ -4535,6 +4915,22 @@ double doubleFromFirebase(Object? value, double fallback) {
 
   if (parsed != null && parsed.isFinite) {
     return parsed;
+  }
+
+  return fallback;
+}
+
+int intFromFirebase(Object? value, int fallback) {
+  if (value is int) {
+    return value;
+  }
+
+  if (value is num) {
+    return value.round();
+  }
+
+  if (value is String) {
+    return int.tryParse(value.trim()) ?? fallback;
   }
 
   return fallback;
@@ -5204,11 +5600,13 @@ void startNotificationCenterUnreadWatcher() {
   }
 
   notificationCenterUnreadSubscription?.cancel();
-  notificationCenterUnreadSubscription = userNotificationsCollection()
-      .where('userId', isEqualTo: firebaseUser.uid)
-      .where('read', isEqualTo: false)
-      .snapshots()
-      .listen(
+  notificationCenterUnreadSubscription =
+      trackedQuerySnapshots(
+        'notification center unread watcher',
+        userNotificationsCollection()
+            .where('userId', isEqualTo: firebaseUser.uid)
+            .where('read', isEqualTo: false),
+      ).listen(
         (snapshot) {
           notificationCenterUnreadCount.value = snapshot.docs.length;
         },
@@ -7296,6 +7694,9 @@ Map<String, Object?> spotToFirestoreData(
     'description': spot.description,
     'categories': spot.categories,
     'rating': spot.rating,
+    'ratingCount': spot.ratingCount,
+    'likeCount': spot.likeCount,
+    'commentCount': spot.commentCount,
     'photoUrl': spot.photoUrl,
     'photoUrls': spot.photoUrls,
     'reelLink': spot.reelLink,
@@ -7391,19 +7792,22 @@ void _listenToSpotQuery({
   required String source,
   required Query<Map<String, dynamic>> query,
 }) {
-  final subscription = query.snapshots().listen(
-    (snapshot) {
-      _firebaseSpotCacheBySource[source] = {
-        for (final doc in snapshot.docs)
-          _spotCacheKey(CarSpot.fromFirestore(doc)): CarSpot.fromFirestore(doc),
-      };
-      _publishFirebaseSpotCaches();
-    },
-    onError: (Object error, StackTrace stack) {
-      debugPrint('Spot listener failed for $source: $error');
-      debugPrint('$stack');
-    },
-  );
+  final subscription = trackedQuerySnapshots('spots listener: $source', query)
+      .listen(
+        (snapshot) {
+          _firebaseSpotCacheBySource[source] = {
+            for (final doc in snapshot.docs)
+              _spotCacheKey(CarSpot.fromFirestore(doc)): CarSpot.fromFirestore(
+                doc,
+              ),
+          };
+          _publishFirebaseSpotCaches();
+        },
+        onError: (Object error, StackTrace stack) {
+          debugPrint('Spot listener failed for $source: $error');
+          debugPrint('$stack');
+        },
+      );
 
   spotSyncSubscriptions.add(subscription);
 }
@@ -7459,7 +7863,11 @@ Future<void> refreshFirebaseSpotsFromServer() async {
     String source,
     Query<Map<String, dynamic>> query,
   ) async {
-    final snapshot = await query.get(const GetOptions(source: Source.server));
+    final snapshot = await trackedQueryGet(
+      'spots manual refresh: $source',
+      query,
+      const GetOptions(source: Source.server),
+    );
     refreshCaches[source] = {
       for (final doc in snapshot.docs)
         _spotCacheKey(CarSpot.fromFirestore(doc)): CarSpot.fromFirestore(doc),
@@ -7560,6 +7968,130 @@ CollectionReference<Map<String, dynamic>> spotLikesCollection() {
   return FirebaseFirestore.instance.collection('spot_likes');
 }
 
+final currentUserLikedSpotIds = ValueNotifier<Set<String>>({});
+StreamSubscription<QuerySnapshot<Map<String, dynamic>>>?
+currentUserLikedSpotsSubscription;
+String? currentUserLikedSpotsSyncUid;
+bool currentUserLikedSpotsSyncStarting = false;
+
+String spotLikeDocumentId(String spotId, String userId) {
+  return '${spotId}_$userId';
+}
+
+String spotIdFromLikeDocument(
+  QueryDocumentSnapshot<Map<String, dynamic>> doc,
+  String userId,
+) {
+  final data = doc.data();
+  final targetType = stringFromFirebase(data['targetType'], 'spot');
+
+  if (targetType == 'comment' || data['commentId'] != null) {
+    return '';
+  }
+
+  final explicitSpotId = stringFromFirebase(data['spotId'], '');
+  if (explicitSpotId.isNotEmpty) {
+    return explicitSpotId;
+  }
+
+  final suffix = '_$userId';
+  if (doc.id.endsWith(suffix) && doc.id.length > suffix.length) {
+    return doc.id.substring(0, doc.id.length - suffix.length);
+  }
+
+  return '';
+}
+
+Future<void> stopCurrentUserLikedSpotsSync() async {
+  await currentUserLikedSpotsSubscription?.cancel();
+  currentUserLikedSpotsSubscription = null;
+  currentUserLikedSpotsSyncUid = null;
+  currentUserLikedSpotsSyncStarting = false;
+  currentUserLikedSpotIds.value = {};
+}
+
+Future<void> startCurrentUserLikedSpotsSync() async {
+  final firebaseUser = FirebaseAuth.instance.currentUser;
+  final uid = firebaseUser?.uid ?? '';
+
+  if (uid.isEmpty) {
+    await stopCurrentUserLikedSpotsSync();
+    return;
+  }
+
+  if (currentUserLikedSpotsSyncUid == uid &&
+      currentUserLikedSpotsSubscription != null) {
+    return;
+  }
+
+  if (currentUserLikedSpotsSyncStarting &&
+      currentUserLikedSpotsSyncUid == uid) {
+    return;
+  }
+
+  currentUserLikedSpotsSyncStarting = true;
+  currentUserLikedSpotsSyncUid = uid;
+
+  await currentUserLikedSpotsSubscription?.cancel();
+  currentUserLikedSpotsSubscription = null;
+  currentUserLikedSpotIds.value = {};
+
+  currentUserLikedSpotsSubscription =
+      trackedQuerySnapshots(
+        'current user liked spots sync',
+        spotLikesCollection().where('userId', isEqualTo: uid),
+      ).listen(
+        (snapshot) {
+          final likedIds = <String>{};
+
+          for (final doc in snapshot.docs) {
+            final spotId = spotIdFromLikeDocument(doc, uid);
+            if (spotId.isNotEmpty) {
+              likedIds.add(spotId);
+            }
+          }
+
+          currentUserLikedSpotIds.value = likedIds;
+        },
+        onError: (Object error, StackTrace stack) {
+          debugPrint('Current user liked spots sync failed: $error');
+          debugPrint('$stack');
+        },
+      );
+
+  currentUserLikedSpotsSyncStarting = false;
+}
+
+void setCurrentUserSpotLikedLocally(String spotId, bool liked) {
+  final cleanSpotId = spotId.trim();
+  if (cleanSpotId.isEmpty) {
+    return;
+  }
+
+  final nextLikedIds = {...currentUserLikedSpotIds.value};
+  if (liked) {
+    nextLikedIds.add(cleanSpotId);
+  } else {
+    nextLikedIds.remove(cleanSpotId);
+  }
+
+  currentUserLikedSpotIds.value = nextLikedIds;
+}
+
+Stream<bool> watchCurrentUserLikedSpotFromCache(String spotId) {
+  return Stream<bool>.multi((controller) {
+    void emit() {
+      controller.add(currentUserLikedSpotIds.value.contains(spotId));
+    }
+
+    currentUserLikedSpotIds.addListener(emit);
+    emit();
+    controller.onCancel = () {
+      currentUserLikedSpotIds.removeListener(emit);
+    };
+  }).distinct();
+}
+
 const int maxCommentsPerUserPerSpot = 50;
 
 String spotReviewKey(CarSpot spot) {
@@ -7577,31 +8109,28 @@ String spotReviewKey(CarSpot spot) {
 }
 
 Stream<List<SpotReviewData>> watchSpotReviews(CarSpot spot) {
-  return spotReviewsCollection()
-      .where('spotId', isEqualTo: spotReviewKey(spot))
-      .snapshots()
-      .map((snapshot) {
-        final reviews = snapshot.docs
-            .map((doc) => SpotReviewData.fromFirestore(doc))
-            .where((review) => review.comment.isNotEmpty)
-            .toList();
+  return trackedQuerySnapshots(
+    'spot reviews stream',
+    spotReviewsCollection().where('spotId', isEqualTo: spotReviewKey(spot)),
+  ).map((snapshot) {
+    final reviews = snapshot.docs
+        .map((doc) => SpotReviewData.fromFirestore(doc))
+        .where((review) => review.comment.isNotEmpty)
+        .toList();
 
-        reviews.sort(
-          (first, second) => second.createdAt.compareTo(first.createdAt),
-        );
-        return reviews;
-      });
+    reviews.sort(
+      (first, second) => second.createdAt.compareTo(first.createdAt),
+    );
+    return reviews;
+  });
 }
 
 Stream<int> watchSpotCommentCount(CarSpot spot) {
-  return watchSpotReviews(spot).map((reviews) => reviews.length);
+  return Stream.value(spot.commentCount);
 }
 
 Stream<int> watchSpotLikeCount(CarSpot spot) {
-  return spotLikesCollection()
-      .where('spotId', isEqualTo: spotReviewKey(spot))
-      .snapshots()
-      .map((snapshot) => snapshot.docs.length);
+  return Stream.value(spot.likeCount);
 }
 
 Stream<bool> watchCurrentUserLikedSpot(CarSpot spot) {
@@ -7611,10 +8140,13 @@ Stream<bool> watchCurrentUserLikedSpot(CarSpot spot) {
     return Stream.value(false);
   }
 
-  return spotLikesCollection()
-      .doc('${spotReviewKey(spot)}_${firebaseUser.uid}')
-      .snapshots()
-      .map((snapshot) => snapshot.exists);
+  final spotId = spotReviewKey(spot);
+  if (currentUserLikedSpotsSubscription == null ||
+      currentUserLikedSpotsSyncUid != firebaseUser.uid) {
+    unawaited(startCurrentUserLikedSpotsSync());
+  }
+
+  return watchCurrentUserLikedSpotFromCache(spotId);
 }
 
 Future<void> toggleSpotLike(
@@ -7637,28 +8169,86 @@ Future<void> toggleSpotLike(
     return;
   }
 
+  final spotId = spotReviewKey(spot);
   final likeRef = spotLikesCollection().doc(
-    '${spotReviewKey(spot)}_${firebaseUser.uid}',
+    spotLikeDocumentId(spotId, firebaseUser.uid),
   );
+  final spotRef = spot.id.trim().isEmpty
+      ? null
+      : spotsCollection().doc(spot.id);
 
   if (currentlyLiked) {
-    await likeRef.delete();
+    await FirebaseFirestore.instance.runTransaction((transaction) async {
+      final likeSnapshot = await transaction.get(likeRef);
+      firestoreDebugTracker.recordRead(
+        'spot like transaction: existing like',
+        1,
+      );
+      if (!likeSnapshot.exists) {
+        return;
+      }
+
+      transaction.delete(likeRef);
+      firestoreDebugTracker.recordDelete('spot like transaction: unlike', 1);
+      if (spotRef != null) {
+        transaction.update(spotRef, {
+          'likeCount': FieldValue.increment(-1),
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+        firestoreDebugTracker.recordWrite(
+          'spot counter update: likeCount -1',
+          1,
+        );
+      }
+    });
+    setCurrentUserSpotLikedLocally(spotId, false);
   } else {
     final notificationId = 'spot_like_${likeRef.id}';
     final alreadyNotified = await userNotificationsCollection()
         .doc(notificationId)
         .get()
-        .then((snapshot) => snapshot.exists)
+        .then((snapshot) {
+          firestoreDebugTracker.recordRead(
+            'spot like notification exists check',
+            1,
+          );
+          return snapshot.exists;
+        })
         .catchError((_) => false);
 
-    await likeRef.set({
-      'spotId': spotReviewKey(spot),
-      'spotName': spot.name,
-      'spotOwnerUid': spotNotificationOwnerUid(spot),
-      'userId': firebaseUser.uid,
-      'username': currentUser.username,
-      'createdAt': FieldValue.serverTimestamp(),
+    await FirebaseFirestore.instance.runTransaction((transaction) async {
+      final likeSnapshot = await transaction.get(likeRef);
+      firestoreDebugTracker.recordRead(
+        'spot like transaction: existing like',
+        1,
+      );
+      if (likeSnapshot.exists) {
+        return;
+      }
+
+      transaction.set(likeRef, {
+        'targetType': 'spot',
+        'spotId': spotId,
+        'spotName': spot.name,
+        'spotOwnerUid': spotNotificationOwnerUid(spot),
+        'userId': firebaseUser.uid,
+        'username': currentUser.username,
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+      firestoreDebugTracker.recordWrite('spot like transaction: like', 1);
+
+      if (spotRef != null) {
+        transaction.update(spotRef, {
+          'likeCount': FieldValue.increment(1),
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+        firestoreDebugTracker.recordWrite(
+          'spot counter update: likeCount +1',
+          1,
+        );
+      }
     });
+    setCurrentUserSpotLikedLocally(spotId, true);
 
     if (!alreadyNotified) {
       await createSpotLikeNotification(spot, likeRef.id);
@@ -7675,10 +8265,10 @@ String commentLikeDocumentId(SpotReviewData review, String userId) {
 }
 
 Stream<int> watchCommentLikeCount(SpotReviewData review) {
-  return spotLikesCollection()
-      .where('commentId', isEqualTo: review.id)
-      .snapshots()
-      .map((snapshot) => snapshot.docs.length);
+  return trackedQuerySnapshots(
+    'comment like count stream',
+    spotLikesCollection().where('commentId', isEqualTo: review.id),
+  ).map((snapshot) => snapshot.docs.length);
 }
 
 Stream<bool> watchCurrentUserLikedComment(SpotReviewData review) {
@@ -7688,10 +8278,10 @@ Stream<bool> watchCurrentUserLikedComment(SpotReviewData review) {
     return Stream.value(false);
   }
 
-  return spotLikesCollection()
-      .doc(commentLikeDocumentId(review, firebaseUser.uid))
-      .snapshots()
-      .map((snapshot) => snapshot.exists);
+  return trackedDocSnapshots(
+    'current user liked comment stream',
+    spotLikesCollection().doc(commentLikeDocumentId(review, firebaseUser.uid)),
+  ).map((snapshot) => snapshot.exists);
 }
 
 Future<void> toggleCommentLike(
@@ -7778,6 +8368,19 @@ Future<void> saveSpotReview({
     'updatedAt': FieldValue.serverTimestamp(),
   });
 
+  firestoreDebugTracker.recordWrite('spot comment create', 1);
+
+  if (spot.id.trim().isNotEmpty) {
+    await spotsCollection().doc(spot.id).update({
+      'commentCount': FieldValue.increment(1),
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+    firestoreDebugTracker.recordWrite(
+      'spot counter update: commentCount +1',
+      1,
+    );
+  }
+
   await createSpotCommentNotification(spot, reviewRef.id, cleanComment);
 
   await sendPushNotificationEvent({
@@ -7847,6 +8450,18 @@ Future<void> deleteSpotReview({
   }
 
   await spotReviewsCollection().doc(review.id).delete();
+  firestoreDebugTracker.recordDelete('spot comment delete', 1);
+
+  if (spot.id.trim().isNotEmpty && review.comment.trim().isNotEmpty) {
+    await spotsCollection().doc(spot.id).update({
+      'commentCount': FieldValue.increment(-1),
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+    firestoreDebugTracker.recordWrite(
+      'spot counter update: commentCount -1',
+      1,
+    );
+  }
 }
 
 String spotRatingDocumentId(CarSpot spot, String userId) {
@@ -7860,21 +8475,18 @@ Stream<int> watchCurrentUserSpotRating(CarSpot spot) {
     return Stream.value(0);
   }
 
-  return spotReviewsCollection()
-      .doc(spotRatingDocumentId(spot, firebaseUser.uid))
-      .snapshots()
-      .map((snapshot) {
-        final data = snapshot.data();
+  return trackedDocSnapshots(
+    'current user spot rating stream',
+    spotReviewsCollection().doc(spotRatingDocumentId(spot, firebaseUser.uid)),
+  ).map((snapshot) {
+    final data = snapshot.data();
 
-        if (!snapshot.exists || data == null) {
-          return 0;
-        }
+    if (!snapshot.exists || data == null) {
+      return 0;
+    }
 
-        return doubleFromFirebase(
-          data['rating'],
-          0,
-        ).round().clamp(0, 5).toInt();
-      });
+    return doubleFromFirebase(data['rating'], 0).round().clamp(0, 5).toInt();
+  });
 }
 
 Future<double?> saveSpotRating({
@@ -7895,7 +8507,10 @@ Future<double?> saveSpotRating({
   final ratingRef = spotReviewsCollection().doc(
     spotRatingDocumentId(spot, firebaseUser.uid),
   );
-  final ratingSnapshot = await ratingRef.get();
+  final ratingSnapshot = await trackedDocGet(
+    'current user rating get before save',
+    ratingRef,
+  );
 
   final data = <String, Object?>{
     'spotId': spotReviewKey(spot),
@@ -7913,6 +8528,7 @@ Future<double?> saveSpotRating({
   }
 
   await ratingRef.set(data, SetOptions(merge: true));
+  firestoreDebugTracker.recordWrite('spot rating save', 1);
 
   return updateSpotRatingFromReviews(spot);
 }
@@ -7922,9 +8538,10 @@ Future<double?> updateSpotRatingFromReviews(CarSpot spot) async {
     return null;
   }
 
-  final snapshot = await spotReviewsCollection()
-      .where('spotId', isEqualTo: spotReviewKey(spot))
-      .get();
+  final snapshot = await trackedQueryGet(
+    'spot rating recompute reviews get',
+    spotReviewsCollection().where('spotId', isEqualTo: spotReviewKey(spot)),
+  );
 
   final ratings = snapshot.docs
       .map((doc) => doc.data())
@@ -7949,7 +8566,10 @@ Future<double?> updateSpotRatingFromReviews(CarSpot spot) async {
     'updatedAt': FieldValue.serverTimestamp(),
   });
 
-  final updatedSpot = spot.copyWith(rating: roundedRating);
+  final updatedSpot = spot.copyWith(
+    rating: roundedRating,
+    ratingCount: ratings.length,
+  );
 
   reviewSpots.value = reviewSpots.value
       .map((item) => isSameSpot(item, spot) ? updatedSpot : item)
@@ -10011,6 +10631,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     mapFocusRequest.addListener(handleMapFocusRequest);
+    unawaited(loadFirestoreDebugButtonPreference());
     unawaited(initializePushNotificationsForCurrentUser());
     updateCurrentUserOnlinePresence(isOnline: true);
     onlinePresenceRefreshTimer = Timer.periodic(const Duration(seconds: 20), (
@@ -10300,7 +10921,49 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
         return Scaffold(
           backgroundColor: Colors.transparent,
           extendBody: false,
-          body: IndexedStack(index: index, children: screens),
+          body: Stack(
+            children: [
+              IndexedStack(index: index, children: screens),
+              ValueListenableBuilder<bool>(
+                valueListenable: firestoreDebugButtonVisible,
+                builder: (context, visible, _) {
+                  if (!visible) {
+                    return const SizedBox.shrink();
+                  }
+
+                  return Positioned(
+                    left: 12,
+                    top: MediaQuery.of(context).padding.top + 8,
+                    child: Material(
+                      color: blue.withValues(alpha: 0.88),
+                      shape: const CircleBorder(),
+                      elevation: 10,
+                      child: InkWell(
+                        customBorder: const CircleBorder(),
+                        onTap: () {
+                          Navigator.push(
+                            context,
+                            appPageRoute(
+                              builder: (_) => const FirestoreDebugScreen(),
+                            ),
+                          );
+                        },
+                        child: const SizedBox(
+                          width: 42,
+                          height: 42,
+                          child: Icon(
+                            Icons.bug_report_outlined,
+                            color: Colors.white,
+                            size: 22,
+                          ),
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ],
+          ),
           bottomNavigationBar: SafeArea(
             top: false,
             child: Container(
@@ -11548,21 +12211,6 @@ class ExploreSpotStatsRow extends StatelessWidget {
     return const SizedBox(width: 7);
   }
 
-  Stream<bool> currentUserCommentedStream() {
-    final firebaseUser = FirebaseAuth.instance.currentUser;
-
-    if (firebaseUser == null) {
-      return Stream.value(false);
-    }
-
-    return watchSpotReviews(spot).map(
-      (reviews) => reviews.any(
-        (review) =>
-            review.userId == firebaseUser.uid && review.comment.isNotEmpty,
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final inactiveColor = overlay
@@ -11577,43 +12225,22 @@ class ExploreSpotStatsRow extends StatelessWidget {
           builder: (context, likedSnapshot) {
             final liked = likedSnapshot.data ?? false;
 
-            return StreamBuilder<int>(
-              stream: watchSpotLikeCount(spot),
-              builder: (context, countSnapshot) {
-                final likeCount = countSnapshot.data ?? 0;
-
-                return simpleStat(
-                  icon: liked ? Icons.favorite : Icons.favorite_border,
-                  count: likeCount,
-                  color: liked ? Colors.redAccent : inactiveColor,
-                  onTap: () => toggleSpotLike(context, spot, liked),
-                );
-              },
+            return simpleStat(
+              icon: liked ? Icons.favorite : Icons.favorite_border,
+              count: spot.likeCount,
+              color: liked ? Colors.redAccent : inactiveColor,
+              onTap: () => toggleSpotLike(context, spot, liked),
             );
           },
         ),
         statsDivider(),
-        StreamBuilder<bool>(
-          stream: currentUserCommentedStream(),
-          builder: (context, commentedSnapshot) {
-            final commented = commentedSnapshot.data ?? false;
-
-            return StreamBuilder<int>(
-              stream: watchSpotCommentCount(spot),
-              builder: (context, countSnapshot) {
-                final commentCount = countSnapshot.data ?? 0;
-
-                return simpleStat(
-                  icon: commented
-                      ? Icons.chat_bubble
-                      : Icons.chat_bubble_outline,
-                  count: commentCount,
-                  color: commented ? blue : inactiveColor,
-                  onTap: () => showSpotCommentComposer(context, spot),
-                );
-              },
-            );
-          },
+        simpleStat(
+          icon: spot.commentCount > 0
+              ? Icons.chat_bubble
+              : Icons.chat_bubble_outline,
+          count: spot.commentCount,
+          color: inactiveColor,
+          onTap: () => showSpotCommentComposer(context, spot),
         ),
       ],
     );
@@ -18455,53 +19082,47 @@ class _SpotDetailEngagementPanelState extends State<SpotDetailEngagementPanel> {
             stream: watchCurrentUserLikedSpot(widget.spot),
             builder: (context, likedSnapshot) {
               final liked = likedSnapshot.data ?? false;
+              final likeCount = widget.spot.likeCount;
 
-              return StreamBuilder<int>(
-                stream: watchSpotLikeCount(widget.spot),
-                builder: (context, countSnapshot) {
-                  final likeCount = countSnapshot.data ?? 0;
-
-                  return Tooltip(
-                    message: trText(liked ? 'Liked' : 'Like'),
-                    child: InkWell(
-                      onTap: () => toggleSpotLike(context, widget.spot, liked),
+              return Tooltip(
+                message: trText(liked ? 'Liked' : 'Like'),
+                child: InkWell(
+                  onTap: () => toggleSpotLike(context, widget.spot, liked),
+                  borderRadius: BorderRadius.circular(999),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 9,
+                      vertical: 7,
+                    ),
+                    decoration: BoxDecoration(
+                      color: liked
+                          ? Colors.redAccent.withValues(alpha: 0.16)
+                          : Colors.white.withValues(alpha: 0.05),
                       borderRadius: BorderRadius.circular(999),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 9,
-                          vertical: 7,
-                        ),
-                        decoration: BoxDecoration(
-                          color: liked
-                              ? Colors.redAccent.withValues(alpha: 0.16)
-                              : Colors.white.withValues(alpha: 0.05),
-                          borderRadius: BorderRadius.circular(999),
-                          border: Border.all(
-                            color: liked ? Colors.redAccent : Colors.white12,
-                          ),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(
-                              liked ? Icons.favorite : Icons.favorite_border,
-                              color: liked ? Colors.redAccent : Colors.white70,
-                              size: 18,
-                            ),
-                            const SizedBox(width: 5),
-                            Text(
-                              '$likeCount',
-                              style: const TextStyle(
-                                color: Colors.white70,
-                                fontWeight: FontWeight.w800,
-                              ),
-                            ),
-                          ],
-                        ),
+                      border: Border.all(
+                        color: liked ? Colors.redAccent : Colors.white12,
                       ),
                     ),
-                  );
-                },
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          liked ? Icons.favorite : Icons.favorite_border,
+                          color: liked ? Colors.redAccent : Colors.white70,
+                          size: 18,
+                        ),
+                        const SizedBox(width: 5),
+                        Text(
+                          '$likeCount',
+                          style: const TextStyle(
+                            color: Colors.white70,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
               );
             },
           ),
@@ -29909,6 +30530,42 @@ class _AdminReviewScreenState extends State<AdminReviewScreen> {
                 style: const TextStyle(color: Colors.white54, height: 1.35),
               ),
               const SizedBox(height: 16),
+              ValueListenableBuilder<bool>(
+                valueListenable: firestoreDebugButtonVisible,
+                builder: (context, debugVisible, _) {
+                  return Container(
+                    decoration: BoxDecoration(
+                      color: panelGlass,
+                      borderRadius: BorderRadius.circular(18),
+                      border: Border.all(color: Colors.white12),
+                    ),
+                    child: SwitchListTile.adaptive(
+                      value: debugVisible,
+                      activeColor: blue,
+                      contentPadding: const EdgeInsets.fromLTRB(16, 4, 12, 4),
+                      secondary: const Icon(
+                        Icons.bug_report_outlined,
+                        color: blue,
+                      ),
+                      title: const Text(
+                        'Debug mode',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                      subtitle: const Text(
+                        'Show or hide the Firestore debug bug button',
+                        style: TextStyle(color: Colors.white54),
+                      ),
+                      onChanged: (value) {
+                        unawaited(saveFirestoreDebugButtonPreference(value));
+                      },
+                    ),
+                  );
+                },
+              ),
+              const SizedBox(height: 10),
               _ProfileActionTile(
                 icon: Icons.people_alt,
                 title: 'Users',
