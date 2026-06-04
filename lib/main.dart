@@ -8874,11 +8874,7 @@ String spotCommentLocalDailyCountKey({
   required String userId,
   required String dayKey,
 }) {
-  return 'spot_comment_daily_count_${spotCommentDailyCountDocumentId(
-    spotId: spotId,
-    userId: userId,
-    dayKey: dayKey,
-  )}';
+  return 'spot_comment_daily_count_${spotCommentDailyCountDocumentId(spotId: spotId, userId: userId, dayKey: dayKey)}';
 }
 
 Future<int> loadLocalSpotCommentDailyCount({
@@ -8934,15 +8930,11 @@ String spotReviewKey(CarSpot spot) {
   return safeName.isEmpty ? 'demo_spot' : 'demo_$safeName';
 }
 
-CollectionReference<Map<String, dynamic>>
-spotCommentDailyCountsCollection() {
+CollectionReference<Map<String, dynamic>> spotCommentDailyCountsCollection() {
   return FirebaseFirestore.instance.collection('spot_comment_daily_counts');
 }
 
-String spotReviewActionErrorMessage(
-  Object error, {
-  required String fallback,
-}) {
+String spotReviewActionErrorMessage(Object error, {required String fallback}) {
   if (error is FirebaseException) {
     if (error.code == 'rating-daily-limit-reached') {
       return trText('You can rate this spot once per day.');
@@ -9194,16 +9186,20 @@ Future<SpotReviewData> saveSpotReview({
   var nextDailyCount = localDailyCount + 1;
 
   Future<void> writeCommentWithoutServerDailyCounter() async {
-    await reviewRef.debugSet({
-      'spotId': spotId,
-      'spotName': spot.name,
-      'type': 'comment',
-      'userId': firebaseUser.uid,
-      'username': currentUser.username,
-      'comment': cleanComment,
-      'createdAt': FieldValue.serverTimestamp(),
-      'updatedAt': FieldValue.serverTimestamp(),
-    }, null, 'spot comment fallback set');
+    await reviewRef.debugSet(
+      {
+        'spotId': spotId,
+        'spotName': spot.name,
+        'type': 'comment',
+        'userId': firebaseUser.uid,
+        'username': currentUser.username,
+        'comment': cleanComment,
+        'createdAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      },
+      null,
+      'spot comment fallback set',
+    );
   }
 
   try {
@@ -9671,10 +9667,7 @@ CarSpot spotWithCounterDelta(
   );
 }
 
-void updateSpotLocally(
-  CarSpot spot,
-  CarSpot Function(CarSpot current) update,
-) {
+void updateSpotLocally(CarSpot spot, CarSpot Function(CarSpot current) update) {
   var updatedSpotSources = false;
 
   for (final sourceEntry in _firebaseSpotCacheBySource.entries.toList()) {
@@ -9742,9 +9735,7 @@ Future<void> updateSpotCountersOnServer(
     return;
   }
 
-  final data = <Object, Object?>{
-    'updatedAt': FieldValue.serverTimestamp(),
-  };
+  final data = <Object, Object?>{'updatedAt': FieldValue.serverTimestamp()};
   if (likeDelta != 0) {
     data['likeCount'] = FieldValue.increment(likeDelta);
   }
@@ -9753,10 +9744,9 @@ Future<void> updateSpotCountersOnServer(
   }
 
   try {
-    await spotsCollection().doc(spot.id).debugUpdate(
-      data,
-      'spot counter update',
-    );
+    await spotsCollection()
+        .doc(spot.id)
+        .debugUpdate(data, 'spot counter update');
   } catch (error, stack) {
     debugPrint('Spot counter update failed for ${spot.id}: $error');
     debugPrint('$stack');
@@ -20347,8 +20337,10 @@ class _SpotReviewsSectionState extends State<SpotReviewsSection> {
       required bool withTypeFilter,
       required String label,
     }) {
-      Query<Map<String, dynamic>> query = spotReviewsCollection()
-          .where('spotId', isEqualTo: spotReviewKey(widget.spot));
+      Query<Map<String, dynamic>> query = spotReviewsCollection().where(
+        'spotId',
+        isEqualTo: spotReviewKey(widget.spot),
+      );
 
       if (withTypeFilter) {
         query = query.where('type', isEqualTo: 'comment');
@@ -20598,7 +20590,9 @@ class _SpotReviewsSectionState extends State<SpotReviewsSection> {
             decoration: BoxDecoration(
               color: Colors.redAccent.withValues(alpha: 0.12),
               borderRadius: BorderRadius.circular(18),
-              border: Border.all(color: Colors.redAccent.withValues(alpha: 0.5)),
+              border: Border.all(
+                color: Colors.redAccent.withValues(alpha: 0.5),
+              ),
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -33400,4 +33394,3 @@ class AppPage extends StatelessWidget {
     );
   }
 }
- 
