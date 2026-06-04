@@ -69,6 +69,31 @@ class FirestoreDebugStats {
   int events = 0;
   DateTime? lastAt;
 
+  FirestoreDebugStats();
+
+  factory FirestoreDebugStats.fromJson(Map<String, dynamic> json) {
+    return FirestoreDebugStats()
+      ..reads = (json['reads'] as num?)?.toInt() ?? 0
+      ..writes = (json['writes'] as num?)?.toInt() ?? 0
+      ..deletes = (json['deletes'] as num?)?.toInt() ?? 0
+      ..events = (json['events'] as num?)?.toInt() ?? 0
+      ..lastAt = json['lastAtMillis'] is num
+          ? DateTime.fromMillisecondsSinceEpoch(
+              (json['lastAtMillis'] as num).toInt(),
+            )
+          : null;
+  }
+
+  Map<String, Object?> toJson() {
+    return {
+      'reads': reads,
+      'writes': writes,
+      'deletes': deletes,
+      'events': events,
+      'lastAtMillis': lastAt?.millisecondsSinceEpoch,
+    };
+  }
+
   int get total => reads + writes + deletes;
 }
 
@@ -84,11 +109,86 @@ class FirestoreDebugEvent {
     required this.count,
     required this.at,
   });
+
+  factory FirestoreDebugEvent.fromJson(Map<String, dynamic> json) {
+    return FirestoreDebugEvent(
+      label: stringFromFirebase(json['label'], 'unknown'),
+      operation: stringFromFirebase(json['operation'], 'R'),
+      count: (json['count'] as num?)?.toInt() ?? 1,
+      at: json['atMillis'] is num
+          ? DateTime.fromMillisecondsSinceEpoch(
+              (json['atMillis'] as num).toInt(),
+            )
+          : DateTime.now(),
+    );
+  }
+
+  Map<String, Object?> toJson() {
+    return {
+      'label': label,
+      'operation': operation,
+      'count': count,
+      'atMillis': at.millisecondsSinceEpoch,
+    };
+  }
 }
 
 class FirestoreDebugTracker extends ChangeNotifier {
   final Map<String, FirestoreDebugStats> statsByLabel = {};
   final List<FirestoreDebugEvent> recentEvents = [];
+  Timer? _persistTimer;
+  bool _loadedFromStorage = false;
+
+  Future<void> loadPersisted() async {
+    if (_loadedFromStorage) {
+      return;
+    }
+
+    _loadedFromStorage = true;
+
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(firestoreDebugTrackerStorageKey);
+      if (raw == null || raw.trim().isEmpty) {
+        return;
+      }
+
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map<String, dynamic>) {
+        return;
+      }
+
+      final stats = decoded['stats'];
+      if (stats is Map) {
+        statsByLabel
+          ..clear()
+          ..addAll({
+            for (final entry in stats.entries)
+              entry.key.toString(): FirestoreDebugStats.fromJson(
+                mapFromFirebase(entry.value),
+              ),
+          });
+      }
+
+      final events = decoded['events'];
+      if (events is List) {
+        recentEvents
+          ..clear()
+          ..addAll(
+            events
+                .whereType<Map>()
+                .map(
+                  (item) => FirestoreDebugEvent.fromJson(mapFromFirebase(item)),
+                )
+                .take(80),
+          );
+      }
+
+      notifyListeners();
+    } catch (error) {
+      debugPrint('Firestore debug restore failed: $error');
+    }
+  }
 
   void recordRead(String label, int count) => _record(label, 'R', count);
   void recordWrite(String label, int count) => _record(label, 'W', count);
@@ -135,12 +235,41 @@ class FirestoreDebugTracker extends ChangeNotifier {
       '(total R ${stats.reads}, W ${stats.writes}, D ${stats.deletes})',
     );
     notifyListeners();
+    _schedulePersist();
   }
 
   void reset() {
     statsByLabel.clear();
     recentEvents.clear();
     notifyListeners();
+    unawaited(_persistNow());
+  }
+
+  void _schedulePersist() {
+    _persistTimer?.cancel();
+    _persistTimer = Timer(const Duration(milliseconds: 450), () {
+      unawaited(_persistNow());
+    });
+  }
+
+  Future<void> flushPersisted() => _persistNow();
+
+  Future<void> _persistNow() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(
+        firestoreDebugTrackerStorageKey,
+        jsonEncode({
+          'stats': {
+            for (final entry in statsByLabel.entries)
+              entry.key: entry.value.toJson(),
+          },
+          'events': recentEvents.map((event) => event.toJson()).toList(),
+        }),
+      );
+    } catch (error) {
+      debugPrint('Firestore debug persist failed: $error');
+    }
   }
 
   int get totalReads =>
@@ -154,6 +283,7 @@ class FirestoreDebugTracker extends ChangeNotifier {
 final firestoreDebugTracker = FirestoreDebugTracker();
 final firestoreDebugButtonVisible = ValueNotifier<bool>(true);
 const firestoreDebugButtonVisibleKey = 'firestore_debug_button_visible';
+const firestoreDebugTrackerStorageKey = 'firestore_debug_tracker_storage_v1';
 
 Future<void> loadFirestoreDebugButtonPreference() async {
   try {
@@ -178,7 +308,10 @@ Future<QuerySnapshot<Map<String, dynamic>>> trackedQueryGet(
   GetOptions? options,
 ]) async {
   final snapshot = await query.get(options);
-  firestoreDebugTracker.recordRead(label, snapshot.docs.length);
+  firestoreDebugTracker.recordRead(
+    label,
+    firestoreDebugBillableQueryReadCount(snapshot.docs.length),
+  );
   return snapshot;
 }
 
@@ -200,7 +333,7 @@ Stream<QuerySnapshot<Map<String, dynamic>>> trackedQuerySnapshots(
 
   return query.snapshots().map((snapshot) {
     final readCount = firstSnapshot
-        ? snapshot.docs.length
+        ? firestoreDebugBillableQueryReadCount(snapshot.docs.length)
         : snapshot.docChanges.length;
     firstSnapshot = false;
     firestoreDebugTracker.recordRead(label, readCount);
@@ -219,6 +352,248 @@ Stream<DocumentSnapshot<Map<String, dynamic>>> trackedDocSnapshots(
     firstSnapshot = false;
     return snapshot;
   });
+}
+
+int firestoreDebugBillableQueryReadCount(int documentCount) {
+  // Firestore bills at least one read for a query, even when it returns no documents.
+  return math.max(1, documentCount);
+}
+
+String firestoreDebugTargetLabel(Object target) {
+  if (target is DocumentReference) {
+    return target.path;
+  }
+
+  if (target is CollectionReference) {
+    return target.path;
+  }
+
+  var value = target.toString().replaceAll(RegExp(r'\s+'), ' ').trim();
+  if (value.length > 96) {
+    value = '${value.substring(0, 96)}...';
+  }
+
+  return value.isEmpty ? target.runtimeType.toString() : value;
+}
+
+String firestoreDebugCallerLabel(
+  String operation,
+  Object target, [
+  String? label,
+]) {
+  if (label != null && label.trim().isNotEmpty) {
+    return label.trim();
+  }
+
+  final frames = StackTrace.current.toString().split('\n');
+  var caller = '';
+
+  for (final frame in frames) {
+    final cleanFrame = frame.trim();
+    if (cleanFrame.isEmpty ||
+        cleanFrame.contains('firestoreDebugCallerLabel') ||
+        cleanFrame.contains('debugGet') ||
+        cleanFrame.contains('debugSnapshots') ||
+        cleanFrame.contains('debugSet') ||
+        cleanFrame.contains('debugUpdate') ||
+        cleanFrame.contains('debugDelete') ||
+        cleanFrame.contains('debugCommit') ||
+        cleanFrame.contains('trackedQueryGet') ||
+        cleanFrame.contains('trackedDocGet') ||
+        cleanFrame.contains('trackedQuerySnapshots') ||
+        cleanFrame.contains('trackedDocSnapshots')) {
+      continue;
+    }
+
+    caller = cleanFrame;
+    break;
+  }
+
+  final targetLabel = firestoreDebugTargetLabel(target);
+  return caller.isEmpty
+      ? '$operation • $targetLabel'
+      : '$operation • $targetLabel • $caller';
+}
+
+extension FirestoreDebugQueryExtension<T extends Object?> on Query<T> {
+  Future<QuerySnapshot<T>> debugGet([
+    GetOptions? options,
+    String? label,
+  ]) async {
+    final snapshot = await get(options);
+    firestoreDebugTracker.recordRead(
+      firestoreDebugCallerLabel('query.get', this, label),
+      firestoreDebugBillableQueryReadCount(snapshot.docs.length),
+    );
+    return snapshot;
+  }
+
+  Stream<QuerySnapshot<T>> debugSnapshots([String? label]) {
+    var firstSnapshot = true;
+
+    return snapshots().map((snapshot) {
+      final count = firstSnapshot
+          ? firestoreDebugBillableQueryReadCount(snapshot.docs.length)
+          : snapshot.docChanges.length;
+      firstSnapshot = false;
+      firestoreDebugTracker.recordRead(
+        firestoreDebugCallerLabel('query.snapshots', this, label),
+        count,
+      );
+      return snapshot;
+    });
+  }
+}
+
+extension FirestoreDebugDocumentReferenceExtension<T extends Object?>
+    on DocumentReference<T> {
+  Future<DocumentSnapshot<T>> debugGet([
+    GetOptions? options,
+    String? label,
+  ]) async {
+    final snapshot = await get(options);
+    firestoreDebugTracker.recordRead(
+      firestoreDebugCallerLabel('doc.get', this, label),
+      1,
+    );
+    return snapshot;
+  }
+
+  Stream<DocumentSnapshot<T>> debugSnapshots([String? label]) {
+    return snapshots().map((snapshot) {
+      firestoreDebugTracker.recordRead(
+        firestoreDebugCallerLabel('doc.snapshots', this, label),
+        1,
+      );
+      return snapshot;
+    });
+  }
+
+  Future<void> debugSet(T data, [SetOptions? options, String? label]) async {
+    firestoreDebugTracker.recordWrite(
+      firestoreDebugCallerLabel('doc.set', this, label),
+      1,
+    );
+    return set(data, options);
+  }
+
+  Future<void> debugUpdate(Map<Object, Object?> data, [String? label]) async {
+    firestoreDebugTracker.recordWrite(
+      firestoreDebugCallerLabel('doc.update', this, label),
+      1,
+    );
+    return update(data);
+  }
+
+  Future<void> debugDelete([String? label]) async {
+    firestoreDebugTracker.recordDelete(
+      firestoreDebugCallerLabel('doc.delete', this, label),
+      1,
+    );
+    return delete();
+  }
+}
+
+extension FirestoreDebugTransactionExtension on Transaction {
+  Future<DocumentSnapshot<T>> debugGet<T extends Object?>(
+    DocumentReference<T> ref, [
+    String? label,
+  ]) async {
+    final snapshot = await get(ref);
+    firestoreDebugTracker.recordRead(
+      firestoreDebugCallerLabel('transaction.get', ref, label),
+      1,
+    );
+    return snapshot;
+  }
+
+  Transaction debugSet<T extends Object?>(
+    DocumentReference<T> ref,
+    T data, [
+    SetOptions? options,
+    String? label,
+  ]) {
+    firestoreDebugTracker.recordWrite(
+      firestoreDebugCallerLabel('transaction.set', ref, label),
+      1,
+    );
+    set(ref, data, options);
+    return this;
+  }
+
+  Transaction debugUpdate<T extends Object?>(
+    DocumentReference<T> ref,
+    Map<Object, Object?> data, [
+    String? label,
+  ]) {
+    firestoreDebugTracker.recordWrite(
+      firestoreDebugCallerLabel('transaction.update', ref, label),
+      1,
+    );
+    update(ref, data);
+    return this;
+  }
+
+  Transaction debugDelete<T extends Object?>(
+    DocumentReference<T> ref, [
+    String? label,
+  ]) {
+    firestoreDebugTracker.recordDelete(
+      firestoreDebugCallerLabel('transaction.delete', ref, label),
+      1,
+    );
+    delete(ref);
+    return this;
+  }
+}
+
+extension FirestoreDebugCollectionReferenceExtension<T extends Object?>
+    on CollectionReference<T> {
+  Future<DocumentReference<T>> debugAdd(T data, [String? label]) async {
+    firestoreDebugTracker.recordWrite(
+      firestoreDebugCallerLabel('collection.add', this, label),
+      1,
+    );
+    return add(data);
+  }
+}
+
+extension FirestoreDebugWriteBatchExtension on WriteBatch {
+  void debugSet<T extends Object?>(
+    DocumentReference<T> ref,
+    T data, [
+    SetOptions? options,
+    String? label,
+  ]) {
+    firestoreDebugTracker.recordWrite(
+      firestoreDebugCallerLabel('batch.set', ref, label),
+      1,
+    );
+    set(ref, data, options);
+  }
+
+  void debugUpdate<T extends Object?>(
+    DocumentReference<T> ref,
+    Map<Object, Object?> data, [
+    String? label,
+  ]) {
+    firestoreDebugTracker.recordWrite(
+      firestoreDebugCallerLabel('batch.update', ref, label),
+      1,
+    );
+    update(ref, data);
+  }
+
+  void debugDelete<T extends Object?>(
+    DocumentReference<T> ref, [
+    String? label,
+  ]) {
+    firestoreDebugTracker.recordDelete(
+      firestoreDebugCallerLabel('batch.delete', ref, label),
+      1,
+    );
+    delete(ref);
+  }
 }
 
 class FirestoreDebugScreen extends StatelessWidget {
@@ -539,7 +914,7 @@ Future<void> refreshMaintenanceMode() async {
   }
 
   try {
-    final snapshot = await maintenanceModeDocument().get();
+    final snapshot = await maintenanceModeDocument().debugGet();
     maintenanceModeConfig.value = MaintenanceModeConfig.fromSnapshot(snapshot);
   } catch (error) {
     debugPrint('Maintenance config refresh failed: $error');
@@ -550,16 +925,18 @@ Future<void> initializeMaintenanceMode() async {
   await maintenanceModeSubscription?.cancel();
   await refreshMaintenanceMode();
 
-  maintenanceModeSubscription = maintenanceModeDocument().snapshots().listen(
-    (snapshot) {
-      maintenanceModeConfig.value = MaintenanceModeConfig.fromSnapshot(
-        snapshot,
+  maintenanceModeSubscription = maintenanceModeDocument()
+      .debugSnapshots()
+      .listen(
+        (snapshot) {
+          maintenanceModeConfig.value = MaintenanceModeConfig.fromSnapshot(
+            snapshot,
+          );
+        },
+        onError: (Object error) {
+          debugPrint('Maintenance config watcher failed: $error');
+        },
       );
-    },
-    onError: (Object error) {
-      debugPrint('Maintenance config watcher failed: $error');
-    },
-  );
 }
 
 const _ruText = <String, String>{
@@ -2059,6 +2436,7 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await warmUpAppMapBackground();
   await appUiPreferences.load();
+  await firestoreDebugTracker.loadPersisted();
 
   try {
     await Firebase.initializeApp(
@@ -2416,7 +2794,7 @@ Future<void> registerPushTokenForCurrentUser(String token) async {
   }
 
   try {
-    await usersCollection().doc(firebaseUser.uid).set({
+    await usersCollection().doc(firebaseUser.uid).debugSet({
       'fcmTokens': FieldValue.arrayUnion([cleanToken]),
       'fcmTokenUpdatedAt': FieldValue.serverTimestamp(),
       'lastFcmTokenPlatform': Platform.operatingSystem,
@@ -2444,7 +2822,7 @@ Future<void> unregisterPushTokenForCurrentUser() async {
       return;
     }
 
-    await usersCollection().doc(firebaseUser.uid).set({
+    await usersCollection().doc(firebaseUser.uid).debugSet({
       'fcmTokens': FieldValue.arrayRemove([token]),
       'fcmTokenUpdatedAt': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
@@ -3697,7 +4075,7 @@ Future<UsernameAvailability> checkUsernameAvailabilityForCurrentUser(
   try {
     final snapshot = await usernamesCollection()
         .doc(usernameKey(cleanUsername))
-        .get();
+        .debugGet();
 
     if (!snapshot.exists) {
       return UsernameAvailability.available;
@@ -3806,10 +4184,10 @@ Future<String> reserveUsernameForCurrentUser({
 
     try {
       await FirebaseFirestore.instance.runTransaction((transaction) async {
-        final snapshot = await transaction.get(usernameRef);
+        final snapshot = await transaction.debugGet(usernameRef);
         final previousSnapshot = previousRef == null
             ? null
-            : await transaction.get(previousRef);
+            : await transaction.debugGet(previousRef);
         final existingUid = snapshot.data()?['uid'] as String?;
         final previousUid = previousSnapshot?.data()?['uid'] as String?;
 
@@ -3821,7 +4199,7 @@ Future<String> reserveUsernameForCurrentUser({
           );
         }
 
-        transaction.set(usernameRef, {
+        transaction.debugSet(usernameRef, {
           'uid': firebaseUser.uid,
           'username': candidate,
           'usernameKey': key,
@@ -3831,7 +4209,7 @@ Future<String> reserveUsernameForCurrentUser({
         if (previousSnapshot != null &&
             previousSnapshot.exists &&
             previousUid == firebaseUser.uid) {
-          transaction.delete(previousRef!);
+          transaction.debugDelete(previousRef!);
         }
       });
 
@@ -3888,7 +4266,7 @@ Future<AppUser> saveFirebaseUser(
   final userRef = FirebaseFirestore.instance
       .collection('users')
       .doc(firebaseUser.uid);
-  final snapshot = await userRef.get();
+  final snapshot = await userRef.debugGet();
   final data = snapshot.data();
   final isNewUser = !snapshot.exists;
 
@@ -3986,7 +4364,7 @@ Future<AppUser> saveFirebaseUser(
     firebaseData['createdAt'] = FieldValue.serverTimestamp();
   }
 
-  await userRef.set(firebaseData, SetOptions(merge: true));
+  await userRef.debugSet(firebaseData, SetOptions(merge: true));
 
   return AppUser(
     uid: firebaseUser.uid,
@@ -4488,7 +4866,7 @@ Future<void> saveCurrentUserSettings(UserSettingsData settings) async {
 
   userSettings.value = settings;
 
-  await usersCollection().doc(firebaseUser.uid).set({
+  await usersCollection().doc(firebaseUser.uid).debugSet({
     'settings': settings.toFirebase(),
     'instagram': settings.instagram.trim(),
     'tiktok': settings.tiktok.trim(),
@@ -5155,7 +5533,7 @@ Future<SpotOwnerAssignment?> findSpotOwnerAssignment(
     return currentOwner;
   }
 
-  final byUid = await usersCollection().doc(cleanInput).get();
+  final byUid = await usersCollection().doc(cleanInput).debugGet();
   if (byUid.exists) {
     final data = byUid.data() ?? {};
     return SpotOwnerAssignment(
@@ -5167,7 +5545,7 @@ Future<SpotOwnerAssignment?> findSpotOwnerAssignment(
   final byUsername = await usersCollection()
       .where('usernameKey', isEqualTo: usernameKey(cleanInput))
       .limit(1)
-      .get();
+      .debugGet();
   if (byUsername.docs.isNotEmpty) {
     final doc = byUsername.docs.first;
     final data = doc.data();
@@ -5180,7 +5558,7 @@ Future<SpotOwnerAssignment?> findSpotOwnerAssignment(
   final byEmail = await usersCollection()
       .where('email', isEqualTo: input)
       .limit(1)
-      .get();
+      .debugGet();
   if (byEmail.docs.isNotEmpty) {
     final doc = byEmail.docs.first;
     final data = doc.data();
@@ -5347,7 +5725,7 @@ Future<bool> userNotificationPreferenceEnabled(
   }
 
   try {
-    final snapshot = await usersCollection().doc(userId).get();
+    final snapshot = await usersCollection().doc(userId).debugGet();
     final data = snapshot.data() ?? const <String, dynamic>{};
     final nestedSettings = mapFromFirebase(data['settings']);
 
@@ -5403,7 +5781,7 @@ Future<void> createUserNotification({
         ? userNotificationsCollection().doc()
         : userNotificationsCollection().doc(notificationId.trim());
 
-    await reference.set({
+    await reference.debugSet({
       'userId': cleanUserId,
       'type': type,
       'title': title,
@@ -5514,7 +5892,7 @@ Future<void> createNewSpotNotificationForUsers(CarSpot spot) async {
       : '${spot.name} was added in ${spot.cityCountry}.';
 
   try {
-    final usersSnapshot = await usersCollection().limit(500).get();
+    final usersSnapshot = await usersCollection().limit(500).debugGet();
     final batch = FirebaseFirestore.instance.batch();
     var writes = 0;
 
@@ -5534,7 +5912,7 @@ Future<void> createNewSpotNotificationForUsers(CarSpot spot) async {
       }
 
       final notificationId = '${type}_${spot.id}_$userId';
-      batch.set(userNotificationsCollection().doc(notificationId), {
+      batch.debugSet(userNotificationsCollection().doc(notificationId), {
         'userId': userId,
         'type': type,
         'title': title,
@@ -5634,7 +6012,7 @@ Stream<int> incomingFriendRequestCountStream() {
   return friendRequestsCollection()
       .where('toUid', isEqualTo: firebaseUser.uid)
       .where('status', isEqualTo: 'pending')
-      .snapshots()
+      .debugSnapshots()
       .map((snapshot) => snapshot.docs.length);
 }
 
@@ -5813,7 +6191,7 @@ Future<bool> areUsersFriends(String firstUid, String secondUid) async {
 
   final snapshot = await friendshipsCollection()
       .doc(friendshipIdFor(firstUid, secondUid))
-      .get();
+      .debugGet();
   return snapshot.exists;
 }
 
@@ -5823,7 +6201,7 @@ Future<String?> pendingRequestStatusBetweenUsers(
 ) async {
   final outgoing = await friendRequestsCollection()
       .doc(friendRequestIdFor(firstUid, secondUid))
-      .get();
+      .debugGet();
 
   if (outgoing.exists && outgoing.data()?['status'] == 'pending') {
     return 'outgoing';
@@ -5831,7 +6209,7 @@ Future<String?> pendingRequestStatusBetweenUsers(
 
   final incoming = await friendRequestsCollection()
       .doc(friendRequestIdFor(secondUid, firstUid))
-      .get();
+      .debugGet();
 
   if (incoming.exists && incoming.data()?['status'] == 'pending') {
     return 'incoming';
@@ -5866,7 +6244,7 @@ Future<void> sendFriendRequestToUser(FriendUserData user) async {
   final incomingRef = friendRequestsCollection().doc(
     friendRequestIdFor(user.uid, firebaseUser.uid),
   );
-  final incoming = await incomingRef.get();
+  final incoming = await incomingRef.debugGet();
 
   if (incoming.exists && incoming.data()?['status'] == 'pending') {
     await acceptFriendRequest(FriendRequestData.fromFirestore(incoming));
@@ -5875,12 +6253,12 @@ Future<void> sendFriendRequestToUser(FriendUserData user) async {
 
   final requestId = friendRequestIdFor(firebaseUser.uid, user.uid);
   final outgoingRef = friendRequestsCollection().doc(requestId);
-  final outgoing = await outgoingRef.get();
+  final outgoing = await outgoingRef.debugGet();
   if (outgoing.exists && outgoing.data()?['status'] == 'pending') {
     return;
   }
 
-  await outgoingRef.set({
+  await outgoingRef.debugSet({
     'fromUid': firebaseUser.uid,
     'fromUsername': currentUser.username,
     'fromName': currentUser.name,
@@ -5924,7 +6302,7 @@ Future<void> acceptFriendRequest(FriendRequestData request) async {
   final requestRef = friendRequestsCollection().doc(request.id);
 
   await FirebaseFirestore.instance.runTransaction((transaction) async {
-    transaction.set(friendshipRef, {
+    transaction.debugSet(friendshipRef, {
       'userIds': [request.fromUid, request.toUid]..sort(),
       'users': {
         request.fromUid: {
@@ -5942,7 +6320,7 @@ Future<void> acceptFriendRequest(FriendRequestData request) async {
       'updatedAt': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
 
-    transaction.set(requestRef, {
+    transaction.debugSet(requestRef, {
       'status': 'accepted',
       'respondedAt': FieldValue.serverTimestamp(),
       'updatedAt': FieldValue.serverTimestamp(),
@@ -5961,7 +6339,7 @@ Future<void> declineFriendRequest(FriendRequestData request) async {
     );
   }
 
-  await friendRequestsCollection().doc(request.id).set({
+  await friendRequestsCollection().doc(request.id).debugSet({
     'status': 'declined',
     'respondedAt': FieldValue.serverTimestamp(),
     'updatedAt': FieldValue.serverTimestamp(),
@@ -5975,7 +6353,7 @@ Future<void> cancelFriendRequest(FriendRequestData request) async {
     return;
   }
 
-  await friendRequestsCollection().doc(request.id).delete();
+  await friendRequestsCollection().doc(request.id).debugDelete();
 }
 
 String friendUidFromFriendshipData(
@@ -6002,7 +6380,7 @@ Future<void> removeFriendship(String friendUid) async {
 
   await friendshipsCollection()
       .doc(friendshipIdFor(firebaseUser.uid, friendUid))
-      .delete();
+      .debugDelete();
 }
 
 const double friendNearbyRadiusMeters = 5000;
@@ -6030,7 +6408,7 @@ Future<List<String>> loadCurrentFriendUids() async {
 
   final snapshot = await friendshipsCollection()
       .where('userIds', arrayContains: firebaseUser.uid)
-      .get();
+      .debugGet();
 
   return snapshot.docs
       .map((doc) => friendUidFromFriendshipData(doc.data(), firebaseUser.uid))
@@ -6043,7 +6421,7 @@ Future<List<FriendUserData>> loadCurrentFriendUsers() async {
   final friends = <FriendUserData>[];
 
   for (final uid in friendUids) {
-    final snapshot = await usersCollection().doc(uid).get();
+    final snapshot = await usersCollection().doc(uid).debugGet();
     if (snapshot.exists) {
       final user = FriendUserData.fromFirestore(snapshot);
       if (user.canAppearInUserLists) {
@@ -6066,7 +6444,7 @@ Future<List<FriendUserData>> loadCurrentFriendUsers() async {
 }
 
 Future<List<FriendUserData>> loadAllVisibleUsersForGroupInvite() async {
-  final snapshot = await usersCollection().limit(200).get();
+  final snapshot = await usersCollection().limit(200).debugGet();
   final users = snapshot.docs
       .map(FriendUserData.fromFirestore)
       .where((user) => user.uid != currentUser.uid && user.canAppearInUserLists)
@@ -6322,10 +6700,10 @@ Future<String> createOrOpenDirectChat(FriendUserData user) async {
   final memberUsernames = [currentUser.username, user.username];
 
   final chatRef = chatsCollection().doc(chatId);
-  final existing = await chatRef.get();
+  final existing = await chatRef.debugGet();
 
   if (!existing.exists) {
-    await chatRef.set({
+    await chatRef.debugSet({
       'isGroup': false,
       'name': '',
       'memberIds': memberIds,
@@ -6372,7 +6750,7 @@ Future<String> createGroupChat({
       .join(', ');
   final doc = chatsCollection().doc();
 
-  await doc.set({
+  await doc.debugSet({
     'isGroup': true,
     'name': name.trim().isEmpty ? fallbackName : name.trim(),
     'memberIds': memberIds,
@@ -6414,14 +6792,14 @@ Future<void> sendChatMessage({
     return;
   }
 
-  final messageRef = await chatMessagesCollection(chatId).add({
+  final messageRef = await chatMessagesCollection(chatId).debugAdd({
     'senderUid': firebaseUser.uid,
     'senderUsername': currentUser.username,
     'text': cleanText,
     'createdAt': FieldValue.serverTimestamp(),
   });
 
-  await chatsCollection().doc(chatId).set({
+  await chatsCollection().doc(chatId).debugSet({
     'lastMessage': cleanText,
     'lastSenderUid': firebaseUser.uid,
     'lastSenderUsername': currentUser.username,
@@ -6710,7 +7088,7 @@ Future<void> shareChatLiveLocation(
   final expiresAt = promptAt.add(liveLocationRenewGracePeriod);
   final chatTitle = chat.titleForCurrentUser(firebaseUser.uid);
 
-  await liveLocationsCollection().doc(firebaseUser.uid).set({
+  await liveLocationsCollection().doc(firebaseUser.uid).debugSet({
     'uid': firebaseUser.uid,
     'username': currentUser.username,
     'name': currentUser.name,
@@ -6731,7 +7109,7 @@ Future<void> shareChatLiveLocation(
     'updatedAt': FieldValue.serverTimestamp(),
   }, SetOptions(merge: true));
 
-  await usersCollection().doc(firebaseUser.uid).set({
+  await usersCollection().doc(firebaseUser.uid).debugSet({
     'isSharingLiveLocation': true,
     'liveLocationExpiresAt': Timestamp.fromDate(expiresAt),
     'liveLocationShareDurationMinutes': shareDuration.inMinutes,
@@ -6770,7 +7148,7 @@ Future<bool> currentUserCanModerateChat(String chatId) async {
   if (firebaseUser == null) return false;
   if (userRoleIsStaff(currentUser.role)) return true;
 
-  final snapshot = await chatsCollection().doc(chatId).get();
+  final snapshot = await chatsCollection().doc(chatId).debugGet();
   final data = snapshot.data();
   if (data == null || data['isGroup'] != true) return false;
 
@@ -6814,13 +7192,13 @@ Future<void> editChatMessage({
     );
   }
 
-  await chatMessagesCollection(chatId).doc(message.id).set({
+  await chatMessagesCollection(chatId).doc(message.id).debugSet({
     'text': cleanText,
     'edited': true,
     'updatedAt': FieldValue.serverTimestamp(),
   }, SetOptions(merge: true));
 
-  await chatsCollection().doc(chatId).set({
+  await chatsCollection().doc(chatId).debugSet({
     'lastMessage': cleanText,
     'lastSenderUid': firebaseUser.uid,
     'lastSenderUsername': currentUser.username,
@@ -6844,11 +7222,11 @@ Future<void> deleteChatMessage({
     );
   }
 
-  await chatMessagesCollection(chatId).doc(message.id).delete();
+  await chatMessagesCollection(chatId).doc(message.id).debugDelete();
 
   final latestSnapshot = await chatMessagesCollection(
     chatId,
-  ).orderBy('createdAt', descending: true).limit(1).get();
+  ).orderBy('createdAt', descending: true).limit(1).debugGet();
   final latestText = latestSnapshot.docs.isEmpty
       ? ''
       : stringFromFirebase(latestSnapshot.docs.first.data()['text'], '');
@@ -6862,7 +7240,7 @@ Future<void> deleteChatMessage({
           '',
         );
 
-  await chatsCollection().doc(chatId).set({
+  await chatsCollection().doc(chatId).debugSet({
     'lastMessage': latestText,
     'lastSenderUid': latestSenderUid,
     'lastSenderUsername': latestSenderUsername,
@@ -6871,7 +7249,7 @@ Future<void> deleteChatMessage({
 }
 
 Future<LiveLocationData?> loadCurrentLiveLocationForUser(String uid) async {
-  final snapshot = await liveLocationsCollection().doc(uid).get();
+  final snapshot = await liveLocationsCollection().doc(uid).debugGet();
 
   if (!snapshot.exists) {
     return null;
@@ -6886,7 +7264,7 @@ Future<bool> shouldCreateFriendLocationNotification(
 ) async {
   final snapshot = await friendLocationNotificationsCollection()
       .doc(notificationId)
-      .get();
+      .debugGet();
 
   if (!snapshot.exists) {
     return true;
@@ -6920,7 +7298,7 @@ Future<void> createFriendLocationNotification({
 
   final nowMillis = DateTime.now().millisecondsSinceEpoch;
 
-  await friendLocationNotificationsCollection().doc(notificationId).set({
+  await friendLocationNotificationsCollection().doc(notificationId).debugSet({
     'userId': userId,
     'friendUid': friendLocation.uid,
     'friendUsername': friendLocation.username,
@@ -6960,7 +7338,7 @@ Future<void> checkFriendLocationNotifications() async {
 
   final activeLocations = await liveLocationsCollection()
       .where('visibleToUserIds', arrayContains: firebaseUser.uid)
-      .get();
+      .debugGet();
 
   final friendUidSet = friendUids.toSet();
   final friendLocations = activeLocations.docs
@@ -7097,7 +7475,7 @@ Future<CarSpot?> findNearbySpotBlockingPermanentSpotCreation(
   List<CarSpot> existingSpots;
 
   try {
-    final snapshot = await spotsCollection().get(
+    final snapshot = await spotsCollection().debugGet(
       const GetOptions(source: Source.server),
     );
     existingSpots = snapshot.docs
@@ -7230,7 +7608,7 @@ Future<void> createMeetSpotNotificationsForNearbyUsers(CarSpot spot) async {
 
   final activeLocations = await liveLocationsCollection()
       .where('expiresAt', isGreaterThan: Timestamp.now())
-      .get();
+      .debugGet();
   final batch = FirebaseFirestore.instance.batch();
   var writes = 0;
 
@@ -7252,7 +7630,7 @@ Future<void> createMeetSpotNotificationsForNearbyUsers(CarSpot spot) async {
 
     final notificationId = '${spot.id}_${liveLocation.uid}';
     final notificationRef = meetNotificationsCollection().doc(notificationId);
-    batch.set(notificationRef, {
+    batch.debugSet(notificationRef, {
       'userId': liveLocation.uid,
       'spotId': spot.id,
       'spotName': spot.name,
@@ -7278,7 +7656,7 @@ Future<void> createMeetSpotNotificationsForNearbyUsers(CarSpot spot) async {
 Future<List<String>> adminUserIdsExcept({String? excludedUid}) async {
   final snapshot = await usersCollection()
       .where('role', isEqualTo: 'admin')
-      .get();
+      .debugGet();
 
   return snapshot.docs
       .map((doc) => stringFromFirebase(doc.data()['uid'], doc.id))
@@ -7303,7 +7681,7 @@ Future<void> createAdminSpotReviewNotification(CarSpot spot) async {
     final notificationRef = adminNotificationsCollection().doc(
       '${spot.id}_review_$adminUid',
     );
-    batch.set(notificationRef, {
+    batch.debugSet(notificationRef, {
       'userId': adminUid,
       'type': 'spot_pending_review',
       'spotId': spot.id,
@@ -7343,7 +7721,7 @@ Future<void> createAdminSpotDecisionNotification(
     final notificationRef = adminNotificationsCollection().doc(
       '${spot.id}_${statusName}_$adminUid',
     );
-    batch.set(notificationRef, {
+    batch.debugSet(notificationRef, {
       'userId': adminUid,
       'type': status == SpotStatus.approved
           ? 'spot_approved_by_admin'
@@ -7551,7 +7929,7 @@ Future<void> saveCurrentUserFields(Map<String, Object?> data) async {
     return;
   }
 
-  await usersCollection().doc(firebaseUser.uid).set({
+  await usersCollection().doc(firebaseUser.uid).debugSet({
     ...data,
     'updatedAt': FieldValue.serverTimestamp(),
   }, SetOptions(merge: true));
@@ -7592,7 +7970,7 @@ Future<void> updateCurrentUserOnlinePresence({required bool isOnline}) async {
   }
 
   try {
-    await usersCollection().doc(firebaseUser.uid).set({
+    await usersCollection().doc(firebaseUser.uid).debugSet({
       'isOnline': isOnline,
       'lastSeenAt': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
@@ -8179,26 +8557,17 @@ Future<void> toggleSpotLike(
 
   if (currentlyLiked) {
     await FirebaseFirestore.instance.runTransaction((transaction) async {
-      final likeSnapshot = await transaction.get(likeRef);
-      firestoreDebugTracker.recordRead(
-        'spot like transaction: existing like',
-        1,
-      );
+      final likeSnapshot = await transaction.debugGet(likeRef);
       if (!likeSnapshot.exists) {
         return;
       }
 
-      transaction.delete(likeRef);
-      firestoreDebugTracker.recordDelete('spot like transaction: unlike', 1);
+      transaction.debugDelete(likeRef);
       if (spotRef != null) {
-        transaction.update(spotRef, {
+        transaction.debugUpdate(spotRef, {
           'likeCount': FieldValue.increment(-1),
           'updatedAt': FieldValue.serverTimestamp(),
         });
-        firestoreDebugTracker.recordWrite(
-          'spot counter update: likeCount -1',
-          1,
-        );
       }
     });
     setCurrentUserSpotLikedLocally(spotId, false);
@@ -8206,27 +8575,19 @@ Future<void> toggleSpotLike(
     final notificationId = 'spot_like_${likeRef.id}';
     final alreadyNotified = await userNotificationsCollection()
         .doc(notificationId)
-        .get()
+        .debugGet()
         .then((snapshot) {
-          firestoreDebugTracker.recordRead(
-            'spot like notification exists check',
-            1,
-          );
           return snapshot.exists;
         })
         .catchError((_) => false);
 
     await FirebaseFirestore.instance.runTransaction((transaction) async {
-      final likeSnapshot = await transaction.get(likeRef);
-      firestoreDebugTracker.recordRead(
-        'spot like transaction: existing like',
-        1,
-      );
+      final likeSnapshot = await transaction.debugGet(likeRef);
       if (likeSnapshot.exists) {
         return;
       }
 
-      transaction.set(likeRef, {
+      transaction.debugSet(likeRef, {
         'targetType': 'spot',
         'spotId': spotId,
         'spotName': spot.name,
@@ -8235,17 +8596,12 @@ Future<void> toggleSpotLike(
         'username': currentUser.username,
         'createdAt': FieldValue.serverTimestamp(),
       });
-      firestoreDebugTracker.recordWrite('spot like transaction: like', 1);
 
       if (spotRef != null) {
-        transaction.update(spotRef, {
+        transaction.debugUpdate(spotRef, {
           'likeCount': FieldValue.increment(1),
           'updatedAt': FieldValue.serverTimestamp(),
         });
-        firestoreDebugTracker.recordWrite(
-          'spot counter update: likeCount +1',
-          1,
-        );
       }
     });
     setCurrentUserSpotLikedLocally(spotId, true);
@@ -8309,9 +8665,9 @@ Future<void> toggleCommentLike(
   );
 
   if (currentlyLiked) {
-    await likeRef.delete();
+    await likeRef.debugDelete();
   } else {
-    await likeRef.set({
+    await likeRef.debugSet({
       'targetType': 'comment',
       'commentId': review.id,
       'commentSpotId': review.spotId,
@@ -8341,7 +8697,7 @@ Future<void> saveSpotReview({
 
   final existingReviews = await spotReviewsCollection()
       .where('spotId', isEqualTo: spotId)
-      .get();
+      .debugGet();
 
   final userCommentCount = existingReviews.docs.where((doc) {
     final data = doc.data();
@@ -8357,7 +8713,7 @@ Future<void> saveSpotReview({
     );
   }
 
-  final reviewRef = await spotReviewsCollection().add({
+  final reviewRef = await spotReviewsCollection().debugAdd({
     'spotId': spotId,
     'spotName': spot.name,
     'type': 'comment',
@@ -8368,17 +8724,11 @@ Future<void> saveSpotReview({
     'updatedAt': FieldValue.serverTimestamp(),
   });
 
-  firestoreDebugTracker.recordWrite('spot comment create', 1);
-
   if (spot.id.trim().isNotEmpty) {
-    await spotsCollection().doc(spot.id).update({
+    await spotsCollection().doc(spot.id).debugUpdate({
       'commentCount': FieldValue.increment(1),
       'updatedAt': FieldValue.serverTimestamp(),
     });
-    firestoreDebugTracker.recordWrite(
-      'spot counter update: commentCount +1',
-      1,
-    );
   }
 
   await createSpotCommentNotification(spot, reviewRef.id, cleanComment);
@@ -8421,7 +8771,7 @@ Future<void> editSpotReview({
     );
   }
 
-  await spotReviewsCollection().doc(review.id).update({
+  await spotReviewsCollection().doc(review.id).debugUpdate({
     'comment': cleanComment,
     'updatedAt': FieldValue.serverTimestamp(),
   });
@@ -8449,18 +8799,13 @@ Future<void> deleteSpotReview({
     );
   }
 
-  await spotReviewsCollection().doc(review.id).delete();
-  firestoreDebugTracker.recordDelete('spot comment delete', 1);
+  await spotReviewsCollection().doc(review.id).debugDelete();
 
   if (spot.id.trim().isNotEmpty && review.comment.trim().isNotEmpty) {
-    await spotsCollection().doc(spot.id).update({
+    await spotsCollection().doc(spot.id).debugUpdate({
       'commentCount': FieldValue.increment(-1),
       'updatedAt': FieldValue.serverTimestamp(),
     });
-    firestoreDebugTracker.recordWrite(
-      'spot counter update: commentCount -1',
-      1,
-    );
   }
 }
 
@@ -8527,8 +8872,7 @@ Future<double?> saveSpotRating({
     data['createdAt'] = FieldValue.serverTimestamp();
   }
 
-  await ratingRef.set(data, SetOptions(merge: true));
-  firestoreDebugTracker.recordWrite('spot rating save', 1);
+  await ratingRef.debugSet(data, SetOptions(merge: true));
 
   return updateSpotRatingFromReviews(spot);
 }
@@ -8559,7 +8903,7 @@ Future<double?> updateSpotRatingFromReviews(CarSpot spot) async {
       ratings.length;
   final roundedRating = double.parse(averageRating.toStringAsFixed(1));
 
-  await spotsCollection().doc(spot.id).update({
+  await spotsCollection().doc(spot.id).debugUpdate({
     'rating': roundedRating,
     'ratingCount': ratings.length,
     'reviewUpdatedAt': FieldValue.serverTimestamp(),
@@ -8729,7 +9073,7 @@ Future<void> updateSpotStatus(
   );
 
   if (spot.id.isNotEmpty) {
-    await spotsCollection().doc(spot.id).update({
+    await spotsCollection().doc(spot.id).debugUpdate({
       'status': spotStatusName(status),
       'rating': updatedSpot.rating,
       'reviewedBy': currentUser.username,
@@ -8787,7 +9131,7 @@ Future<void> updateSpotStatus(
 
 Future<void> deleteSpotFromFirebase(CarSpot spot) async {
   if (spot.id.isNotEmpty) {
-    await spotsCollection().doc(spot.id).delete();
+    await spotsCollection().doc(spot.id).debugDelete();
   }
 
   reviewSpots.value = reviewSpots.value
@@ -9466,7 +9810,7 @@ Future<String> rejectionReasonForNotificationItem(
   }
 
   try {
-    final doc = await spotsCollection().doc(cleanSpotId).get();
+    final doc = await spotsCollection().doc(cleanSpotId).debugGet();
     if (!doc.exists) {
       return '';
     }
@@ -9573,13 +9917,13 @@ Future<List<NotificationCenterItem>> loadNotificationCenterItems() async {
       adminNotificationsCollection()
           .where('userId', isEqualTo: firebaseUser.uid)
           .limit(50)
-          .get(),
+          .debugGet(),
     ),
     addItems(
       friendLocationNotificationsCollection()
           .where('userId', isEqualTo: firebaseUser.uid)
           .limit(50)
-          .get(),
+          .debugGet(),
     ),
     // Always load Firestore user notifications too. The push server history can
     // lag behind or omit custom fields such as rejectionReason, so Firestore is
@@ -9588,9 +9932,9 @@ Future<List<NotificationCenterItem>> loadNotificationCenterItems() async {
       userNotificationsCollection()
           .where('userId', isEqualTo: firebaseUser.uid)
           .limit(50)
-          .get(),
+          .debugGet(),
     ),
-    addItems(projectNewsCollection().limit(20).get(), projectNews: true),
+    addItems(projectNewsCollection().limit(20).debugGet(), projectNews: true),
   ];
 
   await Future.wait(sourceLoads);
@@ -9714,7 +10058,7 @@ Future<void> markNotificationCenterItemsRead(
         if (reference == null) {
           continue;
         }
-        batch.set(reference, {
+        batch.debugSet(reference, {
           'read': true,
           'readAt': FieldValue.serverTimestamp(),
         }, SetOptions(merge: true));
@@ -9762,7 +10106,7 @@ Future<void> clearNotificationCenterItems(
     try {
       final batch = FirebaseFirestore.instance.batch();
       for (final reference in references) {
-        batch.delete(reference);
+        batch.debugDelete(reference);
       }
       await batch.commit();
     } catch (error, stack) {
@@ -9919,7 +10263,7 @@ Future<CarSpot?> spotForNotificationItem(NotificationCenterItem item) async {
   }
 
   try {
-    final doc = await spotsCollection().doc(cleanSpotId).get();
+    final doc = await spotsCollection().doc(cleanSpotId).debugGet();
     if (doc.exists) {
       return CarSpot.fromFirestore(doc);
     }
@@ -9933,13 +10277,15 @@ Future<void> openNotificationCenterItem(
   NotificationCenterItem item,
 ) async {
   if (item.reference != null) {
-    unawaited(item.reference!.set({'read': true}, SetOptions(merge: true)));
+    unawaited(
+      item.reference!.debugSet({'read': true}, SetOptions(merge: true)),
+    );
   }
 
   final cleanChatId = item.chatId.trim();
   if (cleanChatId.isNotEmpty) {
     try {
-      final doc = await chatsCollection().doc(cleanChatId).get();
+      final doc = await chatsCollection().doc(cleanChatId).debugGet();
       if (!context.mounted) return;
       if (doc.exists) {
         Navigator.push(
@@ -10674,7 +11020,9 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     if (state == AppLifecycleState.resumed) {
       updateCurrentUserOnlinePresence(isOnline: true);
     } else if (state == AppLifecycleState.paused ||
-        state == AppLifecycleState.detached) {
+        state == AppLifecycleState.detached ||
+        state == AppLifecycleState.inactive) {
+      unawaited(firestoreDebugTracker.flushPersisted());
       updateCurrentUserOnlinePresence(isOnline: false);
     }
   }
@@ -10690,7 +11038,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
         .where('userId', isEqualTo: firebaseUser.uid)
         .where('read', isEqualTo: false)
         .limit(20)
-        .snapshots()
+        .debugSnapshots()
         .listen((snapshot) async {
           for (final change in snapshot.docChanges) {
             if (change.type != DocumentChangeType.added) {
@@ -10730,7 +11078,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
               );
             }
 
-            await change.doc.reference.set({
+            await change.doc.reference.debugSet({
               'read': true,
               'readAt': FieldValue.serverTimestamp(),
             }, SetOptions(merge: true));
@@ -10749,7 +11097,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
         .where('userId', isEqualTo: firebaseUser.uid)
         .where('read', isEqualTo: false)
         .limit(20)
-        .snapshots()
+        .debugSnapshots()
         .listen((snapshot) async {
           for (final change in snapshot.docChanges) {
             if (change.type != DocumentChangeType.added) {
@@ -10799,7 +11147,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
               );
             }
 
-            await change.doc.reference.set({
+            await change.doc.reference.debugSet({
               'read': true,
               'readAt': FieldValue.serverTimestamp(),
             }, SetOptions(merge: true));
@@ -10819,7 +11167,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
             .where('userId', isEqualTo: firebaseUser.uid)
             .where('read', isEqualTo: false)
             .limit(20)
-            .snapshots()
+            .debugSnapshots()
             .listen((snapshot) async {
               for (final change in snapshot.docChanges) {
                 if (change.type != DocumentChangeType.added &&
@@ -10868,7 +11216,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                   );
                 }
 
-                await change.doc.reference.set({
+                await change.doc.reference.debugSet({
                   'read': true,
                   'readAt': FieldValue.serverTimestamp(),
                 }, SetOptions(merge: true));
@@ -13901,7 +14249,7 @@ class _MapScreenState extends State<MapScreen>
     policeReportSubscription?.cancel();
     policeReportSubscription = policeReportsCollection()
         .where('expiresAt', isGreaterThan: Timestamp.now())
-        .snapshots()
+        .debugSnapshots()
         .listen(
           (snapshot) {
             if (!mounted) {
@@ -13937,7 +14285,7 @@ class _MapScreenState extends State<MapScreen>
     sosReportSubscription?.cancel();
     sosReportSubscription = sosReportsCollection()
         .where('expiresAt', isGreaterThan: Timestamp.now())
-        .snapshots()
+        .debugSnapshots()
         .listen(
           (snapshot) {
             if (!mounted) {
@@ -14135,7 +14483,7 @@ class _MapScreenState extends State<MapScreen>
 
   Future<List<String>> loadSosVisibleUserIds(String fallbackUid) async {
     try {
-      final snapshot = await usersCollection().limit(500).get();
+      final snapshot = await usersCollection().limit(500).debugGet();
       final ids = snapshot.docs
           .map((doc) => stringFromFirebase(doc.data()['uid'], doc.id))
           .where((uid) => uid.trim().isNotEmpty)
@@ -14174,7 +14522,7 @@ class _MapScreenState extends State<MapScreen>
     liveLocationPromptAt = promptAt;
     liveLocationExpiresAt = expiresAt;
 
-    await liveLocationsCollection().doc(firebaseUser.uid).set({
+    await liveLocationsCollection().doc(firebaseUser.uid).debugSet({
       'uid': firebaseUser.uid,
       'username': currentUser.username,
       'name': currentUser.name,
@@ -14199,7 +14547,7 @@ class _MapScreenState extends State<MapScreen>
     }, SetOptions(merge: true));
 
     try {
-      await usersCollection().doc(firebaseUser.uid).set({
+      await usersCollection().doc(firebaseUser.uid).debugSet({
         'isSharingLiveLocation': true,
         'liveLocationExpiresAt': Timestamp.fromDate(expiresAt),
         'liveLocationVisibleToUserIds': visibleToUserIds,
@@ -14295,7 +14643,7 @@ class _MapScreenState extends State<MapScreen>
           .where('status', isEqualTo: 'active')
           .where('expiresAt', isGreaterThan: Timestamp.now())
           .limit(1)
-          .get();
+          .debugGet();
       if (existingOwnSos.docs.isNotEmpty) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -14344,7 +14692,7 @@ class _MapScreenState extends State<MapScreen>
     final docRef = sosReportsCollection().doc(firebaseUser.uid);
 
     try {
-      await docRef.set({
+      await docRef.debugSet({
         'uid': firebaseUser.uid,
         'username': currentUser.username,
         'description': draft.description,
@@ -14427,7 +14775,7 @@ class _MapScreenState extends State<MapScreen>
   }
 
   Future<void> removeSosReport(SosReportData report) async {
-    await sosReportsCollection().doc(report.id).set({
+    await sosReportsCollection().doc(report.id).debugSet({
       'status': 'removed',
       'removedAt': FieldValue.serverTimestamp(),
       'updatedAt': FieldValue.serverTimestamp(),
@@ -14495,7 +14843,7 @@ class _MapScreenState extends State<MapScreen>
       return;
     }
 
-    await sosReportsCollection().doc(ownSos.id).set({
+    await sosReportsCollection().doc(ownSos.id).debugSet({
       'confirmationRequestedAt': FieldValue.serverTimestamp(),
       'updatedAt': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
@@ -14540,7 +14888,7 @@ class _MapScreenState extends State<MapScreen>
     }
 
     if (keep == true) {
-      await sosReportsCollection().doc(ownSos.id).set({
+      await sosReportsCollection().doc(ownSos.id).debugSet({
         'confirmationRequestedAt': null,
         'updatedAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
@@ -14837,7 +15185,7 @@ class _MapScreenState extends State<MapScreen>
       final activePoliceSnapshot = await policeReportsCollection()
           .where('expiresAt', isGreaterThan: Timestamp.now())
           .where('status', isEqualTo: 'active')
-          .get();
+          .debugGet();
       for (final doc in activePoliceSnapshot.docs) {
         final report = PoliceReportData.fromFirestore(doc);
         final distance = distanceBetweenLatLngMeters(
@@ -14876,7 +15224,7 @@ class _MapScreenState extends State<MapScreen>
 
     final docRef = policeReportsCollection().doc();
 
-    await docRef.set({
+    await docRef.debugSet({
       'uid': firebaseUser.uid,
       'username': currentUser.username,
       'lat': position.latitude,
@@ -14935,7 +15283,7 @@ class _MapScreenState extends State<MapScreen>
       return;
     }
 
-    await policeReportsCollection().doc(report.id).set({
+    await policeReportsCollection().doc(report.id).debugSet({
       'status': 'removed',
       'removedByUid': firebaseUser.uid,
       'removedAt': FieldValue.serverTimestamp(),
@@ -15043,7 +15391,7 @@ class _MapScreenState extends State<MapScreen>
 
     try {
       await FirebaseFirestore.instance.runTransaction((transaction) async {
-        final snapshot = await transaction.get(reportRef);
+        final snapshot = await transaction.debugGet(reportRef);
 
         if (!snapshot.exists) {
           removed = true;
@@ -15073,7 +15421,7 @@ class _MapScreenState extends State<MapScreen>
 
         if (shouldRemove) {
           removed = true;
-          transaction.update(reportRef, {
+          transaction.debugUpdate(reportRef, {
             'status': 'removed',
             'removedByUid': firebaseUser.uid,
             'removedAt': FieldValue.serverTimestamp(),
@@ -15082,7 +15430,7 @@ class _MapScreenState extends State<MapScreen>
             'updatedAt': FieldValue.serverTimestamp(),
           });
         } else {
-          transaction.update(reportRef, {
+          transaction.debugUpdate(reportRef, {
             'stillThereBy': stillThereBy,
             'notThereBy': notThereBy,
             'updatedAt': FieldValue.serverTimestamp(),
@@ -15152,7 +15500,7 @@ class _MapScreenState extends State<MapScreen>
 
     liveLocationSubscription = liveLocationsCollection()
         .where('visibleToUserIds', arrayContains: currentFirebaseUser.uid)
-        .snapshots()
+        .debugSnapshots()
         .listen(
           (snapshot) {
             if (!mounted) {
@@ -15581,7 +15929,7 @@ class _MapScreenState extends State<MapScreen>
         visibleToChatId == null ||
         visibleToChatName == null ||
         shareScope == null) {
-      final existingSnapshot = await docRef.get();
+      final existingSnapshot = await docRef.debugGet();
       existingData = existingSnapshot.data();
     }
 
@@ -15600,7 +15948,7 @@ class _MapScreenState extends State<MapScreen>
     final nextShareScope =
         shareScope ?? stringFromFirebase(existingData?['shareScope'], '');
 
-    await docRef.set({
+    await docRef.debugSet({
       'uid': firebaseUser.uid,
       'username': currentUser.username,
       'name': currentUser.name,
@@ -15626,7 +15974,7 @@ class _MapScreenState extends State<MapScreen>
       'updatedAt': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
 
-    await usersCollection().doc(firebaseUser.uid).set({
+    await usersCollection().doc(firebaseUser.uid).debugSet({
       'isSharingLiveLocation': true,
       'liveLocationExpiresAt': Timestamp.fromDate(expiresAt),
       'liveLocationShareDurationMinutes': duration.inMinutes,
@@ -15651,8 +15999,8 @@ class _MapScreenState extends State<MapScreen>
     unawaited(stopNativeLiveLocationBackgroundService());
 
     if (firebaseUser != null) {
-      await liveLocationsCollection().doc(firebaseUser.uid).delete();
-      await usersCollection().doc(firebaseUser.uid).set({
+      await liveLocationsCollection().doc(firebaseUser.uid).debugDelete();
+      await usersCollection().doc(firebaseUser.uid).debugSet({
         'isSharingLiveLocation': false,
         'liveLocationExpiresAt': null,
         'liveLocationShareDurationMinutes': null,
@@ -15835,7 +16183,7 @@ class _MapScreenState extends State<MapScreen>
 
   Future<void> openSosMessage(SosReportData report) async {
     try {
-      final snapshot = await usersCollection().doc(report.uid).get();
+      final snapshot = await usersCollection().doc(report.uid).debugGet();
       if (!snapshot.exists) {
         throw Exception('User profile is not available anymore.');
       }
@@ -18341,7 +18689,7 @@ class _SpotDetailScreenState extends State<SpotDetailScreen> {
                   appPageRoute(builder: (_) => AdminEditSpotScreen(spot: spot)),
                 );
                 if (saved == true && mounted) {
-                  final fresh = await spotsCollection().doc(spot.id).get();
+                  final fresh = await spotsCollection().doc(spot.id).debugGet();
                   if (fresh.exists && mounted) {
                     setState(() => spot = CarSpot.fromFirestore(fresh));
                   }
@@ -20783,7 +21131,9 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
         photoUrl: uploadedPhotoUrls.isEmpty ? '' : uploadedPhotoUrls.first,
         photoUrls: uploadedPhotoUrls,
       );
-      await spotRef.set(spotToFirestoreData(newSpot, includeCreatedAt: true));
+      await spotRef.debugSet(
+        spotToFirestoreData(newSpot, includeCreatedAt: true),
+      );
 
       if (isAdminCreatedSpot) {
         await createNewSpotNotificationForUsers(newSpot);
@@ -20801,7 +21151,7 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
         await createAdminSpotReviewNotification(newSpot);
       }
 
-      final savedSpot = await spotRef.get(
+      final savedSpot = await spotRef.debugGet(
         const GetOptions(source: Source.server),
       );
 
@@ -22168,7 +22518,10 @@ class _SpotOwnerSelectorState extends State<SpotOwnerSelector> {
 
   Widget ownerResults() {
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-      stream: usersCollection().orderBy('usernameKey').limit(200).snapshots(),
+      stream: usersCollection()
+          .orderBy('usernameKey')
+          .limit(200)
+          .debugSnapshots(),
       builder: (context, snapshot) {
         final users =
             snapshot.data?.docs
@@ -22485,7 +22838,7 @@ class _ServiceSpotBusinessEditScreenState
         openingHours: openingHours,
       );
 
-      await spotsCollection().doc(widget.spot.id).update({
+      await spotsCollection().doc(widget.spot.id).debugUpdate({
         'contactPhone': updatedSpot.contactPhone,
         'contactInstagram': updatedSpot.contactInstagram,
         'contactEmail': updatedSpot.contactEmail,
@@ -22918,7 +23271,7 @@ class _ChatScreenState extends State<ChatScreen> {
       floatingActionButton: firebaseUser == null
           ? null
           : StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-              stream: currentUserChatsQuery(firebaseUser.uid).snapshots(),
+              stream: currentUserChatsQuery(firebaseUser.uid).debugSnapshots(),
               builder: (context, snapshot) {
                 final chats =
                     snapshot.data?.docs
@@ -22944,7 +23297,7 @@ class _ChatScreenState extends State<ChatScreen> {
               ),
             )
           : StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-              stream: currentUserChatsQuery(firebaseUser.uid).snapshots(),
+              stream: currentUserChatsQuery(firebaseUser.uid).debugSnapshots(),
               builder: (context, snapshot) {
                 final chats =
                     snapshot.data?.docs
@@ -23216,7 +23569,7 @@ class ChatThreadTile extends StatelessWidget {
 
     if (!chat.isGroup && uid != null) {
       return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-        stream: usersCollection().doc(uid).snapshots(),
+        stream: usersCollection().doc(uid).debugSnapshots(),
         builder: (context, snapshot) {
           return tile(context, friendUserFromSnapshot(snapshot.data));
         },
@@ -23390,7 +23743,7 @@ Future<List<FriendUserData>> loadChatMembers(ChatThreadData chat) async {
     }
 
     try {
-      final snapshot = await usersCollection().doc(uid).get();
+      final snapshot = await usersCollection().doc(uid).debugGet();
       members.add(
         snapshot.exists
             ? FriendUserData.fromFirestore(snapshot)
@@ -23413,7 +23766,7 @@ Stream<List<FriendUserData>> watchCurrentFriendUsers() {
 
   return friendshipsCollection()
       .where('userIds', arrayContains: firebaseUser.uid)
-      .snapshots()
+      .debugSnapshots()
       .asyncMap((_) => loadCurrentFriendUsers());
 }
 
@@ -24066,7 +24419,7 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
         maxLongSide: r2AvatarPhotoMaxLongSide,
       );
 
-      await chatsCollection().doc(widget.chat.id).set({
+      await chatsCollection().doc(widget.chat.id).debugSet({
         'photoUrl': uploadedUrl,
         'updatedAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
@@ -24217,7 +24570,7 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
     if (selected.isEmpty) return;
     setState(() => isSaving = true);
     try {
-      await chatsCollection().doc(widget.chat.id).set({
+      await chatsCollection().doc(widget.chat.id).debugSet({
         'memberIds': FieldValue.arrayUnion(selected.map((u) => u.uid).toList()),
         'memberUsernames': FieldValue.arrayUnion(
           selected.map((u) => u.username).toList(),
@@ -24239,7 +24592,7 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
     final isModerator = widget.chat.moderatorIds.contains(user.uid);
     setState(() => isSaving = true);
     try {
-      await chatsCollection().doc(widget.chat.id).set({
+      await chatsCollection().doc(widget.chat.id).debugSet({
         'moderatorIds': isModerator
             ? FieldValue.arrayRemove([user.uid])
             : FieldValue.arrayUnion([user.uid]),
@@ -24257,7 +24610,7 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
     setState(() => isSaving = true);
 
     try {
-      await chatsCollection().doc(widget.chat.id).set({
+      await chatsCollection().doc(widget.chat.id).debugSet({
         'name': name.isEmpty ? widget.chat.name : name,
         'description': description,
         'updatedAt': FieldValue.serverTimestamp(),
@@ -25079,7 +25432,7 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
     }
 
     return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-      stream: usersCollection().doc(uid).snapshots(),
+      stream: usersCollection().doc(uid).debugSnapshots(),
       builder: (context, snapshot) {
         return titleContent(friendUserFromSnapshot(snapshot.data));
       },
@@ -25269,7 +25622,7 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
         children: [
           Expanded(
             child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-              stream: latestChatMessagesQuery(widget.chat.id).snapshots(),
+              stream: latestChatMessagesQuery(widget.chat.id).debugSnapshots(),
               builder: (context, snapshot) {
                 final messages =
                     snapshot.data?.docs
@@ -26562,7 +26915,7 @@ class PublicUserProfileScreen extends StatelessWidget {
         foregroundColor: blue,
       ),
       body: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-        stream: usersCollection().doc(userId).snapshots(),
+        stream: usersCollection().doc(userId).debugSnapshots(),
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting &&
               !snapshot.hasData) {
@@ -26607,7 +26960,7 @@ class PublicUserProfileScreen extends StatelessWidget {
           }
 
           return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-            stream: liveLocationsCollection().doc(userId).snapshots(),
+            stream: liveLocationsCollection().doc(userId).debugSnapshots(),
             builder: (context, liveSnapshot) {
               var isSharingLiveLocation = false;
               final liveDoc = liveSnapshot.data;
@@ -26662,7 +27015,7 @@ class _FriendsScreenState extends State<FriendsScreen> {
   }
 
   Future<FriendUserData?> loadFriendUser(String uid) async {
-    final snapshot = await usersCollection().doc(uid).get();
+    final snapshot = await usersCollection().doc(uid).debugGet();
 
     if (!snapshot.exists) {
       return null;
@@ -27035,7 +27388,7 @@ class _FriendsScreenState extends State<FriendsScreen> {
           stream: friendRequestsCollection()
               .where('toUid', isEqualTo: firebaseUser.uid)
               .where('status', isEqualTo: 'pending')
-              .snapshots(),
+              .debugSnapshots(),
           builder: (context, snapshot) {
             final requests =
                 snapshot.data?.docs
@@ -27120,7 +27473,7 @@ class _FriendsScreenState extends State<FriendsScreen> {
           stream: friendRequestsCollection()
               .where('fromUid', isEqualTo: firebaseUser.uid)
               .where('status', isEqualTo: 'pending')
-              .snapshots(),
+              .debugSnapshots(),
           builder: (context, snapshot) {
             final requests =
                 snapshot.data?.docs
@@ -27241,7 +27594,7 @@ class _FriendsScreenState extends State<FriendsScreen> {
             stream: usersCollection()
                 .orderBy('usernameKey')
                 .limit(50)
-                .snapshots(),
+                .debugSnapshots(),
             builder: (context, snapshot) {
               final users =
                   snapshot.data?.docs
@@ -27315,7 +27668,7 @@ class _FriendsScreenState extends State<FriendsScreen> {
                                             firebaseUser.uid,
                                           ),
                                         )
-                                        .get();
+                                        .debugGet();
                                     if (doc.exists) {
                                       await acceptRequest(
                                         FriendRequestData.fromFirestore(doc),
@@ -29634,7 +29987,7 @@ class AdminVerifiedUsersScreen extends StatelessWidget {
     }
 
     try {
-      await usersCollection().doc(user.uid).set({
+      await usersCollection().doc(user.uid).debugSet({
         'verified': verified,
         'verifiedUpdatedByUid': currentUser.uid,
         'verifiedUpdatedBy': currentUser.username,
@@ -29678,7 +30031,10 @@ class AdminVerifiedUsersScreen extends StatelessWidget {
         foregroundColor: blue,
       ),
       body: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-        stream: usersCollection().orderBy('usernameKey').limit(200).snapshots(),
+        stream: usersCollection()
+            .orderBy('usernameKey')
+            .limit(200)
+            .debugSnapshots(),
         builder: (context, snapshot) {
           final users =
               snapshot.data?.docs
@@ -29863,7 +30219,7 @@ class AdminUsersScreen extends StatelessWidget {
     }
 
     try {
-      await usersCollection().doc(user.uid).set({
+      await usersCollection().doc(user.uid).debugSet({
         'role': makeModerator ? 'moderator' : 'user',
         'roleUpdatedByUid': currentUser.uid,
         'roleUpdatedBy': currentUser.username,
@@ -29908,7 +30264,7 @@ class AdminUsersScreen extends StatelessWidget {
         : Timestamp.fromDate(DateTime.now().add(duration));
 
     try {
-      await usersCollection().doc(user.uid).set({
+      await usersCollection().doc(user.uid).debugSet({
         'banned': true,
         'bannedUntil': bannedUntil,
         'bannedByUid': currentUser.uid,
@@ -29946,7 +30302,7 @@ class AdminUsersScreen extends StatelessWidget {
     }
 
     try {
-      await usersCollection().doc(user.uid).set({
+      await usersCollection().doc(user.uid).debugSet({
         'banned': false,
         'bannedUntil': FieldValue.delete(),
         'unbannedByUid': currentUser.uid,
@@ -30015,7 +30371,7 @@ class AdminUsersScreen extends StatelessWidget {
     }
 
     try {
-      await usersCollection().doc(user.uid).set({
+      await usersCollection().doc(user.uid).debugSet({
         'deleted': true,
         'banned': true,
         'bannedUntil': null,
@@ -30247,7 +30603,10 @@ class AdminUsersScreen extends StatelessWidget {
         foregroundColor: blue,
       ),
       body: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-        stream: usersCollection().orderBy('usernameKey').limit(200).snapshots(),
+        stream: usersCollection()
+            .orderBy('usernameKey')
+            .limit(200)
+            .debugSnapshots(),
         builder: (context, snapshot) {
           final users =
               snapshot.data?.docs
@@ -31289,7 +31648,7 @@ class _AdminEditSpotScreenState extends State<AdminEditSpotScreen> {
           !userRoleIsStaff(currentUser.role) &&
           widget.spot.addedByUid == currentUser.uid;
 
-      await spotsCollection().doc(widget.spot.id).update({
+      await spotsCollection().doc(widget.spot.id).debugUpdate({
         'name': updatedSpot.name,
         'cityCountry': updatedSpot.cityCountry,
         'description': updatedSpot.description,
