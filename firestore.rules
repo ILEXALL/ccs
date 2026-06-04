@@ -649,11 +649,45 @@ service cloud.firestore {
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           'comment',
           'rating',
+          'ratingDayKey',
           'edited',
           'updatedAt'
         ]);
       allow delete: if isActiveUser()
         && (resource.data.userId == currentUid() || isStaff());
+    }
+
+    match /spot_comment_daily_counts/{countId} {
+      allow get: if isActiveUser();
+      allow list: if false;
+      allow create: if isActiveUser()
+        && request.resource.data.userId == currentUid()
+        && request.resource.data.spotId is string
+        && request.resource.data.dayKey is string
+        && request.resource.data.count is int
+        && request.resource.data.count >= 1
+        && request.resource.data.count <= 5
+        && request.resource.data.keys().hasOnly([
+          'spotId',
+          'userId',
+          'dayKey',
+          'count',
+          'createdAt',
+          'updatedAt'
+        ]);
+      allow update: if isActiveUser()
+        && resource.data.userId == currentUid()
+        && request.resource.data.userId == resource.data.userId
+        && request.resource.data.spotId == resource.data.spotId
+        && request.resource.data.dayKey == resource.data.dayKey
+        && request.resource.data.count is int
+        && request.resource.data.count >= resource.data.count
+        && request.resource.data.count <= 5
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'count',
+          'updatedAt'
+        ]);
+      allow delete: if false;
     }
 
     match /spot_likes/{likeId} {

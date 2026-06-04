@@ -1032,6 +1032,15 @@ const _ruText = <String, String>{
   'Write a comment': 'Напишите комментарий',
   'Post Comment': 'Опубликовать',
   'Posting...': 'Публикация...',
+  'Loading...': 'Загрузка...',
+  'More comments': 'Ещё комментарии',
+  'Could not load comments.': 'Не удалось загрузить комментарии.',
+  'Could not save comment.': 'Не удалось сохранить комментарий.',
+  'Could not save rating.': 'Не удалось сохранить рейтинг.',
+  'You can rate this spot once per day.':
+      'Рейтинг этому споту можно ставить один раз в день.',
+  'You can leave 5 comments per day on this spot.':
+      'Под одним спотом можно оставить 5 комментариев в день.',
   'Message': 'Сообщение',
   'Save Spot': 'Сохранить спот',
   'Saved Spot': 'Спот сохранён',
@@ -1619,6 +1628,15 @@ const _lvText = <String, String>{
   'Write a comment': 'Rakstiet komentāru',
   'Post Comment': 'Publicēt',
   'Posting...': 'Publicē...',
+  'Loading...': 'Notiek ielāde...',
+  'More comments': 'Vairāk komentāru',
+  'Could not load comments.': 'Neizdevās ielādēt komentārus.',
+  'Could not save comment.': 'Neizdevās saglabāt komentāru.',
+  'Could not save rating.': 'Neizdevās saglabāt vērtējumu.',
+  'You can rate this spot once per day.':
+      'Šo vietu var novērtēt vienu reizi dienā.',
+  'You can leave 5 comments per day on this spot.':
+      'Pie vienas vietas dienā var atstāt 5 komentārus.',
   'Message': 'Ziņa',
   'Save Spot': 'Saglabāt vietu',
   'Saved Spot': 'Vieta saglabāta',
@@ -3909,6 +3927,9 @@ Future<void> signOutCurrentAccount() async {
   notificationCenterUnreadSubscription = null;
   notificationCenterUnreadCount.value = 0;
   await stopCurrentUserLikedSpotsSync();
+  spotCommentsSessionCache.clear();
+  currentUserSpotRatingCache.value = {};
+  currentUserSpotRatingLoadsInFlight.clear();
 
   // Best effort: mark the user offline before signing out.
   await updateCurrentUserOnlinePresence(isOnline: false);
@@ -8596,6 +8617,51 @@ class SpotReviewData {
   }
 }
 
+const Duration spotDetailSessionCacheTtl = Duration(minutes: 10);
+
+class SpotCommentsCacheEntry {
+  final List<SpotReviewData> reviews;
+  final DocumentSnapshot<Map<String, dynamic>>? lastDocument;
+  final bool hasMoreReviews;
+  final bool useFallbackQuery;
+  final int cachedAtMillis;
+
+  const SpotCommentsCacheEntry({
+    required this.reviews,
+    required this.lastDocument,
+    required this.hasMoreReviews,
+    required this.useFallbackQuery,
+    required this.cachedAtMillis,
+  });
+
+  bool get isFresh {
+    final ageMillis = DateTime.now().millisecondsSinceEpoch - cachedAtMillis;
+    return ageMillis >= 0 &&
+        ageMillis <= spotDetailSessionCacheTtl.inMilliseconds;
+  }
+}
+
+final spotCommentsSessionCache = <String, SpotCommentsCacheEntry>{};
+final currentUserSpotRatingCache = ValueNotifier<Map<String, int>>({});
+final Set<String> currentUserSpotRatingLoadsInFlight = {};
+
+String currentUserSpotRatingCacheKey(String spotId, String uid) {
+  return '${safeDailyCounterPathPart(spotId)}_${safeDailyCounterPathPart(uid)}';
+}
+
+void setCurrentUserSpotRatingLocally(String spotId, String uid, int rating) {
+  final cleanSpotId = spotId.trim();
+  final cleanUid = uid.trim();
+  if (cleanSpotId.isEmpty || cleanUid.isEmpty) {
+    return;
+  }
+
+  currentUserSpotRatingCache.value = {
+    ...currentUserSpotRatingCache.value,
+    currentUserSpotRatingCacheKey(cleanSpotId, cleanUid): rating.clamp(0, 5),
+  };
+}
+
 CollectionReference<Map<String, dynamic>> spotReviewsCollection() {
   return FirebaseFirestore.instance.collection('spot_reviews');
 }
@@ -8773,7 +8839,86 @@ Stream<bool> watchCurrentUserLikedSpotFromCache(String spotId) {
   }).distinct();
 }
 
-const int maxCommentsPerUserPerSpot = 50;
+const int spotCommentsPageSize = 5;
+const int maxDailyCommentsPerUserPerSpot = 5;
+
+String localDayKey(DateTime value) {
+  final local = value.toLocal();
+  final month = local.month.toString().padLeft(2, '0');
+  final day = local.day.toString().padLeft(2, '0');
+  return '${local.year}$month$day';
+}
+
+String localDayKeyFromMillis(int millis) {
+  if (millis <= 0) {
+    return '';
+  }
+
+  return localDayKey(DateTime.fromMillisecondsSinceEpoch(millis));
+}
+
+String safeDailyCounterPathPart(String value) {
+  return value.trim().replaceAll(RegExp(r'[^A-Za-z0-9_-]+'), '_');
+}
+
+String spotCommentDailyCountDocumentId({
+  required String spotId,
+  required String userId,
+  required String dayKey,
+}) {
+  return '${safeDailyCounterPathPart(spotId)}_${safeDailyCounterPathPart(userId)}_$dayKey';
+}
+
+String spotCommentLocalDailyCountKey({
+  required String spotId,
+  required String userId,
+  required String dayKey,
+}) {
+  return 'spot_comment_daily_count_${spotCommentDailyCountDocumentId(
+    spotId: spotId,
+    userId: userId,
+    dayKey: dayKey,
+  )}';
+}
+
+Future<int> loadLocalSpotCommentDailyCount({
+  required String spotId,
+  required String userId,
+  required String dayKey,
+}) async {
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getInt(
+          spotCommentLocalDailyCountKey(
+            spotId: spotId,
+            userId: userId,
+            dayKey: dayKey,
+          ),
+        ) ??
+        0;
+  } catch (_) {
+    return 0;
+  }
+}
+
+Future<void> saveLocalSpotCommentDailyCount({
+  required String spotId,
+  required String userId,
+  required String dayKey,
+  required int count,
+}) async {
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(
+      spotCommentLocalDailyCountKey(
+        spotId: spotId,
+        userId: userId,
+        dayKey: dayKey,
+      ),
+      count,
+    );
+  } catch (_) {}
+}
 
 String spotReviewKey(CarSpot spot) {
   if (spot.id.trim().isNotEmpty) {
@@ -8789,21 +8934,29 @@ String spotReviewKey(CarSpot spot) {
   return safeName.isEmpty ? 'demo_spot' : 'demo_$safeName';
 }
 
-Stream<List<SpotReviewData>> watchSpotReviews(CarSpot spot) {
-  return trackedQuerySnapshots(
-    'spot reviews stream',
-    spotReviewsCollection().where('spotId', isEqualTo: spotReviewKey(spot)),
-  ).map((snapshot) {
-    final reviews = snapshot.docs
-        .map((doc) => SpotReviewData.fromFirestore(doc))
-        .where((review) => review.comment.isNotEmpty)
-        .toList();
+CollectionReference<Map<String, dynamic>>
+spotCommentDailyCountsCollection() {
+  return FirebaseFirestore.instance.collection('spot_comment_daily_counts');
+}
 
-    reviews.sort(
-      (first, second) => second.createdAt.compareTo(first.createdAt),
-    );
-    return reviews;
-  });
+String spotReviewActionErrorMessage(
+  Object error, {
+  required String fallback,
+}) {
+  if (error is FirebaseException) {
+    if (error.code == 'rating-daily-limit-reached') {
+      return trText('You can rate this spot once per day.');
+    }
+    if (error.code == 'comment-daily-limit-reached') {
+      return trText('You can leave 5 comments per day on this spot.');
+    }
+    if (error.message != null && error.message!.trim().isNotEmpty) {
+      return '${trText(fallback)} ${error.message}';
+    }
+    return '${trText(fallback)} ${error.code}';
+  }
+
+  return '${trText(fallback)} $error';
 }
 
 Stream<int> watchSpotCommentCount(CarSpot spot) {
@@ -8851,27 +9004,67 @@ Future<void> toggleSpotLike(
   final likeRef = spotLikesCollection().doc(
     spotLikeDocumentId(spotId, firebaseUser.uid),
   );
-  final spotRef = spot.id.trim().isEmpty
-      ? null
-      : spotsCollection().doc(spot.id);
 
-  if (currentlyLiked) {
+  final targetLiked = !currentlyLiked;
+  var likeDelta = 0;
+
+  setCurrentUserSpotLikedLocally(spotId, targetLiked);
+
+  try {
     await FirebaseFirestore.instance.runTransaction((transaction) async {
       final likeSnapshot = await transaction.debugGet(likeRef);
+
+      if (targetLiked) {
+        if (likeSnapshot.exists) {
+          return;
+        }
+
+        transaction.debugSet(likeRef, {
+          'targetType': 'spot',
+          'spotId': spotId,
+          'spotName': spot.name,
+          'spotOwnerUid': spotNotificationOwnerUid(spot),
+          'userId': firebaseUser.uid,
+          'username': currentUser.username,
+          'createdAt': FieldValue.serverTimestamp(),
+        });
+        likeDelta = 1;
+        return;
+      }
+
       if (!likeSnapshot.exists) {
         return;
       }
 
       transaction.debugDelete(likeRef);
-      if (spotRef != null) {
-        transaction.debugUpdate(spotRef, {
-          'likeCount': FieldValue.increment(-1),
-          'updatedAt': FieldValue.serverTimestamp(),
-        });
-      }
+      likeDelta = -1;
     });
-    setCurrentUserSpotLikedLocally(spotId, false);
-  } else {
+  } catch (error) {
+    setCurrentUserSpotLikedLocally(spotId, currentlyLiked);
+    if (context.mounted) {
+      final code = error is FirebaseException ? error.code : error.toString();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: Colors.redAccent,
+          content: Text(
+            'Could not update like: $code',
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+      );
+    }
+    return;
+  }
+
+  if (likeDelta != 0) {
+    updateSpotCountersLocally(spot, likeDelta: likeDelta);
+    unawaited(updateSpotCountersOnServer(spot, likeDelta: likeDelta));
+  }
+
+  if (likeDelta == 1) {
     final notificationId = 'spot_like_${likeRef.id}';
     final alreadyNotified = await userNotificationsCollection()
         .doc(notificationId)
@@ -8881,37 +9074,17 @@ Future<void> toggleSpotLike(
         })
         .catchError((_) => false);
 
-    await FirebaseFirestore.instance.runTransaction((transaction) async {
-      final likeSnapshot = await transaction.debugGet(likeRef);
-      if (likeSnapshot.exists) {
-        return;
-      }
-
-      transaction.debugSet(likeRef, {
-        'targetType': 'spot',
-        'spotId': spotId,
-        'spotName': spot.name,
-        'spotOwnerUid': spotNotificationOwnerUid(spot),
-        'userId': firebaseUser.uid,
-        'username': currentUser.username,
-        'createdAt': FieldValue.serverTimestamp(),
-      });
-
-      if (spotRef != null) {
-        transaction.debugUpdate(spotRef, {
-          'likeCount': FieldValue.increment(1),
-          'updatedAt': FieldValue.serverTimestamp(),
-        });
-      }
-    });
-    setCurrentUserSpotLikedLocally(spotId, true);
-
     if (!alreadyNotified) {
-      await createSpotLikeNotification(spot, likeRef.id);
-      await sendPushNotificationEvent({
-        'type': 'spot_like',
-        'likeId': likeRef.id,
-      });
+      try {
+        await createSpotLikeNotification(spot, likeRef.id);
+        await sendPushNotificationEvent({
+          'type': 'spot_like',
+          'likeId': likeRef.id,
+        });
+      } catch (error, stack) {
+        debugPrint('Spot like notification failed: $error');
+        debugPrint('$stack');
+      }
     }
   }
 }
@@ -8978,7 +9151,7 @@ Future<void> toggleCommentLike(
   }
 }
 
-Future<void> saveSpotReview({
+Future<SpotReviewData> saveSpotReview({
   required CarSpot spot,
   required String comment,
 }) async {
@@ -8994,49 +9167,127 @@ Future<void> saveSpotReview({
 
   final spotId = spotReviewKey(spot);
   final cleanComment = comment.trim();
+  final now = DateTime.now();
+  final dayKey = localDayKey(now);
+  final reviewRef = spotReviewsCollection().doc();
+  final dailyCountRef = spotCommentDailyCountsCollection().doc(
+    spotCommentDailyCountDocumentId(
+      spotId: spotId,
+      userId: firebaseUser.uid,
+      dayKey: dayKey,
+    ),
+  );
+  final localDailyCount = await loadLocalSpotCommentDailyCount(
+    spotId: spotId,
+    userId: firebaseUser.uid,
+    dayKey: dayKey,
+  );
 
-  final existingReviews = await spotReviewsCollection()
-      .where('spotId', isEqualTo: spotId)
-      .debugGet();
-
-  final userCommentCount = existingReviews.docs.where((doc) {
-    final data = doc.data();
-    return stringFromFirebase(data['userId'], '') == firebaseUser.uid &&
-        stringFromFirebase(data['comment'], '').trim().isNotEmpty;
-  }).length;
-
-  if (userCommentCount >= maxCommentsPerUserPerSpot) {
+  if (localDailyCount >= maxDailyCommentsPerUserPerSpot) {
     throw FirebaseException(
       plugin: 'cloud_firestore',
-      code: 'comment-limit-reached',
-      message: 'You reached the 50 comment limit for this spot.',
+      code: 'comment-daily-limit-reached',
+      message: 'You can leave 5 comments per day on this spot.',
     );
   }
 
-  final reviewRef = await spotReviewsCollection().debugAdd({
-    'spotId': spotId,
-    'spotName': spot.name,
-    'type': 'comment',
-    'userId': firebaseUser.uid,
-    'username': currentUser.username,
-    'comment': cleanComment,
-    'createdAt': FieldValue.serverTimestamp(),
-    'updatedAt': FieldValue.serverTimestamp(),
-  });
+  var nextDailyCount = localDailyCount + 1;
 
-  if (spot.id.trim().isNotEmpty) {
-    await spotsCollection().doc(spot.id).debugUpdate({
-      'commentCount': FieldValue.increment(1),
+  Future<void> writeCommentWithoutServerDailyCounter() async {
+    await reviewRef.debugSet({
+      'spotId': spotId,
+      'spotName': spot.name,
+      'type': 'comment',
+      'userId': firebaseUser.uid,
+      'username': currentUser.username,
+      'comment': cleanComment,
+      'createdAt': FieldValue.serverTimestamp(),
       'updatedAt': FieldValue.serverTimestamp(),
-    });
+    }, null, 'spot comment fallback set');
   }
 
-  await createSpotCommentNotification(spot, reviewRef.id, cleanComment);
+  try {
+    await FirebaseFirestore.instance.runTransaction((transaction) async {
+      final dailyCountSnapshot = await transaction.debugGet(
+        dailyCountRef,
+        'spot comment daily count get',
+      );
+      final dailyCount = dailyCountSnapshot.exists
+          ? intFromFirebase(dailyCountSnapshot.data()?['count'], 0)
+          : 0;
 
-  await sendPushNotificationEvent({
-    'type': 'spot_comment',
-    'reviewId': reviewRef.id,
-  });
+      if (dailyCount >= maxDailyCommentsPerUserPerSpot) {
+        throw FirebaseException(
+          plugin: 'cloud_firestore',
+          code: 'comment-daily-limit-reached',
+          message: 'You can leave 5 comments per day on this spot.',
+        );
+      }
+
+      transaction.debugSet(reviewRef, {
+        'spotId': spotId,
+        'spotName': spot.name,
+        'type': 'comment',
+        'userId': firebaseUser.uid,
+        'username': currentUser.username,
+        'comment': cleanComment,
+        'createdAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+
+      nextDailyCount = dailyCount + 1;
+      transaction.debugSet(dailyCountRef, {
+        'spotId': spotId,
+        'userId': firebaseUser.uid,
+        'dayKey': dayKey,
+        'count': nextDailyCount,
+        'updatedAt': FieldValue.serverTimestamp(),
+        if (!dailyCountSnapshot.exists)
+          'createdAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    });
+  } on FirebaseException catch (error) {
+    if (error.code != 'permission-denied') {
+      rethrow;
+    }
+
+    await writeCommentWithoutServerDailyCounter();
+  }
+
+  unawaited(
+    saveLocalSpotCommentDailyCount(
+      spotId: spotId,
+      userId: firebaseUser.uid,
+      dayKey: dayKey,
+      count: nextDailyCount,
+    ),
+  );
+
+  final review = SpotReviewData(
+    id: reviewRef.id,
+    spotId: spotId,
+    userId: firebaseUser.uid,
+    username: currentUser.username,
+    rating: 5,
+    comment: cleanComment,
+    createdAt: now,
+  );
+
+  updateSpotCountersLocally(spot, commentDelta: 1);
+  unawaited(updateSpotCountersOnServer(spot, commentDelta: 1));
+
+  try {
+    await createSpotCommentNotification(spot, reviewRef.id, cleanComment);
+    await sendPushNotificationEvent({
+      'type': 'spot_comment',
+      'reviewId': reviewRef.id,
+    });
+  } catch (error, stack) {
+    debugPrint('Spot comment notification failed: $error');
+    debugPrint('$stack');
+  }
+
+  return review;
 }
 
 Future<void> editSpotReview({
@@ -9101,11 +9352,9 @@ Future<void> deleteSpotReview({
 
   await spotReviewsCollection().doc(review.id).debugDelete();
 
-  if (spot.id.trim().isNotEmpty && review.comment.trim().isNotEmpty) {
-    await spotsCollection().doc(spot.id).debugUpdate({
-      'commentCount': FieldValue.increment(-1),
-      'updatedAt': FieldValue.serverTimestamp(),
-    });
+  if (review.comment.trim().isNotEmpty) {
+    updateSpotCountersLocally(spot, commentDelta: -1);
+    unawaited(updateSpotCountersOnServer(spot, commentDelta: -1));
   }
 }
 
@@ -9120,18 +9369,47 @@ Stream<int> watchCurrentUserSpotRating(CarSpot spot) {
     return Stream.value(0);
   }
 
-  return trackedDocSnapshots(
-    'current user spot rating stream',
-    spotReviewsCollection().doc(spotRatingDocumentId(spot, firebaseUser.uid)),
-  ).map((snapshot) {
-    final data = snapshot.data();
+  final spotId = spotReviewKey(spot);
+  final cacheKey = currentUserSpotRatingCacheKey(spotId, firebaseUser.uid);
 
-    if (!snapshot.exists || data == null) {
-      return 0;
+  if (!currentUserSpotRatingCache.value.containsKey(cacheKey) &&
+      !currentUserSpotRatingLoadsInFlight.contains(cacheKey)) {
+    currentUserSpotRatingLoadsInFlight.add(cacheKey);
+    unawaited(
+      spotReviewsCollection()
+          .doc(spotRatingDocumentId(spot, firebaseUser.uid))
+          .debugGet(null, 'current user spot rating one-shot get')
+          .then((snapshot) {
+            final data = snapshot.data();
+            final rating = !snapshot.exists || data == null
+                ? 0
+                : doubleFromFirebase(
+                    data['rating'],
+                    0,
+                  ).round().clamp(0, 5).toInt();
+            setCurrentUserSpotRatingLocally(spotId, firebaseUser.uid, rating);
+          })
+          .catchError((Object error, StackTrace stack) {
+            debugPrint('Current user spot rating load failed: $error');
+            debugPrint('$stack');
+          })
+          .whenComplete(() {
+            currentUserSpotRatingLoadsInFlight.remove(cacheKey);
+          }),
+    );
+  }
+
+  return Stream<int>.multi((controller) {
+    void emit() {
+      controller.add(currentUserSpotRatingCache.value[cacheKey] ?? 0);
     }
 
-    return doubleFromFirebase(data['rating'], 0).round().clamp(0, 5).toInt();
-  });
+    currentUserSpotRatingCache.addListener(emit);
+    emit();
+    controller.onCancel = () {
+      currentUserSpotRatingCache.removeListener(emit);
+    };
+  }).distinct();
 }
 
 Future<double?> saveSpotRating({
@@ -9152,78 +9430,112 @@ Future<double?> saveSpotRating({
   final ratingRef = spotReviewsCollection().doc(
     spotRatingDocumentId(spot, firebaseUser.uid),
   );
-  final ratingSnapshot = await trackedDocGet(
-    'current user rating get before save',
-    ratingRef,
-  );
-
-  final data = <String, Object?>{
-    'spotId': spotReviewKey(spot),
-    'spotName': spot.name,
-    'type': 'rating',
-    'userId': firebaseUser.uid,
-    'username': currentUser.username,
-    'rating': safeRating,
-    'comment': '',
-    'updatedAt': FieldValue.serverTimestamp(),
-  };
-
-  if (!ratingSnapshot.exists) {
-    data['createdAt'] = FieldValue.serverTimestamp();
-  }
-
-  await ratingRef.debugSet(data, SetOptions(merge: true));
-
-  return updateSpotRatingFromReviews(spot);
-}
-
-Future<double?> updateSpotRatingFromReviews(CarSpot spot) async {
   if (spot.id.trim().isEmpty) {
     return null;
   }
 
-  final snapshot = await trackedQueryGet(
-    'spot rating recompute reviews get',
-    spotReviewsCollection().where('spotId', isEqualTo: spotReviewKey(spot)),
-  );
+  final spotRef = spotsCollection().doc(spot.id);
+  double? roundedRating;
+  var updatedRatingCount = spot.ratingCount;
+  final todayKey = localDayKey(DateTime.now());
 
-  final ratings = snapshot.docs
-      .map((doc) => doc.data())
-      .where((data) => stringFromFirebase(data['type'], '') == 'rating')
-      .map((data) => doubleFromFirebase(data['rating'], 0))
-      .where((rating) => rating >= 1 && rating <= 5)
-      .toList();
+  await FirebaseFirestore.instance.runTransaction((transaction) async {
+    final ratingSnapshot = await transaction.debugGet(
+      ratingRef,
+      'spot rating: current user rating get',
+    );
+    final spotSnapshot = await transaction.debugGet(
+      spotRef,
+      'spot rating: spot aggregate get',
+    );
 
-  if (ratings.isEmpty) {
+    final spotData = spotSnapshot.data() ?? const <String, dynamic>{};
+    final currentAverage = doubleFromFirebase(spotData['rating'], spot.rating);
+    final currentCount = math.max(
+      0,
+      intFromFirebase(spotData['ratingCount'], spot.ratingCount),
+    );
+    final previousRating = ratingSnapshot.exists
+        ? doubleFromFirebase(ratingSnapshot.data()?['rating'], 0)
+        : 0;
+    final hasPreviousRating = previousRating >= 1 && previousRating <= 5;
+    final ratingData = ratingSnapshot.data();
+    final previousRatingDayKey = ratingData == null
+        ? ''
+        : stringFromFirebase(ratingData['ratingDayKey'], '');
+    final previousRatingAtMillis = ratingData == null
+        ? 0
+        : math.max(
+            timestampMillisFromFirebase(ratingData['updatedAt']),
+            timestampMillisFromFirebase(ratingData['createdAt']),
+          );
+
+    if (ratingSnapshot.exists &&
+        (previousRatingDayKey == todayKey ||
+            localDayKeyFromMillis(previousRatingAtMillis) == todayKey)) {
+      throw FirebaseException(
+        plugin: 'cloud_firestore',
+        code: 'rating-daily-limit-reached',
+        message: 'You can rate this spot once per day.',
+      );
+    }
+
+    final aggregateCanReplacePrevious = hasPreviousRating && currentCount > 0;
+    final nextCount = aggregateCanReplacePrevious
+        ? currentCount
+        : currentCount + 1;
+    if (nextCount <= 0) {
+      return;
+    }
+
+    final currentTotal = currentAverage * currentCount;
+    final nextTotal = aggregateCanReplacePrevious
+        ? currentTotal - previousRating + safeRating
+        : currentTotal + safeRating;
+    roundedRating = double.parse((nextTotal / nextCount).toStringAsFixed(1));
+    updatedRatingCount = nextCount;
+
+    final ratingWriteData = <String, Object?>{
+      'spotId': spotReviewKey(spot),
+      'spotName': spot.name,
+      'type': 'rating',
+      'userId': firebaseUser.uid,
+      'username': currentUser.username,
+      'rating': safeRating,
+      'comment': '',
+      'updatedAt': FieldValue.serverTimestamp(),
+    };
+
+    if (!ratingSnapshot.exists) {
+      ratingWriteData['createdAt'] = FieldValue.serverTimestamp();
+    }
+
+    transaction.debugSet(ratingRef, ratingWriteData, SetOptions(merge: true));
+    transaction.debugUpdate(spotRef, {
+      'rating': roundedRating,
+      'ratingCount': updatedRatingCount,
+      'reviewUpdatedAt': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+  });
+
+  if (roundedRating == null) {
     return null;
   }
 
-  final averageRating =
-      ratings.fold<double>(0, (total, rating) => total + rating) /
-      ratings.length;
-  final roundedRating = double.parse(averageRating.toStringAsFixed(1));
-
-  await spotsCollection().doc(spot.id).debugUpdate({
-    'rating': roundedRating,
-    'ratingCount': ratings.length,
-    'reviewUpdatedAt': FieldValue.serverTimestamp(),
-    'updatedAt': FieldValue.serverTimestamp(),
-  });
-
-  final updatedSpot = spot.copyWith(
-    rating: roundedRating,
-    ratingCount: ratings.length,
+  updateSpotLocally(
+    spot,
+    (current) => current.copyWith(
+      rating: roundedRating,
+      ratingCount: updatedRatingCount,
+      updatedAtMillis: DateTime.now().millisecondsSinceEpoch,
+    ),
   );
-
-  reviewSpots.value = reviewSpots.value
-      .map((item) => isSameSpot(item, spot) ? updatedSpot : item)
-      .toList();
-  submittedSpots.value = submittedSpots.value
-      .map((item) => isSameSpot(item, spot) ? updatedSpot : item)
-      .toList();
-  savedSpots.value = savedSpots.value
-      .map((item) => isSameSpot(item, spot) ? updatedSpot : item)
-      .toList();
+  setCurrentUserSpotRatingLocally(
+    spotReviewKey(spot),
+    firebaseUser.uid,
+    safeRating,
+  );
 
   return roundedRating;
 }
@@ -9345,6 +9657,110 @@ bool isSameSpot(CarSpot first, CarSpot second) {
   }
 
   return first.name == second.name && first.addedBy == second.addedBy;
+}
+
+CarSpot spotWithCounterDelta(
+  CarSpot spot, {
+  int likeDelta = 0,
+  int commentDelta = 0,
+}) {
+  return spot.copyWith(
+    likeCount: math.max(0, spot.likeCount + likeDelta),
+    commentCount: math.max(0, spot.commentCount + commentDelta),
+    updatedAtMillis: DateTime.now().millisecondsSinceEpoch,
+  );
+}
+
+void updateSpotLocally(
+  CarSpot spot,
+  CarSpot Function(CarSpot current) update,
+) {
+  var updatedSpotSources = false;
+
+  for (final sourceEntry in _firebaseSpotCacheBySource.entries.toList()) {
+    var sourceChanged = false;
+    final nextSource = <String, CarSpot>{};
+
+    for (final spotEntry in sourceEntry.value.entries) {
+      final shouldUpdate =
+          spotEntry.key == _spotCacheKey(spot) ||
+          isSameSpot(spotEntry.value, spot);
+      nextSource[spotEntry.key] = shouldUpdate
+          ? update(spotEntry.value)
+          : spotEntry.value;
+      sourceChanged = sourceChanged || shouldUpdate;
+    }
+
+    if (sourceChanged) {
+      _firebaseSpotCacheBySource[sourceEntry.key] = nextSource;
+      updatedSpotSources = true;
+    }
+  }
+
+  if (updatedSpotSources) {
+    _publishFirebaseSpotCaches();
+    unawaited(saveApprovedSpotsToLocalCache());
+    return;
+  }
+
+  reviewSpots.value = reviewSpots.value
+      .map((item) => isSameSpot(item, spot) ? update(item) : item)
+      .toList();
+  submittedSpots.value = submittedSpots.value
+      .map((item) => isSameSpot(item, spot) ? update(item) : item)
+      .toList();
+  savedSpots.value = savedSpots.value
+      .map((item) => isSameSpot(item, spot) ? update(item) : item)
+      .toList();
+}
+
+void updateSpotCountersLocally(
+  CarSpot spot, {
+  int likeDelta = 0,
+  int commentDelta = 0,
+}) {
+  if (likeDelta == 0 && commentDelta == 0) {
+    return;
+  }
+
+  updateSpotLocally(
+    spot,
+    (current) => spotWithCounterDelta(
+      current,
+      likeDelta: likeDelta,
+      commentDelta: commentDelta,
+    ),
+  );
+}
+
+Future<void> updateSpotCountersOnServer(
+  CarSpot spot, {
+  int likeDelta = 0,
+  int commentDelta = 0,
+}) async {
+  if (spot.id.trim().isEmpty || (likeDelta == 0 && commentDelta == 0)) {
+    return;
+  }
+
+  final data = <Object, Object?>{
+    'updatedAt': FieldValue.serverTimestamp(),
+  };
+  if (likeDelta != 0) {
+    data['likeCount'] = FieldValue.increment(likeDelta);
+  }
+  if (commentDelta != 0) {
+    data['commentCount'] = FieldValue.increment(commentDelta);
+  }
+
+  try {
+    await spotsCollection().doc(spot.id).debugUpdate(
+      data,
+      'spot counter update',
+    );
+  } catch (error, stack) {
+    debugPrint('Spot counter update failed for ${spot.id}: $error');
+    debugPrint('$stack');
+  }
 }
 
 Future<void> updateSpotStatus(
@@ -13011,13 +13427,14 @@ class _SpotCommentComposerSheetState extends State<_SpotCommentComposerSheet> {
         return;
       }
 
-      final code = error is FirebaseException ? error.code : error.toString();
-
       showMessage(
         SnackBar(
           backgroundColor: Colors.redAccent,
           content: Text(
-            'Could not save comment: $code',
+            spotReviewActionErrorMessage(
+              error,
+              fallback: 'Could not save comment.',
+            ),
             style: const TextStyle(
               color: Colors.white,
               fontWeight: FontWeight.w700,
@@ -18523,92 +18940,6 @@ Future<void> openWazeRoute(BuildContext context, CarSpot spot) async {
   }
 }
 
-Future<Position?> getCurrentPhoneLocation(BuildContext context) async {
-  final serviceEnabled = await Geolocator.isLocationServiceEnabled();
-
-  if (!serviceEnabled) {
-    if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          backgroundColor: Colors.redAccent,
-          content: Text(
-            'Turn on phone location to show distance.',
-            style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
-          ),
-        ),
-      );
-    }
-    return null;
-  }
-
-  var permission = await Geolocator.checkPermission();
-
-  if (permission == LocationPermission.denied) {
-    permission = await Geolocator.requestPermission();
-  }
-
-  if (permission == LocationPermission.denied ||
-      permission == LocationPermission.deniedForever) {
-    if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          backgroundColor: Colors.redAccent,
-          content: Text(
-            'Location permission is needed for distance.',
-            style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
-          ),
-        ),
-      );
-    }
-    return null;
-  }
-
-  return Geolocator.getCurrentPosition(
-    locationSettings: const LocationSettings(accuracy: LocationAccuracy.medium),
-  );
-}
-
-double distanceToSpotInKm(Position position, CarSpot spot) {
-  const distance = Distance();
-
-  return distance.as(
-    LengthUnit.Kilometer,
-    safeLatLng(position.latitude, position.longitude),
-    spot.coordinates,
-  );
-}
-
-String formatDistanceKm(double value) {
-  if (value < 1) {
-    return '${(value * 1000).round()} m';
-  }
-
-  return '${value.toStringAsFixed(1)} km';
-}
-
-String estimateDriveTime(double distanceKm) {
-  // This is only a rough straight-line estimate before Waze opens.
-  // City trips use slower speed, long trips use a higher average speed.
-  final averageSpeedKmh = distanceKm > 120 ? 70 : 35;
-  final minutes = (distanceKm / averageSpeedKmh * 60).round().clamp(2, 999999);
-
-  if (minutes < 60) {
-    return '~$minutes min';
-  }
-
-  final hours = minutes ~/ 60;
-  final restMinutes = minutes % 60;
-
-  if (hours < 24) {
-    return restMinutes == 0 ? '~$hours h' : '~$hours h $restMinutes min';
-  }
-
-  final days = hours ~/ 24;
-  final restHours = hours % 24;
-
-  return restHours == 0 ? '~$days d' : '~$days d $restHours h';
-}
-
 List<String> spotPhotoSources(CarSpot spot) {
   final sources = <String>[];
 
@@ -18942,6 +19273,33 @@ class _SpotDetailScreenState extends State<SpotDetailScreen> {
   void initState() {
     super.initState();
     spot = widget.spot;
+    reviewSpots.addListener(syncSpotFromLocalCache);
+  }
+
+  @override
+  void dispose() {
+    reviewSpots.removeListener(syncSpotFromLocalCache);
+    super.dispose();
+  }
+
+  void syncSpotFromLocalCache() {
+    for (final currentSpot in reviewSpots.value) {
+      if (!isSameSpot(currentSpot, spot)) {
+        continue;
+      }
+
+      if (currentSpot.likeCount == spot.likeCount &&
+          currentSpot.commentCount == spot.commentCount &&
+          (currentSpot.rating - spot.rating).abs() < 0.01 &&
+          currentSpot.ratingCount == spot.ratingCount) {
+        return;
+      }
+
+      if (mounted) {
+        setState(() => spot = currentSpot);
+      }
+      return;
+    }
   }
 
   void updateVisibleRating(double rating) {
@@ -19636,13 +19994,14 @@ class _SpotDetailEngagementPanelState extends State<SpotDetailEngagementPanel> {
         return;
       }
 
-      final code = error is FirebaseException ? error.code : error.toString();
-
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           backgroundColor: Colors.redAccent,
           content: Text(
-            'Could not save rating: $code',
+            spotReviewActionErrorMessage(
+              error,
+              fallback: 'Could not save rating.',
+            ),
             style: const TextStyle(
               color: Colors.white,
               fontWeight: FontWeight.w700,
@@ -19785,7 +20144,7 @@ class _SpotDetailEngagementPanelState extends State<SpotDetailEngagementPanel> {
   }
 }
 
-class SpotRouteActions extends StatefulWidget {
+class SpotRouteActions extends StatelessWidget {
   final CarSpot spot;
   final VoidCallback onShowMap;
 
@@ -19796,55 +20155,9 @@ class SpotRouteActions extends StatefulWidget {
   });
 
   @override
-  State<SpotRouteActions> createState() => _SpotRouteActionsState();
-}
-
-class _SpotRouteActionsState extends State<SpotRouteActions> {
-  bool isLoadingDistance = false;
-  double? distanceKm;
-
-  @override
-  void initState() {
-    super.initState();
-    loadDistance();
-  }
-
-  Future<void> loadDistance() async {
-    if (widget.spot.isTemporary &&
-        !widget.spot.isTemporaryLocationAvailableNow) {
-      return;
-    }
-
-    if (isLoadingDistance) {
-      return;
-    }
-
-    setState(() => isLoadingDistance = true);
-
-    final position = await getCurrentPhoneLocation(context);
-
-    if (!mounted) {
-      return;
-    }
-
-    setState(() {
-      distanceKm = position == null
-          ? null
-          : distanceToSpotInKm(position, widget.spot);
-      isLoadingDistance = false;
-    });
-  }
-
-  @override
   Widget build(BuildContext context) {
     final locationAvailable =
-        !widget.spot.isTemporary || widget.spot.isTemporaryLocationAvailableNow;
-    final distanceText = distanceKm == null
-        ? (isLoadingDistance ? 'Checking distance...' : 'Distance unavailable')
-        : '${formatDistanceKm(distanceKm!)} away';
-    final timeText = distanceKm == null
-        ? 'Open route'
-        : estimateDriveTime(distanceKm!);
+        !spot.isTemporary || spot.isTemporaryLocationAvailableNow;
 
     return Container(
       width: double.infinity,
@@ -19858,13 +20171,13 @@ class _SpotRouteActionsState extends State<SpotRouteActions> {
         children: [
           Row(
             children: [
-              SaveSpotButton(spot: widget.spot, compact: true),
+              SaveSpotButton(spot: spot, compact: true),
               const SizedBox(width: 8),
               Expanded(
                 child: SizedBox(
                   height: 42,
                   child: OutlinedButton.icon(
-                    onPressed: locationAvailable ? widget.onShowMap : null,
+                    onPressed: locationAvailable ? onShowMap : null,
                     icon: const Icon(Icons.map_outlined, size: 17),
                     label: const Text('Map'),
                     style: OutlinedButton.styleFrom(
@@ -19885,7 +20198,7 @@ class _SpotRouteActionsState extends State<SpotRouteActions> {
                   height: 42,
                   child: ElevatedButton.icon(
                     onPressed: locationAvailable
-                        ? () => openWazeRoute(context, widget.spot)
+                        ? () => openWazeRoute(context, spot)
                         : null,
                     icon: const Icon(Icons.navigation, size: 17),
                     label: const Text('Waze'),
@@ -19901,44 +20214,38 @@ class _SpotRouteActionsState extends State<SpotRouteActions> {
               ),
             ],
           ),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              Icon(
-                locationAvailable
-                    ? Icons.route_outlined
-                    : Icons.visibility_off_outlined,
-                color: locationAvailable ? blue : Colors.orangeAccent,
-                size: 15,
-              ),
-              const SizedBox(width: 6),
-              Expanded(
-                child: Text(
-                  locationAvailable
-                      ? distanceText
-                      : 'Location not available yet',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: locationAvailable
-                        ? Colors.white70
-                        : Colors.orangeAccent,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w800,
+          if (!locationAvailable) ...[
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                const Icon(
+                  Icons.visibility_off_outlined,
+                  color: Colors.orangeAccent,
+                  size: 15,
+                ),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    'Location not available yet',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Colors.orangeAccent,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w800,
+                    ),
                   ),
                 ),
-              ),
-              const SizedBox(width: 8),
-              Text(
-                locationAvailable
-                    ? timeText
-                    : widget.spot.temporaryLocationAvailableAtLabel,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(color: Colors.white54, fontSize: 12),
-              ),
-            ],
-          ),
+                const SizedBox(width: 8),
+                Text(
+                  spot.temporaryLocationAvailableAtLabel,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(color: Colors.white54, fontSize: 12),
+                ),
+              ],
+            ),
+          ],
         ],
       ),
     );
@@ -19956,12 +20263,170 @@ class SpotReviewsSection extends StatefulWidget {
 
 class _SpotReviewsSectionState extends State<SpotReviewsSection> {
   final commentController = TextEditingController();
+  final List<SpotReviewData> reviews = [];
+  DocumentSnapshot<Map<String, dynamic>>? lastReviewDocument;
   bool isSaving = false;
+  bool isLoadingReviews = false;
+  bool hasMoreReviews = true;
+  bool useCommentsFallbackQuery = false;
+  Object? reviewsError;
+
+  @override
+  void initState() {
+    super.initState();
+    if (!restoreReviewsFromSessionCache()) {
+      unawaited(loadReviews(reset: true));
+    }
+  }
+
+  @override
+  void didUpdateWidget(SpotReviewsSection oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (spotReviewKey(oldWidget.spot) != spotReviewKey(widget.spot)) {
+      reviews.clear();
+      lastReviewDocument = null;
+      hasMoreReviews = true;
+      useCommentsFallbackQuery = false;
+      reviewsError = null;
+      if (!restoreReviewsFromSessionCache()) {
+        unawaited(loadReviews(reset: true));
+      }
+    }
+  }
 
   @override
   void dispose() {
     commentController.dispose();
     super.dispose();
+  }
+
+  bool restoreReviewsFromSessionCache() {
+    final spotId = spotReviewKey(widget.spot);
+    final cached = spotCommentsSessionCache[spotId];
+
+    if (cached == null || !cached.isFresh) {
+      return false;
+    }
+
+    reviews
+      ..clear()
+      ..addAll(cached.reviews);
+    lastReviewDocument = cached.lastDocument;
+    hasMoreReviews = cached.hasMoreReviews;
+    useCommentsFallbackQuery = cached.useFallbackQuery;
+    reviewsError = null;
+    return true;
+  }
+
+  void saveReviewsToSessionCache() {
+    final spotId = spotReviewKey(widget.spot);
+    spotCommentsSessionCache[spotId] = SpotCommentsCacheEntry(
+      reviews: List<SpotReviewData>.unmodifiable(reviews),
+      lastDocument: lastReviewDocument,
+      hasMoreReviews: hasMoreReviews,
+      useFallbackQuery: useCommentsFallbackQuery,
+      cachedAtMillis: DateTime.now().millisecondsSinceEpoch,
+    );
+  }
+
+  Future<void> loadReviews({bool reset = false}) async {
+    if (isLoadingReviews || (!reset && !hasMoreReviews)) {
+      return;
+    }
+
+    if (mounted) {
+      setState(() {
+        isLoadingReviews = true;
+        if (reset) {
+          reviewsError = null;
+        }
+      });
+    }
+
+    Future<QuerySnapshot<Map<String, dynamic>>> loadSnapshot({
+      required bool withTypeFilter,
+      required String label,
+    }) {
+      Query<Map<String, dynamic>> query = spotReviewsCollection()
+          .where('spotId', isEqualTo: spotReviewKey(widget.spot));
+
+      if (withTypeFilter) {
+        query = query.where('type', isEqualTo: 'comment');
+      }
+
+      query = query.limit(
+        withTypeFilter ? spotCommentsPageSize : spotCommentsPageSize * 3,
+      );
+
+      if (!reset && lastReviewDocument != null) {
+        query = query.startAfterDocument(lastReviewDocument!);
+      }
+
+      return query.debugGet(null, label);
+    }
+
+    try {
+      QuerySnapshot<Map<String, dynamic>> snapshot;
+      var snapshotUsedFallback = useCommentsFallbackQuery;
+      try {
+        snapshot = await loadSnapshot(
+          withTypeFilter: !useCommentsFallbackQuery,
+          label: reset
+              ? 'spot comments first page get'
+              : 'spot comments next page get',
+        );
+      } on FirebaseException catch (error) {
+        if (error.code != 'failed-precondition') {
+          rethrow;
+        }
+
+        useCommentsFallbackQuery = true;
+        snapshotUsedFallback = true;
+        snapshot = await loadSnapshot(
+          withTypeFilter: false,
+          label: reset
+              ? 'spot comments first page fallback get'
+              : 'spot comments next page fallback get',
+        );
+      }
+
+      final nextReviews = snapshot.docs
+          .map((doc) => SpotReviewData.fromFirestore(doc))
+          .where((review) => review.comment.trim().isNotEmpty)
+          .take(spotCommentsPageSize)
+          .toList();
+
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        if (reset) {
+          reviews.clear();
+        }
+        reviews.addAll(nextReviews);
+        if (snapshot.docs.isNotEmpty) {
+          lastReviewDocument = snapshot.docs.last;
+        }
+        hasMoreReviews =
+            snapshot.docs.length ==
+            (snapshotUsedFallback
+                ? spotCommentsPageSize * 3
+                : spotCommentsPageSize);
+        reviewsError = null;
+        isLoadingReviews = false;
+      });
+      saveReviewsToSessionCache();
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        reviewsError = error;
+        isLoadingReviews = false;
+      });
+    }
   }
 
   Future<void> submitComment() async {
@@ -19988,13 +20453,18 @@ class _SpotReviewsSectionState extends State<SpotReviewsSection> {
     setState(() => isSaving = true);
 
     try {
-      await saveSpotReview(spot: widget.spot, comment: comment);
+      final review = await saveSpotReview(spot: widget.spot, comment: comment);
 
       if (!mounted) {
         return;
       }
 
       commentController.clear();
+      setState(() {
+        reviews.removeWhere((item) => item.id == review.id);
+        reviews.insert(0, review);
+      });
+      saveReviewsToSessionCache();
 
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -20010,13 +20480,14 @@ class _SpotReviewsSectionState extends State<SpotReviewsSection> {
         return;
       }
 
-      final code = error is FirebaseException ? error.code : error.toString();
-
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           backgroundColor: Colors.redAccent,
           content: Text(
-            'Could not save comment: $code',
+            spotReviewActionErrorMessage(
+              error,
+              fallback: 'Could not save comment.',
+            ),
             style: const TextStyle(
               color: Colors.white,
               fontWeight: FontWeight.w700,
@@ -20033,117 +20504,187 @@ class _SpotReviewsSectionState extends State<SpotReviewsSection> {
 
   @override
   Widget build(BuildContext context) {
-    return StreamBuilder<List<SpotReviewData>>(
-      stream: watchSpotReviews(widget.spot),
-      builder: (context, snapshot) {
-        final reviews = snapshot.data ?? const <SpotReviewData>[];
+    final visibleCommentCount = math.max(
+      widget.spot.commentCount,
+      reviews.length,
+    );
 
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
           children: [
-            Row(
+            const Text(
+              'Comments',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 20,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+            const Spacer(),
+            Text(
+              visibleCommentCount == 0
+                  ? '0 comments'
+                  : '$visibleCommentCount ${visibleCommentCount == 1 ? 'comment' : 'comments'}',
+              style: const TextStyle(
+                color: Colors.white70,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 14),
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: panelGlass,
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: Colors.white12),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              TextField(
+                controller: commentController,
+                minLines: 2,
+                maxLines: 4,
+                style: const TextStyle(color: Colors.white),
+                decoration: InputDecoration(
+                  hintText: trText('Write a comment about this spot'),
+                  hintStyle: const TextStyle(color: Colors.white38),
+                  filled: true,
+                  fillColor: Colors.white.withValues(alpha: 0.06),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(14),
+                    borderSide: const BorderSide(color: Colors.white12),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(14),
+                    borderSide: const BorderSide(color: Colors.white12),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(14),
+                    borderSide: const BorderSide(color: blue),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                height: 46,
+                child: ElevatedButton.icon(
+                  onPressed: isSaving ? null : submitComment,
+                  icon: Icon(isSaving ? Icons.hourglass_bottom : Icons.send),
+                  label: Text(isSaving ? 'Saving...' : 'Post Comment'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: blue,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(15),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 14),
+        if (reviewsError != null)
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.redAccent.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(color: Colors.redAccent.withValues(alpha: 0.5)),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Text(
-                  'Comments',
+                  'Could not load comments.',
                   style: TextStyle(
                     color: Colors.white,
-                    fontSize: 20,
                     fontWeight: FontWeight.w900,
                   ),
                 ),
-                const Spacer(),
+                const SizedBox(height: 8),
                 Text(
-                  reviews.isEmpty
-                      ? '0 comments'
-                      : '${reviews.length} ${reviews.length == 1 ? 'comment' : 'comments'}',
-                  style: const TextStyle(
-                    color: Colors.white70,
-                    fontWeight: FontWeight.w800,
-                  ),
+                  '$reviewsError',
+                  style: const TextStyle(color: Colors.white70),
                 ),
-              ],
-            ),
-            const SizedBox(height: 14),
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                color: panelGlass,
-                borderRadius: BorderRadius.circular(18),
-                border: Border.all(color: Colors.white12),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  TextField(
-                    controller: commentController,
-                    minLines: 2,
-                    maxLines: 4,
-                    style: const TextStyle(color: Colors.white),
-                    decoration: InputDecoration(
-                      hintText: trText('Write a comment about this spot'),
-                      hintStyle: const TextStyle(color: Colors.white38),
-                      filled: true,
-                      fillColor: Colors.white.withValues(alpha: 0.06),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(14),
-                        borderSide: const BorderSide(color: Colors.white12),
-                      ),
-                      enabledBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(14),
-                        borderSide: const BorderSide(color: Colors.white12),
-                      ),
-                      focusedBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(14),
-                        borderSide: const BorderSide(color: blue),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  SizedBox(
-                    width: double.infinity,
-                    height: 46,
-                    child: ElevatedButton.icon(
-                      onPressed: isSaving ? null : submitComment,
-                      icon: Icon(
-                        isSaving ? Icons.hourglass_bottom : Icons.send,
-                      ),
-                      label: Text(isSaving ? 'Saving...' : 'Post Comment'),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: blue,
-                        foregroundColor: Colors.white,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(15),
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 14),
-            if (reviews.isEmpty)
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: panelGlass,
-                  borderRadius: BorderRadius.circular(18),
-                  border: Border.all(color: Colors.white12),
-                ),
-                child: const Text(
-                  'No comments yet. Be the first to comment on this spot.',
-                  style: TextStyle(color: Colors.white54),
-                ),
-              )
-            else
-              for (final review in reviews) ...[
-                SpotReviewCard(spot: widget.spot, review: review),
                 const SizedBox(height: 10),
+                OutlinedButton.icon(
+                  onPressed: () => loadReviews(reset: reviews.isEmpty),
+                  icon: const Icon(Icons.refresh),
+                  label: const Text('Retry'),
+                ),
               ],
+            ),
+          )
+        else if (reviews.isEmpty && isLoadingReviews)
+          const Center(child: CircularProgressIndicator(color: blue))
+        else if (reviews.isEmpty)
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: panelGlass,
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(color: Colors.white12),
+            ),
+            child: const Text(
+              'No comments yet. Be the first to comment on this spot.',
+              style: TextStyle(color: Colors.white54),
+            ),
+          )
+        else
+          for (final review in reviews) ...[
+            SpotReviewCard(
+              spot: widget.spot,
+              review: review,
+              onDeleted: () {
+                setState(() {
+                  reviews.removeWhere((item) => item.id == review.id);
+                });
+                saveReviewsToSessionCache();
+              },
+            ),
+            const SizedBox(height: 10),
           ],
-        );
-      },
+        if (hasMoreReviews && reviews.isNotEmpty) ...[
+          const SizedBox(height: 2),
+          SizedBox(
+            width: double.infinity,
+            height: 44,
+            child: OutlinedButton.icon(
+              onPressed: isLoadingReviews
+                  ? null
+                  : () => unawaited(loadReviews()),
+              icon: isLoadingReviews
+                  ? const SizedBox(
+                      width: 17,
+                      height: 17,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: blue,
+                      ),
+                    )
+                  : const Icon(Icons.expand_more),
+              label: Text(isLoadingReviews ? 'Loading...' : 'More comments'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: blue,
+                side: const BorderSide(color: blue),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(15),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ],
     );
   }
 }
@@ -20151,8 +20692,14 @@ class _SpotReviewsSectionState extends State<SpotReviewsSection> {
 class SpotReviewCard extends StatelessWidget {
   final CarSpot spot;
   final SpotReviewData review;
+  final VoidCallback? onDeleted;
 
-  const SpotReviewCard({super.key, required this.spot, required this.review});
+  const SpotReviewCard({
+    super.key,
+    required this.spot,
+    required this.review,
+    this.onDeleted,
+  });
 
   Future<void> _showEditDialog(BuildContext context) async {
     final commentController = TextEditingController(text: review.comment);
@@ -20288,6 +20835,7 @@ class SpotReviewCard extends StatelessWidget {
 
     try {
       await deleteSpotReview(spot: spot, review: review);
+      onDeleted?.call();
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -32852,3 +33400,4 @@ class AppPage extends StatelessWidget {
     );
   }
 }
+ 
