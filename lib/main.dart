@@ -2462,7 +2462,7 @@ Future<void> main() async {
     final appUser = await loadCurrentFirebaseUser();
     if (appUser != null) {
       startFirebaseSpotSync();
-      unawaited(startCurrentUserLikedSpotsSync());
+      unawaited(loadCurrentUserLikedSpotIdsFromLocalCache());
       unawaited(initializePushNotificationsForCurrentUser());
     }
   } catch (error) {
@@ -2883,8 +2883,7 @@ Future<void> initializePushNotificationsForCurrentUser() async {
     } else {
       await registerPushTokenForCurrentUser(token);
     }
-    unawaited(refreshNotificationCenterUnreadCount());
-    startNotificationCenterUnreadWatcher();
+    // Keep notification reads lazy. The notification center loads when opened.
 
     pushTokenRefreshSubscription ??= messaging.onTokenRefresh.listen(
       (token) {
@@ -2903,7 +2902,7 @@ Future<void> initializePushNotificationsForCurrentUser() async {
           'Foreground push received. messageId=${message.messageId}, data=${message.data}',
         );
         unawaited(showForegroundSystemNotification(message));
-        unawaited(refreshNotificationCenterUnreadCount());
+        // Notification count is refreshed lazily when the notification center is opened.
       },
       onError: (Object error, StackTrace stack) {
         debugPrint('Foreground push listener failed: $error');
@@ -4477,7 +4476,7 @@ Future<AppUser> signInWithTelegramAndSaveUser() async {
     ),
   );
   startFirebaseSpotSync();
-  unawaited(startCurrentUserLikedSpotsSync());
+  unawaited(loadCurrentUserLikedSpotIdsFromLocalCache());
   unawaited(initializePushNotificationsForCurrentUser());
   return currentUser;
 }
@@ -4747,7 +4746,7 @@ Future<AppUser> signInWithGoogleAndSaveUser() async {
 
   setCurrentUser(await saveFirebaseUser(firebaseUser, provider: 'google'));
   startFirebaseSpotSync();
-  unawaited(startCurrentUserLikedSpotsSync());
+  unawaited(loadCurrentUserLikedSpotIdsFromLocalCache());
   unawaited(initializePushNotificationsForCurrentUser());
   return currentUser;
 }
@@ -4930,6 +4929,7 @@ class CarSpot {
   final String addedByUid;
   final SpotStatus status;
   final int createdAtMillis;
+  final int updatedAtMillis;
   final bool isTemporary;
   final int? startsAtMillis;
   final int? expiresAtMillis;
@@ -4970,6 +4970,7 @@ class CarSpot {
     this.addedByUid = '',
     required this.status,
     this.createdAtMillis = 0,
+    this.updatedAtMillis = 0,
     this.isTemporary = false,
     this.startsAtMillis,
     this.expiresAtMillis,
@@ -5011,6 +5012,7 @@ class CarSpot {
     String? addedByUid,
     SpotStatus? status,
     int? createdAtMillis,
+    int? updatedAtMillis,
     bool? isTemporary,
     int? startsAtMillis,
     int? expiresAtMillis,
@@ -5053,6 +5055,7 @@ class CarSpot {
       addedByUid: addedByUid ?? this.addedByUid,
       status: status ?? this.status,
       createdAtMillis: createdAtMillis ?? this.createdAtMillis,
+      updatedAtMillis: updatedAtMillis ?? this.updatedAtMillis,
       isTemporary: isTemporary ?? this.isTemporary,
       startsAtMillis: clearTemporarySchedule
           ? null
@@ -5262,6 +5265,7 @@ class CarSpot {
       addedByUid: stringFromFirebase(data['addedByUid'], ''),
       status: spotStatusFromFirebase(data['status']),
       createdAtMillis: timestampMillisFromFirebase(data['createdAt']),
+      updatedAtMillis: timestampMillisFromFirebase(data['updatedAt']),
       isTemporary: data['isTemporary'] == true,
       startsAtMillis: nullableTimestampMillisFromFirebase(data['startsAt']),
       expiresAtMillis: nullableTimestampMillisFromFirebase(data['expiresAt']),
@@ -5793,7 +5797,7 @@ Future<void> createUserNotification({
       ...extra,
     }, SetOptions(merge: true));
 
-    unawaited(refreshNotificationCenterUnreadCount());
+    // Notification count is refreshed lazily when the notification center is opened.
   } catch (error, stack) {
     debugPrint('Could not create notification center item: $error');
     debugPrint('$stack');
@@ -8125,6 +8129,278 @@ Map<String, Object?> spotToFirestoreData(
   return data;
 }
 
+const String approvedSpotCacheStorageKey = 'approved_spots_local_cache_v1';
+const String approvedSpotLastSyncStorageKey = 'approved_spots_last_sync_v1';
+const int approvedSpotDeltaSyncLimit = 250;
+const Duration approvedSpotDeltaSyncSafetyWindow = Duration(seconds: 30);
+
+Map<String, Object?> carSpotToLocalCacheData(CarSpot spot) {
+  return {
+    'id': spot.id,
+    'name': spot.name,
+    'cityCountry': spot.cityCountry,
+    'lat': spot.coordinates.latitude,
+    'lng': spot.coordinates.longitude,
+    'description': spot.description,
+    'categories': spot.categories,
+    'rating': spot.rating,
+    'ratingCount': spot.ratingCount,
+    'likeCount': spot.likeCount,
+    'commentCount': spot.commentCount,
+    'photoUrl': spot.photoUrl,
+    'photoUrls': spot.photoUrls,
+    'reelLink': spot.reelLink,
+    'contactPhone': spot.contactPhone,
+    'contactInstagram': spot.contactInstagram,
+    'contactEmail': spot.contactEmail,
+    'openingHours': openingHoursToFirebase(spot.openingHours),
+    'ownerUid': spot.ownerUid,
+    'ownerUsername': spot.ownerUsername,
+    'bestTime': spot.bestTime,
+    'parking': spot.parking,
+    'roadQuality': spot.roadQuality,
+    'lowCarFriendly': spot.lowCarFriendly,
+    'policeRisk': spot.policeRisk,
+    'traffic': spot.traffic,
+    'lighting': spot.lighting,
+    'crowd': spot.crowd,
+    'addedBy': spot.addedBy,
+    'addedByUid': spot.addedByUid,
+    'status': spotStatusName(spot.status),
+    'createdAtMillis': spot.createdAtMillis,
+    'updatedAtMillis': spot.updatedAtMillis,
+    'isTemporary': spot.isTemporary,
+    'startsAtMillis': spot.startsAtMillis,
+    'expiresAtMillis': spot.expiresAtMillis,
+    'showOnMapAtMillis': spot.showOnMapAtMillis,
+    'verifiedOnly': spot.verifiedOnly,
+    'rejectionReason': spot.rejectionReason,
+  };
+}
+
+CarSpot? carSpotFromLocalCacheData(Object? value) {
+  try {
+    final data = mapFromFirebase(value);
+    final id = stringFromFirebase(data['id'], '');
+    if (id.isEmpty) {
+      return null;
+    }
+
+    final coordinates = LatLng(
+      doubleFromFirebase(data['lat'], 56.9496),
+      doubleFromFirebase(data['lng'], 24.1052),
+    );
+
+    return CarSpot(
+      id: id,
+      name: stringFromFirebase(data['name'], 'Untitled spot'),
+      cityCountry: stringFromFirebase(data['cityCountry'], 'Riga, Latvia'),
+      coordinates: coordinates,
+      description: stringFromFirebase(
+        data['description'],
+        'Submitted community car spot.',
+      ),
+      categories: stringListFromFirebase(data['categories'], const ['Photo']),
+      rating: doubleFromFirebase(data['rating'], 0),
+      ratingCount: intFromFirebase(data['ratingCount'], 0),
+      likeCount: intFromFirebase(data['likeCount'], 0),
+      commentCount: intFromFirebase(data['commentCount'], 0),
+      photoUrl: stringFromFirebase(data['photoUrl'], ''),
+      photoUrls: stringListFromFirebase(data['photoUrls'], const []),
+      reelLink: stringFromFirebase(data['reelLink'], ''),
+      contactPhone: stringFromFirebase(data['contactPhone'], ''),
+      contactInstagram: stringFromFirebase(data['contactInstagram'], ''),
+      contactEmail: stringFromFirebase(data['contactEmail'], ''),
+      openingHours: openingHoursFromFirebase(data['openingHours']),
+      ownerUid: stringFromFirebase(data['ownerUid'], ''),
+      ownerUsername: stringFromFirebase(data['ownerUsername'], ''),
+      bestTime: stringFromFirebase(data['bestTime'], 'Not reviewed'),
+      parking: stringFromFirebase(data['parking'], 'Not reviewed'),
+      roadQuality: stringFromFirebase(data['roadQuality'], 'Not reviewed'),
+      lowCarFriendly: data['lowCarFriendly'] == true,
+      policeRisk: stringFromFirebase(data['policeRisk'], 'Not reviewed'),
+      traffic: stringFromFirebase(data['traffic'], 'Not reviewed'),
+      lighting: stringFromFirebase(data['lighting'], 'Not reviewed'),
+      crowd: stringFromFirebase(data['crowd'], 'Not reviewed'),
+      addedBy: stringFromFirebase(data['addedBy'], 'ccs_driver'),
+      addedByUid: stringFromFirebase(data['addedByUid'], ''),
+      status: spotStatusFromFirebase(data['status']),
+      createdAtMillis: intFromFirebase(data['createdAtMillis'], 0),
+      updatedAtMillis: intFromFirebase(data['updatedAtMillis'], 0),
+      isTemporary: data['isTemporary'] == true,
+      startsAtMillis: data['startsAtMillis'] is num
+          ? (data['startsAtMillis'] as num).toInt()
+          : null,
+      expiresAtMillis: data['expiresAtMillis'] is num
+          ? (data['expiresAtMillis'] as num).toInt()
+          : null,
+      showOnMapAtMillis: data['showOnMapAtMillis'] is num
+          ? (data['showOnMapAtMillis'] as num).toInt()
+          : null,
+      verifiedOnly: data['verifiedOnly'] == true,
+      rejectionReason: stringFromFirebase(data['rejectionReason'], ''),
+    );
+  } catch (error) {
+    debugPrint('Could not read cached spot: $error');
+    return null;
+  }
+}
+
+bool approvedSpotIsVisibleForCurrentUser(CarSpot spot) {
+  return spot.status == SpotStatus.approved &&
+      spot.isVisibleNow &&
+      (!spot.verifiedOnly || currentUserCanUseVerifiedOnlySpots);
+}
+
+int newestSpotUpdatedAtMillis(Iterable<CarSpot> spots) {
+  var newest = 0;
+  for (final spot in spots) {
+    final value = spot.updatedAtMillis > 0
+        ? spot.updatedAtMillis
+        : spot.createdAtMillis;
+    if (value > newest) {
+      newest = value;
+    }
+  }
+  return newest;
+}
+
+Future<void> loadApprovedSpotsFromLocalCache() async {
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    final rawJson = prefs.getString(approvedSpotCacheStorageKey);
+    if (rawJson == null || rawJson.trim().isEmpty) {
+      return;
+    }
+
+    final decoded = jsonDecode(rawJson);
+    if (decoded is! List) {
+      return;
+    }
+
+    final cachedSpots = <String, CarSpot>{};
+    for (final item in decoded) {
+      final spot = carSpotFromLocalCacheData(item);
+      if (spot == null || !approvedSpotIsVisibleForCurrentUser(spot)) {
+        continue;
+      }
+      cachedSpots[_spotCacheKey(spot)] = spot;
+    }
+
+    if (cachedSpots.isEmpty) {
+      return;
+    }
+
+    _firebaseSpotCacheBySource['approved'] = cachedSpots;
+    _publishFirebaseSpotCaches();
+    firestoreDebugTracker.recordRead('local cache: approved spots', 0);
+  } catch (error) {
+    debugPrint('Approved spots local cache load failed: $error');
+  }
+}
+
+Future<void> saveApprovedSpotsToLocalCache() async {
+  try {
+    final approvedSpots =
+        (_firebaseSpotCacheBySource['approved'] ?? const <String, CarSpot>{})
+            .values
+            .where(approvedSpotIsVisibleForCurrentUser)
+            .toList();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+      approvedSpotCacheStorageKey,
+      jsonEncode(approvedSpots.map(carSpotToLocalCacheData).toList()),
+    );
+
+    final newest = newestSpotUpdatedAtMillis(approvedSpots);
+    final syncMillis = math.max(newest, DateTime.now().millisecondsSinceEpoch);
+    await prefs.setInt(approvedSpotLastSyncStorageKey, syncMillis);
+  } catch (error) {
+    debugPrint('Approved spots local cache save failed: $error');
+  }
+}
+
+Future<int> approvedSpotLastSyncMillis() async {
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getInt(approvedSpotLastSyncStorageKey) ?? 0;
+  } catch (_) {
+    return 0;
+  }
+}
+
+Future<void> saveApprovedSpotLastSyncMillis(int value) async {
+  if (value <= 0) {
+    return;
+  }
+
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(approvedSpotLastSyncStorageKey, value);
+  } catch (_) {}
+}
+
+Future<void> syncApprovedSpotsWithServerDelta() async {
+  final approvedCache = _firebaseSpotCacheBySource['approved'];
+  final hasCachedApproved = approvedCache != null && approvedCache.isNotEmpty;
+  final lastSyncMillis = await approvedSpotLastSyncMillis();
+
+  if (!hasCachedApproved || lastSyncMillis <= 0) {
+    final snapshot = await trackedQueryGet(
+      'spots cache full sync: approved',
+      approvedSpotsForCurrentUserQuery().limit(
+        firebaseApprovedSpotsListenLimit,
+      ),
+      const GetOptions(source: Source.server),
+    );
+    _firebaseSpotCacheBySource['approved'] = {
+      for (final doc in snapshot.docs)
+        _spotCacheKey(CarSpot.fromFirestore(doc)): CarSpot.fromFirestore(doc),
+    };
+    _publishFirebaseSpotCaches();
+    await saveApprovedSpotsToLocalCache();
+    return;
+  }
+
+  final safeSinceMillis = math.max(
+    0,
+    lastSyncMillis - approvedSpotDeltaSyncSafetyWindow.inMilliseconds,
+  );
+
+  final snapshot = await trackedQueryGet(
+    'spots cache delta sync: updated since last startup',
+    spotsCollection()
+        .where(
+          'updatedAt',
+          isGreaterThan: Timestamp.fromMillisecondsSinceEpoch(safeSinceMillis),
+        )
+        .limit(approvedSpotDeltaSyncLimit),
+    const GetOptions(source: Source.server),
+  );
+
+  final nextApprovedCache = <String, CarSpot>{...approvedCache};
+  for (final doc in snapshot.docs) {
+    final spot = CarSpot.fromFirestore(doc);
+    final key = _spotCacheKey(spot);
+    if (approvedSpotIsVisibleForCurrentUser(spot)) {
+      nextApprovedCache[key] = spot;
+    } else {
+      nextApprovedCache.remove(key);
+    }
+  }
+
+  _firebaseSpotCacheBySource['approved'] = nextApprovedCache;
+  _publishFirebaseSpotCaches();
+  await saveApprovedSpotsToLocalCache();
+
+  final newestFromDelta = newestSpotUpdatedAtMillis(
+    snapshot.docs.map(CarSpot.fromFirestore),
+  );
+  if (newestFromDelta > lastSyncMillis) {
+    await saveApprovedSpotLastSyncMillis(newestFromDelta);
+  }
+}
+
 const int firebaseApprovedSpotsListenLimit = 250;
 const int firebaseMySpotsListenLimit = 100;
 const int firebaseAdminReviewSpotsListenLimit = 250;
@@ -8190,6 +8466,8 @@ void _listenToSpotQuery({
   spotSyncSubscriptions.add(subscription);
 }
 
+bool _spotSyncInProgress = false;
+
 void startFirebaseSpotSync() {
   for (final subscription in spotSyncSubscriptions) {
     subscription.cancel();
@@ -8197,44 +8475,44 @@ void startFirebaseSpotSync() {
   spotSyncSubscriptions.clear();
   _firebaseSpotCacheBySource.clear();
 
-  // Important cost optimization: never listen to the entire spots collection.
-  // Normal users only need a small approved feed plus their own submissions.
-  // Staff get a separate limited review queue.
-  _listenToSpotQuery(
-    source: 'approved',
-    query: approvedSpotsForCurrentUserQuery().limit(
-      firebaseApprovedSpotsListenLimit,
-    ),
-  );
+  unawaited(_startCachedSpotSync());
+}
 
-  final currentUid = FirebaseAuth.instance.currentUser?.uid ?? currentUser.uid;
-  if (currentUid.trim().isNotEmpty && currentUid != 'mock_user') {
-    _listenToSpotQuery(
-      source: 'mine',
-      query: spotsCollection()
-          .where('addedByUid', isEqualTo: currentUid)
-          .limit(firebaseMySpotsListenLimit),
-    );
+Future<void> _startCachedSpotSync() async {
+  if (_spotSyncInProgress) {
+    return;
   }
 
-  if (userRoleIsStaff(currentUser.role)) {
-    for (final status in const [
-      SpotStatus.pending,
-      SpotStatus.edited,
-      SpotStatus.rejected,
-    ]) {
+  _spotSyncInProgress = true;
+  try {
+    // Load cached approved spots first. This creates zero Firestore reads and
+    // makes repeated app launches cheap while still showing content instantly.
+    await loadApprovedSpotsFromLocalCache();
+
+    // Then ask Firestore only for documents changed since the last sync. On a
+    // fresh install / empty cache this falls back to one full approved feed read.
+    await syncApprovedSpotsWithServerDelta();
+  } catch (error, stack) {
+    debugPrint('Cached spot sync failed: $error');
+    debugPrint('$stack');
+
+    // Last-resort fallback: keep any local cache on screen. If there is no
+    // cache, do one server read so the app is still usable.
+    if ((_firebaseSpotCacheBySource['approved'] ?? const <String, CarSpot>{})
+        .isEmpty) {
       _listenToSpotQuery(
-        source: 'admin_${spotStatusName(status)}',
-        query: spotsCollection()
-            .where('status', isEqualTo: spotStatusName(status))
-            .limit(firebaseAdminReviewSpotsListenLimit),
+        source: 'approved fallback listener',
+        query: approvedSpotsForCurrentUserQuery().limit(
+          firebaseApprovedSpotsListenLimit,
+        ),
       );
     }
+  } finally {
+    _spotSyncInProgress = false;
   }
 }
 
 Future<void> refreshFirebaseSpotsFromServer() async {
-  final currentUid = FirebaseAuth.instance.currentUser?.uid ?? currentUser.uid;
   final refreshCaches = <String, Map<String, CarSpot>>{};
 
   Future<void> loadQuery(
@@ -8257,34 +8535,14 @@ Future<void> refreshFirebaseSpotsFromServer() async {
     approvedSpotsForCurrentUserQuery().limit(firebaseApprovedSpotsListenLimit),
   );
 
-  if (currentUid.trim().isNotEmpty && currentUid != 'mock_user') {
-    await loadQuery(
-      'mine',
-      spotsCollection()
-          .where('addedByUid', isEqualTo: currentUid)
-          .limit(firebaseMySpotsListenLimit),
-    );
-  }
-
-  if (userRoleIsStaff(currentUser.role)) {
-    for (final status in const [
-      SpotStatus.pending,
-      SpotStatus.edited,
-      SpotStatus.rejected,
-    ]) {
-      await loadQuery(
-        'admin_${spotStatusName(status)}',
-        spotsCollection()
-            .where('status', isEqualTo: spotStatusName(status))
-            .limit(firebaseAdminReviewSpotsListenLimit),
-      );
-    }
-  }
-
+  // Keep manual refresh focused on public approved spots. My submissions and
+  // admin review queues should be loaded only from their own screens, not on
+  // every app startup.
   _firebaseSpotCacheBySource
     ..clear()
     ..addAll(refreshCaches);
   _publishFirebaseSpotCaches();
+  await saveApprovedSpotsToLocalCache();
 }
 
 Query<Map<String, dynamic>> currentUserChatsQuery(String uid) {
@@ -8351,6 +8609,49 @@ StreamSubscription<QuerySnapshot<Map<String, dynamic>>>?
 currentUserLikedSpotsSubscription;
 String? currentUserLikedSpotsSyncUid;
 bool currentUserLikedSpotsSyncStarting = false;
+const currentUserLikedSpotIdsStoragePrefix = 'current_user_liked_spot_ids_';
+
+String currentUserLikedSpotIdsStorageKey(String uid) {
+  return '$currentUserLikedSpotIdsStoragePrefix$uid';
+}
+
+Future<void> loadCurrentUserLikedSpotIdsFromLocalCache() async {
+  final firebaseUser = FirebaseAuth.instance.currentUser;
+  final uid = firebaseUser?.uid ?? '';
+  if (uid.isEmpty) {
+    currentUserLikedSpotIds.value = {};
+    return;
+  }
+
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    final ids = prefs.getStringList(currentUserLikedSpotIdsStorageKey(uid));
+    if (ids == null) {
+      return;
+    }
+
+    currentUserLikedSpotIds.value = ids
+        .map((id) => id.trim())
+        .where((id) => id.isNotEmpty)
+        .toSet();
+  } catch (_) {}
+}
+
+Future<void> saveCurrentUserLikedSpotIdsToLocalCache() async {
+  final firebaseUser = FirebaseAuth.instance.currentUser;
+  final uid = firebaseUser?.uid ?? '';
+  if (uid.isEmpty) {
+    return;
+  }
+
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList(
+      currentUserLikedSpotIdsStorageKey(uid),
+      currentUserLikedSpotIds.value.toList()..sort(),
+    );
+  } catch (_) {}
+}
 
 String spotLikeDocumentId(String spotId, String userId) {
   return '${spotId}_$userId';
@@ -8412,7 +8713,7 @@ Future<void> startCurrentUserLikedSpotsSync() async {
 
   await currentUserLikedSpotsSubscription?.cancel();
   currentUserLikedSpotsSubscription = null;
-  currentUserLikedSpotIds.value = {};
+  await loadCurrentUserLikedSpotIdsFromLocalCache();
 
   currentUserLikedSpotsSubscription =
       trackedQuerySnapshots(
@@ -8430,6 +8731,7 @@ Future<void> startCurrentUserLikedSpotsSync() async {
           }
 
           currentUserLikedSpotIds.value = likedIds;
+          unawaited(saveCurrentUserLikedSpotIdsToLocalCache());
         },
         onError: (Object error, StackTrace stack) {
           debugPrint('Current user liked spots sync failed: $error');
@@ -8454,6 +8756,7 @@ void setCurrentUserSpotLikedLocally(String spotId, bool liked) {
   }
 
   currentUserLikedSpotIds.value = nextLikedIds;
+  unawaited(saveCurrentUserLikedSpotIdsToLocalCache());
 }
 
 Stream<bool> watchCurrentUserLikedSpotFromCache(String spotId) {
@@ -8519,11 +8822,8 @@ Stream<bool> watchCurrentUserLikedSpot(CarSpot spot) {
   }
 
   final spotId = spotReviewKey(spot);
-  if (currentUserLikedSpotsSubscription == null ||
-      currentUserLikedSpotsSyncUid != firebaseUser.uid) {
-    unawaited(startCurrentUserLikedSpotsSync());
-  }
-
+  // Do not start a Firestore liked-spots listener from every spot card.
+  // Cards use the locally cached liked-id set; likes/unlikes update it immediately.
   return watchCurrentUserLikedSpotFromCache(spotId);
 }
 
@@ -9917,13 +10217,13 @@ Future<List<NotificationCenterItem>> loadNotificationCenterItems() async {
       adminNotificationsCollection()
           .where('userId', isEqualTo: firebaseUser.uid)
           .limit(50)
-          .debugGet(),
+          .debugGet(null, 'notification center: admin notifications'),
     ),
     addItems(
       friendLocationNotificationsCollection()
           .where('userId', isEqualTo: firebaseUser.uid)
           .limit(50)
-          .debugGet(),
+          .debugGet(null, 'notification center: friend location notifications'),
     ),
     // Always load Firestore user notifications too. The push server history can
     // lag behind or omit custom fields such as rejectionReason, so Firestore is
@@ -9932,9 +10232,14 @@ Future<List<NotificationCenterItem>> loadNotificationCenterItems() async {
       userNotificationsCollection()
           .where('userId', isEqualTo: firebaseUser.uid)
           .limit(50)
-          .debugGet(),
+          .debugGet(null, 'notification center: user notifications'),
     ),
-    addItems(projectNewsCollection().limit(20).debugGet(), projectNews: true),
+    addItems(
+      projectNewsCollection()
+          .limit(20)
+          .debugGet(null, 'notification center: project news'),
+      projectNews: true,
+    ),
   ];
 
   await Future.wait(sourceLoads);
