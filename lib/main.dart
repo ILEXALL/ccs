@@ -2076,6 +2076,8 @@ const _ruText = <String, String>{
       'Добавьте или удалите фото спота. Первое фото станет обложкой в ленте.',
   'Description placeholder': 'Описание',
   'Notification center could not load.': 'Не удалось загрузить уведомления.',
+  'Chat is not available anymore.': 'Чат больше недоступен.',
+  'Spot is not available anymore.': 'Спот больше недоступен.',
   'Push notifications are connected through Firebase Cloud Messaging.':
       'Уведомления подключены через Firebase Cloud Messaging.',
   'you': 'вы',
@@ -2699,6 +2701,8 @@ const _lvText = <String, String>{
       'Pievienojiet vai noņemiet vietas foto. Pirmais foto būs vāks sarakstā.',
   'Description placeholder': 'Apraksts',
   'Notification center could not load.': 'Neizdevās ielādēt paziņojumus.',
+  'Chat is not available anymore.': 'Čats vairs nav pieejams.',
+  'Spot is not available anymore.': 'Vieta vairs nav pieejama.',
   'Push notifications are connected through Firebase Cloud Messaging.':
       'Paziņojumi ir pieslēgti caur Firebase Cloud Messaging.',
   'you': 'jūs',
@@ -2858,6 +2862,16 @@ String trText(String value, {AppLanguage? language}) {
       AppLanguage.en => value,
       AppLanguage.ru => '@$friend рядом$distance',
       AppLanguage.lv => '@$friend ir tuvumā$distance',
+    };
+  }
+
+  final messageFromMatch = RegExp(r'^Message from @(.+)$').firstMatch(value);
+  if (messageFromMatch != null) {
+    final sender = messageFromMatch.group(1)!;
+    return switch (selectedLanguage) {
+      AppLanguage.en => value,
+      AppLanguage.ru => 'Сообщение от @$sender',
+      AppLanguage.lv => 'Ziņa no @$sender',
     };
   }
 
@@ -6578,7 +6592,13 @@ Future<void> createChatMessageNotification({
       settingName: 'newMessageNotifications',
       notificationId:
           'chat_${chat.id}_${DateTime.now().microsecondsSinceEpoch}_$userId',
-      extra: {'chatId': chat.id, 'isGroup': chat.isGroup},
+      extra: {
+        'chatId': chat.id,
+        'isGroup': chat.isGroup,
+        'senderUid': firebaseUser.uid,
+        'senderUsername': currentUser.username,
+        'chatTitle': chat.titleForCurrentUser(userId),
+      },
     );
   }
 }
@@ -7469,28 +7489,40 @@ Future<String> createOrOpenDirectChat(FriendUserData user) async {
     );
   }
 
+  if (user.uid.trim().isEmpty || user.uid == firebaseUser.uid) {
+    throw FirebaseException(
+      plugin: 'cloud_firestore',
+      code: 'invalid-chat-user',
+      message: 'This user profile is not available anymore.',
+    );
+  }
+
+  if (await isUserBlockedByCurrentUser(user.uid)) {
+    throw FirebaseException(
+      plugin: 'cloud_firestore',
+      code: 'blocked-user',
+      message: 'You cannot message this user.',
+    );
+  }
+
   final chatId = directChatIdFor(firebaseUser.uid, user.uid);
   final memberIds = [firebaseUser.uid, user.uid];
   final memberUsernames = [currentUser.username, user.username];
+  final memberPhotoUrls = [currentUser.photoUrl ?? '', user.photoUrl ?? ''];
 
   final chatRef = chatsCollection().doc(chatId);
-  final existing = await chatRef.debugGet();
 
-  if (!existing.exists) {
-    await chatRef.debugSet({
-      'isGroup': false,
-      'name': '',
-      'memberIds': memberIds,
-      'memberUsernames': memberUsernames,
-      'memberPhotoUrls': [currentUser.photoUrl ?? '', user.photoUrl ?? ''],
-      'photoUrl': '',
-      'lastMessage': '',
-      'lastSenderUid': '',
-      'lastSenderUsername': '',
-      'updatedAt': FieldValue.serverTimestamp(),
-      'createdAt': FieldValue.serverTimestamp(),
-    });
-  }
+  // Use a merge set and keep only fields allowed for both a new direct chat and
+  // an existing one. Rewriting isGroup on old direct chats can be rejected by
+  // Firestore rules if the old document did not store that field.
+  await chatRef.debugSet({
+    'name': '',
+    'memberIds': memberIds,
+    'memberUsernames': memberUsernames,
+    'memberPhotoUrls': memberPhotoUrls,
+    'photoUrl': '',
+    'updatedAt': FieldValue.serverTimestamp(),
+  }, SetOptions(merge: true));
 
   return chatId;
 }
@@ -7580,14 +7612,28 @@ Future<void> sendChatMessage({
     'updatedAt': FieldValue.serverTimestamp(),
   }, SetOptions(merge: true));
 
-  if (chat != null) {
-    await createChatMessageNotification(chat: chat, messageText: cleanText);
+  var notificationChat = chat;
+  if (notificationChat == null) {
+    try {
+      final chatSnapshot = await chatsCollection().doc(chatId).debugGet();
+      if (chatSnapshot.exists) {
+        notificationChat = ChatThreadData.fromFirestore(chatSnapshot);
+      }
+    } catch (_) {}
+  }
+
+  if (notificationChat != null) {
+    await createChatMessageNotification(
+      chat: notificationChat,
+      messageText: cleanText,
+    );
   }
 
   await sendPushNotificationEvent({
     'type': 'chat_message',
     'chatId': chatId,
     'messageId': messageRef.id,
+    'senderUsername': currentUser.username,
   });
 }
 
@@ -7897,6 +7943,7 @@ Future<void> shareChatLiveLocation(
     text: chat.isGroup
         ? 'Shared live location with this group.'
         : 'Shared live location with you.',
+    chat: chat,
   );
 
   if (context.mounted) {
@@ -9915,6 +9962,9 @@ Future<void> toggleSpotLike(
   final likeRef = spotLikesCollection().doc(
     spotLikeDocumentId(spotId, firebaseUser.uid),
   );
+  final spotRef = spot.id.trim().isEmpty
+      ? null
+      : spotsCollection().doc(spot.id.trim());
 
   final targetLiked = !currentlyLiked;
   var likeDelta = 0;
@@ -9939,6 +9989,12 @@ Future<void> toggleSpotLike(
           'username': currentUser.username,
           'createdAt': FieldValue.serverTimestamp(),
         });
+        if (spotRef != null) {
+          transaction.debugUpdate(spotRef, {
+            'likeCount': FieldValue.increment(1),
+            'updatedAt': FieldValue.serverTimestamp(),
+          }, 'spot like counter increment');
+        }
         likeDelta = 1;
         return;
       }
@@ -9948,6 +10004,12 @@ Future<void> toggleSpotLike(
       }
 
       transaction.debugDelete(likeRef);
+      if (spotRef != null) {
+        transaction.debugUpdate(spotRef, {
+          'likeCount': FieldValue.increment(-1),
+          'updatedAt': FieldValue.serverTimestamp(),
+        }, 'spot like counter decrement');
+      }
       likeDelta = -1;
     });
   } catch (error) {
@@ -9972,7 +10034,6 @@ Future<void> toggleSpotLike(
 
   if (likeDelta != 0) {
     updateSpotCountersLocally(spot, likeDelta: likeDelta);
-    unawaited(updateSpotCountersOnServer(spot, likeDelta: likeDelta));
   }
 
   if (likeDelta == 1) {
@@ -9991,6 +10052,8 @@ Future<void> toggleSpotLike(
         await sendPushNotificationEvent({
           'type': 'spot_like',
           'likeId': likeRef.id,
+          'spotId': spotId,
+          'spotName': spot.name,
         });
       } catch (error, stack) {
         debugPrint('Spot like notification failed: $error');
@@ -10249,6 +10312,8 @@ Future<SpotReviewData> saveSpotReview({
     await sendPushNotificationEvent({
       'type': 'spot_comment',
       'reviewId': reviewRef.id,
+      'spotId': spotId,
+      'spotName': spot.name,
     });
   } catch (error, stack) {
     debugPrint('Spot comment notification failed: $error');
@@ -11078,6 +11143,8 @@ class NotificationCenterItem {
   final String chatId;
   final String userId;
   final String addedByUid;
+  final String actorUserId;
+  final String actorUsername;
   final String status;
   final String rejectionReason;
 
@@ -11095,6 +11162,8 @@ class NotificationCenterItem {
     this.chatId = '',
     this.userId = '',
     this.addedByUid = '',
+    this.actorUserId = '',
+    this.actorUsername = '',
     this.status = '',
     this.rejectionReason = '',
   });
@@ -11114,6 +11183,8 @@ class NotificationCenterItem {
     String? chatId,
     String? userId,
     String? addedByUid,
+    String? actorUserId,
+    String? actorUsername,
     String? status,
     String? rejectionReason,
   }) {
@@ -11131,6 +11202,8 @@ class NotificationCenterItem {
       chatId: chatId ?? this.chatId,
       userId: userId ?? this.userId,
       addedByUid: addedByUid ?? this.addedByUid,
+      actorUserId: actorUserId ?? this.actorUserId,
+      actorUsername: actorUsername ?? this.actorUsername,
       status: status ?? this.status,
       rejectionReason: rejectionReason ?? this.rejectionReason,
     );
@@ -11140,6 +11213,9 @@ class NotificationCenterItem {
       !projectNews &&
       (spotId.trim().isNotEmpty ||
           chatId.trim().isNotEmpty ||
+          (type == 'chat_message' &&
+              (actorUserId.trim().isNotEmpty ||
+                  id.trim().startsWith('chat_'))) ||
           addedByUid.trim().isNotEmpty ||
           userId.trim().isNotEmpty ||
           type == 'friend_request' ||
@@ -11259,6 +11335,34 @@ String notificationCenterTime(int createdAtMillis) {
   return '$day.$month.${time.year}';
 }
 
+String actorUsernameFromNotificationBody(String body) {
+  final match = RegExp(r'^@([^:\s]+):').firstMatch(body.trim());
+  return match?.group(1)?.trim() ?? '';
+}
+
+String chatNotificationTitle(String actorUsername) {
+  final cleanUsername = actorUsername.trim().replaceAll('@', '');
+  return cleanUsername.isEmpty ? 'Messages' : 'Message from @$cleanUsername';
+}
+
+String notificationCenterDisplayTitle(NotificationCenterItem item) {
+  if (item.type == 'chat_message') {
+    return chatNotificationTitle(item.actorUsername);
+  }
+
+  return item.title;
+}
+
+String notificationCenterDisplayBody(NotificationCenterItem item) {
+  final body = item.body.trim();
+  if (item.type != 'chat_message') {
+    return body;
+  }
+
+  final messageMatch = RegExp(r'^@[^:]+:\s*(.+)$').firstMatch(body);
+  return messageMatch?.group(1)?.trim() ?? body;
+}
+
 NotificationCenterItem notificationCenterItemFromJson(Object? value) {
   final data = mapFromFirebase(value);
   final payload = mapFromFirebase(data['data']);
@@ -11288,6 +11392,17 @@ NotificationCenterItem notificationCenterItemFromJson(Object? value) {
   final spotName = pickString('spotName', '');
   final rejectionReason = pickString('rejectionReason', '');
   var body = pickString('body', '');
+  final rawActorUsername = pickString(
+    'actorUsername',
+    pickString('senderUsername', pickString('fromUsername', '')),
+  );
+  final actorUsername = rawActorUsername.trim().isEmpty
+      ? actorUsernameFromNotificationBody(body)
+      : rawActorUsername;
+  final actorUserId = pickString(
+    'actorUserId',
+    pickString('senderUid', pickString('senderUserId', pickString('fromUid', ''))),
+  );
 
   if (type == 'spot_review_update' &&
       status == 'rejected' &&
@@ -11319,6 +11434,8 @@ NotificationCenterItem notificationCenterItemFromJson(Object? value) {
     })(),
     userId: pickString('userId', ''),
     addedByUid: pickString('addedByUid', ''),
+    actorUserId: actorUserId,
+    actorUsername: actorUsername,
     status: status,
     rejectionReason: rejectionReason,
   );
@@ -11337,7 +11454,14 @@ NotificationCenterItem notificationCenterItemFromDocument(
   final status = stringFromFirebase(data['status'], '');
   final reviewedBy = stringFromFirebase(data['reviewedBy'], '');
   final rejectionReason = stringFromFirebase(data['rejectionReason'], '');
-  final actorUsername = stringFromFirebase(data['actorUsername'], '');
+  final actorUsername = stringFromFirebase(
+    data['actorUsername'],
+    stringFromFirebase(data['senderUsername'], ''),
+  );
+  final actorUserId = stringFromFirebase(
+    data['actorUserId'],
+    stringFromFirebase(data['senderUid'], ''),
+  );
   final comment = stringFromFirebase(data['comment'], '');
   final friendUsername = stringFromFirebase(data['friendUsername'], '');
   // Always use the canonical title for each type — ignore whatever Firebase stored.
@@ -11345,7 +11469,7 @@ NotificationCenterItem notificationCenterItemFromDocument(
     'spot_like' => 'Likes on my spots',
     'spot_comment' => 'Comments',
     'spot_review_update' => 'Spot review updates',
-    'chat_message' => 'Messages',
+    'chat_message' => chatNotificationTitle(actorUsername),
     'new_spot' => 'New spots',
     'temporary_event' => 'Temporary events',
     'spot_pending_review' => 'Spot review updates',
@@ -11368,7 +11492,10 @@ NotificationCenterItem notificationCenterItemFromDocument(
         spotName.trim().isEmpty
             ? '${actorUsername.trim().isEmpty ? 'Someone' : '@$actorUsername'} commented on your spot${comment.trim().isEmpty ? '.' : ': $comment'}'
             : '${actorUsername.trim().isEmpty ? 'Someone' : '@$actorUsername'} commented on $spotName${comment.trim().isEmpty ? '.' : ': $comment'}',
-      'chat_message' => body.trim().isEmpty ? 'New message.' : body,
+      'chat_message' =>
+        actorUsername.trim().isEmpty
+            ? 'New message.'
+            : '@$actorUsername: New message.',
       'new_spot' =>
         spotName.trim().isEmpty
             ? 'New spot was added.'
@@ -11442,6 +11569,10 @@ NotificationCenterItem notificationCenterItemFromDocument(
     })(),
     userId: stringFromFirebase(data['userId'], ''),
     addedByUid: stringFromFirebase(data['addedByUid'], ''),
+    actorUserId: actorUserId,
+    actorUsername: actorUsername.trim().isEmpty
+        ? actorUsernameFromNotificationBody(body)
+        : actorUsername,
     status: status,
     rejectionReason: rejectionReason,
   );
@@ -11630,6 +11761,20 @@ Future<List<NotificationCenterItem>> loadNotificationCenterItems() async {
   ];
 
   await Future.wait(sourceLoads);
+
+  // User-facing action notifications need a real target. Old push/history
+  // copies can have only title/body, which cannot open a chat or spot.
+  items.removeWhere((item) {
+    if (item.type == 'chat_message') {
+      return chatIdFromNotificationItem(item).isEmpty;
+    }
+
+    if (item.type == 'spot_comment' || item.type == 'spot_like') {
+      return item.reference == null && item.spotId.trim().isEmpty;
+    }
+
+    return false;
+  });
 
   if (!items.any((item) => item.projectNews)) {
     items.addAll(const [
@@ -11964,6 +12109,53 @@ Future<CarSpot?> spotForNotificationItem(NotificationCenterItem item) async {
   return null;
 }
 
+String chatIdFromNotificationItem(NotificationCenterItem item) {
+  final cleanChatId = item.chatId.trim();
+  if (cleanChatId.isNotEmpty) {
+    return cleanChatId;
+  }
+
+  final firebaseUser = FirebaseAuth.instance.currentUser;
+  final currentUid = firebaseUser?.uid ?? '';
+  final itemId = item.id.trim();
+  if (currentUid.isNotEmpty && itemId.startsWith('chat_')) {
+    final match = RegExp(
+      '^chat_(.+)_\\d+_${RegExp.escape(currentUid)}\$',
+    ).firstMatch(itemId);
+    final parsedChatId = match?.group(1)?.trim() ?? '';
+    if (parsedChatId.isNotEmpty) {
+      return parsedChatId;
+    }
+  }
+
+  final actorUid = item.actorUserId.trim();
+  if (currentUid.isNotEmpty &&
+      actorUid.isNotEmpty &&
+      actorUid != currentUid) {
+    return directChatIdFor(currentUid, actorUid);
+  }
+
+  return '';
+}
+
+Future<ChatThreadData?> chatForNotificationItem(
+  NotificationCenterItem item,
+) async {
+  final cleanChatId = chatIdFromNotificationItem(item);
+  if (cleanChatId.isEmpty) {
+    return null;
+  }
+
+  try {
+    final doc = await chatsCollection().doc(cleanChatId).debugGet();
+    if (doc.exists) {
+      return ChatThreadData.fromFirestore(doc);
+    }
+  } catch (_) {}
+
+  return null;
+}
+
 Future<void> openNotificationCenterItem(
   BuildContext context,
   NotificationCenterItem item,
@@ -11974,40 +12166,21 @@ Future<void> openNotificationCenterItem(
     );
   }
 
-  final cleanChatId = item.chatId.trim();
-  if (cleanChatId.isNotEmpty) {
-    try {
-      final doc = await chatsCollection().doc(cleanChatId).debugGet();
-      if (!context.mounted) return;
-      if (doc.exists) {
-        Navigator.push(
-          context,
-          appPageRoute(
-            builder: (_) =>
-                ChatConversationScreen(chat: ChatThreadData.fromFirestore(doc)),
-          ),
-        );
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            backgroundColor: Colors.redAccent,
-            content: Text(
-              'Chat is not available anymore.',
-              style: TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ),
-        );
-      }
-    } catch (error) {
-      if (!context.mounted) return;
+  if (item.type == 'chat_message' || chatIdFromNotificationItem(item).isNotEmpty) {
+    final chat = await chatForNotificationItem(item);
+    if (!context.mounted) return;
+
+    if (chat != null) {
+      Navigator.push(
+        context,
+        appPageRoute(builder: (_) => ChatConversationScreen(chat: chat)),
+      );
+    } else {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           backgroundColor: Colors.redAccent,
           content: Text(
-            localizedFriendActionError(error, 'Could not open chat.'),
+            trText('Chat is not available anymore.'),
             style: const TextStyle(
               color: Colors.white,
               fontWeight: FontWeight.w700,
@@ -12053,11 +12226,11 @@ Future<void> openNotificationCenterItem(
           );
         } else {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
+            SnackBar(
               backgroundColor: Colors.redAccent,
               content: Text(
-                'Spot is not available anymore.',
-                style: TextStyle(
+                trText('Spot is not available anymore.'),
+                style: const TextStyle(
                   color: Colors.white,
                   fontWeight: FontWeight.w700,
                 ),
@@ -12068,11 +12241,11 @@ Future<void> openNotificationCenterItem(
       } catch (_) {
         if (context.mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
+            SnackBar(
               backgroundColor: Colors.redAccent,
               content: Text(
-                'Spot is not available anymore.',
-                style: TextStyle(
+                trText('Spot is not available anymore.'),
+                style: const TextStyle(
                   color: Colors.white,
                   fontWeight: FontWeight.w700,
                 ),
@@ -12108,11 +12281,14 @@ Future<void> openNotificationCenterItem(
     }
 
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
+      SnackBar(
         backgroundColor: Colors.redAccent,
         content: Text(
-          'Spot is not available anymore.',
-          style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+          trText('Spot is not available anymore.'),
+          style: const TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.w700,
+          ),
         ),
       ),
     );
@@ -12331,16 +12507,16 @@ class _NotificationCenterScreenState extends State<NotificationCenterScreen> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              item.title,
+                              trText(notificationCenterDisplayTitle(item)),
                               style: const TextStyle(
                                 color: Colors.white,
                                 fontWeight: FontWeight.w900,
                               ),
                             ),
-                            if (item.body.trim().isNotEmpty) ...[
+                            if (notificationCenterDisplayBody(item).isNotEmpty) ...[
                               const SizedBox(height: 4),
                               Text(
-                                item.body,
+                                trText(notificationCenterDisplayBody(item)),
                                 style: const TextStyle(
                                   color: Colors.white60,
                                   height: 1.3,
@@ -12456,16 +12632,16 @@ class _AllNotificationsScreenState extends State<_AllNotificationsScreen> {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                item.title,
+                                trText(notificationCenterDisplayTitle(item)),
                                 style: const TextStyle(
                                   color: Colors.white,
                                   fontWeight: FontWeight.w900,
                                 ),
                               ),
-                              if (item.body.trim().isNotEmpty) ...[
+                              if (notificationCenterDisplayBody(item).isNotEmpty) ...[
                                 const SizedBox(height: 4),
                                 Text(
-                                  item.body,
+                                  trText(notificationCenterDisplayBody(item)),
                                   style: const TextStyle(
                                     color: Colors.white60,
                                     height: 1.3,
@@ -27222,7 +27398,11 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
     setState(() => isSending = true);
 
     try {
-      await sendChatMessage(chatId: widget.chat.id, text: text);
+      await sendChatMessage(
+        chatId: widget.chat.id,
+        text: text,
+        chat: widget.chat,
+      );
       messageController.clear();
       scrollToLatestAfterNextMessage = true;
       scheduleScrollToLatestMessage(animated: true);
