@@ -9112,6 +9112,7 @@ class SpotReviewData {
   final String username;
   final int rating;
   final String comment;
+  final int likeCount;
   final DateTime createdAt;
 
   const SpotReviewData({
@@ -9121,6 +9122,7 @@ class SpotReviewData {
     required this.username,
     required this.rating,
     required this.comment,
+    required this.likeCount,
     required this.createdAt,
   });
 
@@ -9137,6 +9139,7 @@ class SpotReviewData {
       username: stringFromFirebase(data['username'], 'ccs_driver'),
       rating: doubleFromFirebase(data['rating'], 5).round().clamp(1, 5).toInt(),
       comment: stringFromFirebase(data['comment'], ''),
+      likeCount: intFromFirebase(data['likeCount'], 0),
       createdAt: timestamp is Timestamp
           ? timestamp.toDate()
           : DateTime.fromMillisecondsSinceEpoch(0),
@@ -9204,6 +9207,13 @@ String? currentUserLikedSpotsSyncUid;
 bool currentUserLikedSpotsSyncStarting = false;
 const currentUserLikedSpotIdsStoragePrefix = 'current_user_liked_spot_ids_';
 
+final currentUserLikedCommentIds = ValueNotifier<Set<String>>({});
+final currentUserCommentLikeCountOverrides = ValueNotifier<Map<String, int>>(
+  {},
+);
+const currentUserLikedCommentIdsStoragePrefix =
+    'current_user_liked_comment_ids_';
+
 String currentUserLikedSpotIdsStorageKey(String uid) {
   return '$currentUserLikedSpotIdsStoragePrefix$uid';
 }
@@ -9246,6 +9256,161 @@ Future<void> saveCurrentUserLikedSpotIdsToLocalCache() async {
   } catch (_) {}
 }
 
+String currentUserLikedCommentIdsStorageKey(String uid) {
+  return '$currentUserLikedCommentIdsStoragePrefix$uid';
+}
+
+Future<void> loadCurrentUserLikedCommentIdsFromLocalCache() async {
+  final firebaseUser = FirebaseAuth.instance.currentUser;
+  final uid = firebaseUser?.uid ?? '';
+  if (uid.isEmpty) {
+    currentUserLikedCommentIds.value = {};
+    return;
+  }
+
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    final ids = prefs.getStringList(currentUserLikedCommentIdsStorageKey(uid));
+    if (ids == null) {
+      return;
+    }
+
+    currentUserLikedCommentIds.value = ids
+        .map((id) => id.trim())
+        .where((id) => id.isNotEmpty)
+        .toSet();
+  } catch (_) {}
+}
+
+Future<void> saveCurrentUserLikedCommentIdsToLocalCache() async {
+  final firebaseUser = FirebaseAuth.instance.currentUser;
+  final uid = firebaseUser?.uid ?? '';
+  if (uid.isEmpty) {
+    return;
+  }
+
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList(
+      currentUserLikedCommentIdsStorageKey(uid),
+      currentUserLikedCommentIds.value.toList()..sort(),
+    );
+  } catch (_) {}
+}
+
+void setCurrentUserCommentLikedLocally(String commentId, bool liked) {
+  final cleanCommentId = commentId.trim();
+  if (cleanCommentId.isEmpty) {
+    return;
+  }
+
+  final nextLikedIds = {...currentUserLikedCommentIds.value};
+  if (liked) {
+    nextLikedIds.add(cleanCommentId);
+  } else {
+    nextLikedIds.remove(cleanCommentId);
+  }
+
+  currentUserLikedCommentIds.value = nextLikedIds;
+  unawaited(saveCurrentUserLikedCommentIdsToLocalCache());
+}
+
+int currentCommentLikeCount(SpotReviewData review) {
+  return currentUserCommentLikeCountOverrides.value[review.id] ??
+      review.likeCount;
+}
+
+void setCommentLikeCountLocally(String commentId, int count) {
+  final cleanCommentId = commentId.trim();
+  if (cleanCommentId.isEmpty) {
+    return;
+  }
+
+  currentUserCommentLikeCountOverrides.value = {
+    ...currentUserCommentLikeCountOverrides.value,
+    cleanCommentId: math.max(0, count),
+  };
+}
+
+Stream<bool> watchCurrentUserLikedCommentFromCache(String commentId) {
+  return Stream<bool>.multi((controller) {
+    void emit() {
+      controller.add(currentUserLikedCommentIds.value.contains(commentId));
+    }
+
+    currentUserLikedCommentIds.addListener(emit);
+    emit();
+    controller.onCancel = () {
+      currentUserLikedCommentIds.removeListener(emit);
+    };
+  }).distinct();
+}
+
+Stream<int> watchCommentLikeCountFromCache(SpotReviewData review) {
+  return Stream<int>.multi((controller) {
+    void emit() {
+      controller.add(currentCommentLikeCount(review));
+    }
+
+    currentUserCommentLikeCountOverrides.addListener(emit);
+    emit();
+    controller.onCancel = () {
+      currentUserCommentLikeCountOverrides.removeListener(emit);
+    };
+  }).distinct();
+}
+
+Future<void> syncCurrentUserLikedCommentsForReviews(
+  List<SpotReviewData> visibleReviews,
+) async {
+  final firebaseUser = FirebaseAuth.instance.currentUser;
+  final uid = firebaseUser?.uid ?? '';
+  if (uid.isEmpty || visibleReviews.isEmpty) {
+    return;
+  }
+
+  final visibleReviewIds = visibleReviews
+      .map((review) => review.id.trim())
+      .where((id) => id.isNotEmpty)
+      .toSet();
+  if (visibleReviewIds.isEmpty) {
+    return;
+  }
+
+  final spotIds = visibleReviews
+      .map((review) => review.spotId.trim())
+      .where((id) => id.isNotEmpty)
+      .toSet();
+  if (spotIds.length != 1) {
+    return;
+  }
+
+  try {
+    await loadCurrentUserLikedCommentIdsFromLocalCache();
+    final snapshot = await spotLikesCollection()
+        .where('userId', isEqualTo: uid)
+        .where('targetType', isEqualTo: 'comment')
+        .where('commentSpotId', isEqualTo: spotIds.single)
+        .limit(200)
+        .debugGet(null, 'comment likes: current user visible spot page');
+
+    final likedVisibleIds = snapshot.docs
+        .map((doc) => stringFromFirebase(doc.data()['commentId'], ''))
+        .where(visibleReviewIds.contains)
+        .toSet();
+
+    final nextLikedIds = {...currentUserLikedCommentIds.value}
+      ..removeWhere(visibleReviewIds.contains)
+      ..addAll(likedVisibleIds);
+
+    currentUserLikedCommentIds.value = nextLikedIds;
+    unawaited(saveCurrentUserLikedCommentIdsToLocalCache());
+  } catch (error, stack) {
+    debugPrint('Current user visible comment likes sync failed: $error');
+    debugPrint('$stack');
+  }
+}
+
 String spotLikeDocumentId(String spotId, String userId) {
   return '${spotId}_$userId';
 }
@@ -9280,6 +9445,8 @@ Future<void> stopCurrentUserLikedSpotsSync() async {
   currentUserLikedSpotsSyncUid = null;
   currentUserLikedSpotsSyncStarting = false;
   currentUserLikedSpotIds.value = {};
+  currentUserLikedCommentIds.value = {};
+  currentUserCommentLikeCountOverrides.value = {};
 }
 
 Future<void> startCurrentUserLikedSpotsSync() async {
@@ -9311,7 +9478,9 @@ Future<void> startCurrentUserLikedSpotsSync() async {
   currentUserLikedSpotsSubscription =
       trackedQuerySnapshots(
         'current user liked spots sync',
-        spotLikesCollection().where('userId', isEqualTo: uid),
+        spotLikesCollection()
+            .where('userId', isEqualTo: uid)
+            .where('targetType', isEqualTo: 'spot'),
       ).listen(
         (snapshot) {
           final likedIds = <String>{};
@@ -9613,10 +9782,9 @@ String commentLikeDocumentId(SpotReviewData review, String userId) {
 }
 
 Stream<int> watchCommentLikeCount(SpotReviewData review) {
-  return trackedQuerySnapshots(
-    'comment like count stream',
-    spotLikesCollection().where('commentId', isEqualTo: review.id),
-  ).map((snapshot) => snapshot.docs.length);
+  // Avoid one Firestore listener per visible comment. The count is stored on the
+  // comment document and updated locally after the user taps like/unlike.
+  return watchCommentLikeCountFromCache(review);
 }
 
 Stream<bool> watchCurrentUserLikedComment(SpotReviewData review) {
@@ -9626,10 +9794,9 @@ Stream<bool> watchCurrentUserLikedComment(SpotReviewData review) {
     return Stream.value(false);
   }
 
-  return trackedDocSnapshots(
-    'current user liked comment stream',
-    spotLikesCollection().doc(commentLikeDocumentId(review, firebaseUser.uid)),
-  ).map((snapshot) => snapshot.exists);
+  // Avoid one Firestore document listener per visible comment. A single
+  // per-page query populates currentUserLikedCommentIds when comments load.
+  return watchCurrentUserLikedCommentFromCache(review.id);
 }
 
 Future<void> toggleCommentLike(
@@ -9655,18 +9822,70 @@ Future<void> toggleCommentLike(
   final likeRef = spotLikesCollection().doc(
     commentLikeDocumentId(review, firebaseUser.uid),
   );
+  final reviewRef = spotReviewsCollection().doc(review.id);
+  final targetLiked = !currentlyLiked;
+  final previousCount = currentCommentLikeCount(review);
+  final nextCount = math.max(0, previousCount + (targetLiked ? 1 : -1));
 
-  if (currentlyLiked) {
-    await likeRef.debugDelete();
-  } else {
-    await likeRef.debugSet({
-      'targetType': 'comment',
-      'commentId': review.id,
-      'commentSpotId': review.spotId,
-      'userId': firebaseUser.uid,
-      'username': currentUser.username,
-      'createdAt': FieldValue.serverTimestamp(),
+  setCurrentUserCommentLikedLocally(review.id, targetLiked);
+  setCommentLikeCountLocally(review.id, nextCount);
+
+  try {
+    await FirebaseFirestore.instance.runTransaction((transaction) async {
+      final likeSnapshot = await transaction.debugGet(
+        likeRef,
+        'comment like toggle existing like get',
+      );
+
+      if (targetLiked) {
+        if (likeSnapshot.exists) {
+          return;
+        }
+
+        transaction.debugSet(likeRef, {
+          'targetType': 'comment',
+          'commentId': review.id,
+          'commentSpotId': review.spotId,
+          'userId': firebaseUser.uid,
+          'username': currentUser.username,
+          'createdAt': FieldValue.serverTimestamp(),
+        });
+        transaction.debugUpdate(reviewRef, {
+          'likeCount': FieldValue.increment(1),
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+        return;
+      }
+
+      if (!likeSnapshot.exists) {
+        return;
+      }
+
+      transaction.debugDelete(likeRef);
+      transaction.debugUpdate(reviewRef, {
+        'likeCount': FieldValue.increment(-1),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
     });
+  } catch (error) {
+    setCurrentUserCommentLikedLocally(review.id, currentlyLiked);
+    setCommentLikeCountLocally(review.id, previousCount);
+
+    if (context.mounted) {
+      final code = error is FirebaseException ? error.code : error.toString();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: Colors.redAccent,
+          content: Text(
+            'Could not update comment like: $code',
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+      );
+    }
   }
 }
 
@@ -9721,6 +9940,7 @@ Future<SpotReviewData> saveSpotReview({
         'userId': firebaseUser.uid,
         'username': currentUser.username,
         'comment': cleanComment,
+        'likeCount': 0,
         'createdAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
       },
@@ -9754,6 +9974,7 @@ Future<SpotReviewData> saveSpotReview({
         'userId': firebaseUser.uid,
         'username': currentUser.username,
         'comment': cleanComment,
+        'likeCount': 0,
         'createdAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
       });
@@ -9793,6 +10014,7 @@ Future<SpotReviewData> saveSpotReview({
     username: currentUser.username,
     rating: 5,
     comment: cleanComment,
+    likeCount: 0,
     createdAt: now,
   );
 
@@ -20843,6 +21065,7 @@ class _SpotReviewsSectionState extends State<SpotReviewsSection> {
     hasMoreReviews = cached.hasMoreReviews;
     useCommentsFallbackQuery = cached.useFallbackQuery;
     reviewsError = null;
+    unawaited(syncCurrentUserLikedCommentsForReviews(reviews));
     return true;
   }
 
@@ -20925,6 +21148,8 @@ class _SpotReviewsSectionState extends State<SpotReviewsSection> {
           .where((review) => review.comment.trim().isNotEmpty)
           .take(spotCommentsPageSize)
           .toList();
+
+      await syncCurrentUserLikedCommentsForReviews(nextReviews);
 
       if (!mounted) {
         return;
