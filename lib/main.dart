@@ -1524,6 +1524,9 @@ const _ruText = <String, String>{
   'Save Settings': 'Сохранить настройки',
   'Settings saved to your account.': 'Настройки аккаунта сохранены.',
   'Add Car': 'Добавить автомобиль',
+  'No cars in garage': 'В гараже пока нет машин',
+  'Add your first car to show it on your profile.':
+      'Добавьте первую машину, чтобы она появилась в профиле.',
   'Edit Garage': 'Редактировать гараж',
   'Car photos': 'Фотографии автомобиля',
   'Car info': 'Информация об автомобиле',
@@ -1985,6 +1988,30 @@ const _ruText = <String, String>{
   'Sign out': 'Выйти',
   'Signing out...': 'Выход...',
   'Add': 'Добавить',
+  'Add friend': 'Добавить',
+  'Remove friend': 'Удалить из друзей',
+  'Block user': 'Заблокировать',
+  'Unblock user': 'Разблокировать',
+  'Blacklist': 'Чёрный список',
+  'Blocked users': 'Заблокированные пользователи',
+  'Manage blocked users': 'Управление заблокированными пользователями',
+  'No blocked users': 'Чёрный список пуст',
+  'Blocked users will appear here.':
+      'Заблокированные пользователи появятся здесь.',
+  'Friend request sent.': 'Заявка в друзья отправлена.',
+  'Friend request accepted.': 'Заявка в друзья принята.',
+  'Friend removed.': 'Пользователь удалён из друзей.',
+  'User blocked.': 'Пользователь заблокирован.',
+  'User unblocked.': 'Пользователь разблокирован.',
+  'Could not send request.': 'Не удалось отправить заявку.',
+  'Could not remove friend.': 'Не удалось удалить из друзей.',
+  'Could not block user.': 'Не удалось заблокировать пользователя.',
+  'Could not unblock user.': 'Не удалось разблокировать пользователя.',
+  'Could not open chat.': 'Не удалось открыть чат.',
+  'You cannot message this user.': 'Вы не можете написать этому пользователю.',
+  'This profile is not available.': 'Этот профиль недоступен.',
+  'Only avatar and nickname are visible.':
+      'Доступны только аватарка и никнейм.',
   'Friend': 'Друг',
   'Driver': 'Водитель',
   'Group share': 'Группа',
@@ -2032,6 +2059,7 @@ const _ruText = <String, String>{
   'No groups yet.': 'Групп пока нет.',
   'Sent': 'Отправлено',
   'Friend request': 'Заявка в друзья',
+  'New friend request': 'Новая заявка в друзья',
   'This is your current nickname.': 'Это ваш текущий никнейм.',
   'Checking nickname availability...': 'Проверяем доступность никнейма...',
   'Nickname is available.': 'Никнейм свободен.',
@@ -2053,6 +2081,10 @@ const _ruText = <String, String>{
   'you': 'вы',
   'Yesterday': 'Вчера',
   'Temporary event': 'Временный ивент',
+  'You can like this spot 2 times per day.':
+      'Вы можете поставить лайк этому споту только 2 раза в день.',
+  'You can remove your like from this spot 2 times per day.':
+      'Вы можете снять лайк с этого спота только 2 раза в день.',
   'Temporary events': 'Временные ивенты',
 };
 
@@ -2120,6 +2152,9 @@ const _lvText = <String, String>{
   'Save Settings': 'Saglabāt iestatījumus',
   'Settings saved to your account.': 'Konta iestatījumi saglabāti.',
   'Add Car': 'Pievienot auto',
+  'No cars in garage': 'Garāžā vēl nav auto',
+  'Add your first car to show it on your profile.':
+      'Pievienojiet pirmo auto, lai tas parādītos profilā.',
   'Edit Garage': 'Mainīt garāžu',
   'Car photos': 'Auto fotogrāfijas',
   'Car info': 'Informācija par auto',
@@ -2579,6 +2614,30 @@ const _lvText = <String, String>{
   'Sign out': 'Izrakstīties',
   'Signing out...': 'Izrakstās...',
   'Add': 'Pievienot',
+  'Add friend': 'Pievienot',
+  'Remove friend': 'Noņemt draugu',
+  'Block user': 'Bloķēt',
+  'Unblock user': 'Atbloķēt',
+  'Blacklist': 'Melnais saraksts',
+  'Blocked users': 'Bloķētie lietotāji',
+  'Manage blocked users': 'Pārvaldīt bloķētos lietotājus',
+  'No blocked users': 'Melnais saraksts ir tukšs',
+  'Blocked users will appear here.':
+      'Bloķētie lietotāji parādīsies šeit.',
+  'Friend request sent.': 'Draudzības pieprasījums nosūtīts.',
+  'Friend request accepted.': 'Draudzības pieprasījums pieņemts.',
+  'Friend removed.': 'Lietotājs noņemts no draugiem.',
+  'User blocked.': 'Lietotājs bloķēts.',
+  'User unblocked.': 'Lietotājs atbloķēts.',
+  'Could not send request.': 'Neizdevās nosūtīt pieprasījumu.',
+  'Could not remove friend.': 'Neizdevās noņemt draugu.',
+  'Could not block user.': 'Neizdevās bloķēt lietotāju.',
+  'Could not unblock user.': 'Neizdevās atbloķēt lietotāju.',
+  'Could not open chat.': 'Neizdevās atvērt čatu.',
+  'You cannot message this user.': 'Jūs nevarat rakstīt šim lietotājam.',
+  'This profile is not available.': 'Šis profils nav pieejams.',
+  'Only avatar and nickname are visible.':
+      'Redzams tikai avatārs un segvārds.',
   'Friend': 'Draugs',
   'Driver': 'Vadītājs',
   'Group share': 'Grupa',
@@ -2625,6 +2684,7 @@ const _lvText = <String, String>{
   'No groups yet.': 'Grupu vēl nav.',
   'Sent': 'Nosūtīts',
   'Friend request': 'Draudzības pieprasījums',
+  'New friend request': 'Jauns draudzības pieprasījums',
   'This is your current nickname.': 'Šis ir jūsu pašreizējais segvārds.',
   'Checking nickname availability...': 'Pārbaudām segvārda pieejamību...',
   'Nickname is available.': 'Segvārds ir pieejams.',
@@ -2646,6 +2706,10 @@ const _lvText = <String, String>{
   'you': 'jūs',
   'Yesterday': 'Vakar',
   'Temporary event': 'Pagaidu pasākums',
+  'You can like this spot 2 times per day.':
+      'Šai vietai varat nospiest Patīk tikai 2 reizes dienā.',
+  'You can remove your like from this spot 2 times per day.':
+      'Šai vietai varat noņemt Patīk tikai 2 reizes dienā.',
   'Temporary events': 'Pagaidu pasākumi',
 };
 
@@ -3677,7 +3741,7 @@ final submittedSpots = ValueNotifier<List<CarSpot>>([]);
 final savedSpots = ValueNotifier<List<CarSpot>>([]);
 final reviewSpots = ValueNotifier<List<CarSpot>>([]);
 final userSettings = ValueNotifier<UserSettingsData>(defaultUserSettings());
-final garageCars = ValueNotifier<List<GarageCar>>(defaultGarageCars());
+final garageCars = ValueNotifier<List<GarageCar>>(const []);
 final mapFocusRequest = ValueNotifier<MapFocusRequest?>(null);
 final spotCategoryFilters = ValueNotifier<Set<String>>({
   ...spotCategoryOptions,
@@ -4482,7 +4546,7 @@ Future<void> signOutCurrentAccount() async {
   savedSpots.value = [];
   unawaited(saveSavedSpotIds());
   userSettings.value = defaultUserSettings();
-  garageCars.value = defaultGarageCars();
+  garageCars.value = const [];
 }
 
 String spotStatusName(SpotStatus status) {
@@ -6555,6 +6619,24 @@ CollectionReference<Map<String, dynamic>> friendRequestsCollection() {
   return FirebaseFirestore.instance.collection('friend_requests');
 }
 
+bool isFirestorePermissionDenied(Object error) {
+  return error is FirebaseException && error.code == 'permission-denied';
+}
+
+Future<DocumentSnapshot<Map<String, dynamic>>?> safeFriendRequestGet(
+  String requestId,
+) async {
+  try {
+    return await friendRequestsCollection().doc(requestId).debugGet();
+  } catch (error) {
+    if (isFirestorePermissionDenied(error)) {
+      return null;
+    }
+
+    rethrow;
+  }
+}
+
 Stream<int> incomingFriendRequestCountStream() {
   final firebaseUser = FirebaseAuth.instance.currentUser;
   if (firebaseUser == null) {
@@ -6741,29 +6823,41 @@ Future<bool> areUsersFriends(String firstUid, String secondUid) async {
     return false;
   }
 
-  final snapshot = await friendshipsCollection()
-      .doc(friendshipIdFor(firstUid, secondUid))
-      .debugGet();
-  return snapshot.exists;
+  try {
+    final snapshot = await friendshipsCollection()
+        .doc(friendshipIdFor(firstUid, secondUid))
+        .debugGet();
+    return snapshot.exists;
+  } catch (error) {
+    if (isFirestorePermissionDenied(error)) {
+      return false;
+    }
+
+    rethrow;
+  }
 }
 
 Future<String?> pendingRequestStatusBetweenUsers(
   String firstUid,
   String secondUid,
 ) async {
-  final outgoing = await friendRequestsCollection()
-      .doc(friendRequestIdFor(firstUid, secondUid))
-      .debugGet();
+  final outgoing = await safeFriendRequestGet(
+    friendRequestIdFor(firstUid, secondUid),
+  );
 
-  if (outgoing.exists && outgoing.data()?['status'] == 'pending') {
+  if (outgoing != null &&
+      outgoing.exists &&
+      outgoing.data()?['status'] == 'pending') {
     return 'outgoing';
   }
 
-  final incoming = await friendRequestsCollection()
-      .doc(friendRequestIdFor(secondUid, firstUid))
-      .debugGet();
+  final incoming = await safeFriendRequestGet(
+    friendRequestIdFor(secondUid, firstUid),
+  );
 
-  if (incoming.exists && incoming.data()?['status'] == 'pending') {
+  if (incoming != null &&
+      incoming.exists &&
+      incoming.data()?['status'] == 'pending') {
     return 'incoming';
   }
 
@@ -6796,18 +6890,25 @@ Future<void> sendFriendRequestToUser(FriendUserData user) async {
   final incomingRef = friendRequestsCollection().doc(
     friendRequestIdFor(user.uid, firebaseUser.uid),
   );
-  final incoming = await incomingRef.debugGet();
+  final incoming = await safeFriendRequestGet(incomingRef.id);
 
-  if (incoming.exists && incoming.data()?['status'] == 'pending') {
+  if (incoming != null &&
+      incoming.exists &&
+      incoming.data()?['status'] == 'pending') {
     await acceptFriendRequest(FriendRequestData.fromFirestore(incoming));
     return;
   }
 
   final requestId = friendRequestIdFor(firebaseUser.uid, user.uid);
   final outgoingRef = friendRequestsCollection().doc(requestId);
-  final outgoing = await outgoingRef.debugGet();
-  if (outgoing.exists && outgoing.data()?['status'] == 'pending') {
+  final outgoing = await safeFriendRequestGet(outgoingRef.id);
+  if (outgoing != null &&
+      outgoing.exists &&
+      outgoing.data()?['status'] == 'pending') {
     return;
+  }
+  if (outgoing != null && outgoing.exists) {
+    await outgoingRef.debugDelete();
   }
 
   await outgoingRef.debugSet({
@@ -6935,6 +7036,116 @@ Future<void> removeFriendship(String friendUid) async {
       .debugDelete();
 }
 
+Future<List<String>> loadCurrentUserBlockedUserIds() async {
+  final firebaseUser = FirebaseAuth.instance.currentUser;
+
+  if (firebaseUser == null) {
+    return const [];
+  }
+
+  final snapshot = await usersCollection().doc(firebaseUser.uid).debugGet();
+  return stringListFromFirebase(
+    snapshot.data()?['blockedUserIds'],
+    const [],
+  );
+}
+
+Future<bool> isUserBlockedByCurrentUser(String userId) async {
+  if (userId.trim().isEmpty) {
+    return false;
+  }
+
+  final blockedUserIds = await loadCurrentUserBlockedUserIds();
+  return blockedUserIds.contains(userId);
+}
+
+Future<List<FriendUserData>> loadCurrentBlockedUsers() async {
+  final blockedUserIds = await loadCurrentUserBlockedUserIds();
+  final blockedUsers = <FriendUserData>[];
+
+  for (final uid in blockedUserIds) {
+    if (uid.trim().isEmpty) {
+      continue;
+    }
+
+    try {
+      final snapshot = await usersCollection().doc(uid).debugGet();
+      if (snapshot.exists) {
+        blockedUsers.add(FriendUserData.fromFirestore(snapshot));
+      } else {
+        blockedUsers.add(
+          FriendUserData(
+            uid: uid,
+            username: 'deleted_user',
+            name: trText('Profile deleted'),
+            email: '',
+            verified: false,
+            role: UserRole.user,
+            banned: false,
+            deleted: true,
+          ),
+        );
+      }
+    } catch (_) {
+      blockedUsers.add(
+        FriendUserData(
+          uid: uid,
+          username: 'blocked_user',
+          name: trText('Profile not found'),
+          email: '',
+          verified: false,
+          role: UserRole.user,
+          banned: false,
+          deleted: false,
+        ),
+      );
+    }
+  }
+
+  blockedUsers.sort((a, b) {
+    return a.username.toLowerCase().compareTo(b.username.toLowerCase());
+  });
+
+  return blockedUsers;
+}
+
+Future<void> blockUserById(FriendUserData user) async {
+  final firebaseUser = FirebaseAuth.instance.currentUser;
+
+  if (firebaseUser == null || user.uid == firebaseUser.uid) {
+    return;
+  }
+
+  await saveCurrentUserFields({
+    'blockedUserIds': FieldValue.arrayUnion([user.uid]),
+  });
+
+  try {
+    await removeFriendship(user.uid);
+  } catch (_) {}
+
+  for (final requestId in [
+    friendRequestIdFor(firebaseUser.uid, user.uid),
+    friendRequestIdFor(user.uid, firebaseUser.uid),
+  ]) {
+    try {
+      await friendRequestsCollection().doc(requestId).debugDelete();
+    } catch (_) {}
+  }
+}
+
+Future<void> unblockUserById(String userId) async {
+  final firebaseUser = FirebaseAuth.instance.currentUser;
+
+  if (firebaseUser == null || userId.trim().isEmpty) {
+    return;
+  }
+
+  await saveCurrentUserFields({
+    'blockedUserIds': FieldValue.arrayRemove([userId]),
+  });
+}
+
 const double friendNearbyRadiusMeters = 5000;
 const double friendAtSpotRadiusMeters = 200;
 const Duration friendLocationNotificationCooldown = Duration(minutes: 30);
@@ -7057,7 +7268,7 @@ Future<void> openMessageToUserFromContext(
       SnackBar(
         backgroundColor: Colors.redAccent,
         content: Text(
-          'Could not open chat: $error',
+          localizedFriendActionError(error, 'Could not open chat.'),
           style: const TextStyle(
             color: Colors.white,
             fontWeight: FontWeight.w700,
@@ -7066,6 +7277,20 @@ Future<void> openMessageToUserFromContext(
       ),
     );
   }
+}
+
+String localizedFriendActionError(Object error, String fallbackKey) {
+  if (error is FirebaseException) {
+    if (error.code == 'blocked-user') {
+      return trText('You cannot message this user.');
+    }
+
+    if (error.code == 'permission-denied') {
+      return trText(fallbackKey);
+    }
+  }
+
+  return trText(fallbackKey);
 }
 
 class ChatThreadData {
@@ -8956,7 +9181,7 @@ const int firebaseApprovedSpotsListenLimit = 250;
 const int firebaseMySpotsListenLimit = 100;
 const int firebaseAdminReviewSpotsListenLimit = 250;
 const int firebaseChatsListenLimit = 60;
-const int firebaseChatMessagesListenLimit = 50;
+const int firebaseChatMessagesListenLimit = 10;
 
 final List<StreamSubscription<QuerySnapshot<Map<String, dynamic>>>>
 spotSyncSubscriptions = [];
@@ -11092,7 +11317,11 @@ NotificationCenterItem notificationCenterItemFromJson(Object? value) {
     projectNews: data['projectNews'] == true || payload['projectNews'] == true,
     spotId: pickString('spotId', ''),
     spotName: spotName,
-    chatId: pickString('chatId', ''),
+    chatId: (() {
+      final v = pickString('chatId', '');
+      if (v.isNotEmpty) return v;
+      return pickString('chat_id', '');
+    })(),
     userId: pickString('userId', ''),
     addedByUid: pickString('addedByUid', ''),
     status: status,
@@ -11116,7 +11345,8 @@ NotificationCenterItem notificationCenterItemFromDocument(
   final actorUsername = stringFromFirebase(data['actorUsername'], '');
   final comment = stringFromFirebase(data['comment'], '');
   final friendUsername = stringFromFirebase(data['friendUsername'], '');
-  final title = stringFromFirebase(data['title'], switch (type) {
+  // Always use the canonical title for each type — ignore whatever Firebase stored.
+  final title = switch (type) {
     'spot_like' => 'Likes on my spots',
     'spot_comment' => 'Comments',
     'spot_review_update' => 'Spot review updates',
@@ -11124,13 +11354,13 @@ NotificationCenterItem notificationCenterItemFromDocument(
     'new_spot' => 'New spots',
     'temporary_event' => 'Temporary events',
     'spot_pending_review' => 'Spot review updates',
-    'spot_approved_by_admin' ||
-    'spot_rejected_by_admin' => 'Spot review updates',
+    'spot_approved_by_admin' || 'spot_rejected_by_admin' =>
+      'Spot review updates',
     'friend_request' => 'New friend request',
     'friend_nearby' || 'friend_at_spot' => 'Live location',
     'project_news' => 'Project news',
-    _ => 'CCS',
-  });
+    _ => stringFromFirebase(data['title'], 'CCS'),
+  };
   var body = stringFromFirebase(data['body'], '');
 
   if (body.trim().isEmpty) {
@@ -11210,7 +11440,11 @@ NotificationCenterItem notificationCenterItemFromDocument(
     projectNews: projectNews,
     spotId: stringFromFirebase(data['spotId'], ''),
     spotName: spotName,
-    chatId: stringFromFirebase(data['chatId'], ''),
+    chatId: (() {
+      final v = stringFromFirebase(data['chatId'], '');
+      if (v.isNotEmpty) return v;
+      return stringFromFirebase(data['chat_id'], '');
+    })(),
     userId: stringFromFirebase(data['userId'], ''),
     addedByUid: stringFromFirebase(data['addedByUid'], ''),
     status: status,
@@ -11778,7 +12012,7 @@ Future<void> openNotificationCenterItem(
         SnackBar(
           backgroundColor: Colors.redAccent,
           content: Text(
-            'Could not open chat: $error',
+            localizedFriendActionError(error, 'Could not open chat.'),
             style: const TextStyle(
               color: Colors.white,
               fontWeight: FontWeight.w700,
@@ -11795,6 +12029,63 @@ Future<void> openNotificationCenterItem(
       context,
       appPageRoute(builder: (_) => const FriendsScreen(initialTabIndex: 1)),
     );
+    return;
+  }
+
+  // For likes and comments, try to open the spot directly from spotId.
+  if ((item.type == 'spot_like' || item.type == 'spot_comment') &&
+      item.spotId.trim().isNotEmpty) {
+    final likeSpot = await spotForNotificationItem(item);
+    if (!context.mounted) return;
+
+    if (likeSpot != null) {
+      Navigator.push(
+        context,
+        appPageRoute(builder: (_) => SpotDetailScreen(spot: likeSpot)),
+      );
+    } else {
+      try {
+        final doc = await spotsCollection().doc(item.spotId.trim()).debugGet();
+        if (!context.mounted) return;
+
+        if (doc.exists) {
+          Navigator.push(
+            context,
+            appPageRoute(
+              builder: (_) => SpotDetailScreen(spot: CarSpot.fromFirestore(doc)),
+            ),
+          );
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              backgroundColor: Colors.redAccent,
+              content: Text(
+                'Spot is not available anymore.',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          );
+        }
+      } catch (_) {
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              backgroundColor: Colors.redAccent,
+              content: Text(
+                'Spot is not available anymore.',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          );
+        }
+      }
+    }
     return;
   }
 
@@ -11966,12 +12257,48 @@ class _NotificationCenterScreenState extends State<NotificationCenterScreen> {
             );
           }
 
+          final displayedItems = items.take(5).toList();
+          final hasMore = items.length > 5;
+
           return ListView.separated(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
-            itemCount: items.length,
+            itemCount: displayedItems.length + (hasMore ? 1 : 0),
             separatorBuilder: (_, _) => const SizedBox(height: 10),
             itemBuilder: (context, index) {
-              final item = items[index];
+              if (index == displayedItems.length) {
+                return Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: SizedBox(
+                    width: double.infinity,
+                    height: 48,
+                    child: OutlinedButton.icon(
+                      onPressed: () {
+                        setState(() {
+                          itemsFuture = loadNotificationCenterItems();
+                        });
+                        Navigator.push(
+                          context,
+                          appPageRoute(
+                            builder: (_) =>
+                                _AllNotificationsScreen(allItems: items),
+                          ),
+                        );
+                      },
+                      icon: const Icon(Icons.expand_more),
+                      label: Text(trText('Show ${items.length - 5} more')),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: blue,
+                        side: const BorderSide(color: blue),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                      ),
+                    ),
+                  ),
+                );
+              }
+
+              final item = displayedItems[index];
               final color = notificationCenterColor(item);
 
               return InkWell(
@@ -12056,6 +12383,130 @@ class _NotificationCenterScreenState extends State<NotificationCenterScreen> {
           );
         },
       ),
+    );
+  }
+}
+
+
+class _AllNotificationsScreen extends StatefulWidget {
+  final List<NotificationCenterItem> allItems;
+
+  const _AllNotificationsScreen({required this.allItems});
+
+  @override
+  State<_AllNotificationsScreen> createState() =>
+      _AllNotificationsScreenState();
+}
+
+class _AllNotificationsScreenState extends State<_AllNotificationsScreen> {
+  @override
+  Widget build(BuildContext context) {
+    final items = widget.allItems;
+
+    return Scaffold(
+      backgroundColor: Colors.transparent,
+      appBar: AppBar(
+        title: Text(trText('Notifications')),
+        backgroundColor: Colors.transparent,
+        foregroundColor: blue,
+      ),
+      body: items.isEmpty
+          ? const EmptyStateCard(
+              icon: Icons.notifications_none,
+              title: 'No notifications yet',
+              text: 'Your latest CCS updates will appear here.',
+            )
+          : ListView.separated(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
+              itemCount: items.length,
+              separatorBuilder: (_, _) => const SizedBox(height: 10),
+              itemBuilder: (context, index) {
+                final item = items[index];
+                final color = notificationCenterColor(item);
+
+                return InkWell(
+                  onTap: item.canOpen
+                      ? () => openNotificationCenterItem(context, item)
+                      : null,
+                  borderRadius: BorderRadius.circular(16),
+                  child: Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: panelGlass,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(
+                        color: item.read
+                            ? Colors.white12
+                            : color.withValues(alpha: 0.7),
+                      ),
+                    ),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Container(
+                          width: 42,
+                          height: 42,
+                          decoration: BoxDecoration(
+                            color: color.withValues(alpha: 0.16),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Icon(
+                            notificationCenterIcon(item),
+                            color: color,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                item.title,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w900,
+                                ),
+                              ),
+                              if (item.body.trim().isNotEmpty) ...[
+                                const SizedBox(height: 4),
+                                Text(
+                                  item.body,
+                                  style: const TextStyle(
+                                    color: Colors.white60,
+                                    height: 1.3,
+                                  ),
+                                ),
+                              ],
+                              if (notificationCenterTime(
+                                item.createdAtMillis,
+                              ).isNotEmpty) ...[
+                                const SizedBox(height: 7),
+                                Text(
+                                  notificationCenterTime(item.createdAtMillis),
+                                  style: const TextStyle(
+                                    color: Colors.white38,
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                        if (item.canOpen) ...[
+                          const SizedBox(width: 8),
+                          const Icon(
+                            Icons.chevron_right,
+                            color: Colors.white38,
+                            size: 22,
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
     );
   }
 }
@@ -12745,7 +13196,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
               ValueListenableBuilder<bool>(
                 valueListenable: firestoreDebugButtonVisible,
                 builder: (context, visible, _) {
-                  if (!visible) {
+                  if (!visible || !userRoleIsStaff(currentUser.role)) {
                     return const SizedBox.shrink();
                   }
 
@@ -15852,12 +16303,12 @@ class _MapScreenState extends State<MapScreen>
                               ),
                               decoration: BoxDecoration(
                                 color: selected
-                                    ? sosAlertColor
+                                    ? blue
                                     : Colors.white.withValues(alpha: 0.06),
                                 borderRadius: BorderRadius.circular(10),
                                 border: Border.all(
                                   color: selected
-                                      ? sosAlertColor
+                                      ? blue
                                       : Colors.white12,
                                 ),
                               ),
@@ -15946,7 +16397,7 @@ class _MapScreenState extends State<MapScreen>
                     );
                   },
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: sosAlertColor,
+                    backgroundColor: blue,
                   ),
                   child: Text(
                     trText('Create SOS'),
@@ -17685,7 +18136,7 @@ class _MapScreenState extends State<MapScreen>
         SnackBar(
           backgroundColor: Colors.redAccent,
           content: Text(
-            'Could not open chat: $error',
+            localizedFriendActionError(error, 'Could not open chat.'),
             style: const TextStyle(
               color: Colors.white,
               fontWeight: FontWeight.w700,
@@ -18770,7 +19221,7 @@ class SosReportMapCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: Colors.black.withValues(alpha: 0.88),
         borderRadius: BorderRadius.circular(22),
-        border: Border.all(color: sosAlertColor.withValues(alpha: 0.42)),
+        border: Border.all(color: blue.withValues(alpha: 0.42)),
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -18782,14 +19233,14 @@ class SosReportMapCard extends StatelessWidget {
                 width: 44,
                 height: 44,
                 decoration: BoxDecoration(
-                  color: sosAlertColor.withValues(alpha: 0.18),
+                  color: blue.withValues(alpha: 0.18),
                   borderRadius: BorderRadius.circular(14),
                 ),
                 child: const Center(
                   child: Text(
                     'SOS',
                     style: TextStyle(
-                      color: sosAlertColor,
+                      color: blue,
                       fontSize: 12,
                       fontWeight: FontWeight.w900,
                     ),
@@ -18834,9 +19285,9 @@ class SosReportMapCard extends StatelessWidget {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
             decoration: BoxDecoration(
-              color: sosAlertColor.withValues(alpha: 0.14),
+              color: blue.withValues(alpha: 0.14),
               borderRadius: BorderRadius.circular(999),
-              border: Border.all(color: sosAlertColor.withValues(alpha: 0.26)),
+              border: Border.all(color: blue.withValues(alpha: 0.26)),
             ),
             child: Text(
               trText(sosReasonLabel(report.reason)),
@@ -18901,7 +19352,7 @@ class SosReportMapCard extends StatelessWidget {
                 icon: const Icon(Icons.route, size: 18),
                 label: const Text('Open Waze'),
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: sosAlertColor,
+                  backgroundColor: blue,
                   foregroundColor: Colors.white,
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(14),
@@ -18919,8 +19370,8 @@ class SosReportMapCard extends StatelessWidget {
                   icon: const Icon(Icons.delete_outline, size: 18),
                   label: Text(trText('Delete SOS')),
                   style: OutlinedButton.styleFrom(
-                    foregroundColor: Colors.redAccent,
-                    side: const BorderSide(color: Colors.redAccent),
+                    foregroundColor: blue,
+                    side: const BorderSide(color: blue),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(14),
                     ),
@@ -21075,7 +21526,6 @@ class _SpotReviewsSectionState extends State<SpotReviewsSection> {
     hasMoreReviews = cached.hasMoreReviews;
     useCommentsFallbackQuery = cached.useFallbackQuery;
     reviewsError = null;
-    unawaited(syncCurrentUserLikedCommentsForReviews(reviews));
     return true;
   }
 
@@ -21158,8 +21608,6 @@ class _SpotReviewsSectionState extends State<SpotReviewsSection> {
           .where((review) => review.comment.trim().isNotEmpty)
           .take(spotCommentsPageSize)
           .toList();
-
-      await syncCurrentUserLikedCommentsForReviews(nextReviews);
 
       if (!mounted) {
         return;
@@ -21688,57 +22136,11 @@ class SpotReviewCard extends StatelessWidget {
             review.comment,
             style: const TextStyle(color: Colors.white70, height: 1.35),
           ),
-          const SizedBox(height: 10),
-          Row(
-            children: [
-              StreamBuilder<bool>(
-                stream: watchCurrentUserLikedComment(review),
-                builder: (context, likedSnapshot) {
-                  final liked = likedSnapshot.data ?? false;
-
-                  return StreamBuilder<int>(
-                    stream: watchCommentLikeCount(review),
-                    builder: (context, countSnapshot) {
-                      final likeCount = countSnapshot.data ?? 0;
-
-                      return InkWell(
-                        onTap: () => toggleCommentLike(context, review, liked),
-                        borderRadius: BorderRadius.circular(999),
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 4,
-                            vertical: 4,
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(
-                                liked ? Icons.favorite : Icons.favorite_border,
-                                color: liked
-                                    ? Colors.redAccent
-                                    : Colors.white54,
-                                size: 17,
-                              ),
-                              const SizedBox(width: 5),
-                              Text(
-                                '$likeCount',
-                                style: TextStyle(
-                                  color: liked
-                                      ? Colors.redAccent
-                                      : Colors.white54,
-                                  fontWeight: FontWeight.w800,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      );
-                    },
-                  );
-                },
-              ),
-              const Spacer(),
-              if (canManage) ...[
+          if (canManage) ...[
+            const SizedBox(height: 10),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
                 IconButton(
                   onPressed: () => _showEditDialog(context),
                   icon: const Icon(Icons.edit, color: Colors.white54, size: 18),
@@ -21754,8 +22156,8 @@ class SpotReviewCard extends StatelessWidget {
                   tooltip: 'Delete comment',
                 ),
               ],
-            ],
-          ),
+            ),
+          ],
         ],
       ),
     );
@@ -23566,7 +23968,7 @@ class _LocationPickerField extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    title,
+                    trText(title),
                     style: const TextStyle(
                       color: Colors.white,
                       fontWeight: FontWeight.w800,
@@ -25493,6 +25895,24 @@ class _ChatManageScreenState extends State<ChatManageScreen> {
   }
 
   Widget section(String title, List<ChatThreadData> chats) {
+    final currentUid =
+        FirebaseAuth.instance.currentUser?.uid ?? currentUser.uid;
+
+    final pinnedChats = pinnedIds
+        .map((id) {
+          try {
+            return chats.firstWhere((chat) => chat.id == id);
+          } catch (_) {
+            return null;
+          }
+        })
+        .whereType<ChatThreadData>()
+        .toList();
+    final unpinnedChats = chats
+        .where((chat) => !pinnedIds.contains(chat.id))
+        .toList();
+    final orderedChats = [...pinnedChats, ...unpinnedChats];
+
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
@@ -25512,59 +25932,116 @@ class _ChatManageScreenState extends State<ChatManageScreen> {
             ),
           ),
           const SizedBox(height: 12),
-          if (chats.isEmpty)
+          if (orderedChats.isEmpty)
             const Text(
               'Nothing here yet.',
               style: TextStyle(color: Colors.white54),
             )
           else
-            for (final chat in chats) ...[
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      chat.titleForCurrentUser(
-                        FirebaseAuth.instance.currentUser?.uid ??
-                            currentUser.uid,
-                      ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w800,
-                      ),
+            ReorderableListView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              itemCount: orderedChats.length,
+              onReorder: (oldIndex, newIndex) async {
+                final chat = orderedChats[oldIndex];
+                if (!pinnedIds.contains(chat.id)) {
+                  return;
+                }
+
+                final oldPinIndex = pinnedIds.indexOf(chat.id);
+                if (oldPinIndex < 0) {
+                  return;
+                }
+
+                final adjustedNewIndex = newIndex > oldIndex
+                    ? newIndex - 1
+                    : newIndex;
+                final maxPinnedIndex = math.max(0, pinnedIds.length - 1);
+                final newPinIndex = adjustedNewIndex
+                    .clamp(0, maxPinnedIndex)
+                    .toInt();
+
+                if (newPinIndex == oldPinIndex) {
+                  return;
+                }
+
+                setState(() {
+                  final id = pinnedIds.removeAt(oldPinIndex);
+                  pinnedIds.insert(newPinIndex, id);
+                });
+
+                await savePinnedChatIds(pinnedIds);
+              },
+              itemBuilder: (context, index) {
+                final chat = orderedChats[index];
+                final isPinned = pinnedIds.contains(chat.id);
+                final pinIndex = pinnedIds.indexOf(chat.id);
+
+                return Column(
+                  key: ValueKey(chat.id),
+                  children: [
+                    Row(
+                      children: [
+                        if (isPinned) ...[
+                          const Icon(
+                            Icons.drag_handle,
+                            color: Colors.white38,
+                            size: 20,
+                          ),
+                          const SizedBox(width: 4),
+                        ] else
+                          const SizedBox(width: 24),
+                        Expanded(
+                          child: Text(
+                            chat.titleForCurrentUser(currentUid),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: isPinned ? Colors.white : Colors.white54,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ),
+                        if (isPinned) ...[
+                          IconButton(
+                            tooltip: 'Move up',
+                            onPressed: pinIndex > 0
+                                ? () => movePinned(chat.id, -1)
+                                : null,
+                            icon: const Icon(Icons.keyboard_arrow_up),
+                            color: pinIndex > 0
+                                ? Colors.white70
+                                : Colors.white24,
+                          ),
+                          IconButton(
+                            tooltip: 'Move down',
+                            onPressed: pinIndex < pinnedIds.length - 1
+                                ? () => movePinned(chat.id, 1)
+                                : null,
+                            icon: const Icon(Icons.keyboard_arrow_down),
+                            color: pinIndex < pinnedIds.length - 1
+                                ? Colors.white70
+                                : Colors.white24,
+                          ),
+                        ],
+                        IconButton(
+                          tooltip: isPinned ? 'Unpin' : 'Pin',
+                          onPressed: () => togglePin(chat),
+                          icon: Icon(
+                            isPinned
+                                ? Icons.push_pin
+                                : Icons.push_pin_outlined,
+                            color: isPinned ? blue : Colors.white54,
+                          ),
+                        ),
+                      ],
                     ),
-                  ),
-                  IconButton(
-                    tooltip: 'Move up',
-                    onPressed: pinnedIds.contains(chat.id)
-                        ? () => movePinned(chat.id, -1)
-                        : null,
-                    icon: const Icon(Icons.keyboard_arrow_up),
-                  ),
-                  IconButton(
-                    tooltip: 'Move down',
-                    onPressed: pinnedIds.contains(chat.id)
-                        ? () => movePinned(chat.id, 1)
-                        : null,
-                    icon: const Icon(Icons.keyboard_arrow_down),
-                  ),
-                  IconButton(
-                    tooltip: pinnedIds.contains(chat.id) ? 'Unpin' : 'Pin',
-                    onPressed: () => togglePin(chat),
-                    icon: Icon(
-                      pinnedIds.contains(chat.id)
-                          ? Icons.push_pin
-                          : Icons.push_pin_outlined,
-                      color: pinnedIds.contains(chat.id)
-                          ? blue
-                          : Colors.white54,
-                    ),
-                  ),
-                ],
-              ),
-              const Divider(color: Colors.white10),
-            ],
+                    if (index != orderedChats.length - 1)
+                      const Divider(color: Colors.white10),
+                  ],
+                );
+              },
+            ),
         ],
       ),
     );
@@ -25673,7 +26150,7 @@ class _NewChatScreenState extends State<NewChatScreen> {
         SnackBar(
           backgroundColor: Colors.redAccent,
           content: Text(
-            'Could not open chat: $error',
+            localizedFriendActionError(error, 'Could not open chat.'),
             style: const TextStyle(
               color: Colors.white,
               fontWeight: FontWeight.w700,
@@ -25826,7 +26303,7 @@ class _NewChatScreenState extends State<NewChatScreen> {
                       ),
                       const SizedBox(width: 6),
                       Text(
-                        user.appearsOnline ? 'online' : 'offline',
+                        trText(user.appearsOnline ? 'online' : 'offline'),
                         style: TextStyle(
                           color: user.appearsOnline
                               ? Colors.greenAccent
@@ -26629,11 +27106,73 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
   bool scrollToLatestAfterNextMessage = false;
   int renderedMessageCount = 0;
 
+  // Pagination for loading older messages.
+  final List<ChatMessageData> _allMessages = [];
+  DocumentSnapshot<Map<String, dynamic>>? _oldestLoadedDoc;
+  bool _isLoadingOlderMessages = false;
+  bool _hasMoreOlderMessages = true;
+  bool _paginationInitialized = false;
+
+  @override
+  void initState() {
+    super.initState();
+    chatScrollController.addListener(_onScroll);
+  }
+
   @override
   void dispose() {
+    chatScrollController.removeListener(_onScroll);
     messageController.dispose();
     chatScrollController.dispose();
     super.dispose();
+  }
+
+  void _onScroll() {
+    if (!chatScrollController.hasClients) return;
+    final position = chatScrollController.position;
+    // Load older messages when scrolled near the top.
+    if (position.pixels <= 120 &&
+        _hasMoreOlderMessages &&
+        !_isLoadingOlderMessages &&
+        _paginationInitialized) {
+      unawaited(_loadOlderMessages());
+    }
+  }
+
+  Future<void> _loadOlderMessages() async {
+    if (_isLoadingOlderMessages || !_hasMoreOlderMessages) return;
+    if (_oldestLoadedDoc == null) return;
+
+    setState(() => _isLoadingOlderMessages = true);
+
+    try {
+      final snapshot = await chatMessagesCollection(widget.chat.id)
+          .orderBy('createdAt', descending: true)
+          .startAfterDocument(_oldestLoadedDoc!)
+          .limit(20)
+          .debugGet(null, 'chat: load older messages');
+
+      if (!mounted) return;
+
+      final older = snapshot.docs
+          .map((doc) => ChatMessageData.fromFirestore(doc))
+          .where((m) => m.text.trim().isNotEmpty)
+          .toList()
+          .reversed
+          .toList();
+
+      if (older.isNotEmpty) {
+        _oldestLoadedDoc = snapshot.docs.last;
+      }
+
+      setState(() {
+        _allMessages.insertAll(0, older);
+        _hasMoreOlderMessages = snapshot.docs.length >= 20;
+        _isLoadingOlderMessages = false;
+      });
+    } catch (_) {
+      if (mounted) setState(() => _isLoadingOlderMessages = false);
+    }
   }
 
   bool isNearLatestMessage() {
@@ -27254,16 +27793,34 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
                 widget.chat.id,
               ).debugSnapshots('chat: latest messages listener'),
               builder: (context, snapshot) {
-                final messages =
-                    snapshot.data?.docs
-                        .map((doc) => ChatMessageData.fromFirestore(doc))
-                        .where((message) => message.text.trim().isNotEmpty)
-                        .toList() ??
-                    <ChatMessageData>[];
-                messages.sort(
-                  (first, second) =>
-                      first.createdAtMillis.compareTo(second.createdAtMillis),
+                // Merge live latest messages with older loaded ones.
+                final latestDocs = snapshot.data?.docs ?? [];
+                final latestMessages = latestDocs
+                    .map((doc) => ChatMessageData.fromFirestore(doc))
+                    .where((m) => m.text.trim().isNotEmpty)
+                    .toList();
+                latestMessages.sort(
+                  (a, b) => a.createdAtMillis.compareTo(b.createdAtMillis),
                 );
+
+                // Initialize pagination anchor once.
+                if (!_paginationInitialized && latestDocs.isNotEmpty) {
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    if (!mounted) return;
+                    setState(() {
+                      _oldestLoadedDoc = latestDocs.last; // oldest in desc order
+                      _paginationInitialized = true;
+                    });
+                  });
+                }
+
+                // Merge: older loaded + latest live (dedup by id).
+                final latestById = {for (final m in latestMessages) m.id: m};
+                final olderNotInLatest = _allMessages
+                    .where((m) => !latestById.containsKey(m.id))
+                    .toList();
+                final messages = [...olderNotInLatest, ...latestMessages];
+
                 updateChatScrollForMessages(messages.length);
 
                 if (messages.isEmpty) {
@@ -27295,7 +27852,23 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
                   return ListView(
                     controller: chatScrollController,
                     padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-                    children: children,
+                    children: [
+                      if (_isLoadingOlderMessages)
+                        const Padding(
+                          padding: EdgeInsets.all(12),
+                          child: Center(
+                            child: SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: blue,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ...children,
+                    ],
                   );
                 }
 
@@ -27512,10 +28085,10 @@ class GarageCar {
         : [legacyPhotoPath];
 
     return GarageCar(
-      name: stringFromFirebase(data['name'], 'BMW E46 Coupe'),
+      name: stringFromFirebase(data['name'], 'Untitled car'),
       description: stringFromFirebase(
         data['description'],
-        'Night drive setup for city shoots and clean street parking spots.',
+        'Car profile.',
       ),
       buildType: stringFromFirebase(data['buildType'], ''),
       useType: stringFromFirebase(data['useType'], ''),
@@ -27541,25 +28114,32 @@ class GarageCar {
 }
 
 List<GarageCar> defaultGarageCars() {
-  return const [
-    GarageCar(
-      name: 'BMW E46 Coupe',
-      description:
-          'Night drive setup for city shoots and clean street parking spots.',
-    ),
-  ];
+  return const [];
+}
+
+bool isLegacyDefaultGarageCar(GarageCar car) {
+  return car.name.trim() == 'BMW E46 Coupe' &&
+      car.description.trim() ==
+          'Night drive setup for city shoots and clean street parking spots.' &&
+      car.galleryPhotos.isEmpty &&
+      car.buildType.trim().isEmpty &&
+      car.useType.trim().isEmpty &&
+      car.tags.isEmpty;
 }
 
 List<GarageCar> garageCarsFromFirebase(Object? value) {
   if (value is List) {
-    final cars = value.map(GarageCar.fromFirebase).toList();
+    final cars = value
+        .map(GarageCar.fromFirebase)
+        .where((car) => !isLegacyDefaultGarageCar(car))
+        .toList();
 
     if (cars.isNotEmpty) {
       return cars;
     }
   }
 
-  return defaultGarageCars();
+  return const [];
 }
 
 class PublicUserProfileData {
@@ -27581,6 +28161,7 @@ class PublicUserProfileData {
   final int lastSeenAtMillis;
   final bool isSharingLiveLocation;
   final int? liveLocationExpiresAtMillis;
+  final List<String> blockedUserIds;
 
   const PublicUserProfileData({
     required this.uid,
@@ -27601,9 +28182,20 @@ class PublicUserProfileData {
     this.lastSeenAtMillis = 0,
     this.isSharingLiveLocation = false,
     this.liveLocationExpiresAtMillis,
+    this.blockedUserIds = const [],
   });
 
+  bool get currentViewerIsBlocked {
+    final currentUid =
+        FirebaseAuth.instance.currentUser?.uid ?? currentUser.uid;
+    return currentUid.trim().isNotEmpty && blockedUserIds.contains(currentUid);
+  }
+
   bool get canCurrentUserView {
+    if (currentViewerIsBlocked) {
+      return false;
+    }
+
     return userRoleIsStaff(currentUser.role) ||
         currentUser.uid == uid ||
         settings.publicProfile;
@@ -27641,6 +28233,7 @@ class PublicUserProfileData {
           isSharingLiveLocation ?? this.isSharingLiveLocation,
       liveLocationExpiresAtMillis:
           liveLocationExpiresAtMillis ?? this.liveLocationExpiresAtMillis,
+      blockedUserIds: blockedUserIds,
     );
   }
 
@@ -27678,6 +28271,10 @@ class PublicUserProfileData {
       isSharingLiveLocation: data['isSharingLiveLocation'] == true,
       liveLocationExpiresAtMillis: nullableTimestampMillisFromFirebase(
         data['liveLocationExpiresAt'],
+      ),
+      blockedUserIds: stringListFromFirebase(
+        data['blockedUserIds'],
+        const [],
       ),
     );
   }
@@ -28041,6 +28638,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
+  void openBlacklist() {
+    Navigator.push(
+      context,
+      appPageRoute(builder: (_) => const BlockedUsersScreen()),
+    );
+  }
+
   void openAdminPanel() {
     final firebaseUser = FirebaseAuth.instance.currentUser;
     if (firebaseUser == null || !userRoleIsStaff(currentUser.role)) {
@@ -28146,10 +28750,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 onEdit: editProfile,
               ),
               const SizedBox(height: 12),
-              for (var i = 0; i < cars.length; i++) ...[
-                _GarageCard(car: cars[i], onEdit: () => editGarage(i)),
+              if (cars.isEmpty) ...[
+                _EmptyGarageCard(onAdd: addCar),
                 const SizedBox(height: 16),
-              ],
+              ] else
+                for (var i = 0; i < cars.length; i++) ...[
+                  _GarageCard(car: cars[i], onEdit: () => editGarage(i)),
+                  const SizedBox(height: 16),
+                ],
               ValueListenableBuilder<List<CarSpot>>(
                 valueListenable: savedSpots,
                 builder: (context, saved, _) {
@@ -28165,6 +28773,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 subtitle: 'Send requests, accept invites, and manage friends',
                 badgeCountStream: incomingFriendRequestCountStream(),
                 onTap: openFriends,
+              ),
+              const SizedBox(height: 10),
+              _ProfileActionTile(
+                icon: Icons.block,
+                title: 'Blacklist',
+                subtitle: 'Manage blocked users',
+                color: Colors.redAccent,
+                onTap: openBlacklist,
               ),
               const SizedBox(height: 10),
               if (userRoleIsStaff(currentUser.role)) ...[
@@ -28205,6 +28821,586 @@ class _ProfileScreenState extends State<ProfileScreen> {
           );
         },
       ),
+    );
+  }
+}
+
+class BlockedUsersScreen extends StatefulWidget {
+  const BlockedUsersScreen({super.key});
+
+  @override
+  State<BlockedUsersScreen> createState() => _BlockedUsersScreenState();
+}
+
+class _BlockedUsersScreenState extends State<BlockedUsersScreen> {
+  late Future<List<FriendUserData>> blockedUsersFuture;
+  final Set<String> busyUserIds = <String>{};
+
+  @override
+  void initState() {
+    super.initState();
+    blockedUsersFuture = loadCurrentBlockedUsers();
+  }
+
+  void refreshBlockedUsers() {
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      blockedUsersFuture = loadCurrentBlockedUsers();
+    });
+  }
+
+  Widget blockedUserAvatar(FriendUserData user) {
+    return Container(
+      width: 48,
+      height: 48,
+      decoration: BoxDecoration(
+        color: blue.withValues(alpha: 0.16),
+        shape: BoxShape.circle,
+        border: Border.all(color: blue.withValues(alpha: 0.45)),
+      ),
+      child: ClipOval(
+        child: localFileExists(user.avatarPath)
+            ? Image.file(File(user.avatarPath!), fit: BoxFit.cover)
+            : (user.photoUrl != null && user.photoUrl!.trim().isNotEmpty)
+            ? Image.network(
+                user.photoUrl!,
+                fit: BoxFit.cover,
+                errorBuilder: (_, _, _) => blockedUserFallbackAvatar(user),
+              )
+            : blockedUserFallbackAvatar(user),
+      ),
+    );
+  }
+
+  Widget blockedUserFallbackAvatar(FriendUserData user) {
+    final letter = user.username.trim().isEmpty
+        ? '?'
+        : user.username.trim().substring(0, 1).toUpperCase();
+
+    return Center(
+      child: Text(
+        letter,
+        style: const TextStyle(
+          color: Colors.white,
+          fontWeight: FontWeight.w900,
+        ),
+      ),
+    );
+  }
+
+  Future<void> unblockUser(FriendUserData user) async {
+    if (busyUserIds.contains(user.uid)) {
+      return;
+    }
+
+    setState(() => busyUserIds.add(user.uid));
+    try {
+      await unblockUserById(user.uid);
+
+      if (!mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: blue,
+          content: Text(
+            trText('User unblocked.'),
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+      );
+      refreshBlockedUsers();
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: Colors.redAccent,
+          content: Text(
+            localizedFriendActionError(error, 'Could not unblock user.'),
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => busyUserIds.remove(user.uid));
+      }
+    }
+  }
+
+  Widget blockedUserTile(FriendUserData user) {
+    final busy = busyUserIds.contains(user.uid);
+
+    return InkWell(
+      onTap: user.deleted
+          ? null
+          : () => openUserProfile(
+              context,
+              uid: user.uid,
+              fallbackUsername: user.username,
+            ),
+      borderRadius: BorderRadius.circular(18),
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 10),
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: panelGlass,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: Colors.white12),
+        ),
+        child: Row(
+          children: [
+            blockedUserAvatar(user),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Flexible(
+                        child: Text(
+                          user.username,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 16,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                      ),
+                      if (user.verified) ...[
+                        const SizedBox(width: 6),
+                        const Icon(Icons.verified, color: blue, size: 16),
+                      ],
+                    ],
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    user.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(color: Colors.white54, fontSize: 12),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 10),
+            OutlinedButton.icon(
+              onPressed: busy ? null : () => unblockUser(user),
+              icon: busy
+                  ? const SizedBox(
+                      width: 14,
+                      height: 14,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: blue,
+                      ),
+                    )
+                  : const Icon(Icons.lock_open, size: 16),
+              label: Text(trText('Unblock user')),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: blue,
+                side: BorderSide(color: blue.withValues(alpha: 0.7)),
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(999),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.transparent,
+      appBar: AppBar(
+        title: Text(trText('Blacklist')),
+        backgroundColor: Colors.transparent,
+        foregroundColor: blue,
+        actions: [
+          IconButton(
+            tooltip: trText('Refresh'),
+            onPressed: refreshBlockedUsers,
+            icon: const Icon(Icons.refresh),
+          ),
+        ],
+      ),
+      body: FutureBuilder<List<FriendUserData>>(
+        future: blockedUsersFuture,
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(
+              child: CircularProgressIndicator(color: blue),
+            );
+          }
+
+          final users = snapshot.data ?? const <FriendUserData>[];
+          if (users.isEmpty) {
+            return Padding(
+              padding: const EdgeInsets.all(20),
+              child: EmptyStateCard(
+                icon: Icons.block,
+                title: trText('No blocked users'),
+                text: trText('Blocked users will appear here.'),
+              ),
+            );
+          }
+
+          return ListView(
+            padding: const EdgeInsets.fromLTRB(20, 18, 20, 28),
+            children: [
+              for (final user in users) blockedUserTile(user),
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
+class PublicProfileRelationshipState {
+  final bool isSelf;
+  final bool isFriend;
+  final bool outgoingRequest;
+  final bool incomingRequest;
+  final bool blockedByCurrentUser;
+
+  const PublicProfileRelationshipState({
+    required this.isSelf,
+    this.isFriend = false,
+    this.outgoingRequest = false,
+    this.incomingRequest = false,
+    this.blockedByCurrentUser = false,
+  });
+}
+
+Future<PublicProfileRelationshipState> loadPublicProfileRelationshipState(
+  String userId,
+) async {
+  final firebaseUser = FirebaseAuth.instance.currentUser;
+
+  if (firebaseUser == null || userId.trim().isEmpty) {
+    return const PublicProfileRelationshipState(isSelf: false);
+  }
+
+  final isSelf = firebaseUser.uid == userId;
+  if (isSelf) {
+    return const PublicProfileRelationshipState(isSelf: true);
+  }
+
+  final blockedByCurrentUser = await isUserBlockedByCurrentUser(userId);
+  final isFriend = await areUsersFriends(firebaseUser.uid, userId);
+  final requestStatus = await pendingRequestStatusBetweenUsers(
+    firebaseUser.uid,
+    userId,
+  );
+
+  return PublicProfileRelationshipState(
+    isSelf: false,
+    isFriend: isFriend,
+    outgoingRequest: requestStatus == 'outgoing',
+    incomingRequest: requestStatus == 'incoming',
+    blockedByCurrentUser: blockedByCurrentUser,
+  );
+}
+
+class PublicProfileActions extends StatefulWidget {
+  final PublicUserProfileData profile;
+
+  const PublicProfileActions({super.key, required this.profile});
+
+  @override
+  State<PublicProfileActions> createState() => _PublicProfileActionsState();
+}
+
+class _PublicProfileActionsState extends State<PublicProfileActions> {
+  late Future<PublicProfileRelationshipState> relationshipFuture;
+  bool busy = false;
+
+  @override
+  void initState() {
+    super.initState();
+    relationshipFuture = loadPublicProfileRelationshipState(widget.profile.uid);
+  }
+
+  @override
+  void didUpdateWidget(PublicProfileActions oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.profile.uid != widget.profile.uid) {
+      relationshipFuture = loadPublicProfileRelationshipState(
+        widget.profile.uid,
+      );
+    }
+  }
+
+  FriendUserData get user {
+    return FriendUserData(
+      uid: widget.profile.uid,
+      username: widget.profile.username,
+      name: widget.profile.name,
+      email: widget.profile.email,
+      photoUrl: widget.profile.photoUrl,
+      avatarPath: widget.profile.avatarPath,
+      verified: widget.profile.verified,
+      role: widget.profile.role,
+      banned: false,
+      deleted: false,
+    );
+  }
+
+  void refreshRelationship() {
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      relationshipFuture = loadPublicProfileRelationshipState(
+        widget.profile.uid,
+      );
+    });
+  }
+
+  void showActionMessage(String message, {Color color = blue}) {
+    if (!mounted) {
+      return;
+    }
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        backgroundColor: color,
+        content: Text(
+          message,
+          style: const TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> runAction(
+    Future<void> Function() action, {
+    required String successKey,
+    required String errorKey,
+    Color successColor = blue,
+  }) async {
+    if (busy) {
+      return;
+    }
+
+    setState(() => busy = true);
+    try {
+      await action();
+      showActionMessage(trText(successKey), color: successColor);
+      refreshRelationship();
+    } catch (error) {
+      showActionMessage(
+        localizedFriendActionError(error, errorKey),
+        color: Colors.redAccent,
+      );
+    } finally {
+      if (mounted) {
+        setState(() => busy = false);
+      }
+    }
+  }
+
+  Future<void> openMessage(PublicProfileRelationshipState relationship) async {
+    if (widget.profile.currentViewerIsBlocked) {
+      showActionMessage(
+        trText('You cannot message this user.'),
+        color: Colors.redAccent,
+      );
+      return;
+    }
+
+    await openMessageToUserFromContext(context, user);
+  }
+
+  Future<void> acceptIncomingRequest() async {
+    final firebaseUser = FirebaseAuth.instance.currentUser;
+    if (firebaseUser == null) {
+      return;
+    }
+
+    final doc = await safeFriendRequestGet(
+      friendRequestIdFor(widget.profile.uid, firebaseUser.uid),
+    );
+    if (doc != null && doc.exists) {
+      await acceptFriendRequest(FriendRequestData.fromFirestore(doc));
+    }
+  }
+
+  Widget actionChipButton({
+    required IconData icon,
+    required String label,
+    required VoidCallback? onPressed,
+    Color color = blue,
+    bool filled = false,
+  }) {
+    final shape = RoundedRectangleBorder(
+      borderRadius: BorderRadius.circular(999),
+    );
+    final cleanLabel = trText(label);
+
+    if (filled) {
+      return ElevatedButton.icon(
+        onPressed: onPressed,
+        icon: Icon(icon, size: 16),
+        label: Text(cleanLabel),
+        style: ElevatedButton.styleFrom(
+          backgroundColor: color,
+          foregroundColor: Colors.white,
+          minimumSize: const Size(0, 40),
+          padding: const EdgeInsets.symmetric(horizontal: 13),
+          textStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w800),
+          shape: shape,
+        ),
+      );
+    }
+
+    return OutlinedButton.icon(
+      onPressed: onPressed,
+      icon: Icon(icon, size: 16),
+      label: Text(cleanLabel),
+      style: OutlinedButton.styleFrom(
+        foregroundColor: color,
+        side: BorderSide(color: color.withValues(alpha: 0.7)),
+        minimumSize: const Size(0, 40),
+        padding: const EdgeInsets.symmetric(horizontal: 13),
+        textStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w800),
+        shape: shape,
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<PublicProfileRelationshipState>(
+      future: relationshipFuture,
+      builder: (context, snapshot) {
+        final relationship =
+            snapshot.data ??
+            PublicProfileRelationshipState(
+              isSelf: widget.profile.uid == currentUser.uid,
+            );
+
+        if (relationship.isSelf) {
+          return const SizedBox.shrink();
+        }
+
+        final isLoading =
+            snapshot.connectionState == ConnectionState.waiting || busy;
+        final canMessage = !widget.profile.currentViewerIsBlocked;
+
+        return Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            actionChipButton(
+              icon: Icons.chat_bubble_outline,
+              label: 'Message',
+              filled: true,
+              onPressed: isLoading || !canMessage
+                  ? null
+                  : () => openMessage(relationship),
+            ),
+            if (relationship.blockedByCurrentUser)
+              const SizedBox.shrink()
+            else if (relationship.incomingRequest)
+              actionChipButton(
+                icon: Icons.person_add_alt_1,
+                label: 'Accept',
+                filled: true,
+                onPressed: isLoading
+                    ? null
+                    : () => runAction(
+                        acceptIncomingRequest,
+                        successKey: 'Friend request accepted.',
+                        errorKey: 'Could not send request.',
+                      ),
+              )
+            else if (relationship.isFriend)
+              actionChipButton(
+                icon: Icons.person_remove_outlined,
+                label: 'Remove friend',
+                color: Colors.orangeAccent,
+                onPressed: isLoading
+                    ? null
+                    : () => runAction(
+                        () => removeFriendship(widget.profile.uid),
+                        successKey: 'Friend removed.',
+                        errorKey: 'Could not remove friend.',
+                        successColor: Colors.orangeAccent,
+                      ),
+              )
+            else if (relationship.outgoingRequest)
+              actionChipButton(
+                icon: Icons.mark_email_read_outlined,
+                label: 'Sent',
+                onPressed: null,
+              )
+            else
+              actionChipButton(
+                icon: Icons.person_add_alt_1,
+                label: 'Add friend',
+                filled: true,
+                onPressed: isLoading
+                    ? null
+                    : () => runAction(
+                        () => sendFriendRequestToUser(user),
+                        successKey: 'Friend request sent.',
+                        errorKey: 'Could not send request.',
+                      ),
+              ),
+            actionChipButton(
+              icon: relationship.blockedByCurrentUser
+                  ? Icons.lock_open
+                  : Icons.block,
+              label: relationship.blockedByCurrentUser
+                  ? 'Unblock user'
+                  : 'Block user',
+              color: relationship.blockedByCurrentUser ? blue : Colors.redAccent,
+              onPressed: isLoading
+                  ? null
+                  : () => runAction(
+                      relationship.blockedByCurrentUser
+                          ? () => unblockUserById(widget.profile.uid)
+                          : () => blockUserById(user),
+                      successKey: relationship.blockedByCurrentUser
+                          ? 'User unblocked.'
+                          : 'User blocked.',
+                      errorKey: relationship.blockedByCurrentUser
+                          ? 'Could not unblock user.'
+                          : 'Could not block user.',
+                      successColor: relationship.blockedByCurrentUser
+                          ? blue
+                          : Colors.redAccent,
+                    ),
+            ),
+          ],
+        );
+      },
     );
   }
 }
@@ -28322,7 +29518,7 @@ class PublicUserProfileScreen extends StatelessWidget {
                     ),
                     const SizedBox(width: 7),
                     Text(
-                      profile.appearsOnline ? 'online' : 'offline',
+                      trText(profile.appearsOnline ? 'online' : 'offline'),
                       style: TextStyle(
                         color: profile.appearsOnline
                             ? Colors.greenAccent
@@ -28424,7 +29620,7 @@ class PublicUserProfileScreen extends StatelessWidget {
               SnackBar(
                 backgroundColor: Colors.redAccent,
                 content: Text(
-                  'Could not open chat: $error',
+                  localizedFriendActionError(error, 'Could not open chat.'),
                   style: const TextStyle(
                     color: Colors.white,
                     fontWeight: FontWeight.w700,
@@ -28435,7 +29631,7 @@ class PublicUserProfileScreen extends StatelessWidget {
           }
         },
         icon: const Icon(Icons.chat_bubble_outline),
-        label: const Text('Message'),
+        label: Text(trText('Message')),
         style: ElevatedButton.styleFrom(
           backgroundColor: blue,
           foregroundColor: Colors.white,
@@ -28502,6 +29698,68 @@ class PublicUserProfileScreen extends StatelessWidget {
     );
   }
 
+  Widget blockedProfileBody(BuildContext context, PublicUserProfileData profile) {
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(20, 18, 20, 28),
+      children: [
+        Container(
+          padding: const EdgeInsets.all(18),
+          decoration: BoxDecoration(
+            color: panelGlass,
+            borderRadius: BorderRadius.circular(22),
+            border: Border.all(color: Colors.white12),
+          ),
+          child: Row(
+            children: [
+              avatar(profile),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Flexible(
+                          child: Text(
+                            profile.username,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 22,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                        ),
+                        if (profile.verified) ...[
+                          const SizedBox(width: 7),
+                          const Icon(Icons.verified, color: blue, size: 19),
+                        ],
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      trText('This profile is not available.'),
+                      style: const TextStyle(
+                        color: Colors.white70,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      trText('Only avatar and nickname are visible.'),
+                      style: const TextStyle(color: Colors.white54),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
   Widget profileBody(BuildContext context, PublicUserProfileData profile) {
     final visibleGarage = profile.settings.showGarage
         ? profile.garage
@@ -28512,7 +29770,7 @@ class PublicUserProfileScreen extends StatelessWidget {
       children: [
         profileHeader(profile),
         const SizedBox(height: 12),
-        messageButton(context, profile),
+        PublicProfileActions(profile: profile),
         const SizedBox(height: 16),
         socialLinks(profile),
         const SizedBox(height: 16),
@@ -28580,6 +29838,10 @@ class PublicUserProfileScreen extends StatelessWidget {
             );
           }
 
+          if (profile.currentViewerIsBlocked) {
+            return blockedProfileBody(context, profile);
+          }
+
           if (!profile.canCurrentUserView) {
             return const Padding(
               padding: EdgeInsets.all(20),
@@ -28641,11 +29903,73 @@ class FriendsScreen extends StatefulWidget {
 class _FriendsScreenState extends State<FriendsScreen> {
   final searchController = TextEditingController();
   String searchText = '';
+  Timer? userSearchDebounce;
+  Future<List<FriendUserData>>? usersSearchFuture;
 
   @override
   void dispose() {
+    userSearchDebounce?.cancel();
     searchController.dispose();
     super.dispose();
+  }
+
+  void queueUsersSearch(String value) {
+    final nextSearchText = value.trim().toLowerCase();
+    userSearchDebounce?.cancel();
+
+    setState(() {
+      searchText = nextSearchText;
+      usersSearchFuture = null;
+    });
+
+    if (nextSearchText.length < 2) {
+      return;
+    }
+
+    userSearchDebounce = Timer(const Duration(milliseconds: 350), () {
+      if (!mounted || searchText != nextSearchText) {
+        return;
+      }
+
+      final nextFuture = searchUsersOnce(nextSearchText);
+      setState(() {
+        usersSearchFuture = nextFuture;
+      });
+    });
+  }
+
+  Future<List<FriendUserData>> searchUsersOnce(String queryText) async {
+    final firebaseUser = FirebaseAuth.instance.currentUser;
+    if (firebaseUser == null) {
+      return const [];
+    }
+
+    final snapshot = await usersCollection()
+        .orderBy('usernameKey')
+        .limit(50)
+        .debugGet(null, 'friends: find users search query');
+    final users = snapshot.docs
+        .map((doc) => FriendUserData.fromFirestore(doc))
+        .where((user) => user.canAppearInUserLists)
+        .where((user) => user.uid != firebaseUser.uid)
+        .where((user) {
+          return user.username.toLowerCase().contains(queryText) ||
+              user.name.toLowerCase().contains(queryText);
+        })
+        .toList();
+
+    users.sort((a, b) {
+      final onlineCompare = b.appearsOnline.toString().compareTo(
+        a.appearsOnline.toString(),
+      );
+      if (onlineCompare != 0) {
+        return onlineCompare;
+      }
+
+      return a.username.toLowerCase().compareTo(b.username.toLowerCase());
+    });
+
+    return users;
   }
 
   Future<FriendUserData?> loadFriendUser(String uid) async {
@@ -28680,11 +30004,11 @@ class _FriendsScreenState extends State<FriendsScreen> {
   Future<void> sendRequest(FriendUserData user) async {
     try {
       await sendFriendRequestToUser(user);
-      showFriendActionMessage('Friend request sent to ${user.username}.');
+      showFriendActionMessage(trText('Friend request sent.'));
       setState(() {});
     } catch (error) {
       showFriendActionMessage(
-        'Could not send request: $error',
+        localizedFriendActionError(error, 'Could not send request.'),
         color: Colors.redAccent,
       );
     }
@@ -28739,7 +30063,7 @@ class _FriendsScreenState extends State<FriendsScreen> {
       setState(() {});
     } catch (error) {
       showFriendActionMessage(
-        'Could not remove friend: $error',
+        localizedFriendActionError(error, 'Could not remove friend.'),
         color: Colors.redAccent,
       );
     }
@@ -28922,7 +30246,7 @@ class _FriendsScreenState extends State<FriendsScreen> {
           padding: const EdgeInsets.symmetric(horizontal: 12),
           shape: shape,
         ),
-        child: Text(label),
+        child: Text(trText(label)),
       );
     }
 
@@ -28934,7 +30258,7 @@ class _FriendsScreenState extends State<FriendsScreen> {
         padding: const EdgeInsets.symmetric(horizontal: 12),
         shape: shape,
       ),
-      child: Text(label),
+      child: Text(trText(label)),
     );
   }
 
@@ -29182,8 +30506,7 @@ class _FriendsScreenState extends State<FriendsScreen> {
       children: [
         TextField(
           controller: searchController,
-          onChanged: (value) =>
-              setState(() => searchText = value.trim().toLowerCase()),
+          onChanged: queueUsersSearch,
           style: const TextStyle(
             color: Colors.white,
             fontWeight: FontWeight.w700,
@@ -29214,42 +30537,28 @@ class _FriendsScreenState extends State<FriendsScreen> {
             text: 'Type at least 2 characters to search.',
           )
         else
-          StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-            stream: usersCollection()
-                .orderBy('usernameKey')
-                .limit(50)
-                .debugSnapshots('friends: find users search listener'),
+          FutureBuilder<List<FriendUserData>>(
+            future: usersSearchFuture,
             builder: (context, snapshot) {
-              final users =
-                  snapshot.data?.docs
-                      .map((doc) => FriendUserData.fromFirestore(doc))
-                      .where((user) => user.canAppearInUserLists)
-                      .where((user) => user.uid != firebaseUser.uid)
-                      .where((user) {
-                        if (searchText.isEmpty) {
-                          return true;
-                        }
-
-                        return user.username.toLowerCase().contains(
-                              searchText,
-                            ) ||
-                            user.name.toLowerCase().contains(searchText);
-                      })
-                      .toList() ??
-                  <FriendUserData>[];
-
-              users.sort((a, b) {
-                final onlineCompare = b.appearsOnline.toString().compareTo(
-                  a.appearsOnline.toString(),
+              if (usersSearchFuture == null ||
+                  snapshot.connectionState == ConnectionState.waiting) {
+                return const Center(
+                  child: Padding(
+                    padding: EdgeInsets.all(24),
+                    child: CircularProgressIndicator(color: blue),
+                  ),
                 );
-                if (onlineCompare != 0) {
-                  return onlineCompare;
-                }
+              }
 
-                return a.username.toLowerCase().compareTo(
-                  b.username.toLowerCase(),
+              if (snapshot.hasError) {
+                return EmptyStateCard(
+                  icon: Icons.person_search,
+                  title: trText('No users found'),
+                  text: trText('Try searching by nickname or name.'),
                 );
-              });
+              }
+
+              final users = snapshot.data ?? const <FriendUserData>[];
 
               if (users.isEmpty) {
                 return const EmptyStateCard(
@@ -29976,6 +31285,71 @@ class _GarageCard extends StatelessWidget {
   }
 }
 
+class _EmptyGarageCard extends StatelessWidget {
+  final VoidCallback onAdd;
+
+  const _EmptyGarageCard({required this.onAdd});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: panelGlass,
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: Colors.white12),
+      ),
+      child: Column(
+        children: [
+          Container(
+            width: 64,
+            height: 64,
+            decoration: BoxDecoration(
+              color: blue.withValues(alpha: 0.16),
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(Icons.directions_car, color: blue, size: 30),
+          ),
+          const SizedBox(height: 14),
+          Text(
+            trText('No cars in garage'),
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 19,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            trText('Add your first car to show it on your profile.'),
+            textAlign: TextAlign.center,
+            style: const TextStyle(color: Colors.white54, height: 1.35),
+          ),
+          const SizedBox(height: 16),
+          SizedBox(
+            width: double.infinity,
+            height: 44,
+            child: ElevatedButton.icon(
+              onPressed: onAdd,
+              icon: const Icon(Icons.add, size: 18),
+              label: Text(trText('Add Car')),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: blue,
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(15),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _CompactProfileSocialLinks extends StatelessWidget {
   const _CompactProfileSocialLinks();
 
@@ -30586,7 +31960,7 @@ class _ProfileActionTile extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    title,
+                    trText(title),
                     style: const TextStyle(
                       color: Colors.white,
                       fontWeight: FontWeight.w800,
@@ -30594,7 +31968,7 @@ class _ProfileActionTile extends StatelessWidget {
                   ),
                   const SizedBox(height: 3),
                   Text(
-                    subtitle,
+                    trText(subtitle),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(color: Colors.white38),
@@ -30974,7 +32348,7 @@ class _EditGarageScreenState extends State<EditGarageScreen> {
   void initState() {
     super.initState();
     final car = widget.car;
-    nameController = TextEditingController(text: car?.name ?? 'BMW E46 Coupe');
+    nameController = TextEditingController(text: car?.name ?? '');
     descriptionController = TextEditingController(text: car?.description ?? '');
     photoPaths = [
       ...(car?.galleryPhotos ?? const <String>[]),
@@ -31065,7 +32439,7 @@ class _EditGarageScreenState extends State<EditGarageScreen> {
               _CcsTextField(
                 controller: nameController,
                 label: 'Car name',
-                hint: 'BMW E46 Coupe',
+                hint: 'Car name',
                 icon: Icons.directions_car,
               ),
               _CcsTextField(

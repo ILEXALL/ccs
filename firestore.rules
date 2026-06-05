@@ -721,10 +721,8 @@ service cloud.firestore {
       allow read: if isActiveUser();
       allow create: if isActiveUser()
         && request.resource.data.userId == currentUid()
-        && (
-          request.resource.data.get('spotId', '') != ''
-          || request.resource.data.get('commentId', '') != ''
-        );
+        && request.resource.data.get('targetType', 'spot') == 'spot'
+        && request.resource.data.get('spotId', '') != '';
       allow delete: if isActiveUser()
         && (resource.data.userId == currentUid() || isStaff());
       allow update: if false;
