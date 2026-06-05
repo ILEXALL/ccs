@@ -35,6 +35,9 @@ const r2PresignUploadUrl =
     'https://ccs-telegram-auth-server.vercel.app/api/r2-presign-upload';
 const int maxSpotGalleryPhotos = 4;
 const Duration maxTemporarySpotDuration = Duration(hours: 12);
+// TEST KILL SWITCH: disable repeating friend-location notification polling.
+// Re-enable only after Firebase reads confirm this is not the overnight drain.
+const bool friendLocationNotificationPollingEnabled = false;
 const double temporarySpotHidePermanentRadiusMeters = 500;
 const double minimumPermanentSpotDistanceMeters = 500;
 const int maxGaragePhotos = 4;
@@ -12448,7 +12451,8 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     startMeetNotificationListener();
     startAdminNotificationListener();
     startFriendLocationNotificationListener();
-    startFriendLocationNotificationChecks();
+    // Temporarily disabled to test overnight Firestore read drain.
+    // startFriendLocationNotificationChecks();
   }
 
   void handleMapFocusRequest() {
@@ -12685,6 +12689,12 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   }
 
   void startFriendLocationNotificationChecks() {
+    if (!friendLocationNotificationPollingEnabled) {
+      friendLocationCheckTimer?.cancel();
+      friendLocationCheckTimer = null;
+      return;
+    }
+
     runFriendLocationNotificationCheck();
     friendLocationCheckTimer = Timer.periodic(
       const Duration(minutes: 5),
