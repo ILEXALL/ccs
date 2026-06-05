@@ -6436,7 +6436,10 @@ Future<void> createSpotLikeNotification(CarSpot spot, String likeId) async {
     settingName: 'likeNotifications',
     notificationId: likeId.trim().isEmpty ? null : 'spot_like_$likeId',
     extra: {
-      'spotId': spotReviewKey(spot),
+      'spotId': spot.id.trim().isNotEmpty
+          ? spot.id.trim()
+          : spotReviewKey(spot),
+      'spotReviewId': spotReviewKey(spot),
       'spotName': spot.name,
       'cityCountry': spot.cityCountry,
     },
@@ -6458,7 +6461,10 @@ Future<void> createSpotCommentNotification(
     notificationId: reviewId.trim().isEmpty ? null : 'spot_comment_$reviewId',
     extra: {
       'reviewId': reviewId,
-      'spotId': spotReviewKey(spot),
+      'spotId': spot.id.trim().isNotEmpty
+          ? spot.id.trim()
+          : spotReviewKey(spot),
+      'spotReviewId': spotReviewKey(spot),
       'spotName': spot.name,
       'comment': comment.trim(),
       'cityCountry': spot.cityCountry,
@@ -7511,18 +7517,38 @@ Future<String> createOrOpenDirectChat(FriendUserData user) async {
   final memberPhotoUrls = [currentUser.photoUrl ?? '', user.photoUrl ?? ''];
 
   final chatRef = chatsCollection().doc(chatId);
+  final existingChat = await chatRef.debugGet(
+    null,
+    'chat: direct open existing chat lookup',
+  );
 
-  // Use a merge set and keep only fields allowed for both a new direct chat and
-  // an existing one. Rewriting isGroup on old direct chats can be rejected by
-  // Firestore rules if the old document did not store that field.
-  await chatRef.debugSet({
-    'name': '',
-    'memberIds': memberIds,
-    'memberUsernames': memberUsernames,
-    'memberPhotoUrls': memberPhotoUrls,
-    'photoUrl': '',
-    'updatedAt': FieldValue.serverTimestamp(),
-  }, SetOptions(merge: true));
+  if (existingChat.exists) {
+    // Opening an existing direct chat should not write to the chat document.
+    // Some Firestore rules only allow message writes / membership reads, so a
+    // harmless display-data refresh can still be rejected with permission-denied.
+    return chatId;
+  } else {
+    // New direct chats must include the same schema fields that the chat list
+    // and Firestore rules expect. Omitting isGroup/lastMessage/createdAt can
+    // make the create request fail with permission-denied, which surfaces in
+    // the UI as "Could not open chat."
+    await chatRef.debugSet({
+      'isGroup': false,
+      'name': '',
+      'memberIds': memberIds,
+      'memberUsernames': memberUsernames,
+      'memberPhotoUrls': memberPhotoUrls,
+      'photoUrl': '',
+      'description': '',
+      'lastMessage': '',
+      'lastSenderUid': '',
+      'lastSenderUsername': '',
+      'ownerUid': '',
+      'moderatorIds': [],
+      'updatedAt': FieldValue.serverTimestamp(),
+      'createdAt': FieldValue.serverTimestamp(),
+    });
+  }
 
   return chatId;
 }
@@ -7598,6 +7624,11 @@ Future<void> sendChatMessage({
     return;
   }
 
+  // This is the only write that must succeed for the user-facing send action.
+  // Other writes below are best-effort because some Firestore rules allow a
+  // member to create messages but do not allow updating the parent chat summary
+  // or creating notification documents. Those failures should not show "Could
+  // not send message" after the message itself was accepted.
   final messageRef = await chatMessagesCollection(chatId).debugAdd({
     'senderUid': firebaseUser.uid,
     'senderUsername': currentUser.username,
@@ -7605,28 +7636,40 @@ Future<void> sendChatMessage({
     'createdAt': FieldValue.serverTimestamp(),
   });
 
-  await chatsCollection().doc(chatId).debugSet({
-    'lastMessage': cleanText,
-    'lastSenderUid': firebaseUser.uid,
-    'lastSenderUsername': currentUser.username,
-    'updatedAt': FieldValue.serverTimestamp(),
-  }, SetOptions(merge: true));
-
-  var notificationChat = chat;
-  if (notificationChat == null) {
-    try {
-      final chatSnapshot = await chatsCollection().doc(chatId).debugGet();
-      if (chatSnapshot.exists) {
-        notificationChat = ChatThreadData.fromFirestore(chatSnapshot);
-      }
-    } catch (_) {}
+  try {
+    await chatsCollection().doc(chatId).debugSet({
+      'lastMessage': cleanText,
+      'lastSenderUid': firebaseUser.uid,
+      'lastSenderUsername': currentUser.username,
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+  } catch (error, stack) {
+    debugPrint('Chat summary update skipped after message send: $error');
+    debugPrint('$stack');
   }
 
-  if (notificationChat != null) {
-    await createChatMessageNotification(
-      chat: notificationChat,
-      messageText: cleanText,
-    );
+  try {
+    var notificationChat = chat;
+    if (notificationChat == null) {
+      try {
+        final chatSnapshot = await chatsCollection().doc(chatId).debugGet();
+        if (chatSnapshot.exists) {
+          notificationChat = ChatThreadData.fromFirestore(chatSnapshot);
+        }
+      } catch (error) {
+        debugPrint('Chat notification lookup skipped: $error');
+      }
+    }
+
+    if (notificationChat != null) {
+      await createChatMessageNotification(
+        chat: notificationChat,
+        messageText: cleanText,
+      );
+    }
+  } catch (error, stack) {
+    debugPrint('Chat notification creation skipped: $error');
+    debugPrint('$stack');
   }
 
   await sendPushNotificationEvent({
@@ -8019,12 +8062,17 @@ Future<void> editChatMessage({
     'updatedAt': FieldValue.serverTimestamp(),
   }, SetOptions(merge: true));
 
-  await chatsCollection().doc(chatId).debugSet({
-    'lastMessage': cleanText,
-    'lastSenderUid': firebaseUser.uid,
-    'lastSenderUsername': currentUser.username,
-    'updatedAt': FieldValue.serverTimestamp(),
-  }, SetOptions(merge: true));
+  try {
+    await chatsCollection().doc(chatId).debugSet({
+      'lastMessage': cleanText,
+      'lastSenderUid': firebaseUser.uid,
+      'lastSenderUsername': currentUser.username,
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+  } catch (error, stack) {
+    debugPrint('Chat summary update skipped after message edit: $error');
+    debugPrint('$stack');
+  }
 }
 
 Future<void> deleteChatMessage({
@@ -8062,12 +8110,17 @@ Future<void> deleteChatMessage({
           '',
         );
 
-  await chatsCollection().doc(chatId).debugSet({
-    'lastMessage': latestText,
-    'lastSenderUid': latestSenderUid,
-    'lastSenderUsername': latestSenderUsername,
-    'updatedAt': FieldValue.serverTimestamp(),
-  }, SetOptions(merge: true));
+  try {
+    await chatsCollection().doc(chatId).debugSet({
+      'lastMessage': latestText,
+      'lastSenderUid': latestSenderUid,
+      'lastSenderUsername': latestSenderUsername,
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+  } catch (error, stack) {
+    debugPrint('Chat summary update skipped after message delete: $error');
+    debugPrint('$stack');
+  }
 }
 
 Future<LiveLocationData?> loadCurrentLiveLocationForUser(String uid) async {
@@ -8084,7 +8137,7 @@ Future<LiveLocationData?> loadCurrentLiveLocationForUser(String uid) async {
 Future<bool> shouldCreateFriendLocationNotification(
   String notificationId,
 ) async {
-  final snapshot = await friendLocationNotificationsCollection()
+  final snapshot = await userNotificationsCollection()
       .doc(notificationId)
       .debugGet();
 
@@ -8120,8 +8173,15 @@ Future<void> createFriendLocationNotification({
 
   final nowMillis = DateTime.now().millisecondsSinceEpoch;
 
-  await friendLocationNotificationsCollection().doc(notificationId).debugSet({
+  await userNotificationsCollection().doc(notificationId).debugSet({
     'userId': userId,
+    'type': type,
+    'title': 'Live location',
+    'body': type == 'friend_at_spot'
+        ? '@${friendLocation.username} is at ${spot?.name ?? 'a spot'}.'
+        : '@${friendLocation.username} is nearby.',
+    'actorUserId': friendLocation.uid,
+    'actorUsername': friendLocation.username,
     'friendUid': friendLocation.uid,
     'friendUsername': friendLocation.username,
     'friendName': friendLocation.name,
@@ -8131,7 +8191,6 @@ Future<void> createFriendLocationNotification({
       friendLocation.coordinates.latitude,
       friendLocation.coordinates.longitude,
     ),
-    'type': type,
     'distanceMeters': distanceMeters.round(),
     'spotId': spot?.id ?? '',
     'spotName': spot?.name ?? '',
@@ -8500,12 +8559,16 @@ Future<void> createAdminSpotReviewNotification(CarSpot spot) async {
   final batch = FirebaseFirestore.instance.batch();
 
   for (final adminUid in adminUids) {
-    final notificationRef = adminNotificationsCollection().doc(
-      '${spot.id}_review_$adminUid',
+    final notificationRef = userNotificationsCollection().doc(
+      'admin_${spot.id}_review_$adminUid',
     );
     batch.debugSet(notificationRef, {
       'userId': adminUid,
       'type': 'spot_pending_review',
+      'title': 'Spot review updates',
+      'body': '${spot.name} is waiting for review.',
+      'actorUserId': spot.addedByUid,
+      'actorUsername': spot.addedBy,
       'spotId': spot.id,
       'spotName': spot.name,
       'cityCountry': spot.cityCountry,
@@ -8540,14 +8603,22 @@ Future<void> createAdminSpotDecisionNotification(
   final cleanReason = rejectionReason.trim();
 
   for (final adminUid in adminUids) {
-    final notificationRef = adminNotificationsCollection().doc(
-      '${spot.id}_${statusName}_$adminUid',
+    final notificationRef = userNotificationsCollection().doc(
+      'admin_${spot.id}_${statusName}_$adminUid',
     );
     batch.debugSet(notificationRef, {
       'userId': adminUid,
       'type': status == SpotStatus.approved
           ? 'spot_approved_by_admin'
           : 'spot_rejected_by_admin',
+      'title': 'Spot review updates',
+      'body': status == SpotStatus.approved
+          ? '${spot.name} approved by ${currentUser.username}.'
+          : cleanReason.isEmpty
+          ? '${spot.name} rejected by ${currentUser.username}.'
+          : '${spot.name} rejected by ${currentUser.username}. Reason: $cleanReason',
+      'actorUserId': currentUser.uid,
+      'actorUsername': currentUser.username,
       'spotId': spot.id,
       'spotName': spot.name,
       'cityCountry': spot.cityCountry,
@@ -11363,6 +11434,44 @@ String notificationCenterDisplayBody(NotificationCenterItem item) {
   return messageMatch?.group(1)?.trim() ?? body;
 }
 
+String spotNameFromNotificationBody(String type, String body) {
+  final cleanType = type.trim();
+  final cleanBody = body.trim();
+  if (cleanBody.isEmpty) {
+    return '';
+  }
+
+  if (cleanType == 'spot_like') {
+    final match = RegExp(
+      r'\bliked\s+(.+?)\.?$',
+      caseSensitive: false,
+    ).firstMatch(cleanBody);
+    return match?.group(1)?.trim().replaceAll(RegExp(r'\.+$'), '') ?? '';
+  }
+
+  if (cleanType == 'spot_comment') {
+    final match = RegExp(
+      r'\bcommented\s+on\s+(.+?)(?::|\.)?$',
+      caseSensitive: false,
+    ).firstMatch(cleanBody);
+    return match?.group(1)?.trim().replaceAll(RegExp(r'\.+$'), '') ?? '';
+  }
+
+  return '';
+}
+
+Future<void> markNotificationReadBestEffort(
+  DocumentReference<Map<String, dynamic>> reference,
+) async {
+  try {
+    await reference.debugSet({'read': true}, SetOptions(merge: true));
+  } catch (error) {
+    // Some rules do not allow clients to update notification documents. Opening
+    // the notification must still work, so treat this as cosmetic only.
+    debugPrint('Notification read mark skipped: $error');
+  }
+}
+
 NotificationCenterItem notificationCenterItemFromJson(Object? value) {
   final data = mapFromFirebase(value);
   final payload = mapFromFirebase(data['data']);
@@ -11389,9 +11498,12 @@ NotificationCenterItem notificationCenterItemFromJson(Object? value) {
 
   final type = pickString('type', 'notification');
   final status = pickString('status', '');
-  final spotName = pickString('spotName', '');
+  final rawSpotName = pickString('spotName', '');
   final rejectionReason = pickString('rejectionReason', '');
   var body = pickString('body', '');
+  final spotName = rawSpotName.trim().isNotEmpty
+      ? rawSpotName
+      : spotNameFromNotificationBody(type, body);
   final rawActorUsername = pickString(
     'actorUsername',
     pickString('senderUsername', pickString('fromUsername', '')),
@@ -11401,7 +11513,10 @@ NotificationCenterItem notificationCenterItemFromJson(Object? value) {
       : rawActorUsername;
   final actorUserId = pickString(
     'actorUserId',
-    pickString('senderUid', pickString('senderUserId', pickString('fromUid', ''))),
+    pickString(
+      'senderUid',
+      pickString('senderUserId', pickString('fromUid', '')),
+    ),
   );
 
   if (type == 'spot_review_update' &&
@@ -11450,7 +11565,7 @@ NotificationCenterItem notificationCenterItemFromDocument(
     data['type'],
     projectNews ? 'project_news' : 'notification',
   );
-  final spotName = stringFromFirebase(data['spotName'], '');
+  final rawSpotName = stringFromFirebase(data['spotName'], '');
   final status = stringFromFirebase(data['status'], '');
   final reviewedBy = stringFromFirebase(data['reviewedBy'], '');
   final rejectionReason = stringFromFirebase(data['rejectionReason'], '');
@@ -11481,6 +11596,9 @@ NotificationCenterItem notificationCenterItemFromDocument(
     _ => stringFromFirebase(data['title'], 'CCS'),
   };
   var body = stringFromFirebase(data['body'], '');
+  final spotName = rawSpotName.trim().isNotEmpty
+      ? rawSpotName
+      : spotNameFromNotificationBody(type, body);
 
   if (body.trim().isEmpty) {
     body = switch (type) {
@@ -11685,6 +11803,31 @@ Future<Map<String, String>?> firebaseNotificationHeaders() async {
   return {HttpHeaders.authorizationHeader: 'Bearer $token'};
 }
 
+Future<QuerySnapshot<Map<String, dynamic>>> loadUserNotificationCenterSnapshot(
+  String uid,
+) async {
+  final query = userNotificationsCollection()
+      .where('userId', isEqualTo: uid)
+      .orderBy('createdAt', descending: true)
+      .limit(25);
+
+  try {
+    return await query.debugGet(
+      null,
+      'notification center: user notifications',
+    );
+  } catch (error, stack) {
+    debugPrint(
+      'Ordered notification query failed, retrying without order: $error',
+    );
+    debugPrint('$stack');
+    return userNotificationsCollection()
+        .where('userId', isEqualTo: uid)
+        .limit(25)
+        .debugGet(null, 'notification center: user notifications fallback');
+  }
+}
+
 Future<List<NotificationCenterItem>> loadNotificationCenterItems() async {
   final firebaseUser = FirebaseAuth.instance.currentUser;
   final items = <NotificationCenterItem>[];
@@ -11694,73 +11837,15 @@ Future<List<NotificationCenterItem>> loadNotificationCenterItems() async {
     return const [];
   }
 
-  Future<void> addItems(
-    Future<QuerySnapshot<Map<String, dynamic>>> snapshotFuture, {
-    bool projectNews = false,
-  }) async {
-    try {
-      final snapshot = await snapshotFuture;
-      for (final doc in snapshot.docs) {
-        items.add(
-          notificationCenterItemFromDocument(doc, projectNews: projectNews),
-        );
-      }
-    } catch (error, stack) {
-      debugPrint('Notification center source could not load: $error');
-      debugPrint('$stack');
-    }
-  }
-
-  var serverItemsLoaded = false;
   try {
-    final headers = await firebaseNotificationHeaders();
-    if (headers != null) {
-      final response = await getJsonFromUrl(
-        pushNotificationUrl,
-        headers: headers,
-      );
-      final notifications = response['notifications'];
-      if (notifications is List) {
-        items.addAll(notifications.map(notificationCenterItemFromJson));
-        serverItemsLoaded = true;
-      }
+    final snapshot = await loadUserNotificationCenterSnapshot(firebaseUser.uid);
+    for (final doc in snapshot.docs) {
+      items.add(notificationCenterItemFromDocument(doc));
     }
   } catch (error, stack) {
-    debugPrint('Server notification history could not load: $error');
+    debugPrint('Notification center could not load user notifications: $error');
     debugPrint('$stack');
   }
-
-  final sourceLoads = <Future<void>>[
-    addItems(
-      adminNotificationsCollection()
-          .where('userId', isEqualTo: firebaseUser.uid)
-          .limit(50)
-          .debugGet(null, 'notification center: admin notifications'),
-    ),
-    addItems(
-      friendLocationNotificationsCollection()
-          .where('userId', isEqualTo: firebaseUser.uid)
-          .limit(50)
-          .debugGet(null, 'notification center: friend location notifications'),
-    ),
-    // Always load Firestore user notifications too. The push server history can
-    // lag behind or omit custom fields such as rejectionReason, so Firestore is
-    // the source of truth for review decision details.
-    addItems(
-      userNotificationsCollection()
-          .where('userId', isEqualTo: firebaseUser.uid)
-          .limit(50)
-          .debugGet(null, 'notification center: user notifications'),
-    ),
-    addItems(
-      projectNewsCollection()
-          .limit(20)
-          .debugGet(null, 'notification center: project news'),
-      projectNews: true,
-    ),
-  ];
-
-  await Future.wait(sourceLoads);
 
   // User-facing action notifications need a real target. Old push/history
   // copies can have only title/body, which cannot open a chat or spot.
@@ -11770,7 +11855,9 @@ Future<List<NotificationCenterItem>> loadNotificationCenterItems() async {
     }
 
     if (item.type == 'spot_comment' || item.type == 'spot_like') {
-      return item.reference == null && item.spotId.trim().isEmpty;
+      return item.reference == null &&
+          item.spotId.trim().isEmpty &&
+          spotNameFromNotificationBody(item.type, item.body).isEmpty;
     }
 
     return false;
@@ -11789,49 +11876,6 @@ Future<List<NotificationCenterItem>> loadNotificationCenterItems() async {
       ),
     ]);
   }
-
-  final mergedById = <String, NotificationCenterItem>{};
-  final mergedItems = <NotificationCenterItem>[];
-
-  bool isRicherNotification(
-    NotificationCenterItem candidate,
-    NotificationCenterItem current,
-  ) {
-    final candidateHasReason =
-        candidate.rejectionReason.trim().isNotEmpty ||
-        candidate.body.toLowerCase().contains('reason:');
-    final currentHasReason =
-        current.rejectionReason.trim().isNotEmpty ||
-        current.body.toLowerCase().contains('reason:');
-
-    if (candidateHasReason && !currentHasReason) {
-      return true;
-    }
-
-    if (candidate.reference != null && current.reference == null) {
-      return true;
-    }
-
-    return candidate.body.length > current.body.length;
-  }
-
-  for (final item in items) {
-    final id = item.id.trim();
-    if (id.isEmpty) {
-      mergedItems.add(item);
-      continue;
-    }
-
-    final current = mergedById[id];
-    if (current == null || isRicherNotification(item, current)) {
-      mergedById[id] = item;
-    }
-  }
-
-  items
-    ..clear()
-    ..addAll(mergedItems)
-    ..addAll(mergedById.values);
 
   final hiddenIds = await loadHiddenNotificationCenterIds(firebaseUser.uid);
   if (hiddenIds.isNotEmpty) {
@@ -11857,7 +11901,7 @@ Future<List<NotificationCenterItem>> loadNotificationCenterItems() async {
   notificationCenterUnreadCount.value = items
       .where((item) => !item.read)
       .length;
-  return items.take(80).toList();
+  return items.take(25).toList();
 }
 
 Future<void> markNotificationCenterItemsRead(
@@ -12079,32 +12123,73 @@ List<Widget> ccsAppBarActions() {
 
 Future<CarSpot?> spotForNotificationItem(NotificationCenterItem item) async {
   final cleanSpotId = item.spotId.trim();
-  if (cleanSpotId.isEmpty) {
+  final cleanSpotName = item.spotName.trim().toLowerCase();
+
+  if (cleanSpotId.isEmpty && cleanSpotName.isEmpty) {
     return null;
   }
 
+  bool matchesNotificationSpot(CarSpot spot) {
+    if (cleanSpotId.isNotEmpty &&
+        (spot.id == cleanSpotId || spotReviewKey(spot) == cleanSpotId)) {
+      return true;
+    }
+
+    return cleanSpotName.isNotEmpty &&
+        spot.name.trim().toLowerCase() == cleanSpotName;
+  }
+
   for (final spot in reviewSpots.value) {
-    if (spot.id == cleanSpotId || spotReviewKey(spot) == cleanSpotId) {
+    if (matchesNotificationSpot(spot)) {
       return spot;
     }
   }
   for (final spot in approvedPublicSpots()) {
-    if (spot.id == cleanSpotId || spotReviewKey(spot) == cleanSpotId) {
+    if (matchesNotificationSpot(spot)) {
       return spot;
     }
   }
   for (final spot in submittedSpots.value) {
-    if (spot.id == cleanSpotId || spotReviewKey(spot) == cleanSpotId) {
+    if (matchesNotificationSpot(spot)) {
       return spot;
     }
   }
 
-  try {
-    final doc = await spotsCollection().doc(cleanSpotId).debugGet();
-    if (doc.exists) {
-      return CarSpot.fromFirestore(doc);
+  if (cleanSpotId.isNotEmpty) {
+    try {
+      final doc = await spotsCollection()
+          .doc(cleanSpotId)
+          .debugGet(null, 'notification center: open spot by id');
+      if (doc.exists) {
+        return CarSpot.fromFirestore(doc);
+      }
+    } catch (error) {
+      debugPrint('Notification spot id lookup failed: $error');
     }
-  } catch (_) {}
+  }
+
+  // Older like/comment notifications may store a local review key instead of the
+  // Firestore document id. Fall back to the saved spot name so existing
+  // notifications still open the real approved spot.
+  if (item.spotName.trim().isNotEmpty) {
+    try {
+      final snapshot = await spotsCollection()
+          .where('name', isEqualTo: item.spotName.trim())
+          .limit(5)
+          .debugGet(null, 'notification center: open spot by name');
+      if (snapshot.docs.isNotEmpty) {
+        final approved = snapshot.docs
+            .map((doc) => CarSpot.fromFirestore(doc))
+            .where((spot) => spot.status == SpotStatus.approved)
+            .toList();
+        return approved.isNotEmpty
+            ? approved.first
+            : CarSpot.fromFirestore(snapshot.docs.first);
+      }
+    } catch (error) {
+      debugPrint('Notification spot name lookup failed: $error');
+    }
+  }
 
   return null;
 }
@@ -12129,9 +12214,7 @@ String chatIdFromNotificationItem(NotificationCenterItem item) {
   }
 
   final actorUid = item.actorUserId.trim();
-  if (currentUid.isNotEmpty &&
-      actorUid.isNotEmpty &&
-      actorUid != currentUid) {
+  if (currentUid.isNotEmpty && actorUid.isNotEmpty && actorUid != currentUid) {
     return directChatIdFor(currentUid, actorUid);
   }
 
@@ -12161,12 +12244,10 @@ Future<void> openNotificationCenterItem(
   NotificationCenterItem item,
 ) async {
   if (item.reference != null) {
-    unawaited(
-      item.reference!.debugSet({'read': true}, SetOptions(merge: true)),
-    );
+    unawaited(markNotificationReadBestEffort(item.reference!));
   }
 
-  if (item.type == 'chat_message' || chatIdFromNotificationItem(item).isNotEmpty) {
+  if (item.type == 'chat_message') {
     final chat = await chatForNotificationItem(item);
     if (!context.mounted) return;
 
@@ -12200,9 +12281,9 @@ Future<void> openNotificationCenterItem(
     return;
   }
 
-  // For likes and comments, try to open the spot directly from spotId.
-  if ((item.type == 'spot_like' || item.type == 'spot_comment') &&
-      item.spotId.trim().isNotEmpty) {
+  // For likes and comments, try to open the spot directly from either the
+  // stored spot id or the spot name recovered from older notification bodies.
+  if (item.type == 'spot_like' || item.type == 'spot_comment') {
     final likeSpot = await spotForNotificationItem(item);
     if (!context.mounted) return;
 
@@ -12212,48 +12293,18 @@ Future<void> openNotificationCenterItem(
         appPageRoute(builder: (_) => SpotDetailScreen(spot: likeSpot)),
       );
     } else {
-      try {
-        final doc = await spotsCollection().doc(item.spotId.trim()).debugGet();
-        if (!context.mounted) return;
-
-        if (doc.exists) {
-          Navigator.push(
-            context,
-            appPageRoute(
-              builder: (_) =>
-                  SpotDetailScreen(spot: CarSpot.fromFirestore(doc)),
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: Colors.redAccent,
+          content: Text(
+            trText('Spot is not available anymore.'),
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w700,
             ),
-          );
-        } else {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              backgroundColor: Colors.redAccent,
-              content: Text(
-                trText('Spot is not available anymore.'),
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ),
-          );
-        }
-      } catch (_) {
-        if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              backgroundColor: Colors.redAccent,
-              content: Text(
-                trText('Spot is not available anymore.'),
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ),
-          );
-        }
-      }
+          ),
+        ),
+      );
     }
     return;
   }
@@ -12445,9 +12496,6 @@ class _NotificationCenterScreenState extends State<NotificationCenterScreen> {
                     height: 48,
                     child: OutlinedButton.icon(
                       onPressed: () {
-                        setState(() {
-                          itemsFuture = loadNotificationCenterItems();
-                        });
                         Navigator.push(
                           context,
                           appPageRoute(
@@ -12513,7 +12561,9 @@ class _NotificationCenterScreenState extends State<NotificationCenterScreen> {
                                 fontWeight: FontWeight.w900,
                               ),
                             ),
-                            if (notificationCenterDisplayBody(item).isNotEmpty) ...[
+                            if (notificationCenterDisplayBody(
+                              item,
+                            ).isNotEmpty) ...[
                               const SizedBox(height: 4),
                               Text(
                                 trText(notificationCenterDisplayBody(item)),
@@ -12638,7 +12688,9 @@ class _AllNotificationsScreenState extends State<_AllNotificationsScreen> {
                                   fontWeight: FontWeight.w900,
                                 ),
                               ),
-                              if (notificationCenterDisplayBody(item).isNotEmpty) ...[
+                              if (notificationCenterDisplayBody(
+                                item,
+                              ).isNotEmpty) ...[
                                 const SizedBox(height: 4),
                                 Text(
                                   trText(notificationCenterDisplayBody(item)),
@@ -13070,10 +13122,13 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     ) {
       updateCurrentUserOnlinePresence(isOnline: true);
     });
-    startMeetNotificationListener();
-    startAdminNotificationListener();
-    startFriendLocationNotificationListener();
-    // Temporarily disabled to test overnight Firestore read drain.
+    // Do not start Firestore notification listeners on app launch.
+    // Notifications are now stored in user_notifications and loaded only when
+    // the bell is opened; push notifications handle real-time alerts.
+    // This avoids startup reads from unread admin/friend/meet listeners.
+    // startMeetNotificationListener();
+    // startAdminNotificationListener();
+    // startFriendLocationNotificationListener();
     // startFriendLocationNotificationChecks();
   }
 
@@ -13179,7 +13234,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       return;
     }
 
-    adminNotificationSubscription = adminNotificationsCollection()
+    adminNotificationSubscription = userNotificationsCollection()
         .where('userId', isEqualTo: firebaseUser.uid)
         .where('read', isEqualTo: false)
         .limit(20)
@@ -13197,6 +13252,11 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
             }
 
             final type = stringFromFirebase(data['type'], '');
+            if (type != 'spot_pending_review' &&
+                type != 'spot_approved_by_admin' &&
+                type != 'spot_rejected_by_admin') {
+              continue;
+            }
             final spotName = stringFromFirebase(data['spotName'], 'New spot');
             final addedBy = stringFromFirebase(data['addedBy'], 'user');
             final reviewedBy = stringFromFirebase(data['reviewedBy'], 'admin');
@@ -13248,66 +13308,68 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       return;
     }
 
-    friendLocationNotificationSubscription =
-        friendLocationNotificationsCollection()
-            .where('userId', isEqualTo: firebaseUser.uid)
-            .where('read', isEqualTo: false)
-            .limit(20)
-            .debugSnapshots('notifications: unread friend location listener')
-            .listen((snapshot) async {
-              for (final change in snapshot.docChanges) {
-                if (change.type != DocumentChangeType.added &&
-                    change.type != DocumentChangeType.modified) {
-                  continue;
-                }
+    friendLocationNotificationSubscription = userNotificationsCollection()
+        .where('userId', isEqualTo: firebaseUser.uid)
+        .where('read', isEqualTo: false)
+        .limit(20)
+        .debugSnapshots('notifications: unread friend location listener')
+        .listen((snapshot) async {
+          for (final change in snapshot.docChanges) {
+            if (change.type != DocumentChangeType.added &&
+                change.type != DocumentChangeType.modified) {
+              continue;
+            }
 
-                final data = change.doc.data() ?? {};
+            final data = change.doc.data() ?? {};
 
-                if (data['read'] == true) {
-                  continue;
-                }
+            if (data['read'] == true) {
+              continue;
+            }
 
-                final type = stringFromFirebase(data['type'], 'friend_nearby');
-                final friendUsername = stringFromFirebase(
-                  data['friendUsername'],
-                  'friend',
-                );
-                final spotName = stringFromFirebase(data['spotName'], 'a spot');
-                final distanceMeters = doubleFromFirebase(
-                  data['distanceMeters'],
-                  0,
-                );
-                final distanceLabel = distanceMeters <= 0
-                    ? ''
-                    : distanceMeters >= 1000
-                    ? ' • ${(distanceMeters / 1000).toStringAsFixed(1)} km away'
-                    : ' • ${distanceMeters.round()} m away';
+            final type = stringFromFirebase(data['type'], 'friend_nearby');
+            if (type != 'friend_nearby' && type != 'friend_at_spot') {
+              continue;
+            }
+            final friendUsername = stringFromFirebase(
+              data['friendUsername'],
+              'friend',
+            );
+            final spotName = stringFromFirebase(data['spotName'], 'a spot');
+            final distanceMeters = doubleFromFirebase(
+              data['distanceMeters'],
+              0,
+            );
+            final distanceLabel = distanceMeters <= 0
+                ? ''
+                : distanceMeters >= 1000
+                ? ' • ${(distanceMeters / 1000).toStringAsFixed(1)} km away'
+                : ' • ${distanceMeters.round()} m away';
 
-                final message = type == 'friend_at_spot'
-                    ? '@$friendUsername is at $spotName$distanceLabel'
-                    : '@$friendUsername is nearby$distanceLabel';
+            final message = type == 'friend_at_spot'
+                ? '@$friendUsername is at $spotName$distanceLabel'
+                : '@$friendUsername is nearby$distanceLabel';
 
-                if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      backgroundColor: Colors.greenAccent.shade700,
-                      content: Text(
-                        message,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  backgroundColor: Colors.greenAccent.shade700,
+                  content: Text(
+                    message,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w700,
                     ),
-                  );
-                }
+                  ),
+                ),
+              );
+            }
 
-                await change.doc.reference.debugSet({
-                  'read': true,
-                  'readAt': FieldValue.serverTimestamp(),
-                }, SetOptions(merge: true));
-              }
-            });
+            await change.doc.reference.debugSet({
+              'read': true,
+              'readAt': FieldValue.serverTimestamp(),
+            }, SetOptions(merge: true));
+          }
+        });
   }
 
   void startFriendLocationNotificationChecks() {
@@ -25449,165 +25511,159 @@ class _ChatScreenState extends State<ChatScreen> {
   Widget build(BuildContext context) {
     final firebaseUser = FirebaseAuth.instance.currentUser;
 
-    return Scaffold(
-      backgroundColor: Colors.transparent,
-      appBar: AppBar(
-        title: const CcsAppBarLogo(),
+    if (firebaseUser == null) {
+      return Scaffold(
         backgroundColor: Colors.transparent,
-        foregroundColor: blue,
-        actions: ccsAppBarActions(),
-      ),
-      floatingActionButton: firebaseUser == null
-          ? null
-          : StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-              stream: currentUserChatsQuery(
-                firebaseUser.uid,
-              ).debugSnapshots('chat: threads listener'),
-              builder: (context, snapshot) {
-                final chats =
-                    snapshot.data?.docs
-                        .map((doc) => ChatThreadData.fromFirestore(doc))
-                        .toList() ??
-                    <ChatThreadData>[];
+        appBar: AppBar(
+          title: const CcsAppBarLogo(),
+          backgroundColor: Colors.transparent,
+          foregroundColor: blue,
+          actions: ccsAppBarActions(),
+        ),
+        body: const Padding(
+          padding: EdgeInsets.fromLTRB(20, 18, 20, 28),
+          child: EmptyStateCard(
+            icon: Icons.chat_bubble_outline,
+            title: 'Log in required',
+            text: 'Log in before using chat.',
+          ),
+        ),
+      );
+    }
 
-                return FloatingActionButton(
-                  onPressed: () => openChatManager(context, chats),
-                  backgroundColor: blue,
-                  foregroundColor: Colors.white,
-                  child: const Icon(Icons.tune),
-                );
-              },
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: currentUserChatsQuery(
+        firebaseUser.uid,
+      ).debugSnapshots('chat: threads list listener'),
+      builder: (context, snapshot) {
+        final chats =
+            snapshot.data?.docs
+                .map((doc) => ChatThreadData.fromFirestore(doc))
+                .toList() ??
+            <ChatThreadData>[];
+        final directChats = sortedChats(
+          chats.where((chat) => !chat.isGroup).toList(),
+        );
+        final groupChats = sortedChats(
+          chats.where((chat) => chat.isGroup).toList(),
+        );
+
+        final body = ListView(
+          padding: const EdgeInsets.fromLTRB(20, 18, 20, 92),
+          children: [
+            Row(
+              children: [
+                const Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Chat',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 34,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                      SizedBox(height: 6),
+                      Text(
+                        'Messages with friends and groups',
+                        style: TextStyle(color: Colors.white54, height: 1.35),
+                      ),
+                    ],
+                  ),
+                ),
+                IconButton.filled(
+                  onPressed: () => openNewChat(context),
+                  style: IconButton.styleFrom(
+                    backgroundColor: blue,
+                    foregroundColor: Colors.white,
+                  ),
+                  icon: const Icon(Icons.add),
+                ),
+              ],
             ),
-      body: firebaseUser == null
-          ? const Padding(
-              padding: EdgeInsets.fromLTRB(20, 18, 20, 28),
-              child: EmptyStateCard(
-                icon: Icons.chat_bubble_outline,
-                title: 'Log in required',
-                text: 'Log in before using chat.',
+            const SizedBox(height: 18),
+            SizedBox(
+              width: double.infinity,
+              child: SegmentedButton<bool>(
+                segments: const [
+                  ButtonSegment<bool>(
+                    value: false,
+                    icon: Icon(Icons.person_outline),
+                    label: Text('Chats'),
+                  ),
+                  ButtonSegment<bool>(
+                    value: true,
+                    icon: Icon(Icons.groups),
+                    label: Text('Groups'),
+                  ),
+                ],
+                selected: {showGroupsTab},
+                onSelectionChanged: (value) {
+                  setState(() => showGroupsTab = value.first);
+                },
+                style: ButtonStyle(
+                  foregroundColor: WidgetStateProperty.resolveWith(
+                    (states) => states.contains(WidgetState.selected)
+                        ? Colors.white
+                        : Colors.white70,
+                  ),
+                  backgroundColor: WidgetStateProperty.resolveWith(
+                    (states) =>
+                        states.contains(WidgetState.selected) ? blue : panel,
+                  ),
+                ),
               ),
-            )
-          : StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-              stream: currentUserChatsQuery(
-                firebaseUser.uid,
-              ).debugSnapshots('chat: threads list listener'),
-              builder: (context, snapshot) {
-                final chats =
-                    snapshot.data?.docs
-                        .map((doc) => ChatThreadData.fromFirestore(doc))
-                        .toList() ??
-                    <ChatThreadData>[];
-                final directChats = sortedChats(
-                  chats.where((chat) => !chat.isGroup).toList(),
-                );
-                final groupChats = sortedChats(
-                  chats.where((chat) => chat.isGroup).toList(),
-                );
-
-                return ListView(
-                  padding: const EdgeInsets.fromLTRB(20, 18, 20, 92),
-                  children: [
-                    Row(
-                      children: [
-                        const Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'Chat',
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 34,
-                                  fontWeight: FontWeight.w900,
-                                ),
-                              ),
-                              SizedBox(height: 6),
-                              Text(
-                                'Messages with friends and groups',
-                                style: TextStyle(
-                                  color: Colors.white54,
-                                  height: 1.35,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        IconButton.filled(
-                          onPressed: () => openNewChat(context),
-                          style: IconButton.styleFrom(
-                            backgroundColor: blue,
-                            foregroundColor: Colors.white,
-                          ),
-                          icon: const Icon(Icons.add),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 18),
-                    SizedBox(
-                      width: double.infinity,
-                      child: SegmentedButton<bool>(
-                        segments: const [
-                          ButtonSegment<bool>(
-                            value: false,
-                            icon: Icon(Icons.person_outline),
-                            label: Text('Chats'),
-                          ),
-                          ButtonSegment<bool>(
-                            value: true,
-                            icon: Icon(Icons.groups),
-                            label: Text('Groups'),
-                          ),
-                        ],
-                        selected: {showGroupsTab},
-                        onSelectionChanged: (value) {
-                          setState(() => showGroupsTab = value.first);
-                        },
-                        style: ButtonStyle(
-                          foregroundColor: WidgetStateProperty.resolveWith(
-                            (states) => states.contains(WidgetState.selected)
-                                ? Colors.white
-                                : Colors.white70,
-                          ),
-                          backgroundColor: WidgetStateProperty.resolveWith(
-                            (states) => states.contains(WidgetState.selected)
-                                ? blue
-                                : panel,
-                          ),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 18),
-                    if (snapshot.connectionState == ConnectionState.waiting)
-                      const Center(
-                        child: Padding(
-                          padding: EdgeInsets.all(24),
-                          child: CircularProgressIndicator(color: blue),
-                        ),
-                      )
-                    else if (chats.isEmpty)
-                      const EmptyStateCard(
-                        icon: Icons.chat_bubble_outline,
-                        title: 'No chats yet',
-                        text: 'Start a chat with a friend or create a group.',
-                      )
-                    else if (!showGroupsTab)
-                      chatSection(
-                        title: 'Chats',
-                        emptyText: 'No direct chats yet.',
-                        chats: directChats,
-                        currentUid: firebaseUser.uid,
-                      )
-                    else
-                      chatSection(
-                        title: 'Groups',
-                        emptyText: 'No groups yet.',
-                        chats: groupChats,
-                        currentUid: firebaseUser.uid,
-                      ),
-                  ],
-                );
-              },
             ),
+            const SizedBox(height: 18),
+            if (snapshot.connectionState == ConnectionState.waiting)
+              const Center(
+                child: Padding(
+                  padding: EdgeInsets.all(24),
+                  child: CircularProgressIndicator(color: blue),
+                ),
+              )
+            else if (chats.isEmpty)
+              const EmptyStateCard(
+                icon: Icons.chat_bubble_outline,
+                title: 'No chats yet',
+                text: 'Start a chat with a friend or create a group.',
+              )
+            else if (!showGroupsTab)
+              chatSection(
+                title: 'Chats',
+                emptyText: 'No direct chats yet.',
+                chats: directChats,
+                currentUid: firebaseUser.uid,
+              )
+            else
+              chatSection(
+                title: 'Groups',
+                emptyText: 'No groups yet.',
+                chats: groupChats,
+                currentUid: firebaseUser.uid,
+              ),
+          ],
+        );
+
+        return Scaffold(
+          backgroundColor: Colors.transparent,
+          appBar: AppBar(
+            title: const CcsAppBarLogo(),
+            backgroundColor: Colors.transparent,
+            foregroundColor: blue,
+            actions: ccsAppBarActions(),
+          ),
+          floatingActionButton: FloatingActionButton(
+            onPressed: () => openChatManager(context, chats),
+            backgroundColor: blue,
+            foregroundColor: Colors.white,
+            child: const Icon(Icons.tune),
+          ),
+          body: body,
+        );
+      },
     );
   }
 }
@@ -27253,6 +27309,11 @@ Widget chatDateDivider(String label) {
   );
 }
 
+const int chatMessagePageSize = 10;
+final Map<String, List<ChatMessageData>> _chatMessageSessionCache = {};
+final Map<String, DocumentSnapshot<Map<String, dynamic>>>
+_chatOldestMessageDocSessionCache = {};
+
 class ChatConversationScreen extends StatefulWidget {
   final ChatThreadData chat;
 
@@ -27265,37 +27326,178 @@ class ChatConversationScreen extends StatefulWidget {
 class _ChatConversationScreenState extends State<ChatConversationScreen> {
   final messageController = TextEditingController();
   final chatScrollController = ScrollController();
+  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>?
+  _newMessagesSubscription;
   bool isSending = false;
   bool isSharingChatLocation = false;
   bool hasScrolledToLatestMessage = false;
   bool scrollToLatestAfterNextMessage = false;
   int renderedMessageCount = 0;
 
-  // Pagination for loading older messages.
-  final List<ChatMessageData> _allMessages = [];
+  // Messages are loaded in pages. The initial page is only the latest 10.
+  final List<ChatMessageData> _messages = [];
   DocumentSnapshot<Map<String, dynamic>>? _oldestLoadedDoc;
+  bool _isInitialLoadingMessages = true;
   bool _isLoadingOlderMessages = false;
   bool _hasMoreOlderMessages = true;
   bool _paginationInitialized = false;
+  bool _initialBottomScrollDone = false;
 
   @override
   void initState() {
     super.initState();
     chatScrollController.addListener(_onScroll);
+    unawaited(_loadInitialMessages());
   }
 
   @override
   void dispose() {
+    _newMessagesSubscription?.cancel();
     chatScrollController.removeListener(_onScroll);
     messageController.dispose();
     chatScrollController.dispose();
     super.dispose();
   }
 
+  void _cacheMessages() {
+    _chatMessageSessionCache[widget.chat.id] = List<ChatMessageData>.from(
+      _messages,
+    );
+    final oldest = _oldestLoadedDoc;
+    if (oldest != null) {
+      _chatOldestMessageDocSessionCache[widget.chat.id] = oldest;
+    }
+  }
+
+  void _mergeMessages(Iterable<ChatMessageData> incoming) {
+    final byId = <String, ChatMessageData>{
+      for (final message in _messages) message.id: message,
+    };
+    for (final message in incoming) {
+      if (message.text.trim().isEmpty) {
+        continue;
+      }
+      byId[message.id] = message;
+    }
+    _messages
+      ..clear()
+      ..addAll(byId.values);
+    _messages.sort((a, b) => a.createdAtMillis.compareTo(b.createdAtMillis));
+    _cacheMessages();
+  }
+
+  int get _latestLoadedMessageMillis {
+    var latest = 0;
+    for (final message in _messages) {
+      if (message.createdAtMillis > latest) {
+        latest = message.createdAtMillis;
+      }
+    }
+    return latest;
+  }
+
+  Future<void> _loadInitialMessages() async {
+    final cachedMessages = _chatMessageSessionCache[widget.chat.id];
+    if (cachedMessages != null) {
+      _messages
+        ..clear()
+        ..addAll(cachedMessages);
+      _oldestLoadedDoc = _chatOldestMessageDocSessionCache[widget.chat.id];
+      _paginationInitialized = _oldestLoadedDoc != null || _messages.isEmpty;
+      _hasMoreOlderMessages = _messages.length >= chatMessagePageSize;
+      if (mounted) {
+        setState(() => _isInitialLoadingMessages = false);
+        scheduleScrollToLatestMessage();
+      }
+      _startNewMessagesListener();
+      return;
+    }
+
+    try {
+      final snapshot = await latestChatMessagesQuery(
+        widget.chat.id,
+      ).debugGet(null, 'chat: initial latest messages');
+
+      if (!mounted) {
+        return;
+      }
+
+      final loaded = snapshot.docs
+          .map((doc) => ChatMessageData.fromFirestore(doc))
+          .where((message) => message.text.trim().isNotEmpty)
+          .toList();
+      loaded.sort((a, b) => a.createdAtMillis.compareTo(b.createdAtMillis));
+
+      setState(() {
+        _messages
+          ..clear()
+          ..addAll(loaded);
+        _oldestLoadedDoc = snapshot.docs.isEmpty ? null : snapshot.docs.last;
+        _hasMoreOlderMessages = snapshot.docs.length >= chatMessagePageSize;
+        _paginationInitialized = true;
+        _isInitialLoadingMessages = false;
+      });
+      _cacheMessages();
+      scheduleScrollToLatestMessage();
+      _startNewMessagesListener();
+    } catch (error, stack) {
+      debugPrint('Initial chat messages could not load: $error');
+      debugPrint('$stack');
+      if (mounted) {
+        setState(() => _isInitialLoadingMessages = false);
+      }
+      _startNewMessagesListener();
+    }
+  }
+
+  void _startNewMessagesListener() {
+    _newMessagesSubscription?.cancel();
+
+    final latestMillis = _latestLoadedMessageMillis;
+    Query<Map<String, dynamic>> query;
+    if (latestMillis > 0) {
+      query = chatMessagesCollection(widget.chat.id)
+          .where(
+            'createdAt',
+            isGreaterThan: Timestamp.fromMillisecondsSinceEpoch(latestMillis),
+          )
+          .orderBy('createdAt')
+          .limit(chatMessagePageSize);
+    } else {
+      query = latestChatMessagesQuery(widget.chat.id);
+    }
+
+    _newMessagesSubscription = query
+        .debugSnapshots('chat: new messages listener')
+        .listen(
+          (snapshot) {
+            if (!mounted || snapshot.docs.isEmpty) {
+              return;
+            }
+
+            final shouldFollow = isNearLatestMessage();
+            final incoming = snapshot.docs
+                .map((doc) => ChatMessageData.fromFirestore(doc))
+                .where((message) => message.text.trim().isNotEmpty)
+                .toList();
+
+            setState(() => _mergeMessages(incoming));
+            if (shouldFollow || scrollToLatestAfterNextMessage) {
+              scheduleScrollToLatestMessage(animated: true);
+            }
+          },
+          onError: (Object error, StackTrace stack) {
+            debugPrint('New chat messages listener failed: $error');
+            debugPrint('$stack');
+          },
+        );
+  }
+
   void _onScroll() {
-    if (!chatScrollController.hasClients) return;
+    if (!chatScrollController.hasClients || !_initialBottomScrollDone) return;
     final position = chatScrollController.position;
-    // Load older messages when scrolled near the top.
+    // Load older messages only after the initial jump to bottom is finished and
+    // the user intentionally scrolls near the top.
     if (position.pixels <= 120 &&
         _hasMoreOlderMessages &&
         !_isLoadingOlderMessages &&
@@ -27308,34 +27510,51 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
     if (_isLoadingOlderMessages || !_hasMoreOlderMessages) return;
     if (_oldestLoadedDoc == null) return;
 
+    final oldMaxExtent = chatScrollController.hasClients
+        ? chatScrollController.position.maxScrollExtent
+        : 0.0;
+    final oldOffset = chatScrollController.hasClients
+        ? chatScrollController.position.pixels
+        : 0.0;
+
     setState(() => _isLoadingOlderMessages = true);
 
     try {
       final snapshot = await chatMessagesCollection(widget.chat.id)
           .orderBy('createdAt', descending: true)
           .startAfterDocument(_oldestLoadedDoc!)
-          .limit(20)
+          .limit(chatMessagePageSize)
           .debugGet(null, 'chat: load older messages');
 
       if (!mounted) return;
 
       final older = snapshot.docs
           .map((doc) => ChatMessageData.fromFirestore(doc))
-          .where((m) => m.text.trim().isNotEmpty)
+          .where((message) => message.text.trim().isNotEmpty)
           .toList()
           .reversed
           .toList();
 
-      if (older.isNotEmpty) {
-        _oldestLoadedDoc = snapshot.docs.last;
-      }
-
       setState(() {
-        _allMessages.insertAll(0, older);
-        _hasMoreOlderMessages = snapshot.docs.length >= 20;
+        if (older.isNotEmpty) {
+          _oldestLoadedDoc = snapshot.docs.last;
+          _mergeMessages(older);
+        }
+        _hasMoreOlderMessages = snapshot.docs.length >= chatMessagePageSize;
         _isLoadingOlderMessages = false;
       });
-    } catch (_) {
+
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || !chatScrollController.hasClients) {
+          return;
+        }
+        final newMaxExtent = chatScrollController.position.maxScrollExtent;
+        final addedHeight = newMaxExtent - oldMaxExtent;
+        chatScrollController.jumpTo(oldOffset + addedHeight);
+      });
+    } catch (error, stack) {
+      debugPrint('Older chat messages could not load: $error');
+      debugPrint('$stack');
       if (mounted) setState(() => _isLoadingOlderMessages = false);
     }
   }
@@ -27356,7 +27575,7 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
       }
 
       final target = chatScrollController.position.maxScrollExtent;
-      if (animated) {
+      if (animated && _initialBottomScrollDone) {
         chatScrollController.animateTo(
           target,
           duration: const Duration(milliseconds: 220),
@@ -27365,6 +27584,7 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
       } else {
         chatScrollController.jumpTo(target);
       }
+      _initialBottomScrollDone = true;
     });
   }
 
@@ -27957,41 +28177,16 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
       body: Column(
         children: [
           Expanded(
-            child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-              stream: latestChatMessagesQuery(
-                widget.chat.id,
-              ).debugSnapshots('chat: latest messages listener'),
-              builder: (context, snapshot) {
-                // Merge live latest messages with older loaded ones.
-                final latestDocs = snapshot.data?.docs ?? [];
-                final latestMessages = latestDocs
-                    .map((doc) => ChatMessageData.fromFirestore(doc))
-                    .where((m) => m.text.trim().isNotEmpty)
-                    .toList();
-                latestMessages.sort(
-                  (a, b) => a.createdAtMillis.compareTo(b.createdAtMillis),
-                );
-
-                // Initialize pagination anchor once.
-                if (!_paginationInitialized && latestDocs.isNotEmpty) {
-                  WidgetsBinding.instance.addPostFrameCallback((_) {
-                    if (!mounted) return;
-                    setState(() {
-                      _oldestLoadedDoc =
-                          latestDocs.last; // oldest in desc order
-                      _paginationInitialized = true;
-                    });
-                  });
-                }
-
-                // Merge: older loaded + latest live (dedup by id).
-                final latestById = {for (final m in latestMessages) m.id: m};
-                final olderNotInLatest = _allMessages
-                    .where((m) => !latestById.containsKey(m.id))
-                    .toList();
-                final messages = [...olderNotInLatest, ...latestMessages];
-
+            child: Builder(
+              builder: (context) {
+                final messages = List<ChatMessageData>.from(_messages);
                 updateChatScrollForMessages(messages.length);
+
+                if (_isInitialLoadingMessages) {
+                  return const Center(
+                    child: CircularProgressIndicator(color: blue),
+                  );
+                }
 
                 if (messages.isEmpty) {
                   return const Padding(
@@ -28033,6 +28228,20 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
                               child: CircularProgressIndicator(
                                 strokeWidth: 2,
                                 color: blue,
+                              ),
+                            ),
+                          ),
+                        ),
+                      if (_hasMoreOlderMessages)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 8),
+                          child: Center(
+                            child: Text(
+                              'Scroll up to load older messages',
+                              style: TextStyle(
+                                color: Colors.white.withValues(alpha: 0.35),
+                                fontSize: 11,
+                                fontWeight: FontWeight.w700,
                               ),
                             ),
                           ),
