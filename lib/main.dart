@@ -2622,8 +2622,7 @@ const _lvText = <String, String>{
   'Blocked users': 'Bloķētie lietotāji',
   'Manage blocked users': 'Pārvaldīt bloķētos lietotājus',
   'No blocked users': 'Melnais saraksts ir tukšs',
-  'Blocked users will appear here.':
-      'Bloķētie lietotāji parādīsies šeit.',
+  'Blocked users will appear here.': 'Bloķētie lietotāji parādīsies šeit.',
   'Friend request sent.': 'Draudzības pieprasījums nosūtīts.',
   'Friend request accepted.': 'Draudzības pieprasījums pieņemts.',
   'Friend removed.': 'Lietotājs noņemts no draugiem.',
@@ -2636,8 +2635,7 @@ const _lvText = <String, String>{
   'Could not open chat.': 'Neizdevās atvērt čatu.',
   'You cannot message this user.': 'Jūs nevarat rakstīt šim lietotājam.',
   'This profile is not available.': 'Šis profils nav pieejams.',
-  'Only avatar and nickname are visible.':
-      'Redzams tikai avatārs un segvārds.',
+  'Only avatar and nickname are visible.': 'Redzams tikai avatārs un segvārds.',
   'Friend': 'Draugs',
   'Driver': 'Vadītājs',
   'Group share': 'Grupa',
@@ -7044,10 +7042,7 @@ Future<List<String>> loadCurrentUserBlockedUserIds() async {
   }
 
   final snapshot = await usersCollection().doc(firebaseUser.uid).debugGet();
-  return stringListFromFirebase(
-    snapshot.data()?['blockedUserIds'],
-    const [],
-  );
+  return stringListFromFirebase(snapshot.data()?['blockedUserIds'], const []);
 }
 
 Future<bool> isUserBlockedByCurrentUser(String userId) async {
@@ -11354,8 +11349,8 @@ NotificationCenterItem notificationCenterItemFromDocument(
     'new_spot' => 'New spots',
     'temporary_event' => 'Temporary events',
     'spot_pending_review' => 'Spot review updates',
-    'spot_approved_by_admin' || 'spot_rejected_by_admin' =>
-      'Spot review updates',
+    'spot_approved_by_admin' ||
+    'spot_rejected_by_admin' => 'Spot review updates',
     'friend_request' => 'New friend request',
     'friend_nearby' || 'friend_at_spot' => 'Live location',
     'project_news' => 'Project news',
@@ -12052,7 +12047,8 @@ Future<void> openNotificationCenterItem(
           Navigator.push(
             context,
             appPageRoute(
-              builder: (_) => SpotDetailScreen(spot: CarSpot.fromFirestore(doc)),
+              builder: (_) =>
+                  SpotDetailScreen(spot: CarSpot.fromFirestore(doc)),
             ),
           );
         } else {
@@ -12386,7 +12382,6 @@ class _NotificationCenterScreenState extends State<NotificationCenterScreen> {
     );
   }
 }
-
 
 class _AllNotificationsScreen extends StatefulWidget {
   final List<NotificationCenterItem> allItems;
@@ -16307,9 +16302,7 @@ class _MapScreenState extends State<MapScreen>
                                     : Colors.white.withValues(alpha: 0.06),
                                 borderRadius: BorderRadius.circular(10),
                                 border: Border.all(
-                                  color: selected
-                                      ? blue
-                                      : Colors.white12,
+                                  color: selected ? blue : Colors.white12,
                                 ),
                               ),
                               child: Row(
@@ -16396,9 +16389,7 @@ class _MapScreenState extends State<MapScreen>
                       ),
                     );
                   },
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: blue,
-                  ),
+                  style: ElevatedButton.styleFrom(backgroundColor: blue),
                   child: Text(
                     trText('Create SOS'),
                     style: const TextStyle(color: Colors.white),
@@ -26028,9 +26019,7 @@ class _ChatManageScreenState extends State<ChatManageScreen> {
                           tooltip: isPinned ? 'Unpin' : 'Pin',
                           onPressed: () => togglePin(chat),
                           icon: Icon(
-                            isPinned
-                                ? Icons.push_pin
-                                : Icons.push_pin_outlined,
+                            isPinned ? Icons.push_pin : Icons.push_pin_outlined,
                             color: isPinned ? blue : Colors.white54,
                           ),
                         ),
@@ -27808,7 +27797,8 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
                   WidgetsBinding.instance.addPostFrameCallback((_) {
                     if (!mounted) return;
                     setState(() {
-                      _oldestLoadedDoc = latestDocs.last; // oldest in desc order
+                      _oldestLoadedDoc =
+                          latestDocs.last; // oldest in desc order
                       _paginationInitialized = true;
                     });
                   });
@@ -28086,10 +28076,7 @@ class GarageCar {
 
     return GarageCar(
       name: stringFromFirebase(data['name'], 'Untitled car'),
-      description: stringFromFirebase(
-        data['description'],
-        'Car profile.',
-      ),
+      description: stringFromFirebase(data['description'], 'Car profile.'),
       buildType: stringFromFirebase(data['buildType'], ''),
       useType: stringFromFirebase(data['useType'], ''),
       tags: stringListFromFirebase(data['tags'], const []),
@@ -28272,10 +28259,7 @@ class PublicUserProfileData {
       liveLocationExpiresAtMillis: nullableTimestampMillisFromFirebase(
         data['liveLocationExpiresAt'],
       ),
-      blockedUserIds: stringListFromFirebase(
-        data['blockedUserIds'],
-        const [],
-      ),
+      blockedUserIds: stringListFromFirebase(data['blockedUserIds'], const []),
     );
   }
 }
@@ -29048,9 +29032,7 @@ class _BlockedUsersScreenState extends State<BlockedUsersScreen> {
         future: blockedUsersFuture,
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(
-              child: CircularProgressIndicator(color: blue),
-            );
+            return const Center(child: CircularProgressIndicator(color: blue));
           }
 
           final users = snapshot.data ?? const <FriendUserData>[];
@@ -29067,9 +29049,7 @@ class _BlockedUsersScreenState extends State<BlockedUsersScreen> {
 
           return ListView(
             padding: const EdgeInsets.fromLTRB(20, 18, 20, 28),
-            children: [
-              for (final user in users) blockedUserTile(user),
-            ],
+            children: [for (final user in users) blockedUserTile(user)],
           );
         },
       ),
@@ -29380,7 +29360,9 @@ class _PublicProfileActionsState extends State<PublicProfileActions> {
               label: relationship.blockedByCurrentUser
                   ? 'Unblock user'
                   : 'Block user',
-              color: relationship.blockedByCurrentUser ? blue : Colors.redAccent,
+              color: relationship.blockedByCurrentUser
+                  ? blue
+                  : Colors.redAccent,
               onPressed: isLoading
                   ? null
                   : () => runAction(
@@ -29698,7 +29680,10 @@ class PublicUserProfileScreen extends StatelessWidget {
     );
   }
 
-  Widget blockedProfileBody(BuildContext context, PublicUserProfileData profile) {
+  Widget blockedProfileBody(
+    BuildContext context,
+    PublicUserProfileData profile,
+  ) {
     return ListView(
       padding: const EdgeInsets.fromLTRB(20, 18, 20, 28),
       children: [
