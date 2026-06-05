@@ -7,8 +7,8 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
-import android.os.Build
 import android.net.Uri
+import android.os.Build
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -18,6 +18,7 @@ import java.io.FileOutputStream
 class MainActivity : FlutterActivity() {
     private val photoPickerChannelName = "ccs/photo_picker"
     private val notificationsChannelName = "ccs/system_notifications"
+    private val liveLocationChannelName = "live_location_background"
     private val notificationChannelId = "ccs_updates"
     private val pickPhotoRequestCode = 7001
     private var pendingPhotoResult: MethodChannel.Result? = null
@@ -45,6 +46,50 @@ class MainActivity : FlutterActivity() {
                         showNotification(id, title, body)
                         result.success(null)
                     }
+                    else -> result.notImplemented()
+                }
+            }
+
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, liveLocationChannelName)
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "start" -> {
+                        val intent = Intent(this, LiveLocationService::class.java).apply {
+                            putExtra("uid", call.argument<String>("uid"))
+                            putExtra("shareScope", call.argument<String>("shareScope"))
+                            putExtra("promptAtMillis", call.argument<Long>("promptAtMillis") ?: 0L)
+                            putExtra("expiresAtMillis", call.argument<Long>("expiresAtMillis") ?: 0L)
+                            putExtra(
+                                "uploadIntervalSeconds",
+                                call.argument<Int>("uploadIntervalSeconds") ?: 15
+                            )
+                            putExtra(
+                                "minimumUploadDistanceMeters",
+                                call.argument<Double>("minimumUploadDistanceMeters") ?: 10.0
+                            )
+
+                            val visibleToUserIds = call.argument<List<String>>("visibleToUserIds")
+                                ?: emptyList()
+                            putStringArrayListExtra(
+                                "visibleToUserIds",
+                                ArrayList(visibleToUserIds)
+                            )
+                        }
+
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                            startForegroundService(intent)
+                        } else {
+                            startService(intent)
+                        }
+
+                        result.success(null)
+                    }
+
+                    "stop" -> {
+                        stopService(Intent(this, LiveLocationService::class.java))
+                        result.success(null)
+                    }
+
                     else -> result.notImplemented()
                 }
             }

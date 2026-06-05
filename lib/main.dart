@@ -30,6 +30,7 @@ const googleServerClientId =
 // Deploy ccs_app/telegram_auth_server, then paste its HTTPS URL here.
 const telegramAuthBaseUrl = 'https://ccs-wine.vercel.app';
 const pushNotificationUrl = '$telegramAuthBaseUrl/api/push-notification';
+const firestoreUsageUrl = '$telegramAuthBaseUrl/api/firestore-usage';
 const r2PresignUploadUrl =
     'https://ccs-telegram-auth-server.vercel.app/api/r2-presign-upload';
 const int maxSpotGalleryPhotos = 4;
@@ -135,7 +136,9 @@ class FirestoreDebugEvent {
 
 class FirestoreDebugTracker extends ChangeNotifier {
   final Map<String, FirestoreDebugStats> statsByLabel = {};
+  final Map<String, FirestoreDebugStats> sessionStatsByLabel = {};
   final List<FirestoreDebugEvent> recentEvents = [];
+  final DateTime sessionStartedAt = DateTime.now();
   Timer? _persistTimer;
   bool _loadedFromStorage = false;
 
@@ -199,9 +202,47 @@ class FirestoreDebugTracker extends ChangeNotifier {
       return;
     }
 
-    final cleanLabel = label.trim().isEmpty ? 'unknown' : label.trim();
+    final cleanLabel = label.trim().isEmpty
+        ? 'UNLABELED unknown'
+        : label.trim();
     final stats = statsByLabel.putIfAbsent(cleanLabel, FirestoreDebugStats.new);
+    final sessionStats = sessionStatsByLabel.putIfAbsent(
+      cleanLabel,
+      FirestoreDebugStats.new,
+    );
 
+    _applyOperation(stats, operation, count);
+    _applyOperation(sessionStats, operation, count);
+
+    final now = DateTime.now();
+    stats.events += 1;
+    stats.lastAt = now;
+    sessionStats.events += 1;
+    sessionStats.lastAt = now;
+
+    recentEvents.insert(
+      0,
+      FirestoreDebugEvent(
+        label: cleanLabel,
+        operation: operation,
+        count: count,
+        at: now,
+      ),
+    );
+    if (recentEvents.length > 80) {
+      recentEvents.removeRange(80, recentEvents.length);
+    }
+
+    debugPrint(
+      '🔥 FIRESTORE $operation [$cleanLabel]: $count ops '
+      '(total R ${stats.reads}, W ${stats.writes}, D ${stats.deletes}; '
+      'session R ${sessionStats.reads}, W ${sessionStats.writes}, D ${sessionStats.deletes})',
+    );
+    notifyListeners();
+    _schedulePersist();
+  }
+
+  void _applyOperation(FirestoreDebugStats stats, String operation, int count) {
     switch (operation) {
       case 'R':
         stats.reads += count;
@@ -213,33 +254,11 @@ class FirestoreDebugTracker extends ChangeNotifier {
         stats.deletes += count;
         break;
     }
-
-    stats.events += 1;
-    stats.lastAt = DateTime.now();
-
-    recentEvents.insert(
-      0,
-      FirestoreDebugEvent(
-        label: cleanLabel,
-        operation: operation,
-        count: count,
-        at: stats.lastAt!,
-      ),
-    );
-    if (recentEvents.length > 80) {
-      recentEvents.removeRange(80, recentEvents.length);
-    }
-
-    debugPrint(
-      '🔥 FIRESTORE $operation [$cleanLabel]: $count ops '
-      '(total R ${stats.reads}, W ${stats.writes}, D ${stats.deletes})',
-    );
-    notifyListeners();
-    _schedulePersist();
   }
 
   void reset() {
     statsByLabel.clear();
+    sessionStatsByLabel.clear();
     recentEvents.clear();
     notifyListeners();
     unawaited(_persistNow());
@@ -278,12 +297,237 @@ class FirestoreDebugTracker extends ChangeNotifier {
       statsByLabel.values.fold(0, (total, item) => total + item.writes);
   int get totalDeletes =>
       statsByLabel.values.fold(0, (total, item) => total + item.deletes);
+
+  int get sessionReads =>
+      sessionStatsByLabel.values.fold(0, (total, item) => total + item.reads);
+  int get sessionWrites =>
+      sessionStatsByLabel.values.fold(0, (total, item) => total + item.writes);
+  int get sessionDeletes =>
+      sessionStatsByLabel.values.fold(0, (total, item) => total + item.deletes);
+
+  bool isUnlabeledLabel(String label) => label.startsWith('UNLABELED ');
+
+  Iterable<MapEntry<String, FirestoreDebugStats>> get unlabeledEntries =>
+      statsByLabel.entries.where((entry) => isUnlabeledLabel(entry.key));
+
+  int get unlabeledReads =>
+      unlabeledEntries.fold(0, (total, entry) => total + entry.value.reads);
+  int get unlabeledWrites =>
+      unlabeledEntries.fold(0, (total, entry) => total + entry.value.writes);
+  int get unlabeledDeletes =>
+      unlabeledEntries.fold(0, (total, entry) => total + entry.value.deletes);
+  int get unlabeledEvents =>
+      unlabeledEntries.fold(0, (total, entry) => total + entry.value.events);
+}
+
+class FirestoreCloudUsageSnapshot {
+  final int reads;
+  final int writes;
+  final int deletes;
+  final int queryReads;
+  final int lookupReads;
+  final int activeConnections;
+  final int snapshotListeners;
+  final DateTime? generatedAt;
+  final String windowLabel;
+
+  const FirestoreCloudUsageSnapshot({
+    required this.reads,
+    required this.writes,
+    required this.deletes,
+    required this.queryReads,
+    required this.lookupReads,
+    required this.activeConnections,
+    required this.snapshotListeners,
+    required this.generatedAt,
+    required this.windowLabel,
+  });
+
+  factory FirestoreCloudUsageSnapshot.fromJson(Map<String, dynamic> json) {
+    final totals = mapFromFirebase(json['totals']);
+    final readTypes = mapFromFirebase(json['readTypes']);
+    final network = mapFromFirebase(json['network']);
+    final generatedAtMillis = (json['generatedAtMillis'] as num?)?.toInt();
+
+    return FirestoreCloudUsageSnapshot(
+      reads: intFromFirebase(totals['reads'], 0),
+      writes: intFromFirebase(totals['writes'], 0),
+      deletes: intFromFirebase(totals['deletes'], 0),
+      queryReads: intFromFirebase(readTypes['query'], 0),
+      lookupReads: intFromFirebase(readTypes['lookup'], 0),
+      activeConnections: intFromFirebase(network['activeConnections'], 0),
+      snapshotListeners: intFromFirebase(network['snapshotListeners'], 0),
+      generatedAt: generatedAtMillis == null
+          ? null
+          : DateTime.fromMillisecondsSinceEpoch(generatedAtMillis),
+      windowLabel: stringFromFirebase(json['window'], 'Today'),
+    );
+  }
+
+  Map<String, Object?> toJson() {
+    return {
+      'reads': reads,
+      'writes': writes,
+      'deletes': deletes,
+      'queryReads': queryReads,
+      'lookupReads': lookupReads,
+      'activeConnections': activeConnections,
+      'snapshotListeners': snapshotListeners,
+      'generatedAtMillis': generatedAt?.millisecondsSinceEpoch,
+      'windowLabel': windowLabel,
+    };
+  }
+
+  factory FirestoreCloudUsageSnapshot.fromBaselineJson(
+    Map<String, dynamic> json,
+  ) {
+    return FirestoreCloudUsageSnapshot(
+      reads: intFromFirebase(json['reads'], 0),
+      writes: intFromFirebase(json['writes'], 0),
+      deletes: intFromFirebase(json['deletes'], 0),
+      queryReads: intFromFirebase(json['queryReads'], 0),
+      lookupReads: intFromFirebase(json['lookupReads'], 0),
+      activeConnections: intFromFirebase(json['activeConnections'], 0),
+      snapshotListeners: intFromFirebase(json['snapshotListeners'], 0),
+      generatedAt: json['generatedAtMillis'] is num
+          ? DateTime.fromMillisecondsSinceEpoch(
+              (json['generatedAtMillis'] as num).toInt(),
+            )
+          : null,
+      windowLabel: stringFromFirebase(json['windowLabel'], 'Today'),
+    );
+  }
+
+  static const zero = FirestoreCloudUsageSnapshot(
+    reads: 0,
+    writes: 0,
+    deletes: 0,
+    queryReads: 0,
+    lookupReads: 0,
+    activeConnections: 0,
+    snapshotListeners: 0,
+    generatedAt: null,
+    windowLabel: 'Today',
+  );
+}
+
+class FirestoreCloudUsageController extends ChangeNotifier {
+  FirestoreCloudUsageSnapshot? snapshot;
+  FirestoreCloudUsageSnapshot baseline = FirestoreCloudUsageSnapshot.zero;
+  bool isLoading = false;
+  String? errorMessage;
+  DateTime? lastFetchedAt;
+
+  Future<void> loadBaseline() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(firestoreCloudUsageBaselineStorageKey);
+      if (raw == null || raw.trim().isEmpty) {
+        return;
+      }
+
+      final decoded = jsonDecode(raw);
+      if (decoded is Map<String, dynamic>) {
+        baseline = FirestoreCloudUsageSnapshot.fromBaselineJson(decoded);
+        notifyListeners();
+      }
+    } catch (error) {
+      debugPrint('Firestore cloud usage baseline restore failed: $error');
+    }
+  }
+
+  Future<void> refresh() async {
+    if (isLoading) {
+      return;
+    }
+
+    isLoading = true;
+    errorMessage = null;
+    notifyListeners();
+
+    try {
+      final uri = Uri.parse(firestoreUsageUrl);
+      final client = HttpClient();
+      try {
+        final request = await client.getUrl(uri);
+        request.headers.set(HttpHeaders.acceptHeader, 'application/json');
+        final response = await request.close();
+        final body = await utf8.decoder.bind(response).join();
+
+        if (response.statusCode < 200 || response.statusCode >= 300) {
+          throw StateError(
+            'Usage endpoint returned ${response.statusCode}: ${body.trim()}',
+          );
+        }
+
+        final decoded = jsonDecode(body);
+        if (decoded is! Map<String, dynamic>) {
+          throw const FormatException('Usage endpoint returned invalid JSON.');
+        }
+
+        if (decoded['ok'] == false) {
+          throw StateError(
+            stringFromFirebase(decoded['error'], 'Usage endpoint failed.'),
+          );
+        }
+
+        snapshot = FirestoreCloudUsageSnapshot.fromJson(decoded);
+        lastFetchedAt = DateTime.now();
+      } finally {
+        client.close(force: true);
+      }
+    } catch (error) {
+      errorMessage = '$error';
+      debugPrint('Firestore cloud usage refresh failed: $error');
+    } finally {
+      isLoading = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> resetBaselineToCurrent() async {
+    if (snapshot == null) {
+      await refresh();
+    }
+
+    final current = snapshot;
+    if (current == null) {
+      return;
+    }
+
+    baseline = current;
+    notifyListeners();
+
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(
+        firestoreCloudUsageBaselineStorageKey,
+        jsonEncode(baseline.toJson()),
+      );
+    } catch (error) {
+      debugPrint('Firestore cloud usage baseline save failed: $error');
+    }
+  }
+
+  int get readsSinceReset =>
+      math.max(0, (snapshot?.reads ?? 0) - baseline.reads);
+  int get writesSinceReset =>
+      math.max(0, (snapshot?.writes ?? 0) - baseline.writes);
+  int get deletesSinceReset =>
+      math.max(0, (snapshot?.deletes ?? 0) - baseline.deletes);
+  int get queryReadsSinceReset =>
+      math.max(0, (snapshot?.queryReads ?? 0) - baseline.queryReads);
+  int get lookupReadsSinceReset =>
+      math.max(0, (snapshot?.lookupReads ?? 0) - baseline.lookupReads);
 }
 
 final firestoreDebugTracker = FirestoreDebugTracker();
+final firestoreCloudUsageController = FirestoreCloudUsageController();
 final firestoreDebugButtonVisible = ValueNotifier<bool>(true);
 const firestoreDebugButtonVisibleKey = 'firestore_debug_button_visible';
 const firestoreDebugTrackerStorageKey = 'firestore_debug_tracker_storage_v1';
+const firestoreCloudUsageBaselineStorageKey =
+    'firestore_cloud_usage_baseline_v1';
 
 Future<void> loadFirestoreDebugButtonPreference() async {
   try {
@@ -411,8 +655,8 @@ String firestoreDebugCallerLabel(
 
   final targetLabel = firestoreDebugTargetLabel(target);
   return caller.isEmpty
-      ? '$operation • $targetLabel'
-      : '$operation • $targetLabel • $caller';
+      ? 'UNLABELED $operation • $targetLabel'
+      : 'UNLABELED $operation • $targetLabel • $caller';
 }
 
 extension FirestoreDebugQueryExtension<T extends Object?> on Query<T> {
@@ -420,15 +664,21 @@ extension FirestoreDebugQueryExtension<T extends Object?> on Query<T> {
     GetOptions? options,
     String? label,
   ]) async {
+    final debugLabel = firestoreDebugCallerLabel('query.get', this, label);
     final snapshot = await get(options);
     firestoreDebugTracker.recordRead(
-      firestoreDebugCallerLabel('query.get', this, label),
+      debugLabel,
       firestoreDebugBillableQueryReadCount(snapshot.docs.length),
     );
     return snapshot;
   }
 
   Stream<QuerySnapshot<T>> debugSnapshots([String? label]) {
+    final debugLabel = firestoreDebugCallerLabel(
+      'query.snapshots',
+      this,
+      label,
+    );
     var firstSnapshot = true;
 
     return snapshots().map((snapshot) {
@@ -436,10 +686,7 @@ extension FirestoreDebugQueryExtension<T extends Object?> on Query<T> {
           ? firestoreDebugBillableQueryReadCount(snapshot.docs.length)
           : snapshot.docChanges.length;
       firstSnapshot = false;
-      firestoreDebugTracker.recordRead(
-        firestoreDebugCallerLabel('query.snapshots', this, label),
-        count,
-      );
+      firestoreDebugTracker.recordRead(debugLabel, count);
       return snapshot;
     });
   }
@@ -451,45 +698,36 @@ extension FirestoreDebugDocumentReferenceExtension<T extends Object?>
     GetOptions? options,
     String? label,
   ]) async {
+    final debugLabel = firestoreDebugCallerLabel('doc.get', this, label);
     final snapshot = await get(options);
-    firestoreDebugTracker.recordRead(
-      firestoreDebugCallerLabel('doc.get', this, label),
-      1,
-    );
+    firestoreDebugTracker.recordRead(debugLabel, 1);
     return snapshot;
   }
 
   Stream<DocumentSnapshot<T>> debugSnapshots([String? label]) {
+    final debugLabel = firestoreDebugCallerLabel('doc.snapshots', this, label);
+
     return snapshots().map((snapshot) {
-      firestoreDebugTracker.recordRead(
-        firestoreDebugCallerLabel('doc.snapshots', this, label),
-        1,
-      );
+      firestoreDebugTracker.recordRead(debugLabel, 1);
       return snapshot;
     });
   }
 
   Future<void> debugSet(T data, [SetOptions? options, String? label]) async {
-    firestoreDebugTracker.recordWrite(
-      firestoreDebugCallerLabel('doc.set', this, label),
-      1,
-    );
+    final debugLabel = firestoreDebugCallerLabel('doc.set', this, label);
+    firestoreDebugTracker.recordWrite(debugLabel, 1);
     return set(data, options);
   }
 
   Future<void> debugUpdate(Map<Object, Object?> data, [String? label]) async {
-    firestoreDebugTracker.recordWrite(
-      firestoreDebugCallerLabel('doc.update', this, label),
-      1,
-    );
+    final debugLabel = firestoreDebugCallerLabel('doc.update', this, label);
+    firestoreDebugTracker.recordWrite(debugLabel, 1);
     return update(data);
   }
 
   Future<void> debugDelete([String? label]) async {
-    firestoreDebugTracker.recordDelete(
-      firestoreDebugCallerLabel('doc.delete', this, label),
-      1,
-    );
+    final debugLabel = firestoreDebugCallerLabel('doc.delete', this, label);
+    firestoreDebugTracker.recordDelete(debugLabel, 1);
     return delete();
   }
 }
@@ -499,11 +737,9 @@ extension FirestoreDebugTransactionExtension on Transaction {
     DocumentReference<T> ref, [
     String? label,
   ]) async {
+    final debugLabel = firestoreDebugCallerLabel('transaction.get', ref, label);
     final snapshot = await get(ref);
-    firestoreDebugTracker.recordRead(
-      firestoreDebugCallerLabel('transaction.get', ref, label),
-      1,
-    );
+    firestoreDebugTracker.recordRead(debugLabel, 1);
     return snapshot;
   }
 
@@ -513,10 +749,8 @@ extension FirestoreDebugTransactionExtension on Transaction {
     SetOptions? options,
     String? label,
   ]) {
-    firestoreDebugTracker.recordWrite(
-      firestoreDebugCallerLabel('transaction.set', ref, label),
-      1,
-    );
+    final debugLabel = firestoreDebugCallerLabel('transaction.set', ref, label);
+    firestoreDebugTracker.recordWrite(debugLabel, 1);
     set(ref, data, options);
     return this;
   }
@@ -526,10 +760,12 @@ extension FirestoreDebugTransactionExtension on Transaction {
     Map<Object, Object?> data, [
     String? label,
   ]) {
-    firestoreDebugTracker.recordWrite(
-      firestoreDebugCallerLabel('transaction.update', ref, label),
-      1,
+    final debugLabel = firestoreDebugCallerLabel(
+      'transaction.update',
+      ref,
+      label,
     );
+    firestoreDebugTracker.recordWrite(debugLabel, 1);
     update(ref, data);
     return this;
   }
@@ -538,10 +774,12 @@ extension FirestoreDebugTransactionExtension on Transaction {
     DocumentReference<T> ref, [
     String? label,
   ]) {
-    firestoreDebugTracker.recordDelete(
-      firestoreDebugCallerLabel('transaction.delete', ref, label),
-      1,
+    final debugLabel = firestoreDebugCallerLabel(
+      'transaction.delete',
+      ref,
+      label,
     );
+    firestoreDebugTracker.recordDelete(debugLabel, 1);
     delete(ref);
     return this;
   }
@@ -550,10 +788,8 @@ extension FirestoreDebugTransactionExtension on Transaction {
 extension FirestoreDebugCollectionReferenceExtension<T extends Object?>
     on CollectionReference<T> {
   Future<DocumentReference<T>> debugAdd(T data, [String? label]) async {
-    firestoreDebugTracker.recordWrite(
-      firestoreDebugCallerLabel('collection.add', this, label),
-      1,
-    );
+    final debugLabel = firestoreDebugCallerLabel('collection.add', this, label);
+    firestoreDebugTracker.recordWrite(debugLabel, 1);
     return add(data);
   }
 }
@@ -565,10 +801,8 @@ extension FirestoreDebugWriteBatchExtension on WriteBatch {
     SetOptions? options,
     String? label,
   ]) {
-    firestoreDebugTracker.recordWrite(
-      firestoreDebugCallerLabel('batch.set', ref, label),
-      1,
-    );
+    final debugLabel = firestoreDebugCallerLabel('batch.set', ref, label);
+    firestoreDebugTracker.recordWrite(debugLabel, 1);
     set(ref, data, options);
   }
 
@@ -577,10 +811,8 @@ extension FirestoreDebugWriteBatchExtension on WriteBatch {
     Map<Object, Object?> data, [
     String? label,
   ]) {
-    firestoreDebugTracker.recordWrite(
-      firestoreDebugCallerLabel('batch.update', ref, label),
-      1,
-    );
+    final debugLabel = firestoreDebugCallerLabel('batch.update', ref, label);
+    firestoreDebugTracker.recordWrite(debugLabel, 1);
     update(ref, data);
   }
 
@@ -588,16 +820,37 @@ extension FirestoreDebugWriteBatchExtension on WriteBatch {
     DocumentReference<T> ref, [
     String? label,
   ]) {
-    firestoreDebugTracker.recordDelete(
-      firestoreDebugCallerLabel('batch.delete', ref, label),
-      1,
-    );
+    final debugLabel = firestoreDebugCallerLabel('batch.delete', ref, label);
+    firestoreDebugTracker.recordDelete(debugLabel, 1);
     delete(ref);
   }
 }
 
-class FirestoreDebugScreen extends StatelessWidget {
+class FirestoreDebugScreen extends StatefulWidget {
   const FirestoreDebugScreen({super.key});
+
+  @override
+  State<FirestoreDebugScreen> createState() => _FirestoreDebugScreenState();
+}
+
+class _FirestoreDebugScreenState extends State<FirestoreDebugScreen> {
+  Timer? _cloudUsageRefreshTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(firestoreCloudUsageController.loadBaseline());
+    unawaited(firestoreCloudUsageController.refresh());
+    _cloudUsageRefreshTimer = Timer.periodic(const Duration(minutes: 1), (_) {
+      unawaited(firestoreCloudUsageController.refresh());
+    });
+  }
+
+  @override
+  void dispose() {
+    _cloudUsageRefreshTimer?.cancel();
+    super.dispose();
+  }
 
   String _timeLabel(DateTime? value) {
     if (value == null) {
@@ -607,10 +860,18 @@ class FirestoreDebugScreen extends StatelessWidget {
     return '${twoDigits(value.hour)}:${twoDigits(value.minute)}:${twoDigits(value.second)}';
   }
 
+  Future<void> _resetCounters() async {
+    firestoreDebugTracker.reset();
+    await firestoreCloudUsageController.resetBaselineToCurrent();
+  }
+
   @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
-      animation: firestoreDebugTracker,
+      animation: Listenable.merge([
+        firestoreDebugTracker,
+        firestoreCloudUsageController,
+      ]),
       builder: (context, _) {
         final entries = firestoreDebugTracker.statsByLabel.entries.toList()
           ..sort((first, second) {
@@ -621,6 +882,11 @@ class FirestoreDebugScreen extends StatelessWidget {
             return second.value.total.compareTo(first.value.total);
           });
         final logs = firestoreDebugTracker.recentEvents;
+        final unlabeledEvents = firestoreDebugTracker.unlabeledEvents;
+        final hasUnlabeledCalls = unlabeledEvents > 0;
+        final sessionStartedLabel = _timeLabel(
+          firestoreDebugTracker.sessionStartedAt,
+        );
 
         return Scaffold(
           backgroundColor: Colors.transparent,
@@ -630,8 +896,15 @@ class FirestoreDebugScreen extends StatelessWidget {
             foregroundColor: blue,
             actions: [
               IconButton(
+                tooltip: 'Refresh Firebase usage',
+                onPressed: firestoreCloudUsageController.isLoading
+                    ? null
+                    : () => unawaited(firestoreCloudUsageController.refresh()),
+                icon: const Icon(Icons.cloud_sync_outlined),
+              ),
+              IconButton(
                 tooltip: 'Reset counters',
-                onPressed: firestoreDebugTracker.reset,
+                onPressed: () => unawaited(_resetCounters()),
                 icon: const Icon(Icons.restart_alt),
               ),
             ],
@@ -646,27 +919,121 @@ class FirestoreDebugScreen extends StatelessWidget {
                   borderRadius: BorderRadius.circular(18),
                   border: Border.all(color: Colors.white12),
                 ),
-                child: Row(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Expanded(
-                      child: _FirestoreDebugTotal(
-                        label: 'Reads',
-                        value: firestoreDebugTracker.totalReads,
-                        icon: Icons.download_outlined,
+                    Text(
+                      'This launch • since $sessionStartedLabel',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w900,
                       ),
                     ),
-                    Expanded(
-                      child: _FirestoreDebugTotal(
-                        label: 'Writes',
-                        value: firestoreDebugTracker.totalWrites,
-                        icon: Icons.upload_outlined,
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _FirestoreDebugTotal(
+                            label: 'Reads',
+                            value: firestoreDebugTracker.sessionReads,
+                            icon: Icons.download_outlined,
+                          ),
+                        ),
+                        Expanded(
+                          child: _FirestoreDebugTotal(
+                            label: 'Writes',
+                            value: firestoreDebugTracker.sessionWrites,
+                            icon: Icons.upload_outlined,
+                          ),
+                        ),
+                        Expanded(
+                          child: _FirestoreDebugTotal(
+                            label: 'Deletes',
+                            value: firestoreDebugTracker.sessionDeletes,
+                            icon: Icons.delete_outline,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 14),
+                    const Text(
+                      'Since reset',
+                      style: TextStyle(
+                        color: Colors.white70,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w800,
                       ),
                     ),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _FirestoreDebugTotal(
+                            label: 'Reads',
+                            value: firestoreDebugTracker.totalReads,
+                            icon: Icons.download_outlined,
+                          ),
+                        ),
+                        Expanded(
+                          child: _FirestoreDebugTotal(
+                            label: 'Writes',
+                            value: firestoreDebugTracker.totalWrites,
+                            icon: Icons.upload_outlined,
+                          ),
+                        ),
+                        Expanded(
+                          child: _FirestoreDebugTotal(
+                            label: 'Deletes',
+                            value: firestoreDebugTracker.totalDeletes,
+                            icon: Icons.delete_outline,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 10),
+              _FirestoreCloudUsageCard(
+                controller: firestoreCloudUsageController,
+                timeLabel: _timeLabel,
+              ),
+              const SizedBox(height: 10),
+              Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: hasUnlabeledCalls
+                      ? Colors.orangeAccent.withValues(alpha: 0.12)
+                      : panelGlass,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(
+                    color: hasUnlabeledCalls
+                        ? Colors.orangeAccent
+                        : Colors.white12,
+                  ),
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(
+                      hasUnlabeledCalls
+                          ? Icons.warning_amber_rounded
+                          : Icons.verified_outlined,
+                      color: hasUnlabeledCalls ? Colors.orangeAccent : blue,
+                      size: 20,
+                    ),
+                    const SizedBox(width: 10),
                     Expanded(
-                      child: _FirestoreDebugTotal(
-                        label: 'Deletes',
-                        value: firestoreDebugTracker.totalDeletes,
-                        icon: Icons.delete_outline,
+                      child: Text(
+                        hasUnlabeledCalls
+                            ? 'Tracking audit: $unlabeledEvents unlabeled Firestore events need manual labels. Look for rows starting with UNLABELED.'
+                            : 'Tracking audit: all Firestore calls that reached the tracker have manual labels. Raw SDK calls outside debug wrappers still need source search.',
+                        style: const TextStyle(
+                          color: Colors.white70,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                        ),
                       ),
                     ),
                   ],
@@ -754,6 +1121,154 @@ class FirestoreDebugScreen extends StatelessWidget {
           ),
         );
       },
+    );
+  }
+}
+
+class _FirestoreCloudUsageCard extends StatelessWidget {
+  final FirestoreCloudUsageController controller;
+  final String Function(DateTime?) timeLabel;
+
+  const _FirestoreCloudUsageCard({
+    required this.controller,
+    required this.timeLabel,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final snapshot = controller.snapshot;
+    final error = controller.errorMessage;
+    final lastFetched = controller.lastFetchedAt;
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: panelGlass,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: Colors.white12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.cloud_outlined, color: blue, size: 20),
+              const SizedBox(width: 8),
+              const Expanded(
+                child: Text(
+                  'Firebase reported usage',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+              if (controller.isLoading)
+                const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(color: blue, strokeWidth: 2),
+                ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            snapshot == null
+                ? 'Cloud Monitoring totals will appear here after /api/firestore-usage is deployed.'
+                : '${snapshot.windowLabel} from Google Cloud Monitoring • last app refresh ${timeLabel(lastFetched)}',
+            style: const TextStyle(
+              color: Colors.white60,
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          if (error != null && error.trim().isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Text(
+              error,
+              style: const TextStyle(
+                color: Colors.orangeAccent,
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+          const SizedBox(height: 14),
+          const Text(
+            'Since debug reset',
+            style: TextStyle(
+              color: Colors.white70,
+              fontSize: 12,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(
+                child: _FirestoreDebugTotal(
+                  label: 'Reads',
+                  value: controller.readsSinceReset,
+                  icon: Icons.download_outlined,
+                ),
+              ),
+              Expanded(
+                child: _FirestoreDebugTotal(
+                  label: 'Writes',
+                  value: controller.writesSinceReset,
+                  icon: Icons.upload_outlined,
+                ),
+              ),
+              Expanded(
+                child: _FirestoreDebugTotal(
+                  label: 'Deletes',
+                  value: controller.deletesSinceReset,
+                  icon: Icons.delete_outline,
+                ),
+              ),
+            ],
+          ),
+          if (snapshot != null) ...[
+            const SizedBox(height: 14),
+            Text(
+              'Today total: R ${snapshot.reads} • W ${snapshot.writes} • D ${snapshot.deletes}',
+              style: const TextStyle(
+                color: Colors.white60,
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Read type since reset: query ${controller.queryReadsSinceReset} • lookup ${controller.lookupReadsSinceReset}',
+              style: const TextStyle(
+                color: Colors.white60,
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Network now: ${snapshot.activeConnections} connections • ${snapshot.snapshotListeners} listeners',
+              style: const TextStyle(
+                color: Colors.white60,
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+          const SizedBox(height: 8),
+          const Text(
+            'Reset stores the current Google metric totals as a local baseline. It cannot reset Firebase Console counters.',
+            style: TextStyle(
+              color: Colors.white38,
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -914,7 +1429,10 @@ Future<void> refreshMaintenanceMode() async {
   }
 
   try {
-    final snapshot = await maintenanceModeDocument().debugGet();
+    final snapshot = await maintenanceModeDocument().debugGet(
+      null,
+      'startup: maintenance mode one-shot get',
+    );
     maintenanceModeConfig.value = MaintenanceModeConfig.fromSnapshot(snapshot);
   } catch (error) {
     debugPrint('Maintenance config refresh failed: $error');
@@ -926,7 +1444,7 @@ Future<void> initializeMaintenanceMode() async {
   await refreshMaintenanceMode();
 
   maintenanceModeSubscription = maintenanceModeDocument()
-      .debugSnapshots()
+      .debugSnapshots('startup: maintenance mode listener')
       .listen(
         (snapshot) {
           maintenanceModeConfig.value = MaintenanceModeConfig.fromSnapshot(
@@ -5212,6 +5730,10 @@ class CarSpot {
       return '';
     }
 
+    if (isTemporaryLocationAvailableNow) {
+      return 'location available';
+    }
+
     final revealDate = DateTime.fromMillisecondsSinceEpoch(revealAt);
     final now = DateTime.now();
     final revealText = isSameLocalDate(now, revealDate)
@@ -5570,7 +6092,7 @@ Future<SpotOwnerAssignment?> findSpotOwnerAssignment(
   final byUsername = await usersCollection()
       .where('usernameKey', isEqualTo: usernameKey(cleanInput))
       .limit(1)
-      .debugGet();
+      .debugGet(null, 'spot owner search: username lookup');
   if (byUsername.docs.isNotEmpty) {
     final doc = byUsername.docs.first;
     final data = doc.data();
@@ -5583,7 +6105,7 @@ Future<SpotOwnerAssignment?> findSpotOwnerAssignment(
   final byEmail = await usersCollection()
       .where('email', isEqualTo: input)
       .limit(1)
-      .debugGet();
+      .debugGet(null, 'spot owner search: email lookup');
   if (byEmail.docs.isNotEmpty) {
     final doc = byEmail.docs.first;
     final data = doc.data();
@@ -5917,7 +6439,9 @@ Future<void> createNewSpotNotificationForUsers(CarSpot spot) async {
       : '${spot.name} was added in ${spot.cityCountry}.';
 
   try {
-    final usersSnapshot = await usersCollection().limit(500).debugGet();
+    final usersSnapshot = await usersCollection()
+        .limit(500)
+        .debugGet(null, 'notifications: candidate users for new spot');
     final batch = FirebaseFirestore.instance.batch();
     var writes = 0;
 
@@ -6037,7 +6561,7 @@ Stream<int> incomingFriendRequestCountStream() {
   return friendRequestsCollection()
       .where('toUid', isEqualTo: firebaseUser.uid)
       .where('status', isEqualTo: 'pending')
-      .debugSnapshots()
+      .debugSnapshots('friends: incoming request badge listener')
       .map((snapshot) => snapshot.docs.length);
 }
 
@@ -6433,7 +6957,7 @@ Future<List<String>> loadCurrentFriendUids() async {
 
   final snapshot = await friendshipsCollection()
       .where('userIds', arrayContains: firebaseUser.uid)
-      .debugGet();
+      .debugGet(null, 'friends: current friend uid query');
 
   return snapshot.docs
       .map((doc) => friendUidFromFriendshipData(doc.data(), firebaseUser.uid))
@@ -6469,7 +6993,9 @@ Future<List<FriendUserData>> loadCurrentFriendUsers() async {
 }
 
 Future<List<FriendUserData>> loadAllVisibleUsersForGroupInvite() async {
-  final snapshot = await usersCollection().limit(200).debugGet();
+  final snapshot = await usersCollection()
+      .limit(200)
+      .debugGet(null, 'group invite: visible users query');
   final users = snapshot.docs
       .map(FriendUserData.fromFirestore)
       .where((user) => user.uid != currentUser.uid && user.canAppearInUserLists)
@@ -7249,9 +7775,10 @@ Future<void> deleteChatMessage({
 
   await chatMessagesCollection(chatId).doc(message.id).debugDelete();
 
-  final latestSnapshot = await chatMessagesCollection(
-    chatId,
-  ).orderBy('createdAt', descending: true).limit(1).debugGet();
+  final latestSnapshot = await chatMessagesCollection(chatId)
+      .orderBy('createdAt', descending: true)
+      .limit(1)
+      .debugGet(null, 'chat: latest message after delete');
   final latestText = latestSnapshot.docs.isEmpty
       ? ''
       : stringFromFirebase(latestSnapshot.docs.first.data()['text'], '');
@@ -7363,7 +7890,7 @@ Future<void> checkFriendLocationNotifications() async {
 
   final activeLocations = await liveLocationsCollection()
       .where('visibleToUserIds', arrayContains: firebaseUser.uid)
-      .debugGet();
+      .debugGet(null, 'live location: friend active locations one-shot');
 
   final friendUidSet = friendUids.toSet();
   final friendLocations = activeLocations.docs
@@ -7633,7 +8160,7 @@ Future<void> createMeetSpotNotificationsForNearbyUsers(CarSpot spot) async {
 
   final activeLocations = await liveLocationsCollection()
       .where('expiresAt', isGreaterThan: Timestamp.now())
-      .debugGet();
+      .debugGet(null, 'live location: expiration cleanup query');
   final batch = FirebaseFirestore.instance.batch();
   var writes = 0;
 
@@ -7681,7 +8208,7 @@ Future<void> createMeetSpotNotificationsForNearbyUsers(CarSpot spot) async {
 Future<List<String>> adminUserIdsExcept({String? excludedUid}) async {
   final snapshot = await usersCollection()
       .where('role', isEqualTo: 'admin')
-      .debugGet();
+      .debugGet(null, 'users: admin user ids query');
 
   return snapshot.docs
       .map((doc) => stringFromFirebase(doc.data()['uid'], doc.id))
@@ -11749,7 +12276,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
         .where('userId', isEqualTo: firebaseUser.uid)
         .where('read', isEqualTo: false)
         .limit(20)
-        .debugSnapshots()
+        .debugSnapshots('notifications: unread meet notifications listener')
         .listen((snapshot) async {
           for (final change in snapshot.docChanges) {
             if (change.type != DocumentChangeType.added) {
@@ -11808,7 +12335,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
         .where('userId', isEqualTo: firebaseUser.uid)
         .where('read', isEqualTo: false)
         .limit(20)
-        .debugSnapshots()
+        .debugSnapshots('notifications: unread admin notifications listener')
         .listen((snapshot) async {
           for (final change in snapshot.docChanges) {
             if (change.type != DocumentChangeType.added) {
@@ -11878,7 +12405,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
             .where('userId', isEqualTo: firebaseUser.uid)
             .where('read', isEqualTo: false)
             .limit(20)
-            .debugSnapshots()
+            .debugSnapshots('notifications: unread friend location listener')
             .listen((snapshot) async {
               for (final change in snapshot.docChanges) {
                 if (change.type != DocumentChangeType.added &&
@@ -12185,16 +12712,25 @@ class _ExploreScreenState extends State<ExploreScreen> {
   ExploreSortMode selectedMode = ExploreSortMode.popular;
   bool showSavedOnly = false;
   final Set<String> expandedCategories = {};
+  Timer? temporarySpotRefreshTimer;
 
   @override
   void initState() {
     super.initState();
     savedSpots.addListener(refreshSavedFilter);
     spotCategoryFilters.addListener(refreshSpotCategoryFilters);
+    // Temporary spots can expire or reveal their location without a Firestore
+    // update. Refresh the Spots tab so the temporary card removes expired spots
+    // and updates availability labels while the user stays on this screen.
+    temporarySpotRefreshTimer = Timer.periodic(
+      const Duration(seconds: 10),
+      (_) => refreshTemporarySpots(),
+    );
   }
 
   @override
   void dispose() {
+    temporarySpotRefreshTimer?.cancel();
     savedSpots.removeListener(refreshSavedFilter);
     spotCategoryFilters.removeListener(refreshSpotCategoryFilters);
     super.dispose();
@@ -12208,6 +12744,12 @@ class _ExploreScreenState extends State<ExploreScreen> {
 
   void refreshSpotCategoryFilters() {
     if (mounted) {
+      setState(() {});
+    }
+  }
+
+  void refreshTemporarySpots() {
+    if (mounted && approvedPublicSpots().any((spot) => spot.isTemporary)) {
       setState(() {});
     }
   }
@@ -12259,6 +12801,10 @@ class _ExploreScreenState extends State<ExploreScreen> {
     }
 
     return approvedPublicSpots().where((spot) {
+      if (spot.isTemporary && spot.isExpired) {
+        return false;
+      }
+
       if (!spot.categories.any(enabledCategoryFilters.contains)) {
         return false;
       }
@@ -12765,23 +13311,13 @@ class UpcomingTemporarySpotsSection extends StatelessWidget {
               ),
               const SizedBox(width: 10),
               const Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Upcoming',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 18,
-                        fontWeight: FontWeight.w900,
-                      ),
-                    ),
-                    SizedBox(height: 2),
-                    Text(
-                      'Temporary spots and events',
-                      style: TextStyle(color: Colors.white54, fontSize: 12),
-                    ),
-                  ],
+                child: Text(
+                  'Upcoming',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w900,
+                  ),
                 ),
               ),
               Text(
@@ -14961,7 +15497,7 @@ class _MapScreenState extends State<MapScreen>
     policeReportSubscription?.cancel();
     policeReportSubscription = policeReportsCollection()
         .where('expiresAt', isGreaterThan: Timestamp.now())
-        .debugSnapshots()
+        .debugSnapshots('map: active police reports listener')
         .listen(
           (snapshot) {
             if (!mounted) {
@@ -14997,7 +15533,7 @@ class _MapScreenState extends State<MapScreen>
     sosReportSubscription?.cancel();
     sosReportSubscription = sosReportsCollection()
         .where('expiresAt', isGreaterThan: Timestamp.now())
-        .debugSnapshots()
+        .debugSnapshots('map: active SOS reports listener')
         .listen(
           (snapshot) {
             if (!mounted) {
@@ -15195,7 +15731,9 @@ class _MapScreenState extends State<MapScreen>
 
   Future<List<String>> loadSosVisibleUserIds(String fallbackUid) async {
     try {
-      final snapshot = await usersCollection().limit(500).debugGet();
+      final snapshot = await usersCollection()
+          .limit(500)
+          .debugGet(null, 'SOS: visible users query');
       final ids = snapshot.docs
           .map((doc) => stringFromFirebase(doc.data()['uid'], doc.id))
           .where((uid) => uid.trim().isNotEmpty)
@@ -15355,7 +15893,7 @@ class _MapScreenState extends State<MapScreen>
           .where('status', isEqualTo: 'active')
           .where('expiresAt', isGreaterThan: Timestamp.now())
           .limit(1)
-          .debugGet();
+          .debugGet(null, 'SOS: existing own active report query');
       if (existingOwnSos.docs.isNotEmpty) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -15897,7 +16435,7 @@ class _MapScreenState extends State<MapScreen>
       final activePoliceSnapshot = await policeReportsCollection()
           .where('expiresAt', isGreaterThan: Timestamp.now())
           .where('status', isEqualTo: 'active')
-          .debugGet();
+          .debugGet(null, 'police: active nearby reports query');
       for (final doc in activePoliceSnapshot.docs) {
         final report = PoliceReportData.fromFirestore(doc);
         final distance = distanceBetweenLatLngMeters(
@@ -16212,7 +16750,7 @@ class _MapScreenState extends State<MapScreen>
 
     liveLocationSubscription = liveLocationsCollection()
         .where('visibleToUserIds', arrayContains: currentFirebaseUser.uid)
-        .debugSnapshots()
+        .debugSnapshots('map: visible live locations listener')
         .listen(
           (snapshot) {
             if (!mounted) {
@@ -23368,7 +23906,7 @@ class _SpotOwnerSelectorState extends State<SpotOwnerSelector> {
       stream: usersCollection()
           .orderBy('usernameKey')
           .limit(200)
-          .debugSnapshots(),
+          .debugSnapshots('spot form: owner search users listener'),
       builder: (context, snapshot) {
         final users =
             snapshot.data?.docs
@@ -24118,7 +24656,9 @@ class _ChatScreenState extends State<ChatScreen> {
       floatingActionButton: firebaseUser == null
           ? null
           : StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-              stream: currentUserChatsQuery(firebaseUser.uid).debugSnapshots(),
+              stream: currentUserChatsQuery(
+                firebaseUser.uid,
+              ).debugSnapshots('chat: threads listener'),
               builder: (context, snapshot) {
                 final chats =
                     snapshot.data?.docs
@@ -24144,7 +24684,9 @@ class _ChatScreenState extends State<ChatScreen> {
               ),
             )
           : StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-              stream: currentUserChatsQuery(firebaseUser.uid).debugSnapshots(),
+              stream: currentUserChatsQuery(
+                firebaseUser.uid,
+              ).debugSnapshots('chat: threads list listener'),
               builder: (context, snapshot) {
                 final chats =
                     snapshot.data?.docs
@@ -24416,7 +24958,9 @@ class ChatThreadTile extends StatelessWidget {
 
     if (!chat.isGroup && uid != null) {
       return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-        stream: usersCollection().doc(uid).debugSnapshots(),
+        stream: usersCollection()
+            .doc(uid)
+            .debugSnapshots('chat: direct chat user tile listener'),
         builder: (context, snapshot) {
           return tile(context, friendUserFromSnapshot(snapshot.data));
         },
@@ -24613,7 +25157,7 @@ Stream<List<FriendUserData>> watchCurrentFriendUsers() {
 
   return friendshipsCollection()
       .where('userIds', arrayContains: firebaseUser.uid)
-      .debugSnapshots()
+      .debugSnapshots('friends: current friendships listener')
       .asyncMap((_) => loadCurrentFriendUsers());
 }
 
@@ -26279,7 +26823,9 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
     }
 
     return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-      stream: usersCollection().doc(uid).debugSnapshots(),
+      stream: usersCollection()
+          .doc(uid)
+          .debugSnapshots('chat: conversation title user listener'),
       builder: (context, snapshot) {
         return titleContent(friendUserFromSnapshot(snapshot.data));
       },
@@ -26469,7 +27015,9 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
         children: [
           Expanded(
             child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-              stream: latestChatMessagesQuery(widget.chat.id).debugSnapshots(),
+              stream: latestChatMessagesQuery(
+                widget.chat.id,
+              ).debugSnapshots('chat: latest messages listener'),
               builder: (context, snapshot) {
                 final messages =
                     snapshot.data?.docs
@@ -27762,7 +28310,9 @@ class PublicUserProfileScreen extends StatelessWidget {
         foregroundColor: blue,
       ),
       body: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-        stream: usersCollection().doc(userId).debugSnapshots(),
+        stream: usersCollection()
+            .doc(userId)
+            .debugSnapshots('profile: public user profile listener'),
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting &&
               !snapshot.hasData) {
@@ -27807,7 +28357,9 @@ class PublicUserProfileScreen extends StatelessWidget {
           }
 
           return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-            stream: liveLocationsCollection().doc(userId).debugSnapshots(),
+            stream: liveLocationsCollection()
+                .doc(userId)
+                .debugSnapshots('profile: public live location listener'),
             builder: (context, liveSnapshot) {
               var isSharingLiveLocation = false;
               final liveDoc = liveSnapshot.data;
@@ -28208,6 +28760,55 @@ class _FriendsScreenState extends State<FriendsScreen> {
     );
   }
 
+  Widget friendRequestTile({
+    required String uid,
+    required String username,
+    required String name,
+    required Widget trailing,
+  }) {
+    return InkWell(
+      onTap: () =>
+          openUserProfile(context, uid: uid, fallbackUsername: username),
+      borderRadius: BorderRadius.circular(18),
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 10),
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: panelGlass,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: Colors.white12),
+        ),
+        child: Row(
+          children: [
+            userAvatar(username: username),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    username,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    name,
+                    style: const TextStyle(color: Colors.white54, fontSize: 12),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 10),
+            trailing,
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget requestsTab() {
     final firebaseUser = FirebaseAuth.instance.currentUser;
 
@@ -28235,7 +28836,7 @@ class _FriendsScreenState extends State<FriendsScreen> {
           stream: friendRequestsCollection()
               .where('toUid', isEqualTo: firebaseUser.uid)
               .where('status', isEqualTo: 'pending')
-              .debugSnapshots(),
+              .debugSnapshots('friends: incoming requests tab listener'),
           builder: (context, snapshot) {
             final requests =
                 snapshot.data?.docs
@@ -28254,40 +28855,13 @@ class _FriendsScreenState extends State<FriendsScreen> {
             return Column(
               children: [
                 for (final request in requests)
-                  Container(
-                    margin: const EdgeInsets.only(bottom: 10),
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: panelGlass,
-                      borderRadius: BorderRadius.circular(18),
-                      border: Border.all(color: Colors.white12),
-                    ),
-                    child: Row(
+                  friendRequestTile(
+                    uid: request.fromUid,
+                    username: request.fromUsername,
+                    name: request.fromName,
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
                       children: [
-                        userAvatar(username: request.fromUsername),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                request.fromUsername,
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.w900,
-                                ),
-                              ),
-                              const SizedBox(height: 3),
-                              Text(
-                                request.fromName,
-                                style: const TextStyle(
-                                  color: Colors.white54,
-                                  fontSize: 12,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
                         actionButton(
                           label: 'Accept',
                           onPressed: () => acceptRequest(request),
@@ -28320,7 +28894,7 @@ class _FriendsScreenState extends State<FriendsScreen> {
           stream: friendRequestsCollection()
               .where('fromUid', isEqualTo: firebaseUser.uid)
               .where('status', isEqualTo: 'pending')
-              .debugSnapshots(),
+              .debugSnapshots('friends: sent requests tab listener'),
           builder: (context, snapshot) {
             final requests =
                 snapshot.data?.docs
@@ -28339,47 +28913,15 @@ class _FriendsScreenState extends State<FriendsScreen> {
             return Column(
               children: [
                 for (final request in requests)
-                  Container(
-                    margin: const EdgeInsets.only(bottom: 10),
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: panelGlass,
-                      borderRadius: BorderRadius.circular(18),
-                      border: Border.all(color: Colors.white12),
-                    ),
-                    child: Row(
-                      children: [
-                        userAvatar(username: request.toUsername),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                request.toUsername,
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.w900,
-                                ),
-                              ),
-                              const SizedBox(height: 3),
-                              Text(
-                                request.toName,
-                                style: const TextStyle(
-                                  color: Colors.white54,
-                                  fontSize: 12,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        actionButton(
-                          label: 'Cancel',
-                          color: Colors.redAccent,
-                          outlined: true,
-                          onPressed: () => cancelRequest(request),
-                        ),
-                      ],
+                  friendRequestTile(
+                    uid: request.toUid,
+                    username: request.toUsername,
+                    name: request.toName,
+                    trailing: actionButton(
+                      label: 'Cancel',
+                      color: Colors.redAccent,
+                      outlined: true,
+                      onPressed: () => cancelRequest(request),
                     ),
                   ),
               ],
@@ -28441,7 +28983,7 @@ class _FriendsScreenState extends State<FriendsScreen> {
             stream: usersCollection()
                 .orderBy('usernameKey')
                 .limit(50)
-                .debugSnapshots(),
+                .debugSnapshots('friends: find users search listener'),
             builder: (context, snapshot) {
               final users =
                   snapshot.data?.docs
@@ -30881,7 +31423,7 @@ class AdminVerifiedUsersScreen extends StatelessWidget {
         stream: usersCollection()
             .orderBy('usernameKey')
             .limit(200)
-            .debugSnapshots(),
+            .debugSnapshots('admin: verified users list listener'),
         builder: (context, snapshot) {
           final users =
               snapshot.data?.docs
@@ -31453,7 +31995,7 @@ class AdminUsersScreen extends StatelessWidget {
         stream: usersCollection()
             .orderBy('usernameKey')
             .limit(200)
-            .debugSnapshots(),
+            .debugSnapshots('admin: users management list listener'),
         builder: (context, snapshot) {
           final users =
               snapshot.data?.docs
@@ -31518,20 +32060,44 @@ String adminSpotFilterLabel(AdminSpotFilter filter) {
 }
 
 List<CarSpot> adminSpotsForFilter(AdminSpotFilter filter) {
-  final spots = reviewSpots.value;
+  final spots = switch (filter) {
+    AdminSpotFilter.pending =>
+      reviewSpots.value
+          .where((spot) => spot.status == SpotStatus.pending)
+          .toList(),
+    AdminSpotFilter.edited =>
+      reviewSpots.value
+          .where((spot) => spot.status == SpotStatus.edited)
+          .toList(),
+    AdminSpotFilter.approved =>
+      reviewSpots.value
+          .where((spot) => spot.status == SpotStatus.approved)
+          .toList(),
+    AdminSpotFilter.rejected =>
+      reviewSpots.value
+          .where((spot) => spot.status == SpotStatus.rejected)
+          .toList(),
+    AdminSpotFilter.all => [...reviewSpots.value],
+  };
 
-  switch (filter) {
-    case AdminSpotFilter.pending:
-      return spots.where((spot) => spot.status == SpotStatus.pending).toList();
-    case AdminSpotFilter.edited:
-      return spots.where((spot) => spot.status == SpotStatus.edited).toList();
-    case AdminSpotFilter.approved:
-      return spots.where((spot) => spot.status == SpotStatus.approved).toList();
-    case AdminSpotFilter.rejected:
-      return spots.where((spot) => spot.status == SpotStatus.rejected).toList();
-    case AdminSpotFilter.all:
-      return spots;
+  int latestAdminSortMillis(CarSpot spot) {
+    return spot.updatedAtMillis > 0
+        ? spot.updatedAtMillis
+        : spot.createdAtMillis;
   }
+
+  spots.sort((first, second) {
+    final timeCompare = latestAdminSortMillis(
+      second,
+    ).compareTo(latestAdminSortMillis(first));
+    if (timeCompare != 0) {
+      return timeCompare;
+    }
+
+    return second.createdAtMillis.compareTo(first.createdAtMillis);
+  });
+
+  return spots;
 }
 
 int adminSpotCount(AdminSpotFilter filter) {
