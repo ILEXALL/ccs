@@ -1459,7 +1459,9 @@ int compareAppVersions(String currentVersion, String requiredVersion) {
 
   for (var index = 0; index < maxLength; index++) {
     final currentPart = index < currentParts.length ? currentParts[index] : 0;
-    final requiredPart = index < requiredParts.length ? requiredParts[index] : 0;
+    final requiredPart = index < requiredParts.length
+        ? requiredParts[index]
+        : 0;
 
     if (currentPart != requiredPart) {
       return currentPart.compareTo(requiredPart);
@@ -1521,7 +1523,8 @@ const _ruText = <String, String>{
   'Your version': 'Ваша версия',
   'Required version': 'Нужная версия',
   'Contact for update': 'Контакт для обновления',
-  'Could not open update contact.': 'Не удалось открыть контакт для обновления.',
+  'Could not open update contact.':
+      'Не удалось открыть контакт для обновления.',
   'Spots': 'Споты',
   'Map': 'Карта',
   'Add Spot': 'Добавить спот',
@@ -3270,9 +3273,7 @@ class OutdatedAppScreen extends StatelessWidget {
     while (cleanContact.length >= 2 &&
         ((cleanContact.startsWith('"') && cleanContact.endsWith('"')) ||
             (cleanContact.startsWith("'") && cleanContact.endsWith("'")))) {
-      cleanContact = cleanContact
-          .substring(1, cleanContact.length - 1)
-          .trim();
+      cleanContact = cleanContact.substring(1, cleanContact.length - 1).trim();
     }
 
     return cleanContact;
@@ -13544,6 +13545,7 @@ class MainScreen extends StatefulWidget {
 class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   int index = 0;
   bool hasOpenedMap = false;
+  bool hasOpenedChat = false;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>?
   meetNotificationSubscription;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>?
@@ -13558,7 +13560,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     const ExploreScreen(),
     hasOpenedMap ? MapScreen(isVisible: index == 1) : const SizedBox.shrink(),
     const AddSpotScreen(),
-    const ChatScreen(),
+    hasOpenedChat ? const ChatScreen() : const SizedBox.shrink(),
     const ProfileScreen(),
   ];
 
@@ -13607,6 +13609,17 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     setState(() {
       hasOpenedMap = true;
       index = 1;
+    });
+  }
+
+  void openChatTab() {
+    if (index == 3 && hasOpenedChat) {
+      return;
+    }
+
+    setState(() {
+      hasOpenedChat = true;
+      index = 3;
     });
   }
 
@@ -13961,7 +13974,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                       icon: Icons.chat_bubble_outline,
                       label: trText('Chat'),
                       selected: index == 3,
-                      onTap: () => setState(() => index = 3),
+                      onTap: openChatTab,
                     ),
                   ),
                   Expanded(
@@ -15741,10 +15754,9 @@ class _MapScreenState extends State<MapScreen>
       const Duration(seconds: 10),
       (_) => refreshMap(),
     );
-    startLiveLocationSync();
-    loadFriendLiveLocationUids();
-    startPoliceReportSync();
-    startSosReportSync();
+    if (widget.isVisible) {
+      resumeMapRealtimeSync();
+    }
     unawaited(loadMapStylePreference());
     adaptiveMapStyleTimer = Timer.periodic(
       const Duration(minutes: 1),
@@ -15864,6 +15876,30 @@ class _MapScreenState extends State<MapScreen>
     ];
   }
 
+  void pauseMapRealtimeSync() {
+    liveLocationSubscription?.cancel();
+    liveLocationSubscription = null;
+    publicLiveLocationSubscription?.cancel();
+    publicLiveLocationSubscription = null;
+    ownLiveLocationSubscription?.cancel();
+    ownLiveLocationSubscription = null;
+    policeReportSubscription?.cancel();
+    policeReportSubscription = null;
+    sosReportSubscription?.cancel();
+    sosReportSubscription = null;
+  }
+
+  void resumeMapRealtimeSync() {
+    if (!mounted || !widget.isVisible) {
+      return;
+    }
+
+    startLiveLocationSync();
+    unawaited(loadFriendLiveLocationUids());
+    startPoliceReportSync();
+    startSosReportSync();
+  }
+
   @override
   void didUpdateWidget(covariant MapScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
@@ -15876,8 +15912,11 @@ class _MapScreenState extends State<MapScreen>
 
     if (!widget.isVisible) {
       mapCameraReady = false;
+      pauseMapRealtimeSync();
       return;
     }
+
+    resumeMapRealtimeSync();
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted || !widget.isVisible) {
@@ -16626,6 +16665,10 @@ class _MapScreenState extends State<MapScreen>
   }
 
   Future<void> loadFriendLiveLocationUids() async {
+    if (!widget.isVisible) {
+      return;
+    }
+
     try {
       final friendUids = await loadCurrentFriendUids();
 
@@ -16875,6 +16918,10 @@ class _MapScreenState extends State<MapScreen>
   }
 
   void startPoliceReportSync() {
+    if (!widget.isVisible) {
+      return;
+    }
+
     policeReportSubscription?.cancel();
     policeReportSubscription = policeReportsCollection()
         .where('expiresAt', isGreaterThan: Timestamp.now())
@@ -16911,6 +16958,10 @@ class _MapScreenState extends State<MapScreen>
   }
 
   void startSosReportSync() {
+    if (!widget.isVisible) {
+      return;
+    }
+
     sosReportSubscription?.cancel();
     sosReportSubscription = sosReportsCollection()
         .where('expiresAt', isGreaterThan: Timestamp.now())
@@ -18295,6 +18346,10 @@ class _MapScreenState extends State<MapScreen>
   }
 
   void startLiveLocationSync() {
+    if (!widget.isVisible) {
+      return;
+    }
+
     liveLocationSubscription?.cancel();
     publicLiveLocationSubscription?.cancel();
     ownLiveLocationSubscription?.cancel();
@@ -26496,19 +26551,9 @@ class ChatThreadTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final uid = otherUserId();
-
-    if (!chat.isGroup && uid != null) {
-      return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-        stream: usersCollection()
-            .doc(uid)
-            .debugSnapshots('chat: direct chat user tile listener'),
-        builder: (context, snapshot) {
-          return tile(context, friendUserFromSnapshot(snapshot.data));
-        },
-      );
-    }
-
+    // Avoid one live Firestore user listener per direct chat row. The chat
+    // document already stores member usernames/photos and is kept up to date by
+    // message/chat writes, so the list tile can render from cached thread data.
     return tile(context, null);
   }
 }
