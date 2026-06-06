@@ -57,7 +57,7 @@ const liveLocationDurationChoices = <Duration>[
   Duration(hours: 2),
   Duration(hours: 4),
 ];
-const liveLocationRenewGracePeriod = Duration(minutes: 10);
+const liveLocationStaleAfter = Duration(minutes: 10);
 StreamSubscription<String>? pushTokenRefreshSubscription;
 StreamSubscription<RemoteMessage>? foregroundPushSubscription;
 StreamSubscription<QuerySnapshot<Map<String, dynamic>>>?
@@ -3397,11 +3397,26 @@ PageRoute<T> appPageRoute<T>({
 }
 
 const photoPickerChannel = MethodChannel('ccs/photo_picker');
+const screenAwakeChannel = MethodChannel('ccs/screen_awake');
 const liveLocationBackgroundChannel = MethodChannel(
   'ccs/live_location_background',
 );
 const systemNotificationsChannel = MethodChannel('ccs/system_notifications');
 const spotCategoryFiltersKey = 'spot_category_filters';
+
+Future<void> setScreenAwakeForMap(bool enabled) async {
+  if (!Platform.isAndroid) {
+    return;
+  }
+
+  try {
+    await screenAwakeChannel.invokeMethod('setKeepScreenOn', {
+      'enabled': enabled,
+    });
+  } catch (_) {
+    // Keeping the screen awake is a comfort feature; the map still works.
+  }
+}
 
 Future<void> registerPushTokenForCurrentUser(String token) async {
   final firebaseUser = FirebaseAuth.instance.currentUser;
@@ -6257,6 +6272,17 @@ class LiveLocationData {
   bool get isExpired =>
       DateTime.now().millisecondsSinceEpoch >= expiresAtMillis;
 
+  bool get isStale {
+    if (updatedAtMillis <= 0) {
+      return false;
+    }
+
+    final now = DateTime.now().millisecondsSinceEpoch;
+    return now - updatedAtMillis >= liveLocationStaleAfter.inMilliseconds;
+  }
+
+  bool get isActive => !isExpired && !isStale;
+
   factory LiveLocationData.fromFirestore(
     DocumentSnapshot<Map<String, dynamic>> doc,
   ) {
@@ -7998,8 +8024,8 @@ Future<void> shareChatLiveLocation(
   }
 
   final now = DateTime.now();
-  final promptAt = now.add(shareDuration);
-  final expiresAt = promptAt.add(liveLocationRenewGracePeriod);
+  final expiresAt = now.add(shareDuration);
+  final promptAt = expiresAt;
   final chatTitle = chat.titleForCurrentUser(firebaseUser.uid);
 
   await liveLocationsCollection().doc(firebaseUser.uid).debugSet({
@@ -8182,7 +8208,7 @@ Future<LiveLocationData?> loadCurrentLiveLocationForUser(String uid) async {
   }
 
   final location = LiveLocationData.fromFirestore(snapshot);
-  return location.isExpired ? null : location;
+  return location.isActive ? location : null;
 }
 
 Future<bool> shouldCreateFriendLocationNotification(
@@ -8280,7 +8306,7 @@ Future<void> checkFriendLocationNotifications() async {
             friendUidSet.contains(location.uid) &&
             location.uid != firebaseUser.uid &&
             location.visibleToUserIds.contains(firebaseUser.uid) &&
-            !location.isExpired,
+            location.isActive,
       )
       .toList();
 
@@ -8547,7 +8573,7 @@ Future<void> createMeetSpotNotificationsForNearbyUsers(CarSpot spot) async {
   for (final doc in activeLocations.docs) {
     final liveLocation = LiveLocationData.fromFirestore(doc);
 
-    if (liveLocation.uid == spot.addedByUid || liveLocation.isExpired) {
+    if (liveLocation.uid == spot.addedByUid || !liveLocation.isActive) {
       continue;
     }
 
@@ -15288,6 +15314,7 @@ class _MapScreenState extends State<MapScreen>
   Timer? liveLocationUploadTimer;
   Timer? liveLocationPromptTimer;
   Timer? liveLocationAutoStopTimer;
+  Timer? liveLocationStaleSweepTimer;
   Timer? navigationPredictionTimer;
   StreamSubscription<Position>? navigationPositionSubscription;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>?
@@ -15368,6 +15395,7 @@ class _MapScreenState extends State<MapScreen>
   @override
   void initState() {
     super.initState();
+    unawaited(setScreenAwakeForMap(widget.isVisible));
     mapAlertPulseController = AnimationController(
       vsync: this,
       duration: const Duration(seconds: 3),
@@ -15514,6 +15542,8 @@ class _MapScreenState extends State<MapScreen>
       return;
     }
 
+    unawaited(setScreenAwakeForMap(widget.isVisible));
+
     if (!widget.isVisible) {
       mapCameraReady = false;
       return;
@@ -15555,7 +15585,7 @@ class _MapScreenState extends State<MapScreen>
         selectedSosReport = null;
       }
 
-      if (liveLocation != null && liveLocation.isExpired) {
+      if (liveLocation != null && !liveLocation.isActive) {
         selectedLiveLocation = null;
       }
     });
@@ -16311,7 +16341,7 @@ class _MapScreenState extends State<MapScreen>
     final firebaseUser = FirebaseAuth.instance.currentUser;
 
     return liveLocations
-        .where((location) => !location.isExpired)
+        .where((location) => location.isActive)
         .where((location) => location.uid != firebaseUser?.uid)
         .map((location) {
           final carIconSize = scaledMapIconValue(
@@ -16770,8 +16800,8 @@ class _MapScreenState extends State<MapScreen>
 
     final now = DateTime.now();
     const shareDuration = Duration(hours: 12);
-    final promptAt = now.add(shareDuration);
-    final expiresAt = promptAt.add(liveLocationRenewGracePeriod);
+    final expiresAt = now.add(shareDuration);
+    final promptAt = expiresAt;
     final location = safeLatLngFromPosition(position);
     if (location == null) {
       return;
@@ -17780,7 +17810,7 @@ class _MapScreenState extends State<MapScreen>
       }
 
       final location = LiveLocationData.fromFirestore(change.doc);
-      if (location.isExpired) {
+      if (!location.isActive) {
         cache.remove(location.uid);
       } else {
         cache[location.uid] = location;
@@ -17813,14 +17843,14 @@ class _MapScreenState extends State<MapScreen>
 
     final mergedByUid = <String, LiveLocationData>{};
     for (final location in publicLiveLocationsByUid.values) {
-      if (!location.isExpired &&
+      if (location.isActive &&
           liveLocationCanBeSeenByCurrentUser(location, firebaseUser)) {
         mergedByUid[location.uid] = location;
       }
     }
 
     for (final location in visibleLiveLocationsByUid.values) {
-      if (!location.isExpired &&
+      if (location.isActive &&
           liveLocationCanBeSeenByCurrentUser(location, firebaseUser)) {
         mergedByUid[location.uid] = location;
       }
@@ -17888,6 +17918,13 @@ class _MapScreenState extends State<MapScreen>
     }
   }
 
+  void ensureLiveLocationStaleSweepTimer() {
+    liveLocationStaleSweepTimer ??= Timer.periodic(
+      const Duration(minutes: 1),
+      (_) => publishLiveLocationCaches(),
+    );
+  }
+
   void ensureNativeLiveLocationBackgroundService(
     User firebaseUser,
     LiveLocationData ownLocation,
@@ -17936,6 +17973,8 @@ class _MapScreenState extends State<MapScreen>
     if (currentFirebaseUser == null) {
       visibleLiveLocationsByUid.clear();
       publicLiveLocationsByUid.clear();
+      liveLocationStaleSweepTimer?.cancel();
+      liveLocationStaleSweepTimer = null;
       setState(() {
         liveLocations = const [];
         selectedLiveLocation = null;
@@ -17950,6 +17989,7 @@ class _MapScreenState extends State<MapScreen>
 
     visibleLiveLocationsByUid.clear();
     publicLiveLocationsByUid.clear();
+    ensureLiveLocationStaleSweepTimer();
 
     ownLiveLocationSubscription = liveLocationsCollection()
         .doc(currentFirebaseUser.uid)
@@ -17977,7 +18017,7 @@ class _MapScreenState extends State<MapScreen>
             }
 
             final ownLocation = LiveLocationData.fromFirestore(snapshot);
-            if (ownLocation.isExpired) {
+            if (!ownLocation.isActive) {
               removeLiveLocationFromCaches(ownLocation.uid);
               setState(() {
                 liveLocations = liveLocations
@@ -18104,24 +18144,19 @@ class _MapScreenState extends State<MapScreen>
   }
 
   void scheduleLiveLocationTimers() {
-    final promptAt = liveLocationPromptAt;
     final expiresAt = liveLocationExpiresAt;
 
     liveLocationPromptTimer?.cancel();
+    liveLocationPromptTimer = null;
     liveLocationAutoStopTimer?.cancel();
 
-    if (!isSharingLiveLocation || promptAt == null || expiresAt == null) {
+    if (!isSharingLiveLocation || expiresAt == null) {
       return;
     }
 
     final now = DateTime.now();
-    final promptDelay = promptAt.difference(now);
     final autoStopDelay = expiresAt.difference(now);
 
-    liveLocationPromptTimer = Timer(
-      promptDelay.isNegative ? Duration.zero : promptDelay,
-      showLiveLocationRenewPrompt,
-    );
     liveLocationAutoStopTimer = Timer(
       autoStopDelay.isNegative ? Duration.zero : autoStopDelay,
       stopLiveLocationSharing,
@@ -18384,12 +18419,10 @@ class _MapScreenState extends State<MapScreen>
 
     final now = DateTime.now();
     final duration = shareDuration ?? liveLocationShareDuration;
-    final promptAt = renewWindow
-        ? now.add(duration)
-        : liveLocationPromptAt ?? now.add(duration);
     final expiresAt = renewWindow
-        ? promptAt.add(liveLocationRenewGracePeriod)
-        : liveLocationExpiresAt ?? promptAt.add(liveLocationRenewGracePeriod);
+        ? now.add(duration)
+        : liveLocationExpiresAt ?? now.add(duration);
+    final promptAt = expiresAt;
 
     liveLocationShareDuration = duration;
     liveLocationPromptAt = promptAt;
@@ -18639,11 +18672,13 @@ class _MapScreenState extends State<MapScreen>
 
   @override
   void dispose() {
+    unawaited(setScreenAwakeForMap(false));
     temporarySpotRefreshTimer?.cancel();
     adaptiveMapStyleTimer?.cancel();
     liveLocationUploadTimer?.cancel();
     liveLocationPromptTimer?.cancel();
     liveLocationAutoStopTimer?.cancel();
+    liveLocationStaleSweepTimer?.cancel();
     liveLocationSubscription?.cancel();
     publicLiveLocationSubscription?.cancel();
     ownLiveLocationSubscription?.cancel();
@@ -20373,7 +20408,7 @@ class LiveLocationMapCard extends StatelessWidget {
                       icon: isFriend ? Icons.people : Icons.person,
                     ),
                     _SmallTag(
-                      label: location.isExpired ? 'offline' : 'online',
+                      label: location.isActive ? 'online' : 'offline',
                       icon: Icons.my_location,
                     ),
                   ],
@@ -30559,7 +30594,7 @@ class PublicUserProfileScreen extends StatelessWidget {
                     (liveLocation.uid == currentUid ||
                         liveLocation.visibleToUserIds.contains(currentUid));
                 isSharingLiveLocation =
-                    currentUserCanView && !liveLocation.isExpired;
+                    currentUserCanView && liveLocation.isActive;
                 liveLocationExpiresAtMillis = isSharingLiveLocation
                     ? liveLocation.expiresAtMillis
                     : null;
