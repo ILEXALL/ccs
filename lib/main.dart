@@ -18004,7 +18004,9 @@ class _MapScreenState extends State<MapScreen>
               removeLiveLocationFromCaches(currentFirebaseUser.uid);
               setState(() {
                 liveLocations = liveLocations
-                    .where((location) => location.uid != currentFirebaseUser.uid)
+                    .where(
+                      (location) => location.uid != currentFirebaseUser.uid,
+                    )
                     .toList();
                 if (!isTogglingLiveLocation) {
                   isSharingLiveLocation = false;
