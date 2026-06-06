@@ -3715,8 +3715,9 @@ const spotCategoryColors = {
   'Food': Color(0xFFFF1B8D),
 };
 
-const regularUserCarIconAsset = 'assets/user_cars/car_blue.png';
-const verifiedUserCarIconAsset = 'assets/user_cars/car_green.png';
+const publicLiveLocationAudienceMarker = '__public__';
+const regularUserCarIconAsset = 'assets/user_cars/car_green.png';
+const verifiedUserCarIconAsset = 'assets/user_cars/car_blue.png';
 const friendUserCarIconAsset = 'assets/user_cars/car_purple.png';
 
 String spotIconAssetPathForCategory(String category, {CcsMapStyle? mapStyle}) {
@@ -6028,6 +6029,10 @@ List<String> uniqueNonEmptyStrings(Iterable<String> values) {
   }
 
   return result;
+}
+
+List<String> publicLiveLocationVisibleToUserIds(String uid) {
+  return uniqueNonEmptyStrings([uid, publicLiveLocationAudienceMarker]);
 }
 
 bool boolFromFirebase(Object? value, bool fallback) {
@@ -15287,6 +15292,8 @@ class _MapScreenState extends State<MapScreen>
   StreamSubscription<Position>? navigationPositionSubscription;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>?
   liveLocationSubscription;
+  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>?
+  publicLiveLocationSubscription;
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>?
   ownLiveLocationSubscription;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>?
@@ -15321,7 +15328,10 @@ class _MapScreenState extends State<MapScreen>
   DateTime? liveLocationExpiresAt;
   Duration liveLocationShareDuration = const Duration(hours: 1);
   List<LiveLocationData> liveLocations = [];
+  final Map<String, LiveLocationData> visibleLiveLocationsByUid = {};
+  final Map<String, LiveLocationData> publicLiveLocationsByUid = {};
   Set<String> friendLiveLocationUids = {};
+  String? nativeLiveLocationBackgroundSignature;
   List<PoliceReportData> policeReports = [];
   List<SosReportData> sosReports = [];
   LatLng currentMapCenter = rigaCenter;
@@ -16337,8 +16347,8 @@ class _MapScreenState extends State<MapScreen>
           final fallbackColor = liveLocationIsFriend(location)
               ? Colors.purpleAccent
               : location.verified
-              ? Colors.greenAccent
-              : blue;
+              ? blue
+              : Colors.greenAccent;
 
           return Marker(
             point: location.coordinates,
@@ -17739,12 +17749,57 @@ class _MapScreenState extends State<MapScreen>
     }
   }
 
-  void startLiveLocationSync() {
-    liveLocationSubscription?.cancel();
-    ownLiveLocationSubscription?.cancel();
-    final currentFirebaseUser = FirebaseAuth.instance.currentUser;
+  bool liveLocationCanBeSeenByCurrentUser(
+    LiveLocationData location,
+    User? firebaseUser,
+  ) {
+    if (firebaseUser == null) {
+      return false;
+    }
 
-    if (currentFirebaseUser == null) {
+    if (location.uid == firebaseUser.uid) {
+      return true;
+    }
+
+    if (location.shareScope.trim().toLowerCase() == 'public' ||
+        location.visibleToUserIds.contains(publicLiveLocationAudienceMarker)) {
+      return true;
+    }
+
+    return location.visibleToUserIds.contains(firebaseUser.uid);
+  }
+
+  void updateLiveLocationCacheFromSnapshot(
+    Map<String, LiveLocationData> cache,
+    QuerySnapshot<Map<String, dynamic>> snapshot,
+  ) {
+    for (final change in snapshot.docChanges) {
+      if (change.type == DocumentChangeType.removed) {
+        cache.remove(change.doc.id);
+        continue;
+      }
+
+      final location = LiveLocationData.fromFirestore(change.doc);
+      if (location.isExpired) {
+        cache.remove(location.uid);
+      } else {
+        cache[location.uid] = location;
+      }
+    }
+  }
+
+  void removeLiveLocationFromCaches(String uid) {
+    visibleLiveLocationsByUid.remove(uid);
+    publicLiveLocationsByUid.remove(uid);
+  }
+
+  void publishLiveLocationCaches() {
+    if (!mounted) {
+      return;
+    }
+
+    final firebaseUser = FirebaseAuth.instance.currentUser;
+    if (firebaseUser == null) {
       setState(() {
         liveLocations = const [];
         selectedLiveLocation = null;
@@ -17756,6 +17811,146 @@ class _MapScreenState extends State<MapScreen>
       return;
     }
 
+    final mergedByUid = <String, LiveLocationData>{};
+    for (final location in publicLiveLocationsByUid.values) {
+      if (!location.isExpired &&
+          liveLocationCanBeSeenByCurrentUser(location, firebaseUser)) {
+        mergedByUid[location.uid] = location;
+      }
+    }
+
+    for (final location in visibleLiveLocationsByUid.values) {
+      if (!location.isExpired &&
+          liveLocationCanBeSeenByCurrentUser(location, firebaseUser)) {
+        mergedByUid[location.uid] = location;
+      }
+    }
+
+    final visibleLocations = mergedByUid.values.toList()
+      ..sort((first, second) {
+        return second.updatedAtMillis.compareTo(first.updatedAtMillis);
+      });
+
+    LiveLocationData? ownLocation;
+    LiveLocationData? nextSelectedLiveLocation;
+    final selectedUid = selectedLiveLocation?.uid;
+
+    for (final location in visibleLocations) {
+      if (location.uid == firebaseUser.uid) {
+        ownLocation = location;
+      }
+
+      if (selectedUid != null &&
+          location.uid == selectedUid &&
+          location.uid != firebaseUser.uid) {
+        nextSelectedLiveLocation = location;
+      }
+    }
+
+    var shouldScheduleTimers = false;
+    var shouldCancelTimers = false;
+
+    setState(() {
+      liveLocations = visibleLocations;
+      selectedLiveLocation = selectedUid == null
+          ? null
+          : nextSelectedLiveLocation;
+
+      if (ownLocation != null) {
+        isSharingLiveLocation = true;
+        liveLocationPromptAt = DateTime.fromMillisecondsSinceEpoch(
+          ownLocation.promptAtMillis,
+        );
+        liveLocationExpiresAt = DateTime.fromMillisecondsSinceEpoch(
+          ownLocation.expiresAtMillis,
+        );
+        liveLocationShareDuration = Duration(
+          minutes: ownLocation.shareDurationMinutes,
+        );
+        shouldScheduleTimers = true;
+      } else if (!isTogglingLiveLocation) {
+        isSharingLiveLocation = false;
+        liveLocationPromptAt = null;
+        liveLocationExpiresAt = null;
+        shouldCancelTimers = true;
+      }
+    });
+
+    if (shouldScheduleTimers) {
+      scheduleLiveLocationTimers();
+    } else if (shouldCancelTimers) {
+      cancelLiveLocationTimers(keepUploadTimer: false);
+      nativeLiveLocationBackgroundSignature = null;
+    }
+
+    if (ownLocation != null) {
+      ensureLiveLocationUploadLoop();
+    }
+  }
+
+  void ensureNativeLiveLocationBackgroundService(
+    User firebaseUser,
+    LiveLocationData ownLocation,
+  ) {
+    final promptAt = DateTime.fromMillisecondsSinceEpoch(
+      ownLocation.promptAtMillis,
+    );
+    final expiresAt = DateTime.fromMillisecondsSinceEpoch(
+      ownLocation.expiresAtMillis,
+    );
+    final visibleToUserIds = ownLocation.visibleToUserIds.isEmpty
+        ? publicLiveLocationVisibleToUserIds(firebaseUser.uid)
+        : ownLocation.visibleToUserIds;
+    final shareScope = ownLocation.shareScope.trim().isEmpty
+        ? 'public'
+        : ownLocation.shareScope;
+    final signature = [
+      visibleToUserIds.join(','),
+      shareScope,
+      ownLocation.promptAtMillis,
+      ownLocation.expiresAtMillis,
+    ].join('|');
+
+    if (nativeLiveLocationBackgroundSignature == signature) {
+      return;
+    }
+
+    nativeLiveLocationBackgroundSignature = signature;
+    unawaited(
+      startNativeLiveLocationBackgroundService(
+        uid: firebaseUser.uid,
+        visibleToUserIds: visibleToUserIds,
+        shareScope: shareScope,
+        promptAt: promptAt,
+        expiresAt: expiresAt,
+      ),
+    );
+  }
+
+  void startLiveLocationSync() {
+    liveLocationSubscription?.cancel();
+    publicLiveLocationSubscription?.cancel();
+    ownLiveLocationSubscription?.cancel();
+    final currentFirebaseUser = FirebaseAuth.instance.currentUser;
+
+    if (currentFirebaseUser == null) {
+      visibleLiveLocationsByUid.clear();
+      publicLiveLocationsByUid.clear();
+      setState(() {
+        liveLocations = const [];
+        selectedLiveLocation = null;
+        isSharingLiveLocation = false;
+        liveLocationPromptAt = null;
+        liveLocationExpiresAt = null;
+      });
+      cancelLiveLocationTimers(keepUploadTimer: false);
+      nativeLiveLocationBackgroundSignature = null;
+      return;
+    }
+
+    visibleLiveLocationsByUid.clear();
+    publicLiveLocationsByUid.clear();
+
     ownLiveLocationSubscription = liveLocationsCollection()
         .doc(currentFirebaseUser.uid)
         .debugSnapshots('map: own live location document listener')
@@ -17766,6 +17961,7 @@ class _MapScreenState extends State<MapScreen>
             }
 
             if (!snapshot.exists) {
+              removeLiveLocationFromCaches(currentFirebaseUser.uid);
               setState(() {
                 liveLocations = liveLocations
                     .where((location) => location.uid != currentFirebaseUser.uid)
@@ -17776,11 +17972,13 @@ class _MapScreenState extends State<MapScreen>
                   liveLocationExpiresAt = null;
                 }
               });
+              publishLiveLocationCaches();
               return;
             }
 
             final ownLocation = LiveLocationData.fromFirestore(snapshot);
             if (ownLocation.isExpired) {
+              removeLiveLocationFromCaches(ownLocation.uid);
               setState(() {
                 liveLocations = liveLocations
                     .where((location) => location.uid != ownLocation.uid)
@@ -17791,7 +17989,19 @@ class _MapScreenState extends State<MapScreen>
                   liveLocationExpiresAt = null;
                 }
               });
+              publishLiveLocationCaches();
               return;
+            }
+
+            if (ownLocation.shareScope.trim().toLowerCase() == 'public' ||
+                ownLocation.visibleToUserIds.contains(
+                  publicLiveLocationAudienceMarker,
+                )) {
+              publicLiveLocationsByUid[ownLocation.uid] = ownLocation;
+              visibleLiveLocationsByUid.remove(ownLocation.uid);
+            } else {
+              visibleLiveLocationsByUid[ownLocation.uid] = ownLocation;
+              publicLiveLocationsByUid.remove(ownLocation.uid);
             }
 
             setState(() {
@@ -17817,8 +18027,8 @@ class _MapScreenState extends State<MapScreen>
                 ),
                 ownLocation,
               ];
-              scheduleLiveLocationTimers();
             });
+            scheduleLiveLocationTimers();
 
             if (mapCenteredOnCurrentUser) {
               updateFollowCamera(
@@ -17826,9 +18036,30 @@ class _MapScreenState extends State<MapScreen>
                 ownLocation.headingDegrees,
               );
             }
+
+            publishLiveLocationCaches();
           },
           onError: (_) {
             // Firestore rules may still be closed while this feature is being set up.
+          },
+        );
+
+    publicLiveLocationSubscription = liveLocationsCollection()
+        .where(
+          'visibleToUserIds',
+          arrayContains: publicLiveLocationAudienceMarker,
+        )
+        .debugSnapshots('map: public live locations listener')
+        .listen(
+          (snapshot) {
+            updateLiveLocationCacheFromSnapshot(
+              publicLiveLocationsByUid,
+              snapshot,
+            );
+            publishLiveLocationCaches();
+          },
+          onError: (_) {
+            // Public live-location reads depend on Firestore rules being deployed.
           },
         );
 
@@ -17837,93 +18068,11 @@ class _MapScreenState extends State<MapScreen>
         .debugSnapshots('map: visible live locations listener')
         .listen(
           (snapshot) {
-            if (!mounted) {
-              return;
-            }
-
-            final firebaseUser = FirebaseAuth.instance.currentUser;
-            final locations = snapshot.docs
-                .map((doc) => LiveLocationData.fromFirestore(doc))
-                .where((location) => !location.isExpired)
-                .toList();
-            final visibleLocations = locations.where((location) {
-              if (firebaseUser == null) {
-                return false;
-              }
-
-              if (location.uid == firebaseUser.uid) {
-                return true;
-              }
-
-              return location.visibleToUserIds.contains(firebaseUser.uid);
-            }).toList();
-
-            LiveLocationData? ownLocation;
-            if (firebaseUser != null) {
-              for (final location in visibleLocations) {
-                if (location.uid == firebaseUser.uid) {
-                  ownLocation = location;
-                  break;
-                }
-              }
-            }
-
-            setState(() {
-              liveLocations = visibleLocations;
-              final selectedUid = selectedLiveLocation?.uid;
-              selectedLiveLocation = selectedUid == null
-                  ? null
-                  : (() {
-                      for (final location in visibleLocations) {
-                        if (location.uid == selectedUid &&
-                            location.uid != firebaseUser?.uid) {
-                          return location;
-                        }
-                      }
-                      return null;
-                    })();
-              if (ownLocation != null) {
-                isSharingLiveLocation = true;
-                liveLocationPromptAt = DateTime.fromMillisecondsSinceEpoch(
-                  ownLocation.promptAtMillis,
-                );
-                liveLocationExpiresAt = DateTime.fromMillisecondsSinceEpoch(
-                  ownLocation.expiresAtMillis,
-                );
-                liveLocationShareDuration = Duration(
-                  minutes: ownLocation.shareDurationMinutes,
-                );
-                scheduleLiveLocationTimers();
-              } else if (!isTogglingLiveLocation) {
-                isSharingLiveLocation = false;
-                liveLocationPromptAt = null;
-                liveLocationExpiresAt = null;
-                cancelLiveLocationTimers(keepUploadTimer: false);
-              }
-            });
-
-            if (ownLocation != null && firebaseUser != null) {
-              ensureLiveLocationUploadLoop();
-              final promptAt = DateTime.fromMillisecondsSinceEpoch(
-                ownLocation.promptAtMillis,
-              );
-              final expiresAt = DateTime.fromMillisecondsSinceEpoch(
-                ownLocation.expiresAtMillis,
-              );
-              unawaited(
-                startNativeLiveLocationBackgroundService(
-                  uid: firebaseUser.uid,
-                  visibleToUserIds: ownLocation.visibleToUserIds.isEmpty
-                      ? [firebaseUser.uid]
-                      : ownLocation.visibleToUserIds,
-                  shareScope: ownLocation.shareScope.trim().isEmpty
-                      ? 'friends'
-                      : ownLocation.shareScope,
-                  promptAt: promptAt,
-                  expiresAt: expiresAt,
-                ),
-              );
-            }
+            updateLiveLocationCacheFromSnapshot(
+              visibleLiveLocationsByUid,
+              snapshot,
+            );
+            publishLiveLocationCaches();
           },
           onError: (_) {
             // Firestore rules may still be closed while this feature is being set up.
@@ -18070,21 +18219,9 @@ class _MapScreenState extends State<MapScreen>
       return;
     }
 
-    var friendUids = const <String>[];
-    try {
-      friendUids = await loadCurrentFriendUids();
-    } catch (_) {
-      friendUids = const <String>[];
-    }
-
-    if (!mounted) {
-      return;
-    }
-
-    final visibleToUserIds = uniqueNonEmptyStrings([
+    final visibleToUserIds = publicLiveLocationVisibleToUserIds(
       firebaseUser.uid,
-      ...friendUids,
-    ]);
+    );
     final location = safeLatLngFromPosition(position);
     if (location == null) {
       return;
@@ -18103,7 +18240,9 @@ class _MapScreenState extends State<MapScreen>
       headingDegrees: heading,
       shareDuration: shareDuration,
       visibleToUserIds: visibleToUserIds,
-      shareScope: 'friends',
+      visibleToChatId: '',
+      visibleToChatName: '',
+      shareScope: 'public',
     );
 
     final promptAt = liveLocationPromptAt;
@@ -18113,7 +18252,7 @@ class _MapScreenState extends State<MapScreen>
         startNativeLiveLocationBackgroundService(
           uid: firebaseUser.uid,
           visibleToUserIds: visibleToUserIds,
-          shareScope: 'friends',
+          shareScope: 'public',
           promptAt: promptAt,
           expiresAt: expiresAt,
         ),
@@ -18330,6 +18469,7 @@ class _MapScreenState extends State<MapScreen>
     liveLocationUploadTimer?.cancel();
     liveLocationUploadTimer = null;
     cancelLiveLocationTimers(keepUploadTimer: true);
+    nativeLiveLocationBackgroundSignature = null;
     unawaited(stopNativeLiveLocationBackgroundService());
 
     if (firebaseUser != null) {
@@ -18354,6 +18494,9 @@ class _MapScreenState extends State<MapScreen>
       liveLocationShareDuration = const Duration(hours: 1);
       liveLocationPromptOpen = false;
       lastUploadedLiveLocation = null;
+      if (firebaseUser != null) {
+        removeLiveLocationFromCaches(firebaseUser.uid);
+      }
       liveLocations = liveLocations
           .where((location) => location.uid != firebaseUser?.uid)
           .toList();
@@ -18383,33 +18526,33 @@ class _MapScreenState extends State<MapScreen>
       speedMetersPerSecond: speed,
       accuracyMeters: position.accuracy,
     );
+    final firebaseUser = FirebaseAuth.instance.currentUser;
+    if (firebaseUser == null) {
+      await stopLiveLocationSharing();
+      return;
+    }
 
     await writeLiveLocation(
       position,
       renewWindow: true,
       headingDegrees: heading,
       shareDuration: liveLocationShareDuration,
+      visibleToUserIds: publicLiveLocationVisibleToUserIds(firebaseUser.uid),
+      visibleToChatId: '',
+      visibleToChatName: '',
+      shareScope: 'public',
     );
 
-    final firebaseUser = FirebaseAuth.instance.currentUser;
     final promptAt = liveLocationPromptAt;
     final expiresAt = liveLocationExpiresAt;
-    if (firebaseUser != null && promptAt != null && expiresAt != null) {
-      var friendUids = const <String>[];
-      try {
-        friendUids = await loadCurrentFriendUids();
-      } catch (_) {
-        friendUids = const <String>[];
-      }
-
+    if (promptAt != null && expiresAt != null) {
       unawaited(
         startNativeLiveLocationBackgroundService(
           uid: firebaseUser.uid,
-          visibleToUserIds: uniqueNonEmptyStrings([
+          visibleToUserIds: publicLiveLocationVisibleToUserIds(
             firebaseUser.uid,
-            ...friendUids,
-          ]),
-          shareScope: 'friends',
+          ),
+          shareScope: 'public',
           promptAt: promptAt,
           expiresAt: expiresAt,
         ),
@@ -18502,6 +18645,7 @@ class _MapScreenState extends State<MapScreen>
     liveLocationPromptTimer?.cancel();
     liveLocationAutoStopTimer?.cancel();
     liveLocationSubscription?.cancel();
+    publicLiveLocationSubscription?.cancel();
     ownLiveLocationSubscription?.cancel();
     policeReportSubscription?.cancel();
     sosReportSubscription?.cancel();
