@@ -120,14 +120,30 @@ service cloud.firestore {
           'maintenanceEnabled',
           'maintenanceTitle',
           'maintenanceMessage',
-          'allowAdminBypass'
+          'allowAdminBypass',
+          'minimumAppVersion',
+          'updateContact'
         ])
         && request.resource.data.maintenanceEnabled is bool
         && request.resource.data.maintenanceTitle is string
         && request.resource.data.maintenanceTitle.size() <= 100
         && request.resource.data.maintenanceMessage is string
         && request.resource.data.maintenanceMessage.size() <= 500
-        && request.resource.data.allowAdminBypass is bool;
+        && request.resource.data.allowAdminBypass is bool
+        && (
+          !request.resource.data.keys().hasAny(['minimumAppVersion'])
+          || (
+            request.resource.data.minimumAppVersion is string
+            && request.resource.data.minimumAppVersion.size() <= 32
+          )
+        )
+        && (
+          !request.resource.data.keys().hasAny(['updateContact'])
+          || (
+            request.resource.data.updateContact is string
+            && request.resource.data.updateContact.size() <= 200
+          )
+        );
     }
 
     function selfUserEditableKeys() {
@@ -165,6 +181,7 @@ service cloud.firestore {
         'liveLocationExpiresAt',
         'liveLocationShareDurationMinutes',
         'liveLocationVisibleToUserIds',
+        'blockedUserIds',
         'updatedAt'
       ];
     }
@@ -330,6 +347,19 @@ service cloud.firestore {
         ]);
     }
 
+    function signedInUserCanUpdateSpotCounters() {
+      return isActiveUser()
+        && request.resource.data.get('likeCount', 0) is int
+        && request.resource.data.get('likeCount', 0) >= 0
+        && request.resource.data.get('commentCount', 0) is int
+        && request.resource.data.get('commentCount', 0) >= 0
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'likeCount',
+          'commentCount',
+          'updatedAt'
+        ]);
+    }
+
     function listChangedOnlyByCurrentUser(before, after) {
       return after.toSet().difference(before.toSet()).hasOnly([currentUid()])
         && before.toSet().difference(after.toSet()).hasOnly([currentUid()]);
@@ -458,7 +488,13 @@ service cloud.firestore {
     }
 
     function isChatMember(chatId) {
-      return isSignedIn() && currentUid() in chatData(chatId).memberIds;
+      return isSignedIn()
+        && chatExists(chatId)
+        && currentUid() in chatData(chatId).memberIds;
+    }
+
+    function chatExists(chatId) {
+      return exists(/databases/$(database)/documents/chats/$(chatId));
     }
 
     function chatOwnerUid(chatId) {
@@ -480,8 +516,32 @@ service cloud.firestore {
     }
 
     function chatMembershipUnchanged() {
-      return request.resource.data.memberIds == resource.data.memberIds
+      return request.resource.data.memberIds is list
+        && request.resource.data.memberIds.size() == resource.data.memberIds.size()
+        && request.resource.data.memberIds.hasAll(resource.data.memberIds)
+        && resource.data.memberIds.hasAll(request.resource.data.memberIds)
         && request.resource.data.isGroup == resource.data.isGroup;
+    }
+
+    function userBlocks(blockerUid, blockedUid) {
+      return blockedUid in get(
+        /databases/$(database)/documents/users/$(blockerUid)
+      ).data.get('blockedUserIds', []);
+    }
+
+    function directMemberIdsBlocked(memberIds) {
+      return memberIds is list
+        && memberIds.size() == 2
+        && (
+          userBlocks(memberIds[0], memberIds[1])
+          || userBlocks(memberIds[1], memberIds[0])
+        );
+    }
+
+    function directChatBlocked(chatId) {
+      let data = chatData(chatId);
+      return data.get('isGroup', false) != true
+        && directMemberIdsBlocked(data.memberIds);
     }
 
     function notificationTargetsSpotOwner() {
@@ -526,6 +586,25 @@ service cloud.firestore {
         && data.userId in chatData(data.chatId).memberIds;
     }
 
+    function validFriendRequestNotification() {
+      let data = request.resource.data;
+      return data.type == 'friend_request'
+        && data.friendRequestId is string
+        && data.fromUid == currentUid()
+        && exists(
+          /databases/$(database)/documents/friend_requests/$(data.friendRequestId)
+        )
+        && get(
+          /databases/$(database)/documents/friend_requests/$(data.friendRequestId)
+        ).data.fromUid == currentUid()
+        && get(
+          /databases/$(database)/documents/friend_requests/$(data.friendRequestId)
+        ).data.toUid == data.userId
+        && get(
+          /databases/$(database)/documents/friend_requests/$(data.friendRequestId)
+        ).data.status == 'pending';
+    }
+
     function validUserNotificationCreate() {
       let data = request.resource.data;
       return isActiveUser()
@@ -541,6 +620,7 @@ service cloud.firestore {
           || validSpotLikeNotification()
           || validSpotCommentNotification()
           || validChatMessageNotification()
+          || validFriendRequestNotification()
         );
     }
 
@@ -589,7 +669,8 @@ service cloud.firestore {
       allow update: if isStaff()
         || ownerCanEditSpot()
         || businessOwnerCanEditSpot()
-        || signedInUserCanRefreshSpotRating();
+        || signedInUserCanRefreshSpotRating()
+        || signedInUserCanUpdateSpotCounters();
       allow delete: if isStaff();
     }
 
@@ -611,6 +692,7 @@ service cloud.firestore {
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           'comment',
           'rating',
+          'ratingDayKey',
           'edited',
           'updatedAt'
         ]);
@@ -618,14 +700,45 @@ service cloud.firestore {
         && (resource.data.userId == currentUid() || isStaff());
     }
 
+    match /spot_comment_daily_counts/{countId} {
+      allow get: if isActiveUser();
+      allow list: if false;
+      allow create: if isActiveUser()
+        && request.resource.data.userId == currentUid()
+        && request.resource.data.spotId is string
+        && request.resource.data.dayKey is string
+        && request.resource.data.count is int
+        && request.resource.data.count >= 1
+        && request.resource.data.count <= 5
+        && request.resource.data.keys().hasOnly([
+          'spotId',
+          'userId',
+          'dayKey',
+          'count',
+          'createdAt',
+          'updatedAt'
+        ]);
+      allow update: if isActiveUser()
+        && resource.data.userId == currentUid()
+        && request.resource.data.userId == resource.data.userId
+        && request.resource.data.spotId == resource.data.spotId
+        && request.resource.data.dayKey == resource.data.dayKey
+        && request.resource.data.count is int
+        && request.resource.data.count >= resource.data.count
+        && request.resource.data.count <= 5
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'count',
+          'updatedAt'
+        ]);
+      allow delete: if false;
+    }
+
     match /spot_likes/{likeId} {
       allow read: if isActiveUser();
       allow create: if isActiveUser()
         && request.resource.data.userId == currentUid()
-        && (
-          request.resource.data.get('spotId', '') != ''
-          || request.resource.data.get('commentId', '') != ''
-        );
+        && request.resource.data.get('targetType', 'spot') == 'spot'
+        && request.resource.data.get('spotId', '') != '';
       allow delete: if isActiveUser()
         && (resource.data.userId == currentUid() || isStaff());
       allow update: if false;
@@ -717,6 +830,7 @@ service cloud.firestore {
           userId == currentUid()
           || isStaff()
           || currentUid() in resource.data.visibleToUserIds
+          || '__public__' in resource.data.visibleToUserIds
         );
       allow create, update: if isOwner(userId)
         && isActiveUser()
@@ -881,13 +995,66 @@ service cloud.firestore {
       allow delete: if isFriendshipParticipant();
     }
 
+    match /blocked_users/{blockId} {
+      allow get: if isActiveUser()
+        && (
+          !exists(/databases/$(database)/documents/blocked_users/$(blockId))
+          || resource.data.blockerUid == currentUid()
+          || resource.data.blockedUid == currentUid()
+        );
+      allow list: if isActiveUser()
+        && resource.data.blockerUid == currentUid();
+      allow create: if isActiveUser()
+        && request.resource.data.blockerUid == currentUid()
+        && request.resource.data.blockedUid is string
+        && request.resource.data.blockedUid != currentUid()
+        && blockId == currentUid() + '_' + request.resource.data.blockedUid
+        && request.resource.data.keys().hasOnly([
+          'blockerUid',
+          'blockedUid',
+          'blockedUsername',
+          'blockedName',
+          'blockedPhotoUrl',
+          'createdAt',
+          'updatedAt'
+        ]);
+      allow update: if isActiveUser()
+        && resource.data.blockerUid == currentUid()
+        && request.resource.data.blockerUid == resource.data.blockerUid
+        && request.resource.data.blockedUid == resource.data.blockedUid
+        && blockId == currentUid() + '_' + resource.data.blockedUid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'blockerUid',
+          'blockedUid',
+          'blockedUsername',
+          'blockedName',
+          'blockedPhotoUrl',
+          'createdAt',
+          'updatedAt'
+        ]);
+      allow delete: if isActiveUser()
+        && resource.data.blockerUid == currentUid();
+    }
+
     match /chats/{chatId} {
-      allow read: if isSignedIn() && currentUid() in resource.data.memberIds;
+      allow get: if isSignedIn()
+        && (
+          !chatExists(chatId)
+          || currentUid() in resource.data.memberIds
+        );
+      allow list: if isSignedIn()
+        && currentUid() in resource.data.memberIds;
       allow create: if isActiveUser()
         && request.resource.data.memberIds is list
         && currentUid() in request.resource.data.memberIds
-        && request.resource.data.memberIds.size() >= 2;
-      allow update: if isSignedIn() && currentUid() in resource.data.memberIds
+        && request.resource.data.memberIds.size() >= 2
+        && (
+          request.resource.data.get('isGroup', false) == true
+          || !directMemberIdsBlocked(request.resource.data.memberIds)
+        );
+      allow update: if isSignedIn()
+        && currentUid() in resource.data.memberIds
+        && !directChatBlocked(chatId)
         && (
           (
             chatMembershipUnchanged()
@@ -899,6 +1066,9 @@ service cloud.firestore {
               'lastMessage',
               'lastSenderUid',
               'lastSenderUsername',
+              'memberIds',
+              'memberUsernames',
+              'memberPhotoUrls',
               'updatedAt'
             ])
           )
@@ -929,6 +1099,7 @@ service cloud.firestore {
       match /messages/{messageId} {
         allow read: if isChatMember(chatId);
         allow create: if isChatMember(chatId)
+          && !directChatBlocked(chatId)
           && request.resource.data.senderUid == currentUid()
           && request.resource.data.senderUsername is string
           && request.resource.data.text is string;

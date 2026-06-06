@@ -3,6 +3,7 @@ import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
 const allowedPrefixes = ["spots/", "users/", "garage/"];
 const allowedContentTypes = ["image/jpeg", "image/png", "image/webp"];
+const defaultCacheControl = "public, max-age=31536000, immutable";
 
 function cleanPath(value) {
   return String(value || "")
@@ -19,6 +20,9 @@ export default async function handler(req, res) {
   try {
     const path = cleanPath(req.body?.path);
     const contentType = String(req.body?.contentType || "").trim();
+    const cacheControl = String(
+      req.body?.cacheControl || defaultCacheControl
+    ).trim();
 
     if (!path) {
       return res.status(400).json({ error: "Missing path" });
@@ -45,6 +49,7 @@ export default async function handler(req, res) {
       Bucket: process.env.R2_BUCKET_NAME,
       Key: path,
       ContentType: contentType,
+      CacheControl: cacheControl,
     });
 
     const uploadUrl = await getSignedUrl(client, command, {
@@ -60,6 +65,7 @@ export default async function handler(req, res) {
       uploadUrl,
       publicUrl: `${publicBaseUrl}/${path}`,
       key: path,
+      cacheControl,
     });
   } catch (error) {
     return res.status(500).json({

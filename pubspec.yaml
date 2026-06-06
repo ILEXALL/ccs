@@ -24,6 +24,7 @@ dependencies:
   url_launcher: ^6.3.2
   geolocator: ^14.0.2
   image: ^4.8.0
+  path_provider: ^2.1.5
 
   # Use 2.2.2 because geocoding 3.x can force geocoding_android to compile
   # against an incompatible Android SDK in this project.
