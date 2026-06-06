@@ -62,7 +62,12 @@ StreamSubscription<String>? pushTokenRefreshSubscription;
 StreamSubscription<RemoteMessage>? foregroundPushSubscription;
 StreamSubscription<QuerySnapshot<Map<String, dynamic>>>?
 notificationCenterUnreadSubscription;
+StreamSubscription<QuerySnapshot<Map<String, dynamic>>>?
+adminNotificationCenterUnreadSubscription;
+StreamSubscription<QuerySnapshot<Map<String, dynamic>>>?
+friendLocationNotificationCenterUnreadSubscription;
 final notificationCenterUnreadCount = ValueNotifier<int>(0);
+final notificationCenterUnreadCountsBySource = <String, int>{};
 
 const bool firestoreDebugTrackerEnabled = true;
 
@@ -3079,6 +3084,7 @@ Future<void> main() async {
       startFirebaseSpotSync();
       unawaited(loadCurrentUserLikedSpotIdsFromLocalCache());
       unawaited(initializePushNotificationsForCurrentUser());
+      startNotificationCenterUnreadWatcher();
     }
   } catch (error) {
     // Do not let a Firebase/Google services problem crash the app on startup.
@@ -4522,6 +4528,11 @@ Future<void> signOutCurrentAccount() async {
   _firebaseSpotCacheBySource.clear();
   await notificationCenterUnreadSubscription?.cancel();
   notificationCenterUnreadSubscription = null;
+  await adminNotificationCenterUnreadSubscription?.cancel();
+  adminNotificationCenterUnreadSubscription = null;
+  await friendLocationNotificationCenterUnreadSubscription?.cancel();
+  friendLocationNotificationCenterUnreadSubscription = null;
+  notificationCenterUnreadCountsBySource.clear();
   notificationCenterUnreadCount.value = 0;
   await stopCurrentUserLikedSpotsSync();
   spotCommentsSessionCache.clear();
@@ -5096,6 +5107,7 @@ Future<AppUser> signInWithTelegramAndSaveUser() async {
   startFirebaseSpotSync();
   unawaited(loadCurrentUserLikedSpotIdsFromLocalCache());
   unawaited(initializePushNotificationsForCurrentUser());
+  startNotificationCenterUnreadWatcher();
   return currentUser;
 }
 
@@ -5366,6 +5378,7 @@ Future<AppUser> signInWithGoogleAndSaveUser() async {
   startFirebaseSpotSync();
   unawaited(loadCurrentUserLikedSpotIdsFromLocalCache());
   unawaited(initializePushNotificationsForCurrentUser());
+  startNotificationCenterUnreadWatcher();
   return currentUser;
 }
 
@@ -6613,26 +6626,59 @@ void startNotificationCenterUnreadWatcher() {
   final firebaseUser = FirebaseAuth.instance.currentUser;
 
   if (firebaseUser == null) {
+    notificationCenterUnreadCountsBySource.clear();
     notificationCenterUnreadCount.value = 0;
     return;
   }
 
   notificationCenterUnreadSubscription?.cancel();
-  notificationCenterUnreadSubscription =
-      trackedQuerySnapshots(
-        'notification center unread watcher',
-        userNotificationsCollection()
-            .where('userId', isEqualTo: firebaseUser.uid)
-            .where('read', isEqualTo: false),
-      ).listen(
-        (snapshot) {
-          notificationCenterUnreadCount.value = snapshot.docs.length;
-        },
-        onError: (Object error, StackTrace stack) {
-          debugPrint('Notification unread watcher failed: $error');
-          debugPrint('$stack');
-        },
-      );
+  adminNotificationCenterUnreadSubscription?.cancel();
+  friendLocationNotificationCenterUnreadSubscription?.cancel();
+  notificationCenterUnreadCountsBySource.clear();
+
+  void updateUnreadSource(String source, int count) {
+    notificationCenterUnreadCountsBySource[source] = count;
+    final total = notificationCenterUnreadCountsBySource.values.fold<int>(
+      0,
+      (sum, value) => sum + value,
+    );
+    if (notificationCenterUnreadCount.value != total) {
+      notificationCenterUnreadCount.value = total;
+    }
+  }
+
+  StreamSubscription<QuerySnapshot<Map<String, dynamic>>> watchUnreadQuery(
+    String source,
+    Query<Map<String, dynamic>> query,
+  ) {
+    return trackedQuerySnapshots(
+      'notification center unread watcher: $source',
+      query.where('read', isEqualTo: false).limit(50),
+    ).listen(
+      (snapshot) => updateUnreadSource(source, snapshot.docs.length),
+      onError: (Object error, StackTrace stack) {
+        updateUnreadSource(source, 0);
+        debugPrint('Notification unread watcher failed ($source): $error');
+        debugPrint('$stack');
+      },
+    );
+  }
+
+  notificationCenterUnreadSubscription = watchUnreadQuery(
+    'user',
+    userNotificationsCollection().where('userId', isEqualTo: firebaseUser.uid),
+  );
+  adminNotificationCenterUnreadSubscription = watchUnreadQuery(
+    'admin',
+    adminNotificationsCollection().where('userId', isEqualTo: firebaseUser.uid),
+  );
+  friendLocationNotificationCenterUnreadSubscription = watchUnreadQuery(
+    'friendLocation',
+    friendLocationNotificationsCollection().where(
+      'userId',
+      isEqualTo: firebaseUser.uid,
+    ),
+  );
 }
 
 CollectionReference<Map<String, dynamic>> projectNewsCollection() {
@@ -11833,6 +11879,8 @@ Future<List<NotificationCenterItem>> loadNotificationCenterItems() async {
   final items = <NotificationCenterItem>[];
 
   if (firebaseUser == null) {
+    notificationCenterUnreadCountsBySource.clear();
+    notificationCenterUnreadCountsBySource.clear();
     notificationCenterUnreadCount.value = 0;
     return const [];
   }
@@ -11959,12 +12007,14 @@ Future<void> clearNotificationCenterItems(
 ) async {
   final firebaseUser = FirebaseAuth.instance.currentUser;
   if (firebaseUser == null) {
+    notificationCenterUnreadCountsBySource.clear();
     notificationCenterUnreadCount.value = 0;
     return;
   }
 
   final cleanItems = items.toList();
   if (cleanItems.isEmpty) {
+    notificationCenterUnreadCountsBySource.clear();
     notificationCenterUnreadCount.value = 0;
     return;
   }
@@ -12022,6 +12072,7 @@ Future<void> clearNotificationCenterItems(
     }
   }
 
+  notificationCenterUnreadCountsBySource.clear();
   notificationCenterUnreadCount.value = 0;
 }
 
@@ -12101,10 +12152,49 @@ class CcsNotificationBell extends StatelessWidget {
       icon: ValueListenableBuilder<int>(
         valueListenable: notificationCenterUnreadCount,
         builder: (context, unreadCount, _) {
-          return Badge(
-            isLabelVisible: unreadCount > 0,
-            label: Text(unreadCount > 9 ? '9+' : '$unreadCount'),
-            child: const Icon(Icons.notifications_none),
+          return Stack(
+            clipBehavior: Clip.none,
+            alignment: Alignment.center,
+            children: [
+              const Icon(Icons.notifications_none),
+              if (unreadCount > 0)
+                Positioned(
+                  top: -7,
+                  right: -7,
+                  child: Container(
+                    constraints: const BoxConstraints(
+                      minWidth: 17,
+                      minHeight: 17,
+                    ),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 4,
+                      vertical: 2,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.redAccent,
+                      borderRadius: BorderRadius.circular(999),
+                      border: Border.all(color: night, width: 1.5),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.redAccent.withValues(alpha: 0.45),
+                          blurRadius: 8,
+                          spreadRadius: 1,
+                        ),
+                      ],
+                    ),
+                    child: Text(
+                      unreadCount > 9 ? '9+' : '$unreadCount',
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 10,
+                        height: 1,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ),
+                ),
+            ],
           );
         },
       ),
@@ -12469,6 +12559,8 @@ class _NotificationCenterScreenState extends State<NotificationCenterScreen> {
           final items = snapshot.data ?? const <NotificationCenterItem>[];
           if (!markedRead) {
             markedRead = true;
+            notificationCenterUnreadCountsBySource.clear();
+            notificationCenterUnreadCount.value = 0;
             unawaited(markNotificationCenterItemsRead(items));
           }
 
@@ -13116,6 +13208,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     mapFocusRequest.addListener(handleMapFocusRequest);
     unawaited(loadFirestoreDebugButtonPreference());
     unawaited(initializePushNotificationsForCurrentUser());
+    startNotificationCenterUnreadWatcher();
     updateCurrentUserOnlinePresence(isOnline: true);
     onlinePresenceRefreshTimer = Timer.periodic(const Duration(seconds: 20), (
       _,
@@ -15175,7 +15268,7 @@ class _MapScreenState extends State<MapScreen>
   static const rigaZoom = 11.25;
   static const fullSpotIconMinZoom = 11.25;
   static const navigationZoom = 16.35;
-  static const Duration liveLocationUploadInterval = Duration(seconds: 30);
+  static const Duration liveLocationUploadInterval = Duration(seconds: 60);
   static const double liveLocationMinimumUploadDistanceMeters = 0;
   // Navigation heading tuning: behave like Waze/Google Maps.
   // While the car is moving we trust the GPS movement vector, not the phone
@@ -15194,6 +15287,8 @@ class _MapScreenState extends State<MapScreen>
   StreamSubscription<Position>? navigationPositionSubscription;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>?
   liveLocationSubscription;
+  StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>?
+  ownLiveLocationSubscription;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>?
   policeReportSubscription;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>?
@@ -17646,6 +17741,7 @@ class _MapScreenState extends State<MapScreen>
 
   void startLiveLocationSync() {
     liveLocationSubscription?.cancel();
+    ownLiveLocationSubscription?.cancel();
     final currentFirebaseUser = FirebaseAuth.instance.currentUser;
 
     if (currentFirebaseUser == null) {
@@ -17659,6 +17755,82 @@ class _MapScreenState extends State<MapScreen>
       cancelLiveLocationTimers(keepUploadTimer: false);
       return;
     }
+
+    ownLiveLocationSubscription = liveLocationsCollection()
+        .doc(currentFirebaseUser.uid)
+        .debugSnapshots('map: own live location document listener')
+        .listen(
+          (snapshot) {
+            if (!mounted) {
+              return;
+            }
+
+            if (!snapshot.exists) {
+              setState(() {
+                liveLocations = liveLocations
+                    .where((location) => location.uid != currentFirebaseUser.uid)
+                    .toList();
+                if (!isTogglingLiveLocation) {
+                  isSharingLiveLocation = false;
+                  liveLocationPromptAt = null;
+                  liveLocationExpiresAt = null;
+                }
+              });
+              return;
+            }
+
+            final ownLocation = LiveLocationData.fromFirestore(snapshot);
+            if (ownLocation.isExpired) {
+              setState(() {
+                liveLocations = liveLocations
+                    .where((location) => location.uid != ownLocation.uid)
+                    .toList();
+                if (!isTogglingLiveLocation) {
+                  isSharingLiveLocation = false;
+                  liveLocationPromptAt = null;
+                  liveLocationExpiresAt = null;
+                }
+              });
+              return;
+            }
+
+            setState(() {
+              currentUserLocation = ownLocation.coordinates;
+              displayedUserLocation = ownLocation.coordinates;
+              lastGpsUserLocation = ownLocation.coordinates;
+              lastUploadedLiveLocation = ownLocation.coordinates;
+              lastGpsUserLocationAt = DateTime.now();
+              currentUserHeadingDegrees = ownLocation.headingDegrees;
+              isSharingLiveLocation = true;
+              liveLocationPromptAt = DateTime.fromMillisecondsSinceEpoch(
+                ownLocation.promptAtMillis,
+              );
+              liveLocationExpiresAt = DateTime.fromMillisecondsSinceEpoch(
+                ownLocation.expiresAtMillis,
+              );
+              liveLocationShareDuration = Duration(
+                minutes: ownLocation.shareDurationMinutes,
+              );
+              liveLocations = [
+                ...liveLocations.where(
+                  (location) => location.uid != ownLocation.uid,
+                ),
+                ownLocation,
+              ];
+              scheduleLiveLocationTimers();
+            });
+
+            if (mapCenteredOnCurrentUser) {
+              updateFollowCamera(
+                ownLocation.coordinates,
+                ownLocation.headingDegrees,
+              );
+            }
+          },
+          onError: (_) {
+            // Firestore rules may still be closed while this feature is being set up.
+          },
+        );
 
     liveLocationSubscription = liveLocationsCollection()
         .where('visibleToUserIds', arrayContains: currentFirebaseUser.uid)
@@ -18011,7 +18183,7 @@ class _MapScreenState extends State<MapScreen>
         ? liveLocationMinimumUploadDistanceMeters
         : const Distance().as(LengthUnit.Meter, lastUploadedLocation, location);
 
-    // Upload live location every 30 seconds while sharing is active.
+    // Upload live location every 60 seconds while sharing is active.
     // Local marker still updates smoothly between Firebase writes.
     if (liveLocationMinimumUploadDistanceMeters > 0 &&
         movedSinceLastUpload < liveLocationMinimumUploadDistanceMeters) {
@@ -18330,6 +18502,7 @@ class _MapScreenState extends State<MapScreen>
     liveLocationPromptTimer?.cancel();
     liveLocationAutoStopTimer?.cancel();
     liveLocationSubscription?.cancel();
+    ownLiveLocationSubscription?.cancel();
     policeReportSubscription?.cancel();
     sosReportSubscription?.cancel();
     sosDistanceCheckTimer?.cancel();
@@ -18577,9 +18750,7 @@ class _MapScreenState extends State<MapScreen>
     }
 
     return Geolocator.getCurrentPosition(
-      locationSettings: const LocationSettings(
-        accuracy: LocationAccuracy.bestForNavigation,
-      ),
+      locationSettings: const LocationSettings(accuracy: LocationAccuracy.high),
     );
   }
 
