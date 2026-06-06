@@ -18,7 +18,7 @@ import java.io.FileOutputStream
 class MainActivity : FlutterActivity() {
     private val photoPickerChannelName = "ccs/photo_picker"
     private val notificationsChannelName = "ccs/system_notifications"
-    private val liveLocationChannelName = "live_location_background"
+    private val liveLocationChannelName = "ccs/live_location_background"
     private val notificationChannelId = "ccs_updates"
     private val pickPhotoRequestCode = 7001
     private var pendingPhotoResult: MethodChannel.Result? = null

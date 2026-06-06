@@ -1839,21 +1839,7 @@ const _ruText = <String, String>{
   'Create SOS': 'Создать SOS',
   'SOS added on the map.': 'SOS добавлен на карту.',
   'SOS removed from the map.': 'SOS удалён с карты.',
-  'Remove SOS': 'Удалить SOS',
-  'Remove this SOS?': 'Удалить этот SOS?',
-  'Are you sure you want to remove this SOS from the map?':
-      'Вы уверены, что хотите удалить этот SOS с карты?',
   'Still need help?': 'Всё ещё нужна помощь?',
-  'Do you still need help?': 'Вам всё ещё нужна помощь?',
-  'Your SOS will be removed in 5 minutes if you do not answer.':
-      'Если вы не ответите, SOS будет удалён через 5 минут.',
-  'SOS resumed for 30 minutes.': 'SOS продлён ещё на 30 минут.',
-  'SOS daily limit reached. You can create SOS again tomorrow.':
-      'Лимит SOS на сегодня исчерпан. Новый SOS можно создать завтра.',
-  'SOS resume limit reached. Your SOS will be removed.':
-      'Лимит продлений SOS исчерпан. SOS будет удалён.',
-  'Yes': 'Да',
-  'No': 'Нет',
   'You moved away from your SOS point. Do you still need help there?':
       'Вы отъехали от точки SOS. Помощь там ещё нужна?',
   'SOS reason battery': 'Сел аккумулятор',
@@ -2482,21 +2468,7 @@ const _lvText = <String, String>{
   'Create SOS': 'Izveidot SOS',
   'SOS added on the map.': 'SOS pievienots kartē.',
   'SOS removed from the map.': 'SOS noņemts no kartes.',
-  'Remove SOS': 'Noņemt SOS',
-  'Remove this SOS?': 'Noņemt šo SOS?',
-  'Are you sure you want to remove this SOS from the map?':
-      'Vai tiešām vēlaties noņemt šo SOS no kartes?',
   'Still need help?': 'Palīdzība vēl vajadzīga?',
-  'Do you still need help?': 'Vai jums vēl vajadzīga palīdzība?',
-  'Your SOS will be removed in 5 minutes if you do not answer.':
-      'Ja neatbildēsiet, SOS tiks noņemts pēc 5 minūtēm.',
-  'SOS resumed for 30 minutes.': 'SOS pagarināts vēl uz 30 minūtēm.',
-  'SOS daily limit reached. You can create SOS again tomorrow.':
-      'Šodienas SOS limits ir iztērēts. Jaunu SOS varēs izveidot rīt.',
-  'SOS resume limit reached. Your SOS will be removed.':
-      'SOS pagarināšanas limits ir sasniegts. SOS tiks noņemts.',
-  'Yes': 'Jā',
-  'No': 'Nē',
   'You moved away from your SOS point. Do you still need help there?':
       'Jūs aizbraucāt no SOS vietas. Vai palīdzība tur vēl ir vajadzīga?',
   'SOS reason battery': 'Izlādējies akumulators',
@@ -3743,8 +3715,9 @@ const spotCategoryColors = {
   'Food': Color(0xFFFF1B8D),
 };
 
-const regularUserCarIconAsset = 'assets/user_cars/car_blue.png';
-const verifiedUserCarIconAsset = 'assets/user_cars/car_green.png';
+const publicLiveLocationAudienceMarker = '__public__';
+const regularUserCarIconAsset = 'assets/user_cars/car_green.png';
+const verifiedUserCarIconAsset = 'assets/user_cars/car_blue.png';
 const friendUserCarIconAsset = 'assets/user_cars/car_purple.png';
 
 String spotIconAssetPathForCategory(String category, {CcsMapStyle? mapStyle}) {
@@ -4466,7 +4439,6 @@ class AppUser {
   final bool verified;
   final String city;
   final String country;
-  final bool nicknameSetupRequired;
 
   const AppUser({
     required this.uid,
@@ -4480,39 +4452,7 @@ class AppUser {
     this.verified = false,
     required this.city,
     required this.country,
-    this.nicknameSetupRequired = false,
   });
-
-  AppUser copyWith({
-    String? uid,
-    String? name,
-    String? username,
-    String? email,
-    String? photoUrl,
-    String? bio,
-    String? avatarPath,
-    UserRole? role,
-    bool? verified,
-    String? city,
-    String? country,
-    bool? nicknameSetupRequired,
-  }) {
-    return AppUser(
-      uid: uid ?? this.uid,
-      name: name ?? this.name,
-      username: username ?? this.username,
-      email: email ?? this.email,
-      photoUrl: photoUrl ?? this.photoUrl,
-      bio: bio ?? this.bio,
-      avatarPath: avatarPath ?? this.avatarPath,
-      role: role ?? this.role,
-      verified: verified ?? this.verified,
-      city: city ?? this.city,
-      country: country ?? this.country,
-      nicknameSetupRequired:
-          nicknameSetupRequired ?? this.nicknameSetupRequired,
-    );
-  }
 }
 
 // Keep the fallback unprivileged until Firebase login finishes.
@@ -4843,8 +4783,6 @@ Future<String> reserveUsernameForCurrentUser({
     );
   }
 
-  // Preserve the user's chosen display casing in `username`.
-  // Uniqueness is still enforced case-insensitively through `usernameKey`.
   final cleanPreferred = cleanProfileUsername(preferredUsername);
 
   if (cleanPreferred.length < minProfileUsernameLength ||
@@ -4876,7 +4814,11 @@ Future<String> reserveUsernameForCurrentUser({
     try {
       await FirebaseFirestore.instance.runTransaction((transaction) async {
         final snapshot = await transaction.debugGet(usernameRef);
+        final previousSnapshot = previousRef == null
+            ? null
+            : await transaction.debugGet(previousRef);
         final existingUid = snapshot.data()?['uid'] as String?;
+        final previousUid = previousSnapshot?.data()?['uid'] as String?;
 
         if (snapshot.exists && existingUid != firebaseUser.uid) {
           throw FirebaseException(
@@ -4892,22 +4834,13 @@ Future<String> reserveUsernameForCurrentUser({
           'usernameKey': key,
           'updatedAt': FieldValue.serverTimestamp(),
         }, SetOptions(merge: true));
-      });
 
-      // Some Firestore rules allow users to create/update their own username
-      // reservation but do not allow client-side deletes. Do not make nickname
-      // setup fail because the old auto-generated reservation could not be
-      // cleaned up; it is still owned by the same user and can be pruned by an
-      // admin/backend job later.
-      if (previousRef != null) {
-        unawaited(
-          previousRef
-              .debugDelete('username: best-effort old reservation cleanup')
-              .catchError((Object error) {
-                debugPrint('Old username reservation cleanup skipped: $error');
-              }),
-        );
-      }
+        if (previousSnapshot != null &&
+            previousSnapshot.exists &&
+            previousUid == firebaseUser.uid) {
+          transaction.debugDelete(previousRef!);
+        }
+      });
 
       return candidate;
     } on FirebaseException catch (error) {
@@ -5016,8 +4949,6 @@ Future<AppUser> saveFirebaseUser(
       ? data!['avatarPath'] as String
       : null;
   final verified = data?['verified'] == true;
-  final nicknameSetupRequired =
-      isNewUser || data?['nicknameSetupRequired'] == true;
   final settings = UserSettingsData.fromFirebase(data?['settings']);
   final garage = garageCarsFromFirebase(data?['garage']);
 
@@ -5049,8 +4980,6 @@ Future<AppUser> saveFirebaseUser(
     'garage': garage.map((car) => car.toFirebase()).toList(),
     'provider': provider,
     'telegramUsername': telegramUsername,
-    'nicknameSetupRequired': nicknameSetupRequired,
-    'usernameCustomized': data?['usernameCustomized'] == true,
     'isOnline': true,
     'lastSeenAt': FieldValue.serverTimestamp(),
     'updatedAt': FieldValue.serverTimestamp(),
@@ -5062,8 +4991,6 @@ Future<AppUser> saveFirebaseUser(
     firebaseData['banned'] = false;
     firebaseData['deleted'] = false;
     firebaseData['createdAt'] = FieldValue.serverTimestamp();
-    firebaseData['nicknameSetupRequired'] = true;
-    firebaseData['usernameCustomized'] = false;
   }
 
   await userRef.debugSet(firebaseData, SetOptions(merge: true));
@@ -5080,7 +5007,6 @@ Future<AppUser> saveFirebaseUser(
     verified: verified,
     city: city,
     country: country,
-    nicknameSetupRequired: nicknameSetupRequired,
   );
 }
 
@@ -6105,6 +6031,10 @@ List<String> uniqueNonEmptyStrings(Iterable<String> values) {
   return result;
 }
 
+List<String> publicLiveLocationVisibleToUserIds(String uid) {
+  return uniqueNonEmptyStrings([uid, publicLiveLocationAudienceMarker]);
+}
+
 bool boolFromFirebase(Object? value, bool fallback) {
   return value is bool ? value : fallback;
 }
@@ -6503,11 +6433,7 @@ Future<void> createUserNotification({
       'actorUserId': firebaseUser.uid,
       'actorUsername': currentUser.username,
       'read': false,
-      // Keep both fields: createdAt is the real server timestamp, while
-      // createdAtMillis lets the notification center sort immediately and also
-      // works when the composite createdAt index is missing.
       'createdAt': FieldValue.serverTimestamp(),
-      'createdAtMillis': DateTime.now().millisecondsSinceEpoch,
       ...extra,
     }, SetOptions(merge: true));
 
@@ -6650,7 +6576,6 @@ Future<void> createNewSpotNotificationForUsers(CarSpot spot) async {
         'cityCountry': spot.cityCountry,
         'read': false,
         'createdAt': FieldValue.serverTimestamp(),
-        'createdAtMillis': DateTime.now().millisecondsSinceEpoch,
       }, SetOptions(merge: true));
       writes++;
 
@@ -6705,57 +6630,60 @@ Future<void> createChatMessageNotification({
 void startNotificationCenterUnreadWatcher() {
   final firebaseUser = FirebaseAuth.instance.currentUser;
 
-  notificationCenterUnreadSubscription?.cancel();
-  adminNotificationCenterUnreadSubscription?.cancel();
-  friendLocationNotificationCenterUnreadSubscription?.cancel();
-  adminNotificationCenterUnreadSubscription = null;
-  friendLocationNotificationCenterUnreadSubscription = null;
-  notificationCenterUnreadCountsBySource.clear();
-
   if (firebaseUser == null) {
+    notificationCenterUnreadCountsBySource.clear();
     notificationCenterUnreadCount.value = 0;
     return;
   }
 
-  // The bell screen displays user_notifications only. Counting legacy
-  // admin_notifications / friend_location_notifications here creates a false
-  // positive badge: the badge says unread items exist, but the bell screen has
-  // nothing visible to show. Keep the badge source-of-truth identical to the
-  // bell list and apply the same visibility filters before counting.
-  notificationCenterUnreadSubscription =
-      trackedQuerySnapshots(
-        'notification center unread watcher: visible user notifications',
-        userNotificationsCollection()
-            .where('userId', isEqualTo: firebaseUser.uid)
-            .where('read', isEqualTo: false)
-            .limit(50),
-      ).listen(
-        (snapshot) async {
-          final hiddenIds = await effectiveHiddenNotificationCenterIds(
-            firebaseUser.uid,
-          );
-          final visibleUnreadCount = snapshot.docs
-              .map(notificationCenterItemFromDocument)
-              .where(notificationCenterItemShouldBeVisible)
-              .where((item) {
-                final id = item.id.trim();
-                return id.isEmpty || !hiddenIds.contains(id);
-              })
-              .length;
+  notificationCenterUnreadSubscription?.cancel();
+  adminNotificationCenterUnreadSubscription?.cancel();
+  friendLocationNotificationCenterUnreadSubscription?.cancel();
+  notificationCenterUnreadCountsBySource.clear();
 
-          notificationCenterUnreadCountsBySource['user'] = visibleUnreadCount;
-          if (notificationCenterUnreadCount.value != visibleUnreadCount) {
-            setNotificationCenterBadgeCount(visibleUnreadCount);
-            markNotificationCenterCacheDirty();
-          }
-        },
-        onError: (Object error, StackTrace stack) {
-          notificationCenterUnreadCountsBySource['user'] = 0;
-          setNotificationCenterBadgeCount(0);
-          debugPrint('Notification unread watcher failed (user): $error');
-          debugPrint('$stack');
-        },
-      );
+  void updateUnreadSource(String source, int count) {
+    notificationCenterUnreadCountsBySource[source] = count;
+    final total = notificationCenterUnreadCountsBySource.values.fold<int>(
+      0,
+      (sum, value) => sum + value,
+    );
+    if (notificationCenterUnreadCount.value != total) {
+      notificationCenterUnreadCount.value = total;
+    }
+  }
+
+  StreamSubscription<QuerySnapshot<Map<String, dynamic>>> watchUnreadQuery(
+    String source,
+    Query<Map<String, dynamic>> query,
+  ) {
+    return trackedQuerySnapshots(
+      'notification center unread watcher: $source',
+      query.where('read', isEqualTo: false).limit(50),
+    ).listen(
+      (snapshot) => updateUnreadSource(source, snapshot.docs.length),
+      onError: (Object error, StackTrace stack) {
+        updateUnreadSource(source, 0);
+        debugPrint('Notification unread watcher failed ($source): $error');
+        debugPrint('$stack');
+      },
+    );
+  }
+
+  notificationCenterUnreadSubscription = watchUnreadQuery(
+    'user',
+    userNotificationsCollection().where('userId', isEqualTo: firebaseUser.uid),
+  );
+  adminNotificationCenterUnreadSubscription = watchUnreadQuery(
+    'admin',
+    adminNotificationsCollection().where('userId', isEqualTo: firebaseUser.uid),
+  );
+  friendLocationNotificationCenterUnreadSubscription = watchUnreadQuery(
+    'friendLocation',
+    friendLocationNotificationsCollection().where(
+      'userId',
+      isEqualTo: firebaseUser.uid,
+    ),
+  );
 }
 
 CollectionReference<Map<String, dynamic>> projectNewsCollection() {
@@ -7290,12 +7218,13 @@ Future<void> unblockUserById(String userId) async {
   });
 }
 
-const double friendAtSpotRadiusMeters = 100;
+const double friendNearbyRadiusMeters = 5000;
+const double friendAtSpotRadiusMeters = 200;
 const Duration friendLocationNotificationCooldown = Duration(minutes: 30);
-final Map<String, int> friendLocationNotificationLastCheckedAtMillis = {};
-String? cachedFriendUidsOwnerUid;
-DateTime? cachedFriendUidsLoadedAt;
-List<String> cachedFriendUids = const [];
+
+String friendNearbyNotificationId(String userId, String friendUid) {
+  return 'nearby_${userId}_$friendUid';
+}
 
 String friendSpotNotificationId(
   String userId,
@@ -7303,48 +7232,6 @@ String friendSpotNotificationId(
   String spotId,
 ) {
   return 'spot_${userId}_${friendUid}_$spotId';
-}
-
-Future<List<String>> loadCurrentFriendUidsCached() async {
-  final firebaseUser = FirebaseAuth.instance.currentUser;
-  if (firebaseUser == null) {
-    return const [];
-  }
-
-  final now = DateTime.now();
-  final cacheIsFresh =
-      cachedFriendUidsOwnerUid == firebaseUser.uid &&
-      cachedFriendUidsLoadedAt != null &&
-      now.difference(cachedFriendUidsLoadedAt!) < const Duration(minutes: 5);
-  if (cacheIsFresh) {
-    return cachedFriendUids;
-  }
-
-  final friendUids = await loadCurrentFriendUids();
-  cachedFriendUidsOwnerUid = firebaseUser.uid;
-  cachedFriendUidsLoadedAt = now;
-  cachedFriendUids = friendUids;
-  return friendUids;
-}
-
-bool friendLocationNotificationRecentlyChecked(String notificationId) {
-  final lastCheckedAt =
-      friendLocationNotificationLastCheckedAtMillis[notificationId];
-  if (lastCheckedAt == null) {
-    return false;
-  }
-
-  final elapsedMillis = DateTime.now().millisecondsSinceEpoch - lastCheckedAt;
-  return elapsedMillis < friendLocationNotificationCooldown.inMilliseconds;
-}
-
-void rememberFriendLocationNotificationCheck(String notificationId) {
-  friendLocationNotificationLastCheckedAtMillis[notificationId] =
-      DateTime.now().millisecondsSinceEpoch;
-
-  if (friendLocationNotificationLastCheckedAtMillis.length > 300) {
-    friendLocationNotificationLastCheckedAtMillis.clear();
-  }
 }
 
 Future<List<String>> loadCurrentFriendUids() async {
@@ -7681,36 +7568,17 @@ Future<String> createOrOpenDirectChat(FriendUserData user) async {
   final memberPhotoUrls = [currentUser.photoUrl ?? '', user.photoUrl ?? ''];
 
   final chatRef = chatsCollection().doc(chatId);
-  var shouldCreateChat = false;
+  final existingChat = await chatRef.debugGet(
+    null,
+    'chat: direct open existing chat lookup',
+  );
 
-  try {
-    final existingChat = await chatRef.debugGet(
-      null,
-      'chat: direct open existing chat lookup',
-    );
-
-    if (existingChat.exists) {
-      // Opening an existing direct chat should not write to the chat document.
-      // Some Firestore rules only allow message writes / membership reads, so a
-      // harmless display-data refresh can still be rejected with permission-denied.
-      return chatId;
-    }
-
-    shouldCreateChat = true;
-  } on FirebaseException catch (error) {
-    if (error.code != 'permission-denied') {
-      rethrow;
-    }
-
-    // Firestore rules can reject reads of non-existing /chats docs because the
-    // read rule depends on resource.data.memberIds. For public DM creation,
-    // fall through and try the create. If the chat really exists and the user is
-    // not allowed to read it, the create will fail safely because the document
-    // already exists or the rules reject it.
-    shouldCreateChat = true;
-  }
-
-  if (shouldCreateChat) {
+  if (existingChat.exists) {
+    // Opening an existing direct chat should not write to the chat document.
+    // Some Firestore rules only allow message writes / membership reads, so a
+    // harmless display-data refresh can still be rejected with permission-denied.
+    return chatId;
+  } else {
     // New direct chats must include the same schema fields that the chat list
     // and Firestore rules expect. Omitting isGroup/lastMessage/createdAt can
     // make the create request fail with permission-denied, which surfaces in
@@ -8164,13 +8032,6 @@ Future<void> shareChatLiveLocation(
     'isOnline': true,
   }, SetOptions(merge: true));
 
-  unawaited(
-    createFriendAtSpotNotificationsForCurrentLocation(
-      location: safeLatLng(position.latitude, position.longitude),
-      visibleToUserIds: visibleToUserIds,
-    ),
-  );
-
   await sendChatMessage(
     chatId: chat.id,
     text: chat.isGroup
@@ -8327,13 +8188,9 @@ Future<LiveLocationData?> loadCurrentLiveLocationForUser(String uid) async {
 Future<bool> shouldCreateFriendLocationNotification(
   String notificationId,
 ) async {
-  if (friendLocationNotificationRecentlyChecked(notificationId)) {
-    return false;
-  }
-
   final snapshot = await userNotificationsCollection()
       .doc(notificationId)
-      .debugGet(null, 'notifications: friend at spot cooldown lookup');
+      .debugGet();
 
   if (!snapshot.exists) {
     return true;
@@ -8357,26 +8214,23 @@ Future<void> createFriendLocationNotification({
   required String notificationId,
   required String userId,
   required LiveLocationData friendLocation,
+  required String type,
   required double distanceMeters,
-  required CarSpot spot,
+  CarSpot? spot,
 }) async {
-  final cleanUserId = userId.trim();
-  if (cleanUserId.isEmpty || cleanUserId == friendLocation.uid) {
-    return;
-  }
-
   if (!await shouldCreateFriendLocationNotification(notificationId)) {
     return;
   }
 
   final nowMillis = DateTime.now().millisecondsSinceEpoch;
-  final body = '@${friendLocation.username} entered ${spot.name}.';
 
   await userNotificationsCollection().doc(notificationId).debugSet({
-    'userId': cleanUserId,
-    'type': 'friend_at_spot',
+    'userId': userId,
+    'type': type,
     'title': 'Live location',
-    'body': body,
+    'body': type == 'friend_at_spot'
+        ? '@${friendLocation.username} is at ${spot?.name ?? 'a spot'}.'
+        : '@${friendLocation.username} is nearby.',
     'actorUserId': friendLocation.uid,
     'actorUsername': friendLocation.username,
     'friendUid': friendLocation.uid,
@@ -8389,100 +8243,16 @@ Future<void> createFriendLocationNotification({
       friendLocation.coordinates.longitude,
     ),
     'distanceMeters': distanceMeters.round(),
-    'spotId': spot.id,
-    'spotName': spot.name,
-    'spotCategory': spot.categories.isEmpty ? '' : spot.categories.first,
+    'spotId': spot?.id ?? '',
+    'spotName': spot?.name ?? '',
+    'spotCategory': spot?.categories.isEmpty == true
+        ? ''
+        : spot?.categories.first ?? '',
     'read': false,
     'lastNotifiedAtMillis': nowMillis,
     'createdAt': FieldValue.serverTimestamp(),
-    'createdAtMillis': nowMillis,
     'updatedAt': FieldValue.serverTimestamp(),
   }, SetOptions(merge: true));
-
-  rememberFriendLocationNotificationCheck(notificationId);
-
-  await sendPushNotificationEvent({
-    'type': 'friend_at_spot',
-    'notificationId': notificationId,
-    'recipientUserId': cleanUserId,
-    'friendUid': friendLocation.uid,
-    'friendUsername': friendLocation.username,
-    'spotId': spot.id,
-    'spotName': spot.name,
-    'distanceMeters': distanceMeters.round(),
-    'title': 'Live location',
-    'body': body,
-  });
-}
-
-Future<void> createFriendAtSpotNotificationsForCurrentLocation({
-  required LatLng location,
-  required List<String> visibleToUserIds,
-}) async {
-  final firebaseUser = FirebaseAuth.instance.currentUser;
-  if (firebaseUser == null || !isValidLatLng(location)) {
-    return;
-  }
-
-  final friendUids = await loadCurrentFriendUidsCached();
-  if (friendUids.isEmpty) {
-    return;
-  }
-
-  final friendUidSet = friendUids.toSet();
-  final recipientUids = visibleToUserIds
-      .where((uid) => uid != firebaseUser.uid && friendUidSet.contains(uid))
-      .toSet()
-      .toList();
-  if (recipientUids.isEmpty) {
-    return;
-  }
-
-  final friendLocation = LiveLocationData(
-    uid: firebaseUser.uid,
-    username: currentUser.username,
-    name: currentUser.name,
-    photoUrl: currentUser.photoUrl,
-    role: currentUser.role,
-    verified: currentUser.verified,
-    coordinates: location,
-    visibleToUserIds: visibleToUserIds,
-    shareScope: 'friends',
-    promptAtMillis: DateTime.now().millisecondsSinceEpoch,
-    expiresAtMillis: DateTime.now()
-        .add(friendLocationNotificationCooldown)
-        .millisecondsSinceEpoch,
-    updatedAtMillis: DateTime.now().millisecondsSinceEpoch,
-  );
-
-  for (final spot in approvedPublicSpots()) {
-    if (spot.id.trim().isEmpty || !spot.isVisibleOnMapNow) {
-      continue;
-    }
-
-    final distanceMeters = distanceBetweenLatLngMeters(
-      location,
-      spot.coordinates,
-    );
-    if (distanceMeters > friendAtSpotRadiusMeters) {
-      continue;
-    }
-
-    for (final recipientUid in recipientUids) {
-      final notificationId = friendSpotNotificationId(
-        recipientUid,
-        firebaseUser.uid,
-        spot.id,
-      );
-      await createFriendLocationNotification(
-        notificationId: notificationId,
-        userId: recipientUid,
-        friendLocation: friendLocation,
-        distanceMeters: distanceMeters,
-        spot: spot,
-      );
-    }
-  }
 }
 
 Future<void> checkFriendLocationNotifications() async {
@@ -8492,11 +8262,16 @@ Future<void> checkFriendLocationNotifications() async {
     return;
   }
 
+  final friendUids = await loadCurrentFriendUids();
+
+  if (friendUids.isEmpty) {
+    return;
+  }
+
   final activeLocations = await liveLocationsCollection()
       .where('visibleToUserIds', arrayContains: firebaseUser.uid)
       .debugGet(null, 'live location: friend active locations one-shot');
 
-  final friendUids = await loadCurrentFriendUidsCached();
   final friendUidSet = friendUids.toSet();
   final friendLocations = activeLocations.docs
       .map((doc) => LiveLocationData.fromFirestore(doc))
@@ -8513,11 +8288,34 @@ Future<void> checkFriendLocationNotifications() async {
     return;
   }
 
+  final currentLocation = await loadCurrentLiveLocationForUser(
+    firebaseUser.uid,
+  );
   final visibleApprovedSpots = approvedPublicSpots();
 
   for (final friendLocation in friendLocations) {
+    if (currentLocation != null) {
+      final distanceMeters = distanceBetweenLatLngMeters(
+        currentLocation.coordinates,
+        friendLocation.coordinates,
+      );
+
+      if (distanceMeters <= friendNearbyRadiusMeters) {
+        await createFriendLocationNotification(
+          notificationId: friendNearbyNotificationId(
+            firebaseUser.uid,
+            friendLocation.uid,
+          ),
+          userId: firebaseUser.uid,
+          friendLocation: friendLocation,
+          type: 'friend_nearby',
+          distanceMeters: distanceMeters,
+        );
+      }
+    }
+
     for (final spot in visibleApprovedSpots) {
-      if (spot.id.trim().isEmpty || !spot.isVisibleOnMapNow) {
+      if (spot.id.trim().isEmpty) {
         continue;
       }
 
@@ -8535,6 +8333,7 @@ Future<void> checkFriendLocationNotifications() async {
           ),
           userId: firebaseUser.uid,
           friendLocation: friendLocation,
+          type: 'friend_at_spot',
           distanceMeters: distanceToSpotMeters,
           spot: spot,
         );
@@ -9016,12 +8815,9 @@ class SosReportData {
   final String reason;
   final LatLng coordinates;
   final int createdAtMillis;
-  final int promptAtMillis;
   final int expiresAtMillis;
   final int updatedAtMillis;
   final int confirmationRequestedAtMillis;
-  final int resumeCount;
-  final String dailyKey;
   final String status;
 
   const SosReportData({
@@ -9032,19 +8828,14 @@ class SosReportData {
     this.reason = 'other',
     required this.coordinates,
     required this.createdAtMillis,
-    required this.promptAtMillis,
     required this.expiresAtMillis,
     required this.updatedAtMillis,
     this.confirmationRequestedAtMillis = 0,
-    this.resumeCount = 0,
-    this.dailyKey = '',
     this.status = 'active',
   });
 
   bool get isExpired =>
       DateTime.now().millisecondsSinceEpoch >= expiresAtMillis;
-  bool get shouldPromptOwner =>
-      DateTime.now().millisecondsSinceEpoch >= promptAtMillis && !isExpired;
   bool get isActive => status != 'removed' && !isExpired;
 
   factory SosReportData.fromFirestore(
@@ -9056,9 +8847,6 @@ class SosReportData {
       data['lat'],
       data['lng'],
     );
-    final createdAtMillis = timestampMillisFromFirebase(data['createdAt']);
-    final promptAtMillis = timestampMillisFromFirebase(data['promptAt']);
-    final expiresAtMillis = timestampMillisFromFirebase(data['expiresAt']);
 
     return SosReportData(
       id: doc.id,
@@ -9067,30 +8855,15 @@ class SosReportData {
       description: stringFromFirebase(data['description'], ''),
       reason: stringFromFirebase(data['reason'], 'other'),
       coordinates: coordinates,
-      createdAtMillis: createdAtMillis,
-      promptAtMillis: promptAtMillis > 0
-          ? promptAtMillis
-          : createdAtMillis + sosActiveDuration.inMilliseconds,
-      expiresAtMillis: expiresAtMillis,
+      createdAtMillis: timestampMillisFromFirebase(data['createdAt']),
+      expiresAtMillis: timestampMillisFromFirebase(data['expiresAt']),
       updatedAtMillis: timestampMillisFromFirebase(data['updatedAt']),
       confirmationRequestedAtMillis: timestampMillisFromFirebase(
         data['confirmationRequestedAt'],
       ),
-      resumeCount: intFromFirebase(data['resumeCount'], 0),
-      dailyKey: stringFromFirebase(data['dailyKey'], ''),
       status: stringFromFirebase(data['status'], 'active'),
     );
   }
-}
-
-const Duration sosActiveDuration = Duration(minutes: 30);
-const Duration sosResponseGraceDuration = Duration(minutes: 5);
-const int sosMaxResumeCount = 4;
-
-String sosDailyKeyFor(DateTime value) {
-  return '${value.year.toString().padLeft(4, '0')}-'
-      '${value.month.toString().padLeft(2, '0')}-'
-      '${value.day.toString().padLeft(2, '0')}';
 }
 
 Future<void> saveCurrentUserFields(Map<String, Object?> data) async {
@@ -11627,8 +11400,7 @@ IconData notificationCenterIcon(NotificationCenterItem item) {
     'new_spot' => Icons.add_location_alt,
     'temporary_event' => Icons.event_available,
     'friend_request' => Icons.person_add_alt_1,
-    'friend_at_spot' => Icons.location_on,
-    'friend_nearby' => Icons.location_on,
+    'friend_nearby' || 'friend_at_spot' => Icons.location_on,
     _ => Icons.notifications,
   };
 }
@@ -11654,8 +11426,7 @@ Color notificationCenterColor(NotificationCenterItem item) {
     'new_spot' => const Color(0xFF9B35FF),
     'temporary_event' => const Color(0xFFFF7A00),
     'friend_request' => blue,
-    'friend_at_spot' => Colors.greenAccent.shade700,
-    'friend_nearby' => Colors.greenAccent.shade700,
+    'friend_nearby' || 'friend_at_spot' => Colors.greenAccent.shade700,
     _ => blue,
   };
 }
@@ -11825,11 +11596,7 @@ NotificationCenterItem notificationCenterItemFromJson(Object? value) {
     chatId: (() {
       final v = pickString('chatId', '');
       if (v.isNotEmpty) return v;
-      final snake = pickString('chat_id', '');
-      if (snake.isNotEmpty) return snake;
-      final thread = pickString('threadId', '');
-      if (thread.isNotEmpty) return thread;
-      return pickString('conversationId', '');
+      return pickString('chat_id', '');
     })(),
     userId: pickString('userId', ''),
     addedByUid: pickString('addedByUid', ''),
@@ -11855,23 +11622,11 @@ NotificationCenterItem notificationCenterItemFromDocument(
   final rejectionReason = stringFromFirebase(data['rejectionReason'], '');
   final actorUsername = stringFromFirebase(
     data['actorUsername'],
-    stringFromFirebase(
-      data['senderUsername'],
-      stringFromFirebase(data['fromUsername'], ''),
-    ),
+    stringFromFirebase(data['senderUsername'], ''),
   );
   final actorUserId = stringFromFirebase(
     data['actorUserId'],
-    stringFromFirebase(
-      data['senderUid'],
-      stringFromFirebase(
-        data['senderUserId'],
-        stringFromFirebase(
-          data['fromUid'],
-          stringFromFirebase(data['fromUserId'], ''),
-        ),
-      ),
-    ),
+    stringFromFirebase(data['senderUid'], ''),
   );
   final comment = stringFromFirebase(data['comment'], '');
   final friendUsername = stringFromFirebase(data['friendUsername'], '');
@@ -11887,8 +11642,7 @@ NotificationCenterItem notificationCenterItemFromDocument(
     'spot_approved_by_admin' ||
     'spot_rejected_by_admin' => 'Spot review updates',
     'friend_request' => 'New friend request',
-    'friend_at_spot' => 'Live location',
-    'friend_nearby' => 'Live location',
+    'friend_nearby' || 'friend_at_spot' => 'Live location',
     'project_news' => 'Project news',
     _ => stringFromFirebase(data['title'], 'CCS'),
   };
@@ -11949,8 +11703,8 @@ NotificationCenterItem notificationCenterItemFromDocument(
             : '@$friendUsername is nearby.',
       'friend_at_spot' =>
         friendUsername.trim().isEmpty
-            ? 'A friend entered a spot.'
-            : '@$friendUsername entered ${spotName.trim().isEmpty ? 'a spot' : spotName}.',
+            ? 'A friend is at a spot.'
+            : '@$friendUsername is at ${spotName.trim().isEmpty ? 'a spot' : spotName}.',
       _ => stringFromFirebase(data['message'], ''),
     };
   }
@@ -11971,11 +11725,7 @@ NotificationCenterItem notificationCenterItemFromDocument(
     title: title,
     body: body,
     type: type,
-    createdAtMillis: (() {
-      final explicitMillis = intFromFirebase(data['createdAtMillis'], 0);
-      if (explicitMillis > 0) return explicitMillis;
-      return timestampMillisFromFirebase(data['createdAt']);
-    })(),
+    createdAtMillis: timestampMillisFromFirebase(data['createdAt']),
     read: data['read'] == true,
     reference: projectNews ? null : doc.reference,
     projectNews: projectNews,
@@ -11984,11 +11734,7 @@ NotificationCenterItem notificationCenterItemFromDocument(
     chatId: (() {
       final v = stringFromFirebase(data['chatId'], '');
       if (v.isNotEmpty) return v;
-      final snake = stringFromFirebase(data['chat_id'], '');
-      if (snake.isNotEmpty) return snake;
-      final thread = stringFromFirebase(data['threadId'], '');
-      if (thread.isNotEmpty) return thread;
-      return stringFromFirebase(data['conversationId'], '');
+      return stringFromFirebase(data['chat_id'], '');
     })(),
     userId: stringFromFirebase(data['userId'], ''),
     addedByUid: stringFromFirebase(data['addedByUid'], ''),
@@ -12133,221 +11879,20 @@ Future<QuerySnapshot<Map<String, dynamic>>> loadUserNotificationCenterSnapshot(
   }
 }
 
-const Duration notificationCenterCacheTtl = Duration(minutes: 2);
-String? notificationCenterItemsCacheUid;
-DateTime? notificationCenterItemsCacheLoadedAt;
-List<NotificationCenterItem> notificationCenterItemsCache = const [];
-bool notificationCenterItemsCacheDirty = false;
-final notificationCenterLocallyHiddenIdsByUid = <String, Set<String>>{};
-
-Set<String> localHiddenNotificationCenterIds(String uid) {
-  return notificationCenterLocallyHiddenIdsByUid.putIfAbsent(
-    uid,
-    () => <String>{},
-  );
-}
-
-Future<Set<String>> effectiveHiddenNotificationCenterIds(String uid) async {
-  return <String>{
-    ...localHiddenNotificationCenterIds(uid),
-    ...await loadHiddenNotificationCenterIds(uid),
-  };
-}
-
-List<NotificationCenterItem> defaultNotificationCenterItems() {
-  return const [
-    NotificationCenterItem(
-      id: 'project_news_ready',
-      title: 'Project news',
-      body: 'CCS notification center is ready.',
-      type: 'project_news',
-      createdAtMillis: 0,
-      read: true,
-      projectNews: true,
-    ),
-  ];
-}
-
-void cacheNotificationCenterItems(
-  String uid,
-  List<NotificationCenterItem> items,
-) {
-  notificationCenterItemsCacheUid = uid;
-  notificationCenterItemsCacheLoadedAt = DateTime.now();
-  notificationCenterItemsCache = List<NotificationCenterItem>.unmodifiable(
-    items,
-  );
-  notificationCenterItemsCacheDirty = false;
-}
-
-List<NotificationCenterItem>? cachedNotificationCenterItemsFor(
-  String uid, {
-  bool allowStaleWhenEmpty = false,
-}) {
-  if (notificationCenterItemsCacheUid != uid) {
-    return null;
-  }
-
-  if (notificationCenterItemsCacheDirty && !allowStaleWhenEmpty) {
-    return null;
-  }
-
-  final loadedAt = notificationCenterItemsCacheLoadedAt;
-  if (loadedAt == null) {
-    return null;
-  }
-
-  final isFresh =
-      DateTime.now().difference(loadedAt) < notificationCenterCacheTtl;
-  if (!isFresh && !allowStaleWhenEmpty) {
-    return null;
-  }
-
-  return List<NotificationCenterItem>.of(notificationCenterItemsCache);
-}
-
-void markNotificationCenterCacheDirty() {
-  notificationCenterItemsCacheDirty = true;
-}
-
-void setNotificationCenterBadgeCount(int count, {bool forceNotify = false}) {
-  final safeCount = math.max(0, count);
-
-  // In a few flows the badge can already hold 0 while the widget tree missed
-  // the previous notification because the value was changed during a build.
-  // Toggling through -1 forces ValueNotifier listeners to repaint; the bell
-  // still hides the badge because only values > 0 are displayed.
-  if (forceNotify && notificationCenterUnreadCount.value == safeCount) {
-    notificationCenterUnreadCount.value = -1;
-  }
-
-  if (notificationCenterUnreadCount.value != safeCount) {
-    notificationCenterUnreadCount.value = safeCount;
-  }
-}
-
-void clearNotificationCenterBadge({bool forceNotify = false}) {
-  notificationCenterUnreadCountsBySource.clear();
-  notificationCenterUnreadCountsBySource['user'] = 0;
-  setNotificationCenterBadgeCount(0, forceNotify: forceNotify);
-}
-
-void updateNotificationCenterCacheAsRead() {
-  if (notificationCenterItemsCache.isEmpty) {
-    return;
-  }
-
-  notificationCenterItemsCache = List<NotificationCenterItem>.unmodifiable(
-    notificationCenterItemsCache.map((item) => item.copyWith(read: true)),
-  );
-}
-
-Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
-loadUserNotificationCenterDocuments(
-  String uid, {
-  bool includeRecent = false,
-}) async {
-  final byId = <String, QueryDocumentSnapshot<Map<String, dynamic>>>{};
-
-  void addDocs(QuerySnapshot<Map<String, dynamic>> snapshot) {
-    for (final doc in snapshot.docs) {
-      byId[doc.id] = doc;
-    }
-  }
-
-  // First load unread docs with the same cheap query shape as the badge
-  // watcher. This fixes the case where the badge sees a new unread chat
-  // notification, but the bell list falls back to an unordered limit(25) query
-  // and misses that new document.
-  try {
-    addDocs(
-      await userNotificationsCollection()
-          .where('userId', isEqualTo: uid)
-          .where('read', isEqualTo: false)
-          .limit(50)
-          .debugGet(null, 'notification center: unread user notifications'),
-    );
-  } catch (error, stack) {
-    debugPrint('Unread notification query failed: $error');
-    debugPrint('$stack');
-  }
-
-  if (includeRecent) {
-    try {
-      addDocs(await loadUserNotificationCenterSnapshot(uid));
-    } catch (error, stack) {
-      debugPrint('Notification center recent query failed: $error');
-      debugPrint('$stack');
-    }
-  }
-
-  return byId.values.toList();
-}
-
-bool notificationCenterItemShouldBeVisible(NotificationCenterItem item) {
-  if (item.projectNews) {
-    return true;
-  }
-
-  // User-facing action notifications need a real target. Old push/history
-  // copies can have only title/body, which cannot open a chat or spot. The
-  // unread badge must ignore those too, otherwise fresh installs can show a
-  // badge count while the notification center shows nothing.
-  if (item.type == 'chat_message') {
-    return chatIdFromNotificationItem(item).isNotEmpty;
-  }
-
-  if (item.type == 'spot_comment' || item.type == 'spot_like') {
-    return item.reference != null ||
-        item.spotId.trim().isNotEmpty ||
-        spotNameFromNotificationBody(item.type, item.body).isNotEmpty;
-  }
-
-  return true;
-}
-
-Future<List<NotificationCenterItem>> loadNotificationCenterItems({
-  bool forceRefresh = false,
-}) async {
+Future<List<NotificationCenterItem>> loadNotificationCenterItems() async {
   final firebaseUser = FirebaseAuth.instance.currentUser;
   final items = <NotificationCenterItem>[];
 
   if (firebaseUser == null) {
-    clearNotificationCenterBadge(forceNotify: true);
-    notificationCenterItemsCacheUid = null;
-    notificationCenterItemsCacheLoadedAt = null;
-    notificationCenterItemsCache = const [];
-    notificationCenterItemsCacheDirty = false;
+    notificationCenterUnreadCountsBySource.clear();
+    notificationCenterUnreadCountsBySource.clear();
+    notificationCenterUnreadCount.value = 0;
     return const [];
   }
 
-  final uid = firebaseUser.uid;
-  final cached = cachedNotificationCenterItemsFor(uid);
-  if (!forceRefresh && cached != null) {
-    setNotificationCenterBadgeCount(cached.where((item) => !item.read).length);
-    return cached;
-  }
-
-  // Opening an empty bell should be free. The unread watcher is already the
-  // source of truth for the badge; when it says zero and the user did not press
-  // manual refresh, show the local project-news placeholder instead of running
-  // Firestore history queries every time the bell is opened.
-  if (!forceRefresh && notificationCenterUnreadCount.value == 0) {
-    final staleCache = cachedNotificationCenterItemsFor(
-      uid,
-      allowStaleWhenEmpty: true,
-    );
-    final emptyItems = staleCache ?? defaultNotificationCenterItems();
-    cacheNotificationCenterItems(uid, emptyItems);
-    return List<NotificationCenterItem>.of(emptyItems);
-  }
-
   try {
-    final docs = await loadUserNotificationCenterDocuments(
-      uid,
-      includeRecent: forceRefresh,
-    );
-    for (final doc in docs) {
+    final snapshot = await loadUserNotificationCenterSnapshot(firebaseUser.uid);
+    for (final doc in snapshot.docs) {
       items.add(notificationCenterItemFromDocument(doc));
     }
   } catch (error, stack) {
@@ -12355,15 +11900,37 @@ Future<List<NotificationCenterItem>> loadNotificationCenterItems({
     debugPrint('$stack');
   }
 
-  items.removeWhere((item) => !notificationCenterItemShouldBeVisible(item));
+  // User-facing action notifications need a real target. Old push/history
+  // copies can have only title/body, which cannot open a chat or spot.
+  items.removeWhere((item) {
+    if (item.type == 'chat_message') {
+      return chatIdFromNotificationItem(item).isEmpty;
+    }
+
+    if (item.type == 'spot_comment' || item.type == 'spot_like') {
+      return item.reference == null &&
+          item.spotId.trim().isEmpty &&
+          spotNameFromNotificationBody(item.type, item.body).isEmpty;
+    }
+
+    return false;
+  });
 
   if (!items.any((item) => item.projectNews)) {
-    items.addAll(defaultNotificationCenterItems());
+    items.addAll(const [
+      NotificationCenterItem(
+        id: 'project_news_ready',
+        title: 'Project news',
+        body: 'CCS notification center is ready.',
+        type: 'project_news',
+        createdAtMillis: 0,
+        read: true,
+        projectNews: true,
+      ),
+    ]);
   }
 
-  final hiddenIds = await effectiveHiddenNotificationCenterIds(
-    firebaseUser.uid,
-  );
+  final hiddenIds = await loadHiddenNotificationCenterIds(firebaseUser.uid);
   if (hiddenIds.isNotEmpty) {
     items.removeWhere((item) {
       final id = item.id.trim();
@@ -12384,12 +11951,10 @@ Future<List<NotificationCenterItem>> loadNotificationCenterItems({
     return second.createdAtMillis.compareTo(first.createdAtMillis);
   });
 
-  final visibleItems = items.take(25).toList();
-  setNotificationCenterBadgeCount(
-    visibleItems.where((item) => !item.read).length,
-  );
-  cacheNotificationCenterItems(uid, visibleItems);
-  return visibleItems;
+  notificationCenterUnreadCount.value = items
+      .where((item) => !item.read)
+      .length;
+  return items.take(25).toList();
 }
 
 Future<void> markNotificationCenterItemsRead(
@@ -12435,8 +12000,7 @@ Future<void> markNotificationCenterItemsRead(
       await batch.commit();
     }
 
-    clearNotificationCenterBadge(forceNotify: true);
-    updateNotificationCenterCacheAsRead();
+    notificationCenterUnreadCount.value = 0;
   } catch (error, stack) {
     debugPrint('Notification history could not be marked read: $error');
     debugPrint('$stack');
@@ -12448,38 +12012,26 @@ Future<void> clearNotificationCenterItems(
 ) async {
   final firebaseUser = FirebaseAuth.instance.currentUser;
   if (firebaseUser == null) {
-    clearNotificationCenterBadge(forceNotify: true);
+    notificationCenterUnreadCountsBySource.clear();
+    notificationCenterUnreadCount.value = 0;
     return;
   }
 
   final cleanItems = items.toList();
   if (cleanItems.isEmpty) {
-    cacheNotificationCenterItems(
-      firebaseUser.uid,
-      defaultNotificationCenterItems(),
-    );
-    clearNotificationCenterBadge(forceNotify: true);
+    notificationCenterUnreadCountsBySource.clear();
+    notificationCenterUnreadCount.value = 0;
     return;
   }
 
-  final newlyHiddenIds = <String>{};
-  final localHiddenIds = localHiddenNotificationCenterIds(firebaseUser.uid);
+  final hiddenIds = await loadHiddenNotificationCenterIds(firebaseUser.uid);
   for (final item in cleanItems) {
     final id = item.id.trim();
     if (id.isNotEmpty) {
-      newlyHiddenIds.add(id);
-      localHiddenIds.add(id);
+      hiddenIds.add(id);
     }
   }
-
-  final hiddenIds = await loadHiddenNotificationCenterIds(firebaseUser.uid);
-  hiddenIds.addAll(newlyHiddenIds);
   await saveHiddenNotificationCenterIds(firebaseUser.uid, hiddenIds);
-  cacheNotificationCenterItems(
-    firebaseUser.uid,
-    defaultNotificationCenterItems(),
-  );
-  clearNotificationCenterBadge(forceNotify: true);
 
   final references = cleanItems
       .map((item) => item.reference)
@@ -12525,7 +12077,8 @@ Future<void> clearNotificationCenterItems(
     }
   }
 
-  clearNotificationCenterBadge(forceNotify: true);
+  notificationCenterUnreadCountsBySource.clear();
+  notificationCenterUnreadCount.value = 0;
 }
 
 Future<void> refreshNotificationCenterUnreadCount() async {
@@ -12854,7 +12407,8 @@ Future<void> openNotificationCenterItem(
   final cleanProfileUid = item.addedByUid.trim().isNotEmpty
       ? item.addedByUid.trim()
       : item.userId.trim();
-  if (item.type == 'friend_nearby' && cleanProfileUid.isNotEmpty) {
+  if ((item.type == 'friend_nearby' || item.type == 'friend_at_spot') &&
+      cleanProfileUid.isNotEmpty) {
     openUserProfile(context, uid: cleanProfileUid);
     return;
   }
@@ -12926,7 +12480,7 @@ class _NotificationCenterScreenState extends State<NotificationCenterScreen> {
   void refresh() {
     setState(() {
       markedRead = false;
-      itemsFuture = loadNotificationCenterItems(forceRefresh: true);
+      itemsFuture = loadNotificationCenterItems();
     });
   }
 
@@ -12940,7 +12494,6 @@ class _NotificationCenterScreenState extends State<NotificationCenterScreen> {
     try {
       final items = await itemsFuture;
       await clearNotificationCenterItems(items);
-      clearNotificationCenterBadge(forceNotify: true);
       if (!mounted) {
         return;
       }
@@ -13011,10 +12564,9 @@ class _NotificationCenterScreenState extends State<NotificationCenterScreen> {
           final items = snapshot.data ?? const <NotificationCenterItem>[];
           if (!markedRead) {
             markedRead = true;
-            WidgetsBinding.instance.addPostFrameCallback((_) {
-              clearNotificationCenterBadge(forceNotify: true);
-              unawaited(markNotificationCenterItemsRead(items));
-            });
+            notificationCenterUnreadCountsBySource.clear();
+            notificationCenterUnreadCount.value = 0;
+            unawaited(markNotificationCenterItemsRead(items));
           }
 
           if (items.isEmpty) {
@@ -13626,171 +13178,6 @@ class _RememberMeRow extends StatelessWidget {
   }
 }
 
-Future<void> showRequiredNicknameDialog(BuildContext context) async {
-  final controller = TextEditingController();
-  String? errorText;
-  bool isSaving = false;
-
-  try {
-    await showDialog<void>(
-      context: context,
-      barrierDismissible: false,
-      builder: (dialogContext) {
-        return StatefulBuilder(
-          builder: (context, setDialogState) {
-            Future<void> saveNickname() async {
-              final cleanUsername = cleanProfileUsername(controller.text);
-
-              if (cleanUsername.length < minProfileUsernameLength ||
-                  cleanUsername.length > maxProfileUsernameLength) {
-                setDialogState(() {
-                  errorText = 'Nickname must be 3 to 30 characters.';
-                });
-                return;
-              }
-
-              setDialogState(() {
-                isSaving = true;
-                errorText = null;
-              });
-
-              try {
-                await saveRequiredNicknameForCurrentUser(cleanUsername);
-                if (dialogContext.mounted) {
-                  Navigator.of(dialogContext).pop();
-                }
-              } on FirebaseException catch (error) {
-                final message = error.code == 'username-taken'
-                    ? 'This nickname is already taken.'
-                    : error.code == 'permission-denied'
-                    ? 'Could not reserve this nickname. Try lowercase letters/numbers only.'
-                    : error.message ?? 'Could not save nickname.';
-                if (dialogContext.mounted) {
-                  setDialogState(() {
-                    errorText = message;
-                    isSaving = false;
-                  });
-                }
-              } catch (error) {
-                if (dialogContext.mounted) {
-                  setDialogState(() {
-                    errorText = 'Could not save nickname. $error';
-                    isSaving = false;
-                  });
-                }
-              }
-            }
-
-            return PopScope(
-              canPop: false,
-              child: AlertDialog(
-                backgroundColor: const Color(0xFF111827),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(22),
-                  side: const BorderSide(color: Colors.white12),
-                ),
-                title: const Text(
-                  'Choose your nickname',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
-                content: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'This is how other drivers will see you in CCS. You can use letters, numbers, and underscores.',
-                      style: TextStyle(
-                        color: Colors.white70,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    TextField(
-                      controller: controller,
-                      autofocus: true,
-                      enabled: !isSaving,
-                      textInputAction: TextInputAction.done,
-                      onSubmitted: (_) {
-                        if (!isSaving) {
-                          unawaited(saveNickname());
-                        }
-                      },
-                      inputFormatters: [
-                        FilteringTextInputFormatter.allow(
-                          RegExp(r'[a-zA-Z0-9_]'),
-                        ),
-                        LengthLimitingTextInputFormatter(
-                          maxProfileUsernameLength,
-                        ),
-                      ],
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w800,
-                      ),
-                      decoration: InputDecoration(
-                        labelText: 'Nickname',
-                        hintText: 'riga_driver',
-                        prefixIcon: const Icon(
-                          Icons.alternate_email,
-                          color: blue,
-                        ),
-                        errorText: errorText,
-                        filled: true,
-                        fillColor: Colors.white.withValues(alpha: 0.06),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(14),
-                          borderSide: const BorderSide(color: Colors.white12),
-                        ),
-                        enabledBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(14),
-                          borderSide: const BorderSide(color: Colors.white12),
-                        ),
-                        focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(14),
-                          borderSide: const BorderSide(color: blue),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                actions: [
-                  ElevatedButton(
-                    onPressed: isSaving
-                        ? null
-                        : () => unawaited(saveNickname()),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: blue,
-                      foregroundColor: Colors.white,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(14),
-                      ),
-                    ),
-                    child: isSaving
-                        ? const SizedBox(
-                            width: 18,
-                            height: 18,
-                            child: CircularProgressIndicator(
-                              color: Colors.white,
-                              strokeWidth: 2,
-                            ),
-                          )
-                        : const Text('Save nickname'),
-                  ),
-                ],
-              ),
-            );
-          },
-        );
-      },
-    );
-  } finally {
-    controller.dispose();
-  }
-}
-
 class MainScreen extends StatefulWidget {
   const MainScreen({super.key});
 
@@ -13801,7 +13188,6 @@ class MainScreen extends StatefulWidget {
 class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   int index = 0;
   bool hasOpenedMap = false;
-  bool hasOpenedChat = false;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>?
   meetNotificationSubscription;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>?
@@ -13811,13 +13197,12 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   Timer? friendLocationCheckTimer;
   Timer? onlinePresenceRefreshTimer;
   bool isCheckingFriendLocationNotifications = false;
-  bool isNicknamePromptOpen = false;
 
   List<Widget> get screens => [
     const ExploreScreen(),
     hasOpenedMap ? MapScreen(isVisible: index == 1) : const SizedBox.shrink(),
     const AddSpotScreen(),
-    hasOpenedChat ? const ChatScreen() : const SizedBox.shrink(),
+    const ChatScreen(),
     const ProfileScreen(),
   ];
 
@@ -13830,9 +13215,6 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     unawaited(initializePushNotificationsForCurrentUser());
     startNotificationCenterUnreadWatcher();
     updateCurrentUserOnlinePresence(isOnline: true);
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      unawaited(maybeShowRequiredNicknamePrompt());
-    });
     onlinePresenceRefreshTimer = Timer.periodic(const Duration(seconds: 20), (
       _,
     ) {
@@ -13846,22 +13228,6 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     // startAdminNotificationListener();
     // startFriendLocationNotificationListener();
     // startFriendLocationNotificationChecks();
-  }
-
-  Future<void> maybeShowRequiredNicknamePrompt() async {
-    if (!mounted ||
-        isNicknamePromptOpen ||
-        currentUser.uid.trim().isEmpty ||
-        !currentUser.nicknameSetupRequired) {
-      return;
-    }
-
-    isNicknamePromptOpen = true;
-    try {
-      await showRequiredNicknameDialog(context);
-    } finally {
-      isNicknamePromptOpen = false;
-    }
   }
 
   void handleMapFocusRequest() {
@@ -13888,22 +13254,10 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     });
   }
 
-  void openChatTab() {
-    if (index == 3 && hasOpenedChat) {
-      return;
-    }
-
-    setState(() {
-      hasOpenedChat = true;
-      index = 3;
-    });
-  }
-
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       updateCurrentUserOnlinePresence(isOnline: true);
-      unawaited(maybeShowRequiredNicknamePrompt());
     } else if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.detached ||
         state == AppLifecycleState.inactive) {
@@ -14070,8 +13424,8 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
               continue;
             }
 
-            final type = stringFromFirebase(data['type'], 'friend_at_spot');
-            if (type != 'friend_at_spot') {
+            final type = stringFromFirebase(data['type'], 'friend_nearby');
+            if (type != 'friend_nearby' && type != 'friend_at_spot') {
               continue;
             }
             final friendUsername = stringFromFirebase(
@@ -14089,7 +13443,9 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                 ? ' • ${(distanceMeters / 1000).toStringAsFixed(1)} km away'
                 : ' • ${distanceMeters.round()} m away';
 
-            final message = '@$friendUsername entered $spotName$distanceLabel';
+            final message = type == 'friend_at_spot'
+                ? '@$friendUsername is at $spotName$distanceLabel'
+                : '@$friendUsername is nearby$distanceLabel';
 
             if (mounted) {
               ScaffoldMessenger.of(context).showSnackBar(
@@ -14249,7 +13605,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                       icon: Icons.chat_bubble_outline,
                       label: trText('Chat'),
                       selected: index == 3,
-                      onTap: openChatTab,
+                      onTap: () => setState(() => index = 3),
                     ),
                   ),
                   Expanded(
@@ -15936,6 +15292,8 @@ class _MapScreenState extends State<MapScreen>
   StreamSubscription<Position>? navigationPositionSubscription;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>?
   liveLocationSubscription;
+  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>?
+  publicLiveLocationSubscription;
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>?
   ownLiveLocationSubscription;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>?
@@ -15961,6 +15319,8 @@ class _MapScreenState extends State<MapScreen>
   bool isSharingLiveLocation = false;
   static const double policeReportVoteRadiusMeters = 300;
   static const double policeReportDuplicateRadiusMeters = 500;
+  static const double sosAutoCheckRadiusMeters = 500;
+  static const Duration sosNoAnswerAutoRemoveDelay = Duration(minutes: 5);
   static const Duration policeReportCreatorVoteCooldown = Duration(minutes: 15);
   bool isTogglingLiveLocation = false;
   bool liveLocationPromptOpen = false;
@@ -15968,7 +15328,10 @@ class _MapScreenState extends State<MapScreen>
   DateTime? liveLocationExpiresAt;
   Duration liveLocationShareDuration = const Duration(hours: 1);
   List<LiveLocationData> liveLocations = [];
+  final Map<String, LiveLocationData> visibleLiveLocationsByUid = {};
+  final Map<String, LiveLocationData> publicLiveLocationsByUid = {};
   Set<String> friendLiveLocationUids = {};
+  String? nativeLiveLocationBackgroundSignature;
   List<PoliceReportData> policeReports = [];
   List<SosReportData> sosReports = [];
   LatLng currentMapCenter = rigaCenter;
@@ -16031,7 +15394,7 @@ class _MapScreenState extends State<MapScreen>
     );
     sosDistanceCheckTimer = Timer.periodic(
       const Duration(seconds: 30),
-      (_) => checkOwnSosExpirationPrompt(),
+      (_) => checkOwnSosDistance(),
     );
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted || !widget.isVisible) {
@@ -16984,8 +16347,8 @@ class _MapScreenState extends State<MapScreen>
           final fallbackColor = liveLocationIsFriend(location)
               ? Colors.purpleAccent
               : location.verified
-              ? Colors.greenAccent
-              : blue;
+              ? blue
+              : Colors.greenAccent;
 
           return Marker(
             point: location.coordinates,
@@ -17406,9 +16769,9 @@ class _MapScreenState extends State<MapScreen>
     }
 
     final now = DateTime.now();
-    final shareDuration = sosActiveDuration + sosResponseGraceDuration;
-    final promptAt = now.add(sosActiveDuration);
-    final expiresAt = promptAt.add(sosResponseGraceDuration);
+    const shareDuration = Duration(hours: 12);
+    final promptAt = now.add(shareDuration);
+    final expiresAt = promptAt.add(liveLocationRenewGracePeriod);
     final location = safeLatLngFromPosition(position);
     if (location == null) {
       return;
@@ -17569,48 +16932,6 @@ class _MapScreenState extends State<MapScreen>
       // Local check above still protects beta builds while rules/indexes are being updated.
     }
 
-    final nowBeforeDraft = DateTime.now();
-    final todayKey = sosDailyKeyFor(nowBeforeDraft);
-    final docRef = sosReportsCollection().doc(firebaseUser.uid);
-
-    try {
-      final previousSos = await docRef.debugGet(
-        null,
-        'SOS: daily quota document check',
-      );
-      if (previousSos.exists) {
-        final previous = SosReportData.fromFirestore(previousSos);
-        if (previous.dailyKey == todayKey ||
-            (previous.dailyKey.trim().isEmpty &&
-                sosDailyKeyFor(
-                      DateTime.fromMillisecondsSinceEpoch(
-                        previous.createdAtMillis,
-                      ),
-                    ) ==
-                    todayKey)) {
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                backgroundColor: panelGlass,
-                content: Text(
-                  trText(
-                    'SOS daily limit reached. You can create SOS again tomorrow.',
-                  ),
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ),
-            );
-          }
-          return;
-        }
-      }
-    } catch (_) {
-      // If the quota pre-check fails, Firestore rules still protect writes.
-    }
-
     final draft = await showSosDescriptionDialog();
     if (draft == null || draft.description.isEmpty) {
       return;
@@ -17630,12 +16951,13 @@ class _MapScreenState extends State<MapScreen>
     }
 
     final now = DateTime.now();
-    final promptAt = now.add(sosActiveDuration);
-    final expiresAt = promptAt.add(sosResponseGraceDuration);
+    final expiresAt = now.add(const Duration(hours: 12));
     final location = safeLatLngFromPosition(position);
     if (location == null) {
       return;
     }
+    final docRef = sosReportsCollection().doc(firebaseUser.uid);
+
     try {
       await docRef.debugSet({
         'uid': firebaseUser.uid,
@@ -17646,12 +16968,9 @@ class _MapScreenState extends State<MapScreen>
         'lng': position.longitude,
         'coordinates': GeoPoint(position.latitude, position.longitude),
         'createdAt': FieldValue.serverTimestamp(),
-        'promptAt': Timestamp.fromDate(promptAt),
         'expiresAt': Timestamp.fromDate(expiresAt),
         'updatedAt': FieldValue.serverTimestamp(),
         'confirmationRequestedAt': null,
-        'resumeCount': 0,
-        'dailyKey': sosDailyKeyFor(now),
         'status': 'active',
       });
     } on FirebaseException catch (error) {
@@ -17677,10 +16996,12 @@ class _MapScreenState extends State<MapScreen>
       return;
     }
 
-    // SOS itself is shown on the map as an SOS marker.
-    // Do not start live-location sharing here: creating SOS must not make the
-    // creator visible as a live-location car unless they explicitly enable
-    // live location separately.
+    try {
+      await startSosLiveLocationSharing(position);
+    } catch (error, stack) {
+      debugPrint('SOS live location start failed: $error');
+      debugPrint('$stack');
+    }
 
     if (!mounted) {
       return;
@@ -17694,11 +17015,8 @@ class _MapScreenState extends State<MapScreen>
       reason: draft.reason,
       coordinates: location,
       createdAtMillis: now.millisecondsSinceEpoch,
-      promptAtMillis: promptAt.millisecondsSinceEpoch,
       expiresAtMillis: expiresAt.millisecondsSinceEpoch,
       updatedAtMillis: now.millisecondsSinceEpoch,
-      resumeCount: 0,
-      dailyKey: sosDailyKeyFor(now),
     );
 
     setState(() {
@@ -17726,7 +17044,6 @@ class _MapScreenState extends State<MapScreen>
   Future<void> removeSosReport(SosReportData report) async {
     await sosReportsCollection().doc(report.id).debugSet({
       'status': 'removed',
-      'removedByUid': FirebaseAuth.instance.currentUser?.uid ?? currentUser.uid,
       'removedAt': FieldValue.serverTimestamp(),
       'updatedAt': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
@@ -17739,63 +17056,9 @@ class _MapScreenState extends State<MapScreen>
       selectedSosReport = null;
       sosReports = sosReports.where((item) => item.id != report.id).toList();
     });
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        backgroundColor: panelGlass,
-        content: Text(
-          trText('SOS removed from the map.'),
-          style: const TextStyle(
-            color: Colors.white,
-            fontWeight: FontWeight.w700,
-          ),
-        ),
-      ),
-    );
   }
 
-  Future<void> confirmRemoveSosReport(SosReportData report) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) {
-        return AlertDialog(
-          backgroundColor: panelGlass,
-          title: Text(
-            trText('Remove this SOS?'),
-            style: const TextStyle(
-              color: Colors.white,
-              fontWeight: FontWeight.w900,
-            ),
-          ),
-          content: Text(
-            trText('Are you sure you want to remove this SOS from the map?'),
-            style: const TextStyle(color: Colors.white70, height: 1.35),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(dialogContext, false),
-              child: Text(trText('Cancel')),
-            ),
-            ElevatedButton.icon(
-              onPressed: () => Navigator.pop(dialogContext, true),
-              icon: const Icon(Icons.delete_outline, size: 18),
-              label: Text(trText('Remove')),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: sosAlertColor,
-                foregroundColor: Colors.white,
-              ),
-            ),
-          ],
-        );
-      },
-    );
-
-    if (confirmed == true) {
-      await removeSosReport(report);
-    }
-  }
-
-  Future<void> checkOwnSosExpirationPrompt() async {
+  Future<void> checkOwnSosDistance() async {
     if (!mounted || sosConfirmationDialogOpen) {
       return;
     }
@@ -17807,7 +17070,7 @@ class _MapScreenState extends State<MapScreen>
 
     SosReportData? ownSos;
     for (final report in sosReports) {
-      if (report.uid == firebaseUser.uid && report.status != 'removed') {
+      if (report.uid == firebaseUser.uid && report.isActive) {
         ownSos = report;
         break;
       }
@@ -17817,21 +17080,31 @@ class _MapScreenState extends State<MapScreen>
       return;
     }
 
-    final now = DateTime.now();
-    final nowMillis = now.millisecondsSinceEpoch;
-    if (nowMillis >= ownSos.expiresAtMillis) {
-      await removeSosReport(ownSos);
+    final position = await getMapUserPosition(showErrors: false);
+    if (!mounted || position == null) {
       return;
     }
 
-    if (nowMillis < ownSos.promptAtMillis) {
+    final freshLocation = safeLatLngFromPosition(position);
+    if (freshLocation == null) {
+      return;
+    }
+    final distance = distanceBetweenLatLngMeters(
+      freshLocation,
+      ownSos.coordinates,
+    );
+
+    setState(() => currentUserLocation = freshLocation);
+
+    if (distance <= sosAutoCheckRadiusMeters) {
       return;
     }
 
     final requestedAt = ownSos.confirmationRequestedAtMillis;
+    final now = DateTime.now();
     if (requestedAt > 0) {
       final requestedAtDate = DateTime.fromMillisecondsSinceEpoch(requestedAt);
-      if (now.difference(requestedAtDate) >= sosResponseGraceDuration) {
+      if (now.difference(requestedAtDate) >= sosNoAnswerAutoRemoveDelay) {
         await removeSosReport(ownSos);
       }
       return;
@@ -17849,36 +17122,31 @@ class _MapScreenState extends State<MapScreen>
       builder: (dialogContext) {
         return AlertDialog(
           backgroundColor: panelGlass,
-          title: Text(
-            trText('Do you still need help?'),
-            style: const TextStyle(
-              color: Colors.white,
-              fontWeight: FontWeight.w900,
-            ),
+          title: const Text(
+            'Still need help?',
+            style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900),
           ),
-          content: Text(
-            trText(
-              'Your SOS will be removed in 5 minutes if you do not answer.',
-            ),
-            style: const TextStyle(color: Colors.white70, height: 1.35),
+          content: const Text(
+            'You moved away from your SOS point. Do you still need help there?',
+            style: TextStyle(color: Colors.white70, height: 1.35),
           ),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(dialogContext, false),
-              child: Text(trText('No')),
+              child: Text(trText('No, remove')),
             ),
             ElevatedButton(
               onPressed: () => Navigator.pop(dialogContext, true),
               style: ElevatedButton.styleFrom(backgroundColor: sosAlertColor),
-              child: Text(
-                trText('Yes'),
-                style: const TextStyle(color: Colors.white),
+              child: const Text(
+                'Yes, still need',
+                style: TextStyle(color: Colors.white),
               ),
             ),
           ],
         );
       },
-    ).timeout(sosResponseGraceDuration, onTimeout: () => false);
+    ).timeout(sosNoAnswerAutoRemoveDelay, onTimeout: () => false);
 
     sosConfirmationDialogOpen = false;
 
@@ -17887,71 +17155,10 @@ class _MapScreenState extends State<MapScreen>
     }
 
     if (keep == true) {
-      if (ownSos.resumeCount >= sosMaxResumeCount) {
-        await removeSosReport(ownSos);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            backgroundColor: panelGlass,
-            content: Text(
-              trText('SOS resume limit reached. Your SOS will be removed.'),
-              style: const TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ),
-        );
-        return;
-      }
-
-      final resumedAt = DateTime.now();
-      final nextPromptAt = resumedAt.add(sosActiveDuration);
-      final nextExpiresAt = nextPromptAt.add(sosResponseGraceDuration);
-      final nextResumeCount = ownSos.resumeCount + 1;
       await sosReportsCollection().doc(ownSos.id).debugSet({
-        'promptAt': Timestamp.fromDate(nextPromptAt),
-        'expiresAt': Timestamp.fromDate(nextExpiresAt),
         'confirmationRequestedAt': null,
-        'resumeCount': nextResumeCount,
         'updatedAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
-
-      setState(() {
-        sosReports = sosReports.map((report) {
-          if (report.id != ownSos!.id) {
-            return report;
-          }
-          return SosReportData(
-            id: report.id,
-            uid: report.uid,
-            username: report.username,
-            description: report.description,
-            reason: report.reason,
-            coordinates: report.coordinates,
-            createdAtMillis: report.createdAtMillis,
-            promptAtMillis: nextPromptAt.millisecondsSinceEpoch,
-            expiresAtMillis: nextExpiresAt.millisecondsSinceEpoch,
-            updatedAtMillis: resumedAt.millisecondsSinceEpoch,
-            confirmationRequestedAtMillis: 0,
-            resumeCount: nextResumeCount,
-            dailyKey: report.dailyKey,
-            status: report.status,
-          );
-        }).toList();
-      });
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          backgroundColor: panelGlass,
-          content: Text(
-            trText('SOS resumed for 30 minutes.'),
-            style: const TextStyle(
-              color: Colors.white,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-        ),
-      );
     } else {
       await removeSosReport(ownSos);
       ScaffoldMessenger.of(context).showSnackBar(
@@ -17959,10 +17166,7 @@ class _MapScreenState extends State<MapScreen>
           backgroundColor: panelGlass,
           content: Text(
             trText('SOS removed from the map.'),
-            style: const TextStyle(
-              color: Colors.white,
-              fontWeight: FontWeight.w700,
-            ),
+            style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
           ),
         ),
       );
@@ -18545,12 +17749,57 @@ class _MapScreenState extends State<MapScreen>
     }
   }
 
-  void startLiveLocationSync() {
-    liveLocationSubscription?.cancel();
-    ownLiveLocationSubscription?.cancel();
-    final currentFirebaseUser = FirebaseAuth.instance.currentUser;
+  bool liveLocationCanBeSeenByCurrentUser(
+    LiveLocationData location,
+    User? firebaseUser,
+  ) {
+    if (firebaseUser == null) {
+      return false;
+    }
 
-    if (currentFirebaseUser == null) {
+    if (location.uid == firebaseUser.uid) {
+      return true;
+    }
+
+    if (location.shareScope.trim().toLowerCase() == 'public' ||
+        location.visibleToUserIds.contains(publicLiveLocationAudienceMarker)) {
+      return true;
+    }
+
+    return location.visibleToUserIds.contains(firebaseUser.uid);
+  }
+
+  void updateLiveLocationCacheFromSnapshot(
+    Map<String, LiveLocationData> cache,
+    QuerySnapshot<Map<String, dynamic>> snapshot,
+  ) {
+    for (final change in snapshot.docChanges) {
+      if (change.type == DocumentChangeType.removed) {
+        cache.remove(change.doc.id);
+        continue;
+      }
+
+      final location = LiveLocationData.fromFirestore(change.doc);
+      if (location.isExpired) {
+        cache.remove(location.uid);
+      } else {
+        cache[location.uid] = location;
+      }
+    }
+  }
+
+  void removeLiveLocationFromCaches(String uid) {
+    visibleLiveLocationsByUid.remove(uid);
+    publicLiveLocationsByUid.remove(uid);
+  }
+
+  void publishLiveLocationCaches() {
+    if (!mounted) {
+      return;
+    }
+
+    final firebaseUser = FirebaseAuth.instance.currentUser;
+    if (firebaseUser == null) {
       setState(() {
         liveLocations = const [];
         selectedLiveLocation = null;
@@ -18562,6 +17811,146 @@ class _MapScreenState extends State<MapScreen>
       return;
     }
 
+    final mergedByUid = <String, LiveLocationData>{};
+    for (final location in publicLiveLocationsByUid.values) {
+      if (!location.isExpired &&
+          liveLocationCanBeSeenByCurrentUser(location, firebaseUser)) {
+        mergedByUid[location.uid] = location;
+      }
+    }
+
+    for (final location in visibleLiveLocationsByUid.values) {
+      if (!location.isExpired &&
+          liveLocationCanBeSeenByCurrentUser(location, firebaseUser)) {
+        mergedByUid[location.uid] = location;
+      }
+    }
+
+    final visibleLocations = mergedByUid.values.toList()
+      ..sort((first, second) {
+        return second.updatedAtMillis.compareTo(first.updatedAtMillis);
+      });
+
+    LiveLocationData? ownLocation;
+    LiveLocationData? nextSelectedLiveLocation;
+    final selectedUid = selectedLiveLocation?.uid;
+
+    for (final location in visibleLocations) {
+      if (location.uid == firebaseUser.uid) {
+        ownLocation = location;
+      }
+
+      if (selectedUid != null &&
+          location.uid == selectedUid &&
+          location.uid != firebaseUser.uid) {
+        nextSelectedLiveLocation = location;
+      }
+    }
+
+    var shouldScheduleTimers = false;
+    var shouldCancelTimers = false;
+
+    setState(() {
+      liveLocations = visibleLocations;
+      selectedLiveLocation = selectedUid == null
+          ? null
+          : nextSelectedLiveLocation;
+
+      if (ownLocation != null) {
+        isSharingLiveLocation = true;
+        liveLocationPromptAt = DateTime.fromMillisecondsSinceEpoch(
+          ownLocation.promptAtMillis,
+        );
+        liveLocationExpiresAt = DateTime.fromMillisecondsSinceEpoch(
+          ownLocation.expiresAtMillis,
+        );
+        liveLocationShareDuration = Duration(
+          minutes: ownLocation.shareDurationMinutes,
+        );
+        shouldScheduleTimers = true;
+      } else if (!isTogglingLiveLocation) {
+        isSharingLiveLocation = false;
+        liveLocationPromptAt = null;
+        liveLocationExpiresAt = null;
+        shouldCancelTimers = true;
+      }
+    });
+
+    if (shouldScheduleTimers) {
+      scheduleLiveLocationTimers();
+    } else if (shouldCancelTimers) {
+      cancelLiveLocationTimers(keepUploadTimer: false);
+      nativeLiveLocationBackgroundSignature = null;
+    }
+
+    if (ownLocation != null) {
+      ensureLiveLocationUploadLoop();
+    }
+  }
+
+  void ensureNativeLiveLocationBackgroundService(
+    User firebaseUser,
+    LiveLocationData ownLocation,
+  ) {
+    final promptAt = DateTime.fromMillisecondsSinceEpoch(
+      ownLocation.promptAtMillis,
+    );
+    final expiresAt = DateTime.fromMillisecondsSinceEpoch(
+      ownLocation.expiresAtMillis,
+    );
+    final visibleToUserIds = ownLocation.visibleToUserIds.isEmpty
+        ? publicLiveLocationVisibleToUserIds(firebaseUser.uid)
+        : ownLocation.visibleToUserIds;
+    final shareScope = ownLocation.shareScope.trim().isEmpty
+        ? 'public'
+        : ownLocation.shareScope;
+    final signature = [
+      visibleToUserIds.join(','),
+      shareScope,
+      ownLocation.promptAtMillis,
+      ownLocation.expiresAtMillis,
+    ].join('|');
+
+    if (nativeLiveLocationBackgroundSignature == signature) {
+      return;
+    }
+
+    nativeLiveLocationBackgroundSignature = signature;
+    unawaited(
+      startNativeLiveLocationBackgroundService(
+        uid: firebaseUser.uid,
+        visibleToUserIds: visibleToUserIds,
+        shareScope: shareScope,
+        promptAt: promptAt,
+        expiresAt: expiresAt,
+      ),
+    );
+  }
+
+  void startLiveLocationSync() {
+    liveLocationSubscription?.cancel();
+    publicLiveLocationSubscription?.cancel();
+    ownLiveLocationSubscription?.cancel();
+    final currentFirebaseUser = FirebaseAuth.instance.currentUser;
+
+    if (currentFirebaseUser == null) {
+      visibleLiveLocationsByUid.clear();
+      publicLiveLocationsByUid.clear();
+      setState(() {
+        liveLocations = const [];
+        selectedLiveLocation = null;
+        isSharingLiveLocation = false;
+        liveLocationPromptAt = null;
+        liveLocationExpiresAt = null;
+      });
+      cancelLiveLocationTimers(keepUploadTimer: false);
+      nativeLiveLocationBackgroundSignature = null;
+      return;
+    }
+
+    visibleLiveLocationsByUid.clear();
+    publicLiveLocationsByUid.clear();
+
     ownLiveLocationSubscription = liveLocationsCollection()
         .doc(currentFirebaseUser.uid)
         .debugSnapshots('map: own live location document listener')
@@ -18572,11 +17961,10 @@ class _MapScreenState extends State<MapScreen>
             }
 
             if (!snapshot.exists) {
+              removeLiveLocationFromCaches(currentFirebaseUser.uid);
               setState(() {
                 liveLocations = liveLocations
-                    .where(
-                      (location) => location.uid != currentFirebaseUser.uid,
-                    )
+                    .where((location) => location.uid != currentFirebaseUser.uid)
                     .toList();
                 if (!isTogglingLiveLocation) {
                   isSharingLiveLocation = false;
@@ -18584,19 +17972,13 @@ class _MapScreenState extends State<MapScreen>
                   liveLocationExpiresAt = null;
                 }
               });
+              publishLiveLocationCaches();
               return;
             }
 
             final ownLocation = LiveLocationData.fromFirestore(snapshot);
-            if (ownLocation.isExpired || ownLocation.shareScope == 'sos') {
-              if (ownLocation.shareScope == 'sos') {
-                unawaited(
-                  liveLocationsCollection()
-                      .doc(ownLocation.uid)
-                      .delete()
-                      .catchError((_) {}),
-                );
-              }
+            if (ownLocation.isExpired) {
+              removeLiveLocationFromCaches(ownLocation.uid);
               setState(() {
                 liveLocations = liveLocations
                     .where((location) => location.uid != ownLocation.uid)
@@ -18607,7 +17989,19 @@ class _MapScreenState extends State<MapScreen>
                   liveLocationExpiresAt = null;
                 }
               });
+              publishLiveLocationCaches();
               return;
+            }
+
+            if (ownLocation.shareScope.trim().toLowerCase() == 'public' ||
+                ownLocation.visibleToUserIds.contains(
+                  publicLiveLocationAudienceMarker,
+                )) {
+              publicLiveLocationsByUid[ownLocation.uid] = ownLocation;
+              visibleLiveLocationsByUid.remove(ownLocation.uid);
+            } else {
+              visibleLiveLocationsByUid[ownLocation.uid] = ownLocation;
+              publicLiveLocationsByUid.remove(ownLocation.uid);
             }
 
             setState(() {
@@ -18633,8 +18027,8 @@ class _MapScreenState extends State<MapScreen>
                 ),
                 ownLocation,
               ];
-              scheduleLiveLocationTimers();
             });
+            scheduleLiveLocationTimers();
 
             if (mapCenteredOnCurrentUser) {
               updateFollowCamera(
@@ -18642,9 +18036,30 @@ class _MapScreenState extends State<MapScreen>
                 ownLocation.headingDegrees,
               );
             }
+
+            publishLiveLocationCaches();
           },
           onError: (_) {
             // Firestore rules may still be closed while this feature is being set up.
+          },
+        );
+
+    publicLiveLocationSubscription = liveLocationsCollection()
+        .where(
+          'visibleToUserIds',
+          arrayContains: publicLiveLocationAudienceMarker,
+        )
+        .debugSnapshots('map: public live locations listener')
+        .listen(
+          (snapshot) {
+            updateLiveLocationCacheFromSnapshot(
+              publicLiveLocationsByUid,
+              snapshot,
+            );
+            publishLiveLocationCaches();
+          },
+          onError: (_) {
+            // Public live-location reads depend on Firestore rules being deployed.
           },
         );
 
@@ -18653,96 +18068,11 @@ class _MapScreenState extends State<MapScreen>
         .debugSnapshots('map: visible live locations listener')
         .listen(
           (snapshot) {
-            if (!mounted) {
-              return;
-            }
-
-            final firebaseUser = FirebaseAuth.instance.currentUser;
-            final locations = snapshot.docs
-                .map((doc) => LiveLocationData.fromFirestore(doc))
-                .where(
-                  (location) =>
-                      !location.isExpired && location.shareScope != 'sos',
-                )
-                .toList();
-            final visibleLocations = locations.where((location) {
-              if (firebaseUser == null) {
-                return false;
-              }
-
-              if (location.uid == firebaseUser.uid) {
-                return true;
-              }
-
-              return location.visibleToUserIds.contains(firebaseUser.uid);
-            }).toList();
-
-            LiveLocationData? ownLocation;
-            if (firebaseUser != null) {
-              for (final location in visibleLocations) {
-                if (location.uid == firebaseUser.uid) {
-                  ownLocation = location;
-                  break;
-                }
-              }
-            }
-
-            setState(() {
-              liveLocations = visibleLocations;
-              final selectedUid = selectedLiveLocation?.uid;
-              selectedLiveLocation = selectedUid == null
-                  ? null
-                  : (() {
-                      for (final location in visibleLocations) {
-                        if (location.uid == selectedUid &&
-                            location.uid != firebaseUser?.uid) {
-                          return location;
-                        }
-                      }
-                      return null;
-                    })();
-              if (ownLocation != null) {
-                isSharingLiveLocation = true;
-                liveLocationPromptAt = DateTime.fromMillisecondsSinceEpoch(
-                  ownLocation.promptAtMillis,
-                );
-                liveLocationExpiresAt = DateTime.fromMillisecondsSinceEpoch(
-                  ownLocation.expiresAtMillis,
-                );
-                liveLocationShareDuration = Duration(
-                  minutes: ownLocation.shareDurationMinutes,
-                );
-                scheduleLiveLocationTimers();
-              } else if (!isTogglingLiveLocation) {
-                isSharingLiveLocation = false;
-                liveLocationPromptAt = null;
-                liveLocationExpiresAt = null;
-                cancelLiveLocationTimers(keepUploadTimer: false);
-              }
-            });
-
-            if (ownLocation != null && firebaseUser != null) {
-              ensureLiveLocationUploadLoop();
-              final promptAt = DateTime.fromMillisecondsSinceEpoch(
-                ownLocation.promptAtMillis,
-              );
-              final expiresAt = DateTime.fromMillisecondsSinceEpoch(
-                ownLocation.expiresAtMillis,
-              );
-              unawaited(
-                startNativeLiveLocationBackgroundService(
-                  uid: firebaseUser.uid,
-                  visibleToUserIds: ownLocation.visibleToUserIds.isEmpty
-                      ? [firebaseUser.uid]
-                      : ownLocation.visibleToUserIds,
-                  shareScope: ownLocation.shareScope.trim().isEmpty
-                      ? 'friends'
-                      : ownLocation.shareScope,
-                  promptAt: promptAt,
-                  expiresAt: expiresAt,
-                ),
-              );
-            }
+            updateLiveLocationCacheFromSnapshot(
+              visibleLiveLocationsByUid,
+              snapshot,
+            );
+            publishLiveLocationCaches();
           },
           onError: (_) {
             // Firestore rules may still be closed while this feature is being set up.
@@ -18889,21 +18219,9 @@ class _MapScreenState extends State<MapScreen>
       return;
     }
 
-    var friendUids = const <String>[];
-    try {
-      friendUids = await loadCurrentFriendUids();
-    } catch (_) {
-      friendUids = const <String>[];
-    }
-
-    if (!mounted) {
-      return;
-    }
-
-    final visibleToUserIds = uniqueNonEmptyStrings([
+    final visibleToUserIds = publicLiveLocationVisibleToUserIds(
       firebaseUser.uid,
-      ...friendUids,
-    ]);
+    );
     final location = safeLatLngFromPosition(position);
     if (location == null) {
       return;
@@ -18922,7 +18240,9 @@ class _MapScreenState extends State<MapScreen>
       headingDegrees: heading,
       shareDuration: shareDuration,
       visibleToUserIds: visibleToUserIds,
-      shareScope: 'friends',
+      visibleToChatId: '',
+      visibleToChatName: '',
+      shareScope: 'public',
     );
 
     final promptAt = liveLocationPromptAt;
@@ -18932,7 +18252,7 @@ class _MapScreenState extends State<MapScreen>
         startNativeLiveLocationBackgroundService(
           uid: firebaseUser.uid,
           visibleToUserIds: visibleToUserIds,
-          shareScope: 'friends',
+          shareScope: 'public',
           promptAt: promptAt,
           expiresAt: expiresAt,
         ),
@@ -19138,15 +18458,6 @@ class _MapScreenState extends State<MapScreen>
       'isOnline': true,
     }, SetOptions(merge: true));
 
-    unawaited(
-      createFriendAtSpotNotificationsForCurrentLocation(
-        location: safeLatLng(position.latitude, position.longitude),
-        visibleToUserIds: nextVisibleToUserIds.isEmpty
-            ? [firebaseUser.uid]
-            : nextVisibleToUserIds,
-      ),
-    );
-
     if (mounted) {
       scheduleLiveLocationTimers();
     }
@@ -19158,6 +18469,7 @@ class _MapScreenState extends State<MapScreen>
     liveLocationUploadTimer?.cancel();
     liveLocationUploadTimer = null;
     cancelLiveLocationTimers(keepUploadTimer: true);
+    nativeLiveLocationBackgroundSignature = null;
     unawaited(stopNativeLiveLocationBackgroundService());
 
     if (firebaseUser != null) {
@@ -19182,6 +18494,9 @@ class _MapScreenState extends State<MapScreen>
       liveLocationShareDuration = const Duration(hours: 1);
       liveLocationPromptOpen = false;
       lastUploadedLiveLocation = null;
+      if (firebaseUser != null) {
+        removeLiveLocationFromCaches(firebaseUser.uid);
+      }
       liveLocations = liveLocations
           .where((location) => location.uid != firebaseUser?.uid)
           .toList();
@@ -19211,33 +18526,33 @@ class _MapScreenState extends State<MapScreen>
       speedMetersPerSecond: speed,
       accuracyMeters: position.accuracy,
     );
+    final firebaseUser = FirebaseAuth.instance.currentUser;
+    if (firebaseUser == null) {
+      await stopLiveLocationSharing();
+      return;
+    }
 
     await writeLiveLocation(
       position,
       renewWindow: true,
       headingDegrees: heading,
       shareDuration: liveLocationShareDuration,
+      visibleToUserIds: publicLiveLocationVisibleToUserIds(firebaseUser.uid),
+      visibleToChatId: '',
+      visibleToChatName: '',
+      shareScope: 'public',
     );
 
-    final firebaseUser = FirebaseAuth.instance.currentUser;
     final promptAt = liveLocationPromptAt;
     final expiresAt = liveLocationExpiresAt;
-    if (firebaseUser != null && promptAt != null && expiresAt != null) {
-      var friendUids = const <String>[];
-      try {
-        friendUids = await loadCurrentFriendUids();
-      } catch (_) {
-        friendUids = const <String>[];
-      }
-
+    if (promptAt != null && expiresAt != null) {
       unawaited(
         startNativeLiveLocationBackgroundService(
           uid: firebaseUser.uid,
-          visibleToUserIds: uniqueNonEmptyStrings([
+          visibleToUserIds: publicLiveLocationVisibleToUserIds(
             firebaseUser.uid,
-            ...friendUids,
-          ]),
-          shareScope: 'friends',
+          ),
+          shareScope: 'public',
           promptAt: promptAt,
           expiresAt: expiresAt,
         ),
@@ -19330,6 +18645,7 @@ class _MapScreenState extends State<MapScreen>
     liveLocationPromptTimer?.cancel();
     liveLocationAutoStopTimer?.cancel();
     liveLocationSubscription?.cancel();
+    publicLiveLocationSubscription?.cancel();
     ownLiveLocationSubscription?.cancel();
     policeReportSubscription?.cancel();
     sosReportSubscription?.cancel();
@@ -19929,9 +19245,8 @@ class _MapScreenState extends State<MapScreen>
                 onMessage: () => openSosMessage(sosReport),
                 onRoute: () => openWazeRouteToLatLng(sosReport.coordinates),
                 onDelete:
-                    sosReport.uid == FirebaseAuth.instance.currentUser?.uid ||
-                        userRoleIsStaff(currentUser.role)
-                    ? () => confirmRemoveSosReport(sosReport)
+                    sosReport.uid == FirebaseAuth.instance.currentUser?.uid
+                    ? () => removeSosReport(sosReport)
                     : null,
               ),
             ),
@@ -20546,7 +19861,7 @@ class SosReportMapCard extends StatelessWidget {
                   child: OutlinedButton.icon(
                     onPressed: onOpenProfile,
                     icon: const Icon(Icons.person_outline, size: 18),
-                    label: Text(trText('View Profile')),
+                    label: const Text('View Profile'),
                     style: OutlinedButton.styleFrom(
                       foregroundColor: Colors.white70,
                       side: const BorderSide(color: Colors.white24),
@@ -20561,7 +19876,7 @@ class SosReportMapCard extends StatelessWidget {
                   child: OutlinedButton.icon(
                     onPressed: onMessage,
                     icon: const Icon(Icons.chat_bubble_outline, size: 18),
-                    label: Text(trText('Write message')),
+                    label: const Text('Write message'),
                     style: OutlinedButton.styleFrom(
                       foregroundColor: Colors.white70,
                       side: const BorderSide(color: Colors.white24),
@@ -20579,7 +19894,7 @@ class SosReportMapCard extends StatelessWidget {
               child: ElevatedButton.icon(
                 onPressed: onRoute,
                 icon: const Icon(Icons.route, size: 18),
-                label: Text(trText('Open Waze')),
+                label: const Text('Open Waze'),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: blue,
                   foregroundColor: Colors.white,
@@ -20589,24 +19904,6 @@ class SosReportMapCard extends StatelessWidget {
                 ),
               ),
             ),
-            if (onDelete != null) ...[
-              const SizedBox(height: 8),
-              SizedBox(
-                width: double.infinity,
-                child: OutlinedButton.icon(
-                  onPressed: onDelete,
-                  icon: const Icon(Icons.delete_outline, size: 18),
-                  label: Text(trText('Remove SOS')),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: sosAlertColor,
-                    side: const BorderSide(color: sosAlertColor),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                  ),
-                ),
-              ),
-            ],
           ] else ...[
             if (onDelete != null) ...[
               const SizedBox(height: 12),
@@ -20615,10 +19912,10 @@ class SosReportMapCard extends StatelessWidget {
                 child: OutlinedButton.icon(
                   onPressed: onDelete,
                   icon: const Icon(Icons.delete_outline, size: 18),
-                  label: Text(trText('Remove SOS')),
+                  label: Text(trText('Delete SOS')),
                   style: OutlinedButton.styleFrom(
-                    foregroundColor: sosAlertColor,
-                    side: const BorderSide(color: sosAlertColor),
+                    foregroundColor: blue,
+                    side: const BorderSide(color: blue),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(14),
                     ),
@@ -26832,10 +26129,19 @@ class ChatThreadTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Do not attach a user-document listener for every direct chat tile.
-    // The chat thread already stores member usernames/photo URLs, so the chat
-    // list can render from the thread snapshot without burning one extra read
-    // per direct chat on app startup.
+    final uid = otherUserId();
+
+    if (!chat.isGroup && uid != null) {
+      return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+        stream: usersCollection()
+            .doc(uid)
+            .debugSnapshots('chat: direct chat user tile listener'),
+        builder: (context, snapshot) {
+          return tile(context, friendUserFromSnapshot(snapshot.data));
+        },
+      );
+    }
+
     return tile(context, null);
   }
 }
@@ -27591,11 +26897,9 @@ class _NewChatScreenState extends State<NewChatScreen> {
         foregroundColor: blue,
       ),
       body: FutureBuilder<List<FriendUserData>>(
-        future: groupMode
-            ? loadCurrentFriendUsers()
-            : loadAllVisibleUsersForGroupInvite(),
+        future: loadCurrentFriendUsers(),
         builder: (context, snapshot) {
-          final users =
+          final friends =
               snapshot.data?.where(matchesSearch).toList() ??
               const <FriendUserData>[];
 
@@ -27644,7 +26948,7 @@ class _NewChatScreenState extends State<NewChatScreen> {
               const SizedBox(height: 14),
               _CcsTextField(
                 controller: searchController,
-                label: groupMode ? 'Find friend' : 'Find user',
+                label: 'Find friend',
                 hint: '@username',
                 icon: Icons.search,
               ),
@@ -27660,7 +26964,7 @@ class _NewChatScreenState extends State<NewChatScreen> {
                 SizedBox(
                   height: 50,
                   child: ElevatedButton.icon(
-                    onPressed: isCreating ? null : () => createGroup(users),
+                    onPressed: isCreating ? null : () => createGroup(friends),
                     icon: Icon(isCreating ? Icons.hourglass_top : Icons.check),
                     label: Text(
                       selectedUserIds.isEmpty
@@ -27685,16 +26989,14 @@ class _NewChatScreenState extends State<NewChatScreen> {
                     child: CircularProgressIndicator(color: blue),
                   ),
                 )
-              else if (users.isEmpty)
-                EmptyStateCard(
-                  icon: Icons.person_search_outlined,
-                  title: groupMode ? 'No friends found' : 'No users found',
-                  text: groupMode
-                      ? 'Add friends first, then start a group chat here.'
-                      : 'Search for any driver to start a direct chat.',
+              else if (friends.isEmpty)
+                const EmptyStateCard(
+                  icon: Icons.group_outlined,
+                  title: 'No friends found',
+                  text: 'Add friends first, then start a chat here.',
                 )
               else
-                for (final user in users) friendTile(user),
+                for (final friend in friends) friendTile(friend),
             ],
           );
         },
@@ -29722,14 +29024,18 @@ Future<void> saveProfileToFirebase(UserProfileData profile) async {
   }
 
   setCurrentUser(
-    currentUser.copyWith(
+    AppUser(
+      uid: currentUser.uid,
+      name: currentUser.name,
       username: cleanUsername,
+      email: currentUser.email,
       photoUrl: nextPhotoUrl,
       bio: profile.bio,
       avatarPath: nextAvatarPath,
+      role: currentUser.role,
+      verified: currentUser.verified,
       city: cityCountry[0],
       country: cityCountry[1],
-      nicknameSetupRequired: false,
     ),
   );
 
@@ -29743,8 +29049,6 @@ Future<void> saveProfileToFirebase(UserProfileData profile) async {
   await saveCurrentUserFields({
     'username': cleanUsername,
     'usernameKey': usernameKey(cleanUsername),
-    'nicknameSetupRequired': false,
-    'usernameCustomized': true,
     'bio': profile.bio,
     'photoUrl': nextPhotoUrl,
     'avatarPath': nextAvatarPath,
@@ -29755,26 +29059,6 @@ Future<void> saveProfileToFirebase(UserProfileData profile) async {
     'tiktok': nextSettings.tiktok.trim(),
     'telegram': nextSettings.telegram.trim(),
   });
-}
-
-Future<String> saveRequiredNicknameForCurrentUser(String nickname) async {
-  final cleanUsername = await reserveUsernameForCurrentUser(
-    preferredUsername: nickname,
-    previousUsername: currentUser.username,
-  );
-
-  await saveCurrentUserFields({
-    'username': cleanUsername,
-    'usernameKey': usernameKey(cleanUsername),
-    'nicknameSetupRequired': false,
-    'usernameCustomized': true,
-  });
-
-  setCurrentUser(
-    currentUser.copyWith(username: cleanUsername, nicknameSetupRequired: false),
-  );
-
-  return cleanUsername;
 }
 
 Future<void> saveGarageToFirebase(List<GarageCar> cars) async {
@@ -34400,8 +33684,18 @@ class AdminVerifiedUsersScreen extends StatelessWidget {
 
       if (user.uid == currentUser.uid) {
         setCurrentUser(
-          currentUser.copyWith(
+          AppUser(
+            uid: currentUser.uid,
+            name: currentUser.name,
+            username: currentUser.username,
+            email: currentUser.email,
+            photoUrl: currentUser.photoUrl,
+            bio: currentUser.bio,
+            avatarPath: currentUser.avatarPath,
+            role: currentUser.role,
             verified: verified || userRoleIsStaff(currentUser.role),
+            city: currentUser.city,
+            country: currentUser.country,
           ),
         );
       }
