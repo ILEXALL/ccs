@@ -120,14 +120,30 @@ service cloud.firestore {
           'maintenanceEnabled',
           'maintenanceTitle',
           'maintenanceMessage',
-          'allowAdminBypass'
+          'allowAdminBypass',
+          'minimumAppVersion',
+          'updateContact'
         ])
         && request.resource.data.maintenanceEnabled is bool
         && request.resource.data.maintenanceTitle is string
         && request.resource.data.maintenanceTitle.size() <= 100
         && request.resource.data.maintenanceMessage is string
         && request.resource.data.maintenanceMessage.size() <= 500
-        && request.resource.data.allowAdminBypass is bool;
+        && request.resource.data.allowAdminBypass is bool
+        && (
+          !request.resource.data.keys().hasAny(['minimumAppVersion'])
+          || (
+            request.resource.data.minimumAppVersion is string
+            && request.resource.data.minimumAppVersion.size() <= 32
+          )
+        )
+        && (
+          !request.resource.data.keys().hasAny(['updateContact'])
+          || (
+            request.resource.data.updateContact is string
+            && request.resource.data.updateContact.size() <= 200
+          )
+        );
     }
 
     function selfUserEditableKeys() {
