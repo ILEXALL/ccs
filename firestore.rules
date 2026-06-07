@@ -225,6 +225,7 @@ service cloud.firestore {
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           'banned',
           'bannedUntil',
+          'banReason',
           'bannedByUid',
           'bannedBy',
           'bannedAt',
@@ -523,6 +524,41 @@ service cloud.firestore {
         && request.resource.data.isGroup == resource.data.isGroup;
     }
 
+    function chatHiddenForChangedOnlyByCurrentUser() {
+      return request.resource.data.get('hiddenForUserIds', []) is list
+        && resource.data.get('hiddenForUserIds', []) is list
+        && listChangedOnlyByCurrentUser(
+          resource.data.get('hiddenForUserIds', []),
+          request.resource.data.get('hiddenForUserIds', [])
+        )
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'hiddenForUserIds'
+        ]);
+    }
+
+    function currentUserLeavesGroupOnly(chatId) {
+      return resource.data.get('isGroup', false) == true
+        && request.resource.data.get('isGroup', false) == true
+        && currentUid() != chatOwnerUid(chatId)
+        && currentUid() in resource.data.memberIds
+        && !(currentUid() in request.resource.data.memberIds)
+        && request.resource.data.memberIds is list
+        && request.resource.data.memberIds.size() >= 1
+        && request.resource.data.memberIds.toSet()
+          .difference(resource.data.memberIds.toSet()).hasOnly([])
+        && resource.data.memberIds.toSet()
+          .difference(request.resource.data.memberIds.toSet()).hasOnly([
+            currentUid()
+          ])
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'memberIds',
+          'memberUsernames',
+          'memberPhotoUrls',
+          'moderatorIds',
+          'updatedAt'
+        ]);
+    }
+
     function userBlocks(blockerUid, blockedUid) {
       return blockedUid in get(
         /databases/$(database)/documents/users/$(blockerUid)
@@ -605,6 +641,19 @@ service cloud.firestore {
         ).data.status == 'pending';
     }
 
+    function validSpotPendingReviewNotification() {
+      let data = request.resource.data;
+      let spot = get(
+        /databases/$(database)/documents/spots/$(data.spotId)
+      ).data;
+      return data.type == 'spot_pending_review'
+        && data.spotId is string
+        && exists(/databases/$(database)/documents/spots/$(data.spotId))
+        && spot.addedByUid == currentUid()
+        && spot.status == 'pending'
+        && isAdminUid(data.userId);
+    }
+
     function validUserNotificationCreate() {
       let data = request.resource.data;
       return isActiveUser()
@@ -619,6 +668,7 @@ service cloud.firestore {
           isStaff()
           || validSpotLikeNotification()
           || validSpotCommentNotification()
+          || validSpotPendingReviewNotification()
           || validChatMessageNotification()
           || validFriendRequestNotification()
         );
@@ -1054,47 +1104,63 @@ service cloud.firestore {
         );
       allow update: if isSignedIn()
         && currentUid() in resource.data.memberIds
-        && !directChatBlocked(chatId)
         && (
           (
-            chatMembershipUnchanged()
-            && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-              'name',
-              'photoUrl',
-              'avatarUrl',
-              'description',
-              'lastMessage',
-              'lastSenderUid',
-              'lastSenderUsername',
-              'memberIds',
-              'memberUsernames',
-              'memberPhotoUrls',
-              'updatedAt'
-            ])
+            !directChatBlocked(chatId)
+            && (
+              (
+                chatMembershipUnchanged()
+                && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+                  'name',
+                  'photoUrl',
+                  'avatarUrl',
+                  'description',
+                  'lastMessage',
+                  'lastSenderUid',
+                  'lastSenderUsername',
+                  'memberIds',
+                  'memberUsernames',
+                  'memberPhotoUrls',
+                  'hiddenForUserIds',
+                  'updatedAt'
+                ])
+              )
+              || (
+                canManageChat(chatId)
+                && request.resource.data.isGroup == resource.data.isGroup
+                && request.resource.data.memberIds is list
+                && request.resource.data.memberIds.hasAll(resource.data.memberIds)
+                && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+                  'name',
+                  'photoUrl',
+                  'avatarUrl',
+                  'description',
+                  'memberIds',
+                  'memberUsernames',
+                  'memberPhotoUrls',
+                  'moderatorIds',
+                  'ownerUid',
+                  'lastMessage',
+                  'lastSenderUid',
+                  'lastSenderUsername',
+                  'hiddenForUserIds',
+                  'updatedAt'
+                ])
+              )
+              || currentUserLeavesGroupOnly(chatId)
+            )
           )
-          || (
-            canManageChat(chatId)
-            && request.resource.data.isGroup == resource.data.isGroup
-            && request.resource.data.memberIds is list
-            && request.resource.data.memberIds.hasAll(resource.data.memberIds)
-            && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-              'name',
-              'photoUrl',
-              'avatarUrl',
-              'description',
-              'memberIds',
-              'memberUsernames',
-              'memberPhotoUrls',
-              'moderatorIds',
-              'ownerUid',
-              'lastMessage',
-              'lastSenderUid',
-              'lastSenderUsername',
-              'updatedAt'
-            ])
+          || chatHiddenForChangedOnlyByCurrentUser()
+        );
+      allow delete: if isStaff()
+        || (
+          isSignedIn()
+          && resource.data.get('isGroup', false) == true
+          && currentUid() == resource.data.get(
+            'ownerUid',
+            resource.data.memberIds[0]
           )
         );
-      allow delete: if isStaff();
 
       match /messages/{messageId} {
         allow read: if isChatMember(chatId);

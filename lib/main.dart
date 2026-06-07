@@ -67,6 +67,8 @@ StreamSubscription<QuerySnapshot<Map<String, dynamic>>>?
 adminNotificationCenterUnreadSubscription;
 StreamSubscription<QuerySnapshot<Map<String, dynamic>>>?
 friendLocationNotificationCenterUnreadSubscription;
+StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>?
+currentUserDocumentSubscription;
 final notificationCenterUnreadCount = ValueNotifier<int>(0);
 final notificationCenterUnreadCountsBySource = <String, int>{};
 
@@ -1525,6 +1527,39 @@ const _ruText = <String, String>{
   'Contact for update': 'Контакт для обновления',
   'Could not open update contact.':
       'Не удалось открыть контакт для обновления.',
+  'Active': 'Активен',
+  'Banned': 'Заблокирован',
+  'Ban expired': 'Блокировка истекла',
+  'Banned until': 'Заблокирован до',
+  'You are banned': 'Вы забанены',
+  'Your account is blocked from using CCS.':
+      'Ваш аккаунт заблокирован для использования CCS.',
+  'Permanent ban': 'Бессрочная блокировка',
+  'Reason': 'Причина',
+  'No reason provided.': 'Причина не указана.',
+  'Contact an administrator if this looks wrong.':
+      'Свяжитесь с администратором, если это ошибка.',
+  'Ban user': 'Забанить пользователя',
+  'Update ban': 'Обновить бан',
+  'Ban duration (days)': 'Срок бана (дней)',
+  'Ban reason': 'Причина бана',
+  'Reason is required.': 'Укажите причину.',
+  'Enter a valid number of days.': 'Введите корректное количество дней.',
+  'Confirm ban': 'Забанить',
+  'Banning user...': 'Баним пользователя...',
+  'User banned.': 'Пользователь забанен.',
+  'Deploy Firebase Rules to save ban reasons.':
+      'Задеплойте Firebase Rules, чтобы сохранять причины бана.',
+  'Could not ban user': 'Не удалось забанить пользователя',
+  'Could not unban user': 'Не удалось снять бан',
+  'Choose your nickname': 'Выберите никнейм',
+  'This nickname will be visible to other drivers.':
+      'Этот никнейм будут видеть другие водители.',
+  'Create account': 'Создать аккаунт',
+  'Nickname is required to create your account.':
+      'Для создания аккаунта нужен никнейм.',
+  'Signing in with Google...': 'Вход через Google...',
+  'Signing in with Telegram...': 'Вход через Telegram...',
   'Spots': 'Споты',
   'Map': 'Карта',
   'Add Spot': 'Добавить спот',
@@ -2058,6 +2093,18 @@ const _ruText = <String, String>{
   'Unblock user': 'Разблокировать',
   'Blacklist': 'Чёрный список',
   'Blocked users': 'Заблокированные пользователи',
+  'Banned app users': 'Забаненные пользователи',
+  'Open banned users and remove bans':
+      'Открывайте забаненных пользователей и снимайте бан',
+  'All users': 'Все пользователи',
+  'No banned users': 'Забаненных пользователей нет',
+  'Banned users will appear here.':
+      'Забаненные пользователи появятся здесь.',
+  'Protected account': 'Защищённый аккаунт',
+  'Telegram login server is not available. Check internet or backend status.':
+      'Сервер Telegram-входа недоступен. Проверьте интернет или backend.',
+  'Login could not access your account data. Try again or contact admin.':
+      'Вход не смог получить данные аккаунта. Повторите или свяжитесь с админом.',
   'Manage blocked users': 'Управление заблокированными пользователями',
   'No blocked users': 'Чёрный список пуст',
   'Blocked users will appear here.':
@@ -2072,6 +2119,26 @@ const _ruText = <String, String>{
   'Could not block user.': 'Не удалось заблокировать пользователя.',
   'Could not unblock user.': 'Не удалось разблокировать пользователя.',
   'Could not open chat.': 'Не удалось открыть чат.',
+  'Delete chat': 'Удалить чат',
+  'Delete chat?': 'Удалить чат?',
+  'This chat will be removed from your list. New messages will bring it back.':
+      'Этот чат пропадёт из вашего списка. Новые сообщения вернут его обратно.',
+  'Chat deleted.': 'Чат удалён.',
+  'Could not delete chat.': 'Не удалось удалить чат.',
+  'Delete group': 'Удалить группу',
+  'Delete group?': 'Удалить группу?',
+  'This group will be deleted for all members.':
+      'Эта группа будет удалена для всех участников.',
+  'Group deleted.': 'Группа удалена.',
+  'Could not delete group.': 'Не удалось удалить группу.',
+  'Leave group': 'Выйти из группы',
+  'Leave group?': 'Выйти из группы?',
+  'You will leave this group and stop receiving messages.':
+      'Вы выйдете из группы и перестанете получать сообщения.',
+  'You left the group.': 'Вы вышли из группы.',
+  'Could not leave group.': 'Не удалось выйти из группы.',
+  'Only the group owner can delete this group.':
+      'Удалить группу может только владелец.',
   'You cannot message this user.': 'Вы не можете написать этому пользователю.',
   'This profile is not available.': 'Этот профиль недоступен.',
   'Only avatar and nickname are visible.':
@@ -2130,6 +2197,8 @@ const _ruText = <String, String>{
   'This nickname is already taken.': 'Этот никнейм уже занят.',
   'Nickname must be at least 3 characters.':
       'Никнейм должен быть минимум 3 символа.',
+  'Nickname must be 3 to 30 characters.':
+      'Никнейм должен быть от 3 до 30 символов.',
   'Could not check nickname availability.': 'Не удалось проверить никнейм.',
   'Untitled car': 'Автомобиль без названия',
   'Car profile.': 'Описание автомобиля.',
@@ -2162,6 +2231,39 @@ const _lvText = <String, String>{
   'Required version': 'Nepieciešamā versija',
   'Contact for update': 'Kontakts atjaunināšanai',
   'Could not open update contact.': 'Neizdevās atvērt atjaunināšanas kontaktu.',
+  'Active': 'Aktīvs',
+  'Banned': 'Bloķēts',
+  'Ban expired': 'Bloķēšana beigusies',
+  'Banned until': 'Bloķēts līdz',
+  'You are banned': 'Jūs esat bloķēts',
+  'Your account is blocked from using CCS.':
+      'Jūsu kontam ir liegta CCS lietošana.',
+  'Permanent ban': 'Beztermiņa bloķēšana',
+  'Reason': 'Iemesls',
+  'No reason provided.': 'Iemesls nav norādīts.',
+  'Contact an administrator if this looks wrong.':
+      'Sazinieties ar administratoru, ja tā ir kļūda.',
+  'Ban user': 'Bloķēt lietotāju',
+  'Update ban': 'Atjaunināt bloķēšanu',
+  'Ban duration (days)': 'Bloķēšanas ilgums (dienas)',
+  'Ban reason': 'Bloķēšanas iemesls',
+  'Reason is required.': 'Norādiet iemeslu.',
+  'Enter a valid number of days.': 'Ievadiet derīgu dienu skaitu.',
+  'Confirm ban': 'Bloķēt',
+  'Banning user...': 'Bloķējam lietotāju...',
+  'User banned.': 'Lietotājs bloķēts.',
+  'Deploy Firebase Rules to save ban reasons.':
+      'Lai saglabātu bloķēšanas iemeslus, publicējiet Firebase Rules.',
+  'Could not ban user': 'Neizdevās bloķēt lietotāju',
+  'Could not unban user': 'Neizdevās atbloķēt lietotāju',
+  'Choose your nickname': 'Izvēlieties segvārdu',
+  'This nickname will be visible to other drivers.':
+      'Šo segvārdu redzēs citi autovadītāji.',
+  'Create account': 'Izveidot kontu',
+  'Nickname is required to create your account.':
+      'Lai izveidotu kontu, nepieciešams segvārds.',
+  'Signing in with Google...': 'Pieslēdzamies ar Google...',
+  'Signing in with Telegram...': 'Pieslēdzamies ar Telegram...',
   'Spots': 'Vietas',
   'Map': 'Karte',
   'Add Spot': 'Pievienot vietu',
@@ -2693,6 +2795,18 @@ const _lvText = <String, String>{
   'Unblock user': 'Atbloķēt',
   'Blacklist': 'Melnais saraksts',
   'Blocked users': 'Bloķētie lietotāji',
+  'Banned app users': 'Bloķētie lietotāji',
+  'Open banned users and remove bans':
+      'Atveriet bloķētos lietotājus un noņemiet bloķēšanu',
+  'All users': 'Visi lietotāji',
+  'No banned users': 'Bloķētu lietotāju nav',
+  'Banned users will appear here.':
+      'Bloķētie lietotāji parādīsies šeit.',
+  'Protected account': 'Aizsargāts konts',
+  'Telegram login server is not available. Check internet or backend status.':
+      'Telegram pieslēgšanās serveris nav pieejams. Pārbaudiet internetu vai backend.',
+  'Login could not access your account data. Try again or contact admin.':
+      'Pieslēgšanās nevarēja iegūt konta datus. Mēģiniet vēlreiz vai sazinieties ar administratoru.',
   'Manage blocked users': 'Pārvaldīt bloķētos lietotājus',
   'No blocked users': 'Melnais saraksts ir tukšs',
   'Blocked users will appear here.': 'Bloķētie lietotāji parādīsies šeit.',
@@ -2706,6 +2820,26 @@ const _lvText = <String, String>{
   'Could not block user.': 'Neizdevās bloķēt lietotāju.',
   'Could not unblock user.': 'Neizdevās atbloķēt lietotāju.',
   'Could not open chat.': 'Neizdevās atvērt čatu.',
+  'Delete chat': 'Dzēst čatu',
+  'Delete chat?': 'Dzēst čatu?',
+  'This chat will be removed from your list. New messages will bring it back.':
+      'Šis čats pazudīs no jūsu saraksta. Jaunas ziņas to atgriezīs.',
+  'Chat deleted.': 'Čats dzēsts.',
+  'Could not delete chat.': 'Neizdevās dzēst čatu.',
+  'Delete group': 'Dzēst grupu',
+  'Delete group?': 'Dzēst grupu?',
+  'This group will be deleted for all members.':
+      'Šī grupa tiks dzēsta visiem dalībniekiem.',
+  'Group deleted.': 'Grupa dzēsta.',
+  'Could not delete group.': 'Neizdevās dzēst grupu.',
+  'Leave group': 'Pamest grupu',
+  'Leave group?': 'Pamest grupu?',
+  'You will leave this group and stop receiving messages.':
+      'Jūs pametīsiet grupu un vairs nesaņemsiet ziņas.',
+  'You left the group.': 'Jūs pametāt grupu.',
+  'Could not leave group.': 'Neizdevās pamest grupu.',
+  'Only the group owner can delete this group.':
+      'Grupu var dzēst tikai īpašnieks.',
   'You cannot message this user.': 'Jūs nevarat rakstīt šim lietotājam.',
   'This profile is not available.': 'Šis profils nav pieejams.',
   'Only avatar and nickname are visible.': 'Redzams tikai avatārs un segvārds.',
@@ -2762,6 +2896,8 @@ const _lvText = <String, String>{
   'This nickname is already taken.': 'Šis segvārds jau ir aizņemts.',
   'Nickname must be at least 3 characters.':
       'Segvārdam jābūt vismaz 3 rakstzīmēm.',
+  'Nickname must be 3 to 30 characters.':
+      'Segvārdam jābūt no 3 līdz 30 rakstzīmēm.',
   'Could not check nickname availability.': 'Neizdevās pārbaudīt segvārdu.',
   'Untitled car': 'Auto bez nosaukuma',
   'Car profile.': 'Auto apraksts.',
@@ -3154,10 +3290,13 @@ Future<void> main() async {
 
     final appUser = await loadCurrentFirebaseUser();
     if (appUser != null) {
-      startFirebaseSpotSync();
-      unawaited(loadCurrentUserLikedSpotIdsFromLocalCache());
-      unawaited(initializePushNotificationsForCurrentUser());
-      startNotificationCenterUnreadWatcher();
+      startCurrentUserDocumentWatcher();
+      if (!appUser.banActive) {
+        startFirebaseSpotSync();
+        unawaited(startCurrentUserLikedSpotsSync());
+        unawaited(initializePushNotificationsForCurrentUser());
+        startNotificationCenterUnreadWatcher();
+      }
     }
   } catch (error) {
     // Do not let a Firebase/Google services problem crash the app on startup.
@@ -3210,9 +3349,14 @@ class CCSApp extends StatelessWidget {
           ),
           builder: (context, child) {
             return MaintenanceModeGate(
-              child: Stack(
-                fit: StackFit.expand,
-                children: [const AppMapBackground(), if (child != null) child],
+              child: BannedUserGate(
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    const AppMapBackground(),
+                    if (child != null) child,
+                  ],
+                ),
               ),
             );
           },
@@ -3259,6 +3403,225 @@ class MaintenanceModeGate extends StatelessWidget {
 
         return MaintenanceModeScreen(config: config);
       },
+    );
+  }
+}
+
+class BannedUserGate extends StatelessWidget {
+  final Widget child;
+
+  const BannedUserGate({super.key, required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: maintenanceAccessRevision,
+      builder: (context, _) {
+        final isSignedIn = FirebaseAuth.instance.currentUser != null;
+        if (!isSignedIn || !currentUser.banActive) {
+          return child;
+        }
+
+        return const BannedUserScreen();
+      },
+    );
+  }
+}
+
+class BannedUserScreen extends StatefulWidget {
+  const BannedUserScreen({super.key});
+
+  @override
+  State<BannedUserScreen> createState() => _BannedUserScreenState();
+}
+
+class _BannedUserScreenState extends State<BannedUserScreen> {
+  bool signingOut = false;
+
+  String get untilLabel {
+    final bannedUntilMillis = currentUser.bannedUntilMillis;
+    if (bannedUntilMillis == null) {
+      return trText('Permanent ban');
+    }
+
+    return formatShortDateTime(
+      DateTime.fromMillisecondsSinceEpoch(bannedUntilMillis),
+    );
+  }
+
+  Future<void> signOut() async {
+    if (signingOut) {
+      return;
+    }
+
+    setState(() => signingOut = true);
+    try {
+      await signOutCurrentAccount();
+    } finally {
+      if (mounted) {
+        setState(() => signingOut = false);
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cleanReason = currentUser.banReason.trim();
+
+    return Scaffold(
+      backgroundColor: Colors.black,
+      body: Stack(
+        fit: StackFit.expand,
+        children: [
+          Image.asset('assets/bg.png', fit: BoxFit.cover),
+          Container(color: Colors.black.withValues(alpha: 0.78)),
+          SafeArea(
+            child: Center(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.all(28),
+                child: Container(
+                  width: double.infinity,
+                  constraints: const BoxConstraints(maxWidth: 460),
+                  padding: const EdgeInsets.all(24),
+                  decoration: BoxDecoration(
+                    color: panelGlass,
+                    borderRadius: BorderRadius.circular(24),
+                    border: Border.all(color: Colors.redAccent),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.35),
+                        blurRadius: 28,
+                        offset: const Offset(0, 18),
+                      ),
+                    ],
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const _CcsWordmark(width: 148),
+                      const SizedBox(height: 22),
+                      const Icon(
+                        Icons.block,
+                        color: Colors.redAccent,
+                        size: 44,
+                      ),
+                      const SizedBox(height: 14),
+                      Text(
+                        trText('You are banned'),
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 24,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Text(
+                        trText('Your account is blocked from using CCS.'),
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          color: Colors.white70,
+                          fontSize: 15,
+                          height: 1.35,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(height: 22),
+                      _VersionInfoRow(
+                        label: trText('Banned until'),
+                        value: untilLabel,
+                      ),
+                      const SizedBox(height: 10),
+                      _BanInfoBox(
+                        title: trText('Reason'),
+                        text: cleanReason.isEmpty
+                            ? trText('No reason provided.')
+                            : cleanReason,
+                      ),
+                      const SizedBox(height: 18),
+                      Text(
+                        trText(
+                          'Contact an administrator if this looks wrong.',
+                        ),
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          color: Colors.white54,
+                          fontSize: 13,
+                          height: 1.35,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(height: 18),
+                      ElevatedButton.icon(
+                        onPressed: signingOut ? null : signOut,
+                        icon: const Icon(Icons.logout, color: Colors.white),
+                        label: Text(
+                          signingOut ? trText('Signing out...') : trText('Sign out'),
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.redAccent,
+                          disabledBackgroundColor: Colors.white24,
+                          minimumSize: const Size(double.infinity, 48),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _BanInfoBox extends StatelessWidget {
+  final String title;
+  final String text;
+
+  const _BanInfoBox({required this.title, required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.24),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: Colors.white10),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title,
+            style: const TextStyle(
+              color: Colors.white54,
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            text,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 15,
+              height: 1.35,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -4785,6 +5148,9 @@ class AppUser {
   final bool verified;
   final String city;
   final String country;
+  final bool banned;
+  final int? bannedUntilMillis;
+  final String banReason;
 
   const AppUser({
     required this.uid,
@@ -4798,7 +5164,16 @@ class AppUser {
     this.verified = false,
     required this.city,
     required this.country,
+    this.banned = false,
+    this.bannedUntilMillis,
+    this.banReason = '',
   });
+
+  bool get banActive {
+    return banned &&
+        (bannedUntilMillis == null ||
+            bannedUntilMillis! > DateTime.now().millisecondsSinceEpoch);
+  }
 }
 
 // Keep the fallback unprivileged until Firebase login finishes.
@@ -4863,11 +5238,98 @@ Future<void> saveRememberMePreference(bool value) async {
   rememberMeEnabled = value;
 }
 
+AppUser appUserFromCurrentUserDocument(
+  DocumentSnapshot<Map<String, dynamic>> snapshot,
+) {
+  final data = snapshot.data() ?? {};
+  final bannedUntilMillis = nullableTimestampMillisFromFirebase(
+    data['bannedUntil'],
+  );
+  final role = roleFromFirebase(data['role']);
+
+  return AppUser(
+    uid: stringFromFirebase(data['uid'], snapshot.id),
+    name: stringFromFirebase(data['name'], currentUser.name),
+    username: stringFromFirebase(data['username'], currentUser.username),
+    email: stringFromFirebase(data['email'], currentUser.email),
+    photoUrl: data['photoUrl'] is String
+        ? data['photoUrl'] as String
+        : currentUser.photoUrl,
+    bio: stringFromFirebase(data['bio'], currentUser.bio),
+    avatarPath: data['avatarPath'] is String
+        ? data['avatarPath'] as String
+        : currentUser.avatarPath,
+    role: role,
+    verified: userRoleIsStaff(role) || data['verified'] == true,
+    city: stringFromFirebase(data['city'], currentUser.city),
+    country: stringFromFirebase(data['country'], currentUser.country),
+    banned: data['banned'] == true,
+    bannedUntilMillis: bannedUntilMillis,
+    banReason: userBanReasonFromFirebase(data),
+  );
+}
+
+Future<void> stopCurrentUserAppServicesForAccessBlock() async {
+  for (final subscription in spotSyncSubscriptions) {
+    await subscription.cancel();
+  }
+  spotSyncSubscriptions.clear();
+  _firebaseSpotCacheBySource.clear();
+  await notificationCenterUnreadSubscription?.cancel();
+  notificationCenterUnreadSubscription = null;
+  await adminNotificationCenterUnreadSubscription?.cancel();
+  adminNotificationCenterUnreadSubscription = null;
+  await friendLocationNotificationCenterUnreadSubscription?.cancel();
+  friendLocationNotificationCenterUnreadSubscription = null;
+  notificationCenterUnreadCountsBySource.clear();
+  notificationCenterUnreadCount.value = 0;
+  await stopCurrentUserLikedSpotsSync();
+}
+
+void startCurrentUserDocumentWatcher() {
+  final firebaseUser = FirebaseAuth.instance.currentUser;
+  unawaited(currentUserDocumentSubscription?.cancel());
+  currentUserDocumentSubscription = null;
+
+  if (firebaseUser == null) {
+    return;
+  }
+
+  currentUserDocumentSubscription = usersCollection()
+      .doc(firebaseUser.uid)
+      .debugSnapshots('startup: current user document listener')
+      .listen(
+        (snapshot) {
+          if (!snapshot.exists) {
+            return;
+          }
+
+          final wasBanActive = currentUser.banActive;
+          final nextUser = appUserFromCurrentUserDocument(snapshot);
+          setCurrentUser(nextUser);
+
+          if (nextUser.banActive) {
+            unawaited(stopCurrentUserAppServicesForAccessBlock());
+          } else if (wasBanActive) {
+            startFirebaseSpotSync();
+            unawaited(startCurrentUserLikedSpotsSync());
+            unawaited(initializePushNotificationsForCurrentUser());
+            startNotificationCenterUnreadWatcher();
+          }
+        },
+        onError: (Object error) {
+          debugPrint('Current user watcher failed: $error');
+        },
+      );
+}
+
 Future<void> signOutCurrentAccount() async {
   await saveRememberMePreference(false);
   await unregisterPushTokenForCurrentUser();
 
   // Stop live Firebase listeners before auth becomes null.
+  await currentUserDocumentSubscription?.cancel();
+  currentUserDocumentSubscription = null;
   for (final subscription in spotSyncSubscriptions) {
     await subscription.cancel();
   }
@@ -5209,6 +5671,54 @@ Future<UserRole> defaultRoleForNewFirebaseUser() async {
   return UserRole.user;
 }
 
+typedef NewUserNicknameRequester =
+    Future<String?> Function(User firebaseUser, String fallbackUsername);
+
+Future<void> cancelNewProfileSignIn() async {
+  try {
+    await GoogleSignIn.instance.signOut();
+  } catch (_) {}
+
+  try {
+    await FirebaseAuth.instance.signOut();
+  } catch (_) {}
+}
+
+Future<String?> usernameOverrideForNewFirebaseUser({
+  required User firebaseUser,
+  required String fallbackUsername,
+  NewUserNicknameRequester? requestNewUserNickname,
+}) async {
+  final snapshot = await usersCollection()
+      .doc(firebaseUser.uid)
+      .debugGet(null, 'login: check existing user profile');
+
+  if (snapshot.exists) {
+    return null;
+  }
+
+  if (requestNewUserNickname == null) {
+    return boundedProfileUsername(fallbackUsername);
+  }
+
+  final selectedNickname = await requestNewUserNickname(
+    firebaseUser,
+    boundedProfileUsername(fallbackUsername),
+  );
+  final cleanNickname = cleanProfileUsername(selectedNickname ?? '');
+
+  if (cleanNickname.isEmpty) {
+    await cancelNewProfileSignIn();
+    throw FirebaseException(
+      plugin: 'firebase_auth',
+      code: 'nickname-required',
+      message: 'Nickname is required to create your account.',
+    );
+  }
+
+  return cleanNickname;
+}
+
 Future<AppUser?> loadCurrentFirebaseUser() async {
   final firebaseUser = FirebaseAuth.instance.currentUser;
 
@@ -5245,14 +5755,6 @@ Future<AppUser> saveFirebaseUser(
   final data = snapshot.data();
   final isNewUser = !snapshot.exists;
 
-  if (!isNewUser && userBanIsActive(data)) {
-    throw FirebaseException(
-      plugin: 'firebase_auth',
-      code: 'user-banned',
-      message: 'This account is banned.',
-    );
-  }
-
   if (!isNewUser && data?['deleted'] == true) {
     throw FirebaseException(
       plugin: 'firebase_auth',
@@ -5264,6 +5766,10 @@ Future<AppUser> saveFirebaseUser(
   final role = isNewUser
       ? await defaultRoleForNewFirebaseUser()
       : roleFromFirebase(data?['role']);
+  final existingBannedUntilMillis = nullableTimestampMillisFromFirebase(
+    data?['bannedUntil'],
+  );
+  final existingBanReason = userBanReasonFromFirebase(data);
   final name = (data?['name'] as String?)?.trim().isNotEmpty == true
       ? data!['name'] as String
       : displayNameOverride?.trim().isNotEmpty == true
@@ -5274,11 +5780,6 @@ Future<AppUser> saveFirebaseUser(
       : usernameOverride?.trim().isNotEmpty == true
       ? usernameOverride!.trim()
       : makeUsernameFromFirebaseUser(firebaseUser);
-  final username = await reserveUsernameForCurrentUser(
-    preferredUsername: boundedProfileUsername(rawUsername),
-    previousUsername: data?['username'] as String?,
-    allowFallback: true,
-  );
   final city = (data?['city'] as String?)?.trim().isNotEmpty == true
       ? data!['city'] as String
       : 'Riga';
@@ -5297,9 +5798,38 @@ Future<AppUser> saveFirebaseUser(
   final verified = data?['verified'] == true;
   final settings = UserSettingsData.fromFirebase(data?['settings']);
   final garage = garageCarsFromFirebase(data?['garage']);
+  final effectiveProvider =
+      !isNewUser && provider == 'firebase'
+          ? stringFromFirebase(data?['provider'], provider)
+          : provider;
 
   userSettings.value = settings;
   garageCars.value = garage;
+
+  if (!isNewUser && userBanIsActive(data)) {
+    return AppUser(
+      uid: firebaseUser.uid,
+      name: name,
+      username: stringFromFirebase(data?['username'], rawUsername),
+      email: emailOverride ?? firebaseUser.email ?? '',
+      photoUrl: photoUrl,
+      bio: bio,
+      avatarPath: avatarPath,
+      role: role,
+      verified: verified,
+      city: city,
+      country: country,
+      banned: true,
+      bannedUntilMillis: existingBannedUntilMillis,
+      banReason: existingBanReason,
+    );
+  }
+
+  final username = await reserveUsernameForCurrentUser(
+    preferredUsername: boundedProfileUsername(rawUsername),
+    previousUsername: data?['username'] as String?,
+    allowFallback: true,
+  );
 
   final firebaseData = <String, Object?>{
     'uid': firebaseUser.uid,
@@ -5324,7 +5854,7 @@ Future<AppUser> saveFirebaseUser(
     'publicProfile': settings.publicProfile,
     'showGarage': settings.showGarage,
     'garage': garage.map((car) => car.toFirebase()).toList(),
-    'provider': provider,
+    'provider': effectiveProvider,
     'telegramUsername': telegramUsername,
     'isOnline': true,
     'lastSeenAt': FieldValue.serverTimestamp(),
@@ -5353,10 +5883,15 @@ Future<AppUser> saveFirebaseUser(
     verified: verified,
     city: city,
     country: country,
+    banned: data?['banned'] == true,
+    bannedUntilMillis: existingBannedUntilMillis,
+    banReason: existingBanReason,
   );
 }
 
-Future<AppUser> signInWithTelegramAndSaveUser() async {
+Future<AppUser> signInWithTelegramAndSaveUser({
+  NewUserNicknameRequester? requestNewUserNickname,
+}) async {
   if (!firebaseReady) {
     throw Exception(
       googleSignInSetupError ??
@@ -5439,22 +5974,30 @@ Future<AppUser> signInWithTelegramAndSaveUser() async {
   final fallbackUsername = telegramUsername.isNotEmpty
       ? telegramUsername
       : 'telegram_$telegramId';
+  final newUserUsernameOverride = await usernameOverrideForNewFirebaseUser(
+    firebaseUser: firebaseUser,
+    fallbackUsername: fallbackUsername,
+    requestNewUserNickname: requestNewUserNickname,
+  );
 
   setCurrentUser(
     await saveFirebaseUser(
       firebaseUser,
       provider: 'telegram',
       displayNameOverride: fullName.isEmpty ? '$fallbackUsername' : fullName,
-      usernameOverride: fallbackUsername,
+      usernameOverride: newUserUsernameOverride ?? fallbackUsername,
       emailOverride: '',
       photoUrlOverride: photoUrl.isEmpty ? null : photoUrl,
       telegramUsername: fallbackUsername,
     ),
   );
-  startFirebaseSpotSync();
-  unawaited(loadCurrentUserLikedSpotIdsFromLocalCache());
-  unawaited(initializePushNotificationsForCurrentUser());
-  startNotificationCenterUnreadWatcher();
+  startCurrentUserDocumentWatcher();
+  if (!currentUser.banActive) {
+    startFirebaseSpotSync();
+    unawaited(startCurrentUserLikedSpotsSync());
+    unawaited(initializePushNotificationsForCurrentUser());
+    startNotificationCenterUnreadWatcher();
+  }
   return currentUser;
 }
 
@@ -5687,7 +6230,9 @@ Future<String> uploadImageToR2({
   );
 }
 
-Future<AppUser> signInWithGoogleAndSaveUser() async {
+Future<AppUser> signInWithGoogleAndSaveUser({
+  NewUserNicknameRequester? requestNewUserNickname,
+}) async {
   if (!firebaseReady) {
     throw Exception(
       googleSignInSetupError ??
@@ -5721,11 +6266,26 @@ Future<AppUser> signInWithGoogleAndSaveUser() async {
     throw Exception('Firebase login finished without a user.');
   }
 
-  setCurrentUser(await saveFirebaseUser(firebaseUser, provider: 'google'));
-  startFirebaseSpotSync();
-  unawaited(loadCurrentUserLikedSpotIdsFromLocalCache());
-  unawaited(initializePushNotificationsForCurrentUser());
-  startNotificationCenterUnreadWatcher();
+  final newUserUsernameOverride = await usernameOverrideForNewFirebaseUser(
+    firebaseUser: firebaseUser,
+    fallbackUsername: makeUsernameFromFirebaseUser(firebaseUser),
+    requestNewUserNickname: requestNewUserNickname,
+  );
+
+  setCurrentUser(
+    await saveFirebaseUser(
+      firebaseUser,
+      provider: 'google',
+      usernameOverride: newUserUsernameOverride,
+    ),
+  );
+  startCurrentUserDocumentWatcher();
+  if (!currentUser.banActive) {
+    startFirebaseSpotSync();
+    unawaited(startCurrentUserLikedSpotsSync());
+    unawaited(initializePushNotificationsForCurrentUser());
+    startNotificationCenterUnreadWatcher();
+  }
   return currentUser;
 }
 
@@ -6465,20 +7025,29 @@ bool userBanIsActive(Map<String, dynamic>? data) {
       untilMillis > DateTime.now().millisecondsSinceEpoch;
 }
 
+String userBanReasonFromFirebase(Map<String, dynamic>? data) {
+  final reason = stringFromFirebase(data?['banReason'], '').trim();
+  if (reason.isNotEmpty) {
+    return reason;
+  }
+
+  return stringFromFirebase(data?['bannedReason'], '').trim();
+}
+
 String userBanLabel({required bool banned, required int? bannedUntilMillis}) {
   if (!banned) {
-    return 'Active';
+    return trText('Active');
   }
 
   if (bannedUntilMillis == null) {
-    return 'Banned';
+    return trText('Banned');
   }
 
   if (bannedUntilMillis <= DateTime.now().millisecondsSinceEpoch) {
-    return 'Ban expired';
+    return trText('Ban expired');
   }
 
-  return 'Banned until ${formatShortDateTime(DateTime.fromMillisecondsSinceEpoch(bannedUntilMillis))}';
+  return '${trText('Banned until')} ${formatShortDateTime(DateTime.fromMillisecondsSinceEpoch(bannedUntilMillis))}';
 }
 
 bool localFileExists(String? path) {
@@ -7737,6 +8306,7 @@ class ChatThreadData {
   final String avatarUrl;
   final String ownerUid;
   final List<String> moderatorIds;
+  final List<String> hiddenForUserIds;
   final int updatedAtMillis;
 
   const ChatThreadData({
@@ -7754,6 +8324,7 @@ class ChatThreadData {
     this.avatarUrl = '',
     this.ownerUid = '',
     this.moderatorIds = const [],
+    this.hiddenForUserIds = const [],
     required this.updatedAtMillis,
   });
 
@@ -7783,8 +8354,28 @@ class ChatThreadData {
       avatarUrl: stringFromFirebase(data['avatarUrl'], ''),
       ownerUid: stringFromFirebase(data['ownerUid'], ''),
       moderatorIds: stringListFromFirebase(data['moderatorIds'], const []),
+      hiddenForUserIds: stringListFromFirebase(
+        data['hiddenForUserIds'],
+        const [],
+      ),
       updatedAtMillis: timestampMillisFromFirebase(data['updatedAt']),
     );
+  }
+
+  String effectiveOwnerUid() {
+    if (ownerUid.trim().isNotEmpty) {
+      return ownerUid.trim();
+    }
+
+    return memberIds.isEmpty ? '' : memberIds.first;
+  }
+
+  bool isOwner(String uid) {
+    return uid.trim().isNotEmpty && effectiveOwnerUid() == uid.trim();
+  }
+
+  bool isHiddenFor(String uid) {
+    return hiddenForUserIds.contains(uid.trim());
   }
 
   String titleForCurrentUser(String currentUid) {
@@ -7931,9 +8522,22 @@ Future<String> createOrOpenDirectChat(FriendUserData user) async {
   );
 
   if (existingChat.exists) {
-    // Opening an existing direct chat should not write to the chat document.
-    // Some Firestore rules only allow message writes / membership reads, so a
-    // harmless display-data refresh can still be rejected with permission-denied.
+    // Reopening a chat that this user hid should make it visible again. Avoid
+    // refreshing other display fields here; older rules can reject that.
+    final hiddenForUserIds = stringListFromFirebase(
+      existingChat.data()?['hiddenForUserIds'],
+      const [],
+    );
+    if (hiddenForUserIds.contains(firebaseUser.uid)) {
+      try {
+        await chatRef.debugSet({
+          'hiddenForUserIds': FieldValue.arrayRemove([firebaseUser.uid]),
+        }, SetOptions(merge: true), 'chat: unhide direct chat on open');
+      } catch (error, stack) {
+        debugPrint('Direct chat unhide skipped: $error');
+        debugPrint('$stack');
+      }
+    }
     return chatId;
   } else {
     // New direct chats must include the same schema fields that the chat list
@@ -7953,6 +8557,7 @@ Future<String> createOrOpenDirectChat(FriendUserData user) async {
       'lastSenderUsername': '',
       'ownerUid': '',
       'moderatorIds': [],
+      'hiddenForUserIds': [],
       'updatedAt': FieldValue.serverTimestamp(),
       'createdAt': FieldValue.serverTimestamp(),
     });
@@ -8004,6 +8609,9 @@ Future<String> createGroupChat({
     'photoUrl': '',
     'description': '',
     'lastMessage': '',
+    'lastSenderUid': '',
+    'lastSenderUsername': '',
+    'hiddenForUserIds': [],
     'updatedAt': FieldValue.serverTimestamp(),
     'createdAt': FieldValue.serverTimestamp(),
   });
@@ -8045,10 +8653,16 @@ Future<void> sendChatMessage({
   });
 
   try {
+    final chatMemberIds = chat?.memberIds
+        .map((uid) => uid.trim())
+        .where((uid) => uid.isNotEmpty)
+        .toList();
     await chatsCollection().doc(chatId).debugSet({
       'lastMessage': cleanText,
       'lastSenderUid': firebaseUser.uid,
       'lastSenderUsername': currentUser.username,
+      if (chatMemberIds != null && chatMemberIds.isNotEmpty)
+        'hiddenForUserIds': FieldValue.arrayRemove(chatMemberIds),
       'updatedAt': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
   } catch (error, stack) {
@@ -8529,6 +9143,92 @@ Future<void> deleteChatMessage({
     debugPrint('Chat summary update skipped after message delete: $error');
     debugPrint('$stack');
   }
+}
+
+Future<void> hideChatForCurrentUser(ChatThreadData chat) async {
+  final firebaseUser = FirebaseAuth.instance.currentUser;
+  final uid = firebaseUser?.uid ?? currentUser.uid;
+  if (uid.trim().isEmpty) {
+    throw FirebaseException(
+      plugin: 'cloud_firestore',
+      code: 'not-logged-in',
+      message: 'Log in before using chat.',
+    );
+  }
+
+  await chatsCollection().doc(chat.id).debugSet({
+    'hiddenForUserIds': FieldValue.arrayUnion([uid]),
+  }, SetOptions(merge: true), 'chat: hide for current user');
+  _chatMessageSessionCache.remove(chat.id);
+  _chatOldestMessageDocSessionCache.remove(chat.id);
+}
+
+Future<void> deleteGroupChat(ChatThreadData chat) async {
+  final firebaseUser = FirebaseAuth.instance.currentUser;
+  final uid = firebaseUser?.uid ?? currentUser.uid;
+  final canDelete = chat.isGroup &&
+      (chat.isOwner(uid) || userRoleIsStaff(currentUser.role));
+
+  if (!canDelete) {
+    throw FirebaseException(
+      plugin: 'cloud_firestore',
+      code: 'permission-denied',
+      message: trText('Only the group owner can delete this group.'),
+    );
+  }
+
+  await chatsCollection().doc(chat.id).debugDelete('chat: delete group');
+  _chatMessageSessionCache.remove(chat.id);
+  _chatOldestMessageDocSessionCache.remove(chat.id);
+}
+
+Future<void> leaveGroupChat(ChatThreadData chat) async {
+  final firebaseUser = FirebaseAuth.instance.currentUser;
+  final uid = firebaseUser?.uid ?? currentUser.uid;
+  if (uid.trim().isEmpty) {
+    throw FirebaseException(
+      plugin: 'cloud_firestore',
+      code: 'not-logged-in',
+      message: 'Log in before using chat.',
+    );
+  }
+
+  if (!chat.isGroup || !chat.memberIds.contains(uid)) {
+    return;
+  }
+
+  if (chat.isOwner(uid)) {
+    throw FirebaseException(
+      plugin: 'cloud_firestore',
+      code: 'owner-cannot-leave',
+      message: trText('Only the group owner can delete this group.'),
+    );
+  }
+
+  var username = currentUser.username;
+  var photoUrl = currentUser.photoUrl ?? '';
+  for (var index = 0; index < chat.memberIds.length; index++) {
+    if (chat.memberIds[index] != uid) {
+      continue;
+    }
+    if (index < chat.memberUsernames.length) {
+      username = chat.memberUsernames[index];
+    }
+    if (index < chat.memberPhotoUrls.length) {
+      photoUrl = chat.memberPhotoUrls[index];
+    }
+    break;
+  }
+
+  await chatsCollection().doc(chat.id).debugSet({
+    'memberIds': FieldValue.arrayRemove([uid]),
+    'memberUsernames': FieldValue.arrayRemove([username]),
+    'memberPhotoUrls': FieldValue.arrayRemove([photoUrl]),
+    'moderatorIds': FieldValue.arrayRemove([uid]),
+    'updatedAt': FieldValue.serverTimestamp(),
+  }, SetOptions(merge: true), 'chat: leave group');
+  _chatMessageSessionCache.remove(chat.id);
+  _chatOldestMessageDocSessionCache.remove(chat.id);
 }
 
 Future<LiveLocationData?> loadCurrentLiveLocationForUser(String uid) async {
@@ -10227,9 +10927,7 @@ Future<void> startCurrentUserLikedSpotsSync() async {
   currentUserLikedSpotsSubscription =
       trackedQuerySnapshots(
         'current user liked spots sync',
-        spotLikesCollection()
-            .where('userId', isEqualTo: uid)
-            .where('targetType', isEqualTo: 'spot'),
+        spotLikesCollection().where('userId', isEqualTo: uid),
       ).listen(
         (snapshot) {
           final likedIds = <String>{};
@@ -12921,9 +13619,15 @@ class _NotificationCenterScreenState extends State<NotificationCenterScreen> {
           final items = snapshot.data ?? const <NotificationCenterItem>[];
           if (!markedRead) {
             markedRead = true;
-            notificationCenterUnreadCountsBySource.clear();
-            notificationCenterUnreadCount.value = 0;
-            unawaited(markNotificationCenterItemsRead(items));
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (!mounted) {
+                return;
+              }
+
+              notificationCenterUnreadCountsBySource.clear();
+              notificationCenterUnreadCount.value = 0;
+              unawaited(markNotificationCenterItemsRead(items));
+            });
           }
 
           if (items.isEmpty) {
@@ -13233,8 +13937,10 @@ class LoginScreen extends StatefulWidget {
 
 class _LoginScreenState extends State<LoginScreen>
     with SingleTickerProviderStateMixin {
-  bool isSigningIn = false;
+  String? signingProvider;
   bool rememberMe = rememberMeEnabled;
+
+  bool get isSigningIn => signingProvider != null;
 
   late final AnimationController loginIntroController;
   late final Animation<double> loginLogoSlide;
@@ -13323,14 +14029,166 @@ class _LoginScreenState extends State<LoginScreen>
     );
   }
 
+  String loginErrorText(String provider, Object error) {
+    final errorText = error.toString();
+
+    if (error is SocketException ||
+        errorText.contains('SocketException') ||
+        errorText.contains('Failed host lookup')) {
+      return trText(
+        'Telegram login server is not available. Check internet or backend status.',
+      );
+    }
+
+    if (error is FirebaseException && error.code == 'permission-denied') {
+      return trText(
+        'Login could not access your account data. Try again or contact admin.',
+      );
+    }
+
+    if (error is FirebaseException && error.code == 'nickname-required') {
+      return trText('Nickname is required to create your account.');
+    }
+
+    return '$provider login failed. $error';
+  }
+
+  Future<String?> requestInitialNickname(
+    User firebaseUser,
+    String fallbackUsername,
+  ) async {
+    if (!mounted) {
+      return null;
+    }
+
+    final controller = TextEditingController(
+      text: cleanProfileUsername(fallbackUsername),
+    );
+    String? errorText;
+    var isChecking = false;
+
+    final selected = await showDialog<String>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            Future<void> submit() async {
+              if (isChecking) {
+                return;
+              }
+
+              final cleanNickname = cleanProfileUsername(controller.text);
+              if (cleanNickname.length < minProfileUsernameLength ||
+                  cleanNickname.length > maxProfileUsernameLength) {
+                setDialogState(
+                  () => errorText = 'Nickname must be 3 to 30 characters.',
+                );
+                return;
+              }
+
+              setDialogState(() {
+                isChecking = true;
+                errorText = null;
+              });
+
+              final availability =
+                  await checkUsernameAvailabilityForCurrentUser(
+                    cleanNickname,
+                    currentUsername: '',
+                  );
+
+              if (!dialogContext.mounted) {
+                return;
+              }
+
+              if (availability == UsernameAvailability.available ||
+                  availability == UsernameAvailability.unchanged) {
+                Navigator.pop(dialogContext, cleanNickname);
+                return;
+              }
+
+              setDialogState(() {
+                isChecking = false;
+                errorText = usernameAvailabilityText(availability);
+              });
+            }
+
+            return AlertDialog(
+              backgroundColor: panelGlass,
+              title: Text(trText('Choose your nickname')),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    trText('This nickname will be visible to other drivers.'),
+                    style: const TextStyle(color: Colors.white70, height: 1.35),
+                  ),
+                  const SizedBox(height: 16),
+                  TextField(
+                    controller: controller,
+                    enabled: !isChecking,
+                    autofocus: true,
+                    textInputAction: TextInputAction.done,
+                    onSubmitted: (_) => unawaited(submit()),
+                    style: const TextStyle(color: Colors.white),
+                    decoration: InputDecoration(
+                      labelText: trText('Nickname'),
+                      prefixIcon: const Icon(Icons.alternate_email, color: blue),
+                    ),
+                  ),
+                  if (errorText != null) ...[
+                    const SizedBox(height: 12),
+                    Text(
+                      trText(errorText!),
+                      style: const TextStyle(
+                        color: Colors.redAccent,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: isChecking
+                      ? null
+                      : () => Navigator.pop(dialogContext),
+                  child: Text(trText('Cancel')),
+                ),
+                TextButton(
+                  onPressed: isChecking ? null : () => unawaited(submit()),
+                  child: Text(
+                    trText(isChecking ? 'Checking nickname availability...' : 'Create account'),
+                    style: const TextStyle(color: blue),
+                  ),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    controller.dispose();
+    return selected;
+  }
+
   Future<void> loginWithGoogle() async {
-    setState(() => isSigningIn = true);
+    setState(() => signingProvider = 'google');
 
     try {
-      await signInWithGoogleAndSaveUser();
+      await signInWithGoogleAndSaveUser(
+        requestNewUserNickname: requestInitialNickname,
+      );
       await saveRememberMePreference(rememberMe);
 
       if (!mounted) {
+        return;
+      }
+
+      if (currentUser.banActive) {
         return;
       }
 
@@ -13347,7 +14205,7 @@ class _LoginScreenState extends State<LoginScreen>
         SnackBar(
           backgroundColor: Colors.redAccent,
           content: Text(
-            'Google login failed. Check Firebase Google sign-in setup. $error',
+            loginErrorText('Google', error),
             style: const TextStyle(
               color: Colors.white,
               fontWeight: FontWeight.w700,
@@ -13357,19 +14215,25 @@ class _LoginScreenState extends State<LoginScreen>
       );
     } finally {
       if (mounted) {
-        setState(() => isSigningIn = false);
+        setState(() => signingProvider = null);
       }
     }
   }
 
   Future<void> loginWithTelegram() async {
-    setState(() => isSigningIn = true);
+    setState(() => signingProvider = 'telegram');
 
     try {
-      await signInWithTelegramAndSaveUser();
+      await signInWithTelegramAndSaveUser(
+        requestNewUserNickname: requestInitialNickname,
+      );
       await saveRememberMePreference(rememberMe);
 
       if (!mounted) {
+        return;
+      }
+
+      if (currentUser.banActive) {
         return;
       }
 
@@ -13386,7 +14250,7 @@ class _LoginScreenState extends State<LoginScreen>
         SnackBar(
           backgroundColor: Colors.redAccent,
           content: Text(
-            'Telegram login failed. $error',
+            loginErrorText('Telegram', error),
             style: const TextStyle(
               color: Colors.white,
               fontWeight: FontWeight.w700,
@@ -13396,7 +14260,7 @@ class _LoginScreenState extends State<LoginScreen>
       );
     } finally {
       if (mounted) {
-        setState(() => isSigningIn = false);
+        setState(() => signingProvider = null);
       }
     }
   }
@@ -13441,7 +14305,9 @@ class _LoginScreenState extends State<LoginScreen>
                   fadeAnimation: loginGoogleFade,
                   travel: 88,
                   child: loginButton(
-                    isSigningIn ? 'Signing in...' : 'Continue with Google',
+                    signingProvider == 'google'
+                        ? 'Signing in with Google...'
+                        : 'Continue with Google',
                     Icons.g_mobiledata,
                     Colors.red,
                     isSigningIn ? null : loginWithGoogle,
@@ -13452,7 +14318,9 @@ class _LoginScreenState extends State<LoginScreen>
                   fadeAnimation: loginTelegramFade,
                   travel: 76,
                   child: loginButton(
-                    'Continue with Telegram',
+                    signingProvider == 'telegram'
+                        ? 'Signing in with Telegram...'
+                        : 'Continue with Telegram',
                     Icons.send,
                     blue,
                     isSigningIn ? null : loginWithTelegram,
@@ -24136,7 +25004,12 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
       }
 
       if (!isAdminCreatedSpot) {
-        await createAdminSpotReviewNotification(newSpot);
+        try {
+          await createAdminSpotReviewNotification(newSpot);
+        } catch (error, stack) {
+          debugPrint('Could not create admin spot review notification: $error');
+          debugPrint('$stack');
+        }
       }
 
       final savedSpot = await spotRef.debugGet(
@@ -26073,6 +26946,17 @@ Future<void> savePinnedChatIds(List<String> ids) async {
   await prefs.setStringList(pinnedChatIdsPreferenceKey, ids.take(6).toList());
 }
 
+Future<void> removePinnedChatId(String chatId) async {
+  final cleanChatId = chatId.trim();
+  if (cleanChatId.isEmpty) {
+    return;
+  }
+
+  final ids = await loadPinnedChatIds();
+  ids.removeWhere((id) => id == cleanChatId);
+  await savePinnedChatIds(ids);
+}
+
 Widget chatAvatarWidget(ChatThreadData chat, String currentUid) {
   final photoUrl = chat.directPhotoUrlForCurrentUser(currentUid);
 
@@ -26276,6 +27160,7 @@ class _ChatScreenState extends State<ChatScreen> {
         final chats =
             snapshot.data?.docs
                 .map((doc) => ChatThreadData.fromFirestore(doc))
+                .where((chat) => !chat.isHiddenFor(firebaseUser.uid))
                 .toList() ??
             <ChatThreadData>[];
         final directChats = sortedChats(
@@ -26402,6 +27287,148 @@ class _ChatScreenState extends State<ChatScreen> {
         );
       },
     );
+  }
+}
+
+bool currentUserCanDeleteGroupChat(ChatThreadData chat) {
+  final uid = FirebaseAuth.instance.currentUser?.uid ?? currentUser.uid;
+  return chat.isGroup &&
+      (chat.isOwner(uid) || userRoleIsStaff(currentUser.role));
+}
+
+String chatRemovalTitle(ChatThreadData chat) {
+  if (!chat.isGroup) {
+    return 'Delete chat?';
+  }
+
+  return currentUserCanDeleteGroupChat(chat) ? 'Delete group?' : 'Leave group?';
+}
+
+String chatRemovalBody(ChatThreadData chat) {
+  if (!chat.isGroup) {
+    return 'This chat will be removed from your list. New messages will bring it back.';
+  }
+
+  return currentUserCanDeleteGroupChat(chat)
+      ? 'This group will be deleted for all members.'
+      : 'You will leave this group and stop receiving messages.';
+}
+
+String chatRemovalButtonLabel(ChatThreadData chat) {
+  if (!chat.isGroup) {
+    return 'Delete chat';
+  }
+
+  return currentUserCanDeleteGroupChat(chat) ? 'Delete group' : 'Leave group';
+}
+
+String chatRemovalSuccessLabel(ChatThreadData chat) {
+  if (!chat.isGroup) {
+    return 'Chat deleted.';
+  }
+
+  return currentUserCanDeleteGroupChat(chat)
+      ? 'Group deleted.'
+      : 'You left the group.';
+}
+
+String chatRemovalErrorLabel(ChatThreadData chat) {
+  if (!chat.isGroup) {
+    return 'Could not delete chat.';
+  }
+
+  return currentUserCanDeleteGroupChat(chat)
+      ? 'Could not delete group.'
+      : 'Could not leave group.';
+}
+
+Future<bool> confirmAndRemoveChat(
+  BuildContext context,
+  ChatThreadData chat,
+) async {
+  final confirmed = await showDialog<bool>(
+    context: context,
+    builder: (dialogContext) {
+      return AlertDialog(
+        backgroundColor: panelGlass,
+        title: Text(
+          chatRemovalTitle(chat),
+          style: const TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.w900,
+          ),
+        ),
+        content: Text(
+          chatRemovalBody(chat),
+          style: const TextStyle(color: Colors.white70),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
+            child: Text(
+              chatRemovalButtonLabel(chat),
+              style: const TextStyle(color: Colors.white),
+            ),
+          ),
+        ],
+      );
+    },
+  );
+
+  if (confirmed != true) {
+    return false;
+  }
+
+  final successLabel = chatRemovalSuccessLabel(chat);
+  final errorLabel = chatRemovalErrorLabel(chat);
+
+  try {
+    if (!chat.isGroup) {
+      await hideChatForCurrentUser(chat);
+    } else if (currentUserCanDeleteGroupChat(chat)) {
+      await deleteGroupChat(chat);
+    } else {
+      await leaveGroupChat(chat);
+    }
+
+    await removePinnedChatId(chat.id);
+
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: blue,
+          content: Text(
+            successLabel,
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+      );
+    }
+    return true;
+  } catch (error) {
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: Colors.redAccent,
+          content: Text(
+            '$errorLabel $error',
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+      );
+    }
+    return false;
   }
 }
 
@@ -26542,7 +27569,38 @@ class ChatThreadTile extends StatelessWidget {
                 ],
               ),
             ),
-            const Icon(Icons.chevron_right, color: Colors.white38),
+            PopupMenuButton<String>(
+              color: panel,
+              icon: const Icon(Icons.more_horiz, color: Colors.white54),
+              onSelected: (value) async {
+                if (value == 'remove_chat') {
+                  await confirmAndRemoveChat(context, chat);
+                }
+              },
+              itemBuilder: (_) => [
+                PopupMenuItem(
+                  value: 'remove_chat',
+                  child: Row(
+                    children: [
+                      Icon(
+                        chat.isGroup
+                            ? (currentUserCanDeleteGroupChat(chat)
+                                  ? Icons.delete_outline
+                                  : Icons.logout)
+                            : Icons.delete_outline,
+                        color: Colors.redAccent,
+                        size: 20,
+                      ),
+                      const SizedBox(width: 10),
+                      Text(
+                        chatRemovalButtonLabel(chat),
+                        style: const TextStyle(color: Colors.white),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
           ],
         ),
       ),
@@ -27692,6 +28750,17 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
     }
   }
 
+  Future<void> removeGroupOrLeave() async {
+    if (isSaving) {
+      return;
+    }
+
+    final removed = await confirmAndRemoveChat(context, widget.chat);
+    if (removed && mounted) {
+      Navigator.pop(context, true);
+    }
+  }
+
   Widget avatarPreview() {
     if (isNetworkUrl(photoUrl)) {
       return ClipOval(
@@ -27917,6 +28986,26 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
               style: ElevatedButton.styleFrom(
                 backgroundColor: blue,
                 foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(18),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            height: 50,
+            child: OutlinedButton.icon(
+              onPressed: isSaving ? null : removeGroupOrLeave,
+              icon: Icon(
+                currentUserCanDeleteGroupChat(widget.chat)
+                    ? Icons.delete_outline
+                    : Icons.logout,
+              ),
+              label: Text(chatRemovalButtonLabel(widget.chat)),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: Colors.redAccent,
+                side: const BorderSide(color: Colors.redAccent),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(18),
                 ),
@@ -28453,6 +29542,23 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
     );
   }
 
+  Future<void> openGroupSettings() async {
+    final removed = await Navigator.push<bool>(
+      context,
+      appPageRoute(builder: (_) => GroupSettingsScreen(chat: widget.chat)),
+    );
+    if (removed == true && mounted) {
+      Navigator.of(context).maybePop();
+    }
+  }
+
+  Future<void> removeCurrentChat() async {
+    final removed = await confirmAndRemoveChat(context, widget.chat);
+    if (removed && mounted) {
+      Navigator.of(context).maybePop();
+    }
+  }
+
   Future<void> showOwnMessageActions(ChatMessageData message) async {
     final action = await showModalBottomSheet<String>(
       context: context,
@@ -28724,12 +29830,7 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
 
   Widget groupChatTitle(String title) {
     return InkWell(
-      onTap: () {
-        Navigator.push(
-          context,
-          appPageRoute(builder: (_) => GroupSettingsScreen(chat: widget.chat)),
-        );
-      },
+      onTap: openGroupSettings,
       borderRadius: BorderRadius.circular(12),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 6),
@@ -28882,15 +29983,35 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
             ? [
                 IconButton(
                   tooltip: 'Group info',
-                  onPressed: () {
-                    Navigator.push(
-                      context,
-                      appPageRoute(
-                        builder: (_) => GroupSettingsScreen(chat: widget.chat),
-                      ),
-                    );
-                  },
+                  onPressed: openGroupSettings,
                   icon: const Icon(Icons.info_outline),
+                ),
+                PopupMenuButton<String>(
+                  color: panel,
+                  icon: const Icon(Icons.more_horiz),
+                  onSelected: (value) {
+                    if (value == 'remove_chat') {
+                      unawaited(removeCurrentChat());
+                    }
+                  },
+                  itemBuilder: (_) => [
+                    PopupMenuItem(
+                      value: 'remove_chat',
+                      child: Row(
+                        children: [
+                          Icon(
+                            currentUserCanDeleteGroupChat(widget.chat)
+                                ? Icons.delete_outline
+                                : Icons.logout,
+                            color: Colors.redAccent,
+                            size: 20,
+                          ),
+                          const SizedBox(width: 10),
+                          Text(chatRemovalButtonLabel(widget.chat)),
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
               ]
             : [
@@ -28898,6 +30019,31 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
                   tooltip: 'Open profile',
                   onPressed: () => openChatUserProfile(currentUid),
                   icon: const Icon(Icons.account_circle_outlined),
+                ),
+                PopupMenuButton<String>(
+                  color: panel,
+                  icon: const Icon(Icons.more_horiz),
+                  onSelected: (value) {
+                    if (value == 'remove_chat') {
+                      unawaited(removeCurrentChat());
+                    }
+                  },
+                  itemBuilder: (_) => [
+                    PopupMenuItem(
+                      value: 'remove_chat',
+                      child: Row(
+                        children: [
+                          const Icon(
+                            Icons.delete_outline,
+                            color: Colors.redAccent,
+                            size: 20,
+                          ),
+                          const SizedBox(width: 10),
+                          Text(chatRemovalButtonLabel(widget.chat)),
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
               ],
       ),
@@ -34016,6 +35162,7 @@ class AdminUserData {
   final bool verified;
   final bool banned;
   final int? bannedUntilMillis;
+  final String banReason;
   final bool deleted;
 
   const AdminUserData({
@@ -34027,6 +35174,7 @@ class AdminUserData {
     required this.verified,
     required this.banned,
     this.bannedUntilMillis,
+    this.banReason = '',
     required this.deleted,
   });
 
@@ -34063,9 +35211,17 @@ class AdminUserData {
           data['verified'] == true,
       banned: data['banned'] == true,
       bannedUntilMillis: bannedUntilMillis,
+      banReason: userBanReasonFromFirebase(data),
       deleted: data['deleted'] == true,
     );
   }
+}
+
+class AdminBanInput {
+  final int days;
+  final String reason;
+
+  const AdminBanInput({required this.days, required this.reason});
 }
 
 class AdminVerifiedUsersScreen extends StatelessWidget {
@@ -34247,8 +35403,24 @@ class AdminVerifiedUsersScreen extends StatelessWidget {
   }
 }
 
-class AdminUsersScreen extends StatelessWidget {
-  const AdminUsersScreen({super.key});
+class AdminUsersScreen extends StatefulWidget {
+  final bool initialBannedOnly;
+
+  const AdminUsersScreen({super.key, this.initialBannedOnly = false});
+
+  @override
+  State<AdminUsersScreen> createState() => _AdminUsersScreenState();
+}
+
+class _AdminUsersScreenState extends State<AdminUsersScreen> {
+  late bool bannedOnly;
+
+  @override
+  void initState() {
+    super.initState();
+    bannedOnly =
+        widget.initialBannedOnly && currentUser.role == UserRole.admin;
+  }
 
   Future<bool> canManageUser(BuildContext context, AdminUserData user) async {
     if (user.uid == currentUser.uid) {
@@ -34292,6 +35464,15 @@ class AdminUsersScreen extends StatelessWidget {
     }
 
     return true;
+  }
+
+  bool canShowManagementActions(AdminUserData user) {
+    if (user.uid == currentUser.uid || user.role == UserRole.admin) {
+      return false;
+    }
+
+    return currentUser.role != UserRole.moderator ||
+        user.role != UserRole.moderator;
   }
 
   Future<void> setModeratorStatus(
@@ -34349,35 +35530,178 @@ class AdminUsersScreen extends StatelessWidget {
     }
   }
 
-  Future<void> banUser(
+  Future<AdminBanInput?> requestBanInput(
     BuildContext context,
-    AdminUserData user, {
-    Duration? duration,
-  }) async {
+    AdminUserData user,
+  ) async {
+    final daysController = TextEditingController(text: '7');
+    final reasonController = TextEditingController(text: user.banReason);
+    String? errorText;
+    var isClosing = false;
+
+    final input = await showDialog<AdminBanInput>(
+      context: context,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            Future<void> submit() async {
+              if (isClosing) {
+                return;
+              }
+
+              final days = int.tryParse(daysController.text.trim());
+              final reason = reasonController.text.trim();
+
+              if (days == null || days < 1 || days > 3650) {
+                setDialogState(
+                  () => errorText = 'Enter a valid number of days.',
+                );
+                return;
+              }
+
+              if (reason.isEmpty) {
+                setDialogState(() => errorText = 'Reason is required.');
+                return;
+              }
+
+              FocusManager.instance.primaryFocus?.unfocus();
+              setDialogState(() => isClosing = true);
+              await Future<void>.delayed(const Duration(milliseconds: 180));
+
+              if (!dialogContext.mounted) {
+                return;
+              }
+
+              Navigator.pop(
+                dialogContext,
+                AdminBanInput(days: days, reason: reason),
+              );
+            }
+
+            return AlertDialog(
+              backgroundColor: panelGlass,
+              title: Text(trText('Ban user')),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: daysController,
+                    keyboardType: TextInputType.number,
+                    inputFormatters: [
+                      FilteringTextInputFormatter.digitsOnly,
+                    ],
+                    style: const TextStyle(color: Colors.white),
+                    decoration: InputDecoration(
+                      labelText: trText('Ban duration (days)'),
+                      prefixIcon: const Icon(Icons.event_busy, color: blue),
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  TextField(
+                    controller: reasonController,
+                    minLines: 2,
+                    maxLines: 4,
+                    style: const TextStyle(color: Colors.white),
+                    decoration: InputDecoration(
+                      labelText: trText('Ban reason'),
+                      prefixIcon: const Icon(Icons.report, color: blue),
+                    ),
+                  ),
+                  if (errorText != null) ...[
+                    const SizedBox(height: 12),
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        trText(errorText!),
+                        style: const TextStyle(
+                          color: Colors.redAccent,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: isClosing
+                      ? null
+                      : () => Navigator.pop(dialogContext),
+                  child: Text(trText('Cancel')),
+                ),
+                TextButton(
+                  onPressed: isClosing ? null : () => unawaited(submit()),
+                  child: Text(
+                    trText(isClosing ? 'Banning user...' : 'Confirm ban'),
+                    style: const TextStyle(color: Colors.redAccent),
+                  ),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    daysController.dispose();
+    reasonController.dispose();
+    return input;
+  }
+
+  Future<void> banUser(BuildContext context, AdminUserData user) async {
     if (!await canManageUser(context, user)) {
       return;
     }
 
-    final bannedUntil = duration == null
-        ? null
-        : Timestamp.fromDate(DateTime.now().add(duration));
+    final input = await requestBanInput(context, user);
+    if (input == null) {
+      return;
+    }
+
+    final bannedUntil = Timestamp.fromDate(
+      DateTime.now().add(Duration(days: input.days)),
+    );
+    final banData = <String, Object?>{
+      'banned': true,
+      'bannedUntil': bannedUntil,
+      'banReason': input.reason,
+      'bannedByUid': currentUser.uid,
+      'bannedBy': currentUser.username,
+      'bannedAt': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    };
+
+    if (!context.mounted) {
+      return;
+    }
+
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.showSnackBar(
+      SnackBar(
+        duration: const Duration(seconds: 2),
+        backgroundColor: blue,
+        content: Text(
+          trText('Banning user...'),
+          style: const TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      ),
+    );
 
     try {
-      await usersCollection().doc(user.uid).debugSet({
-        'banned': true,
-        'bannedUntil': bannedUntil,
-        'bannedByUid': currentUser.uid,
-        'bannedBy': currentUser.username,
-        'bannedAt': FieldValue.serverTimestamp(),
-        'updatedAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
+      await usersCollection()
+          .doc(user.uid)
+          .debugSet(banData, SetOptions(merge: true))
+          .timeout(const Duration(seconds: 12));
 
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             backgroundColor: Colors.redAccent,
             content: Text(
-              duration == null ? 'User banned.' : 'User temporarily banned.',
+              trText('User banned.'),
               style: const TextStyle(
                 color: Colors.white,
                 fontWeight: FontWeight.w700,
@@ -34386,10 +35710,50 @@ class AdminUsersScreen extends StatelessWidget {
           ),
         );
       }
+    } on FirebaseException catch (error) {
+      if (error.code == 'permission-denied' && banData.containsKey('banReason')) {
+        try {
+          final legacyBanData = Map<String, Object?>.from(banData)
+            ..remove('banReason');
+          await usersCollection()
+              .doc(user.uid)
+              .debugSet(legacyBanData, SetOptions(merge: true))
+              .timeout(const Duration(seconds: 12));
+
+          if (context.mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                backgroundColor: Colors.redAccent,
+                content: Text(
+                  '${trText('User banned.')} ${trText('Deploy Firebase Rules to save ban reasons.')}',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            );
+          }
+          return;
+        } catch (fallbackError) {
+          showAdminActionError(
+            context,
+            message: trText('Could not ban user'),
+            error: fallbackError,
+          );
+          return;
+        }
+      }
+
+      showAdminActionError(
+        context,
+        message: trText('Could not ban user'),
+        error: error,
+      );
     } catch (error) {
       showAdminActionError(
         context,
-        message: 'Could not ban user',
+        message: trText('Could not ban user'),
         error: error,
       );
     }
@@ -34404,6 +35768,7 @@ class AdminUsersScreen extends StatelessWidget {
       await usersCollection().doc(user.uid).debugSet({
         'banned': false,
         'bannedUntil': FieldValue.delete(),
+        'banReason': FieldValue.delete(),
         'unbannedByUid': currentUser.uid,
         'unbannedBy': currentUser.username,
         'unbannedAt': FieldValue.serverTimestamp(),
@@ -34533,16 +35898,7 @@ class AdminUsersScreen extends StatelessWidget {
           fallbackUsername: user.username,
         );
         break;
-      case 'ban_1d':
-        banUser(context, user, duration: const Duration(days: 1));
-        break;
-      case 'ban_7d':
-        banUser(context, user, duration: const Duration(days: 7));
-        break;
-      case 'ban_30d':
-        banUser(context, user, duration: const Duration(days: 30));
-        break;
-      case 'ban_forever':
+      case 'ban':
         banUser(context, user);
         break;
       case 'unban':
@@ -34566,6 +35922,7 @@ class AdminUsersScreen extends StatelessWidget {
         : user.verified
         ? blue
         : Colors.white54;
+    final canManage = canShowManagementActions(user);
 
     return Container(
       padding: const EdgeInsets.all(14),
@@ -34643,6 +36000,19 @@ class AdminUsersScreen extends StatelessWidget {
                         fontWeight: FontWeight.w800,
                       ),
                     ),
+                    if (user.banActive && user.banReason.isNotEmpty) ...[
+                      const SizedBox(height: 3),
+                      Text(
+                        user.banReason,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Colors.white54,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
                   ],
                 ),
               ),
@@ -34655,16 +36025,19 @@ class AdminUsersScreen extends StatelessWidget {
             itemBuilder: (context) => [
               const PopupMenuItem(value: 'open', child: Text('Open profile')),
               const PopupMenuDivider(),
-              const PopupMenuItem(value: 'ban_1d', child: Text('Ban 1 day')),
-              const PopupMenuItem(value: 'ban_7d', child: Text('Ban 7 days')),
-              const PopupMenuItem(value: 'ban_30d', child: Text('Ban 30 days')),
-              const PopupMenuItem(
-                value: 'ban_forever',
-                child: Text('Ban forever'),
-              ),
-              if (user.banned)
-                const PopupMenuItem(value: 'unban', child: Text('Unban')),
-              if (currentUser.role == UserRole.admin) ...[
+              if (canManage) ...[
+                PopupMenuItem(
+                  value: 'ban',
+                  child: Text(user.banActive ? 'Update ban' : 'Ban user'),
+                ),
+                if (user.banned)
+                  const PopupMenuItem(value: 'unban', child: Text('Unban')),
+              ] else
+                const PopupMenuItem(
+                  enabled: false,
+                  child: Text('Protected account'),
+                ),
+              if (currentUser.role == UserRole.admin && canManage) ...[
                 const PopupMenuDivider(),
                 if (user.role == UserRole.user)
                   const PopupMenuItem(
@@ -34707,18 +36080,22 @@ class AdminUsersScreen extends StatelessWidget {
             .limit(200)
             .debugSnapshots('admin: users management list listener'),
         builder: (context, snapshot) {
-          final users =
+          final allUsers =
               snapshot.data?.docs
                   .map((doc) => AdminUserData.fromFirestore(doc))
                   .where((user) => !user.deleted)
                   .toList() ??
               const <AdminUserData>[];
+          final canUseBannedList = currentUser.role == UserRole.admin;
+          final users = bannedOnly
+              ? allUsers.where((user) => user.banned).toList()
+              : allUsers;
 
           return ListView(
             padding: const EdgeInsets.fromLTRB(20, 18, 20, 28),
             children: [
-              const Text(
-                'Users',
+              Text(
+                bannedOnly ? 'Banned app users' : 'Users',
                 style: TextStyle(
                   color: Colors.white,
                   fontSize: 34,
@@ -34728,16 +36105,62 @@ class AdminUsersScreen extends StatelessWidget {
               const SizedBox(height: 6),
               Text(
                 users.isEmpty
-                    ? 'No users yet.'
+                    ? bannedOnly
+                          ? trText('No banned users')
+                          : 'No users yet.'
                     : '${users.length} user${users.length == 1 ? '' : 's'} in Firebase.',
                 style: const TextStyle(color: Colors.white54, height: 1.35),
               ),
+              if (canUseBannedList) ...[
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    Expanded(
+                      child: ChoiceChip(
+                        label: Text(trText('All users')),
+                        selected: !bannedOnly,
+                        showCheckmark: false,
+                        selectedColor: blue,
+                        backgroundColor: Colors.white.withValues(alpha: 0.07),
+                        side: BorderSide(
+                          color: !bannedOnly ? blue : Colors.white12,
+                        ),
+                        labelStyle: TextStyle(
+                          color: !bannedOnly ? Colors.white : Colors.white70,
+                          fontWeight: FontWeight.w800,
+                        ),
+                        onSelected: (_) => setState(() => bannedOnly = false),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: ChoiceChip(
+                        label: Text(trText('Banned app users')),
+                        selected: bannedOnly,
+                        showCheckmark: false,
+                        selectedColor: Colors.redAccent,
+                        backgroundColor: Colors.white.withValues(alpha: 0.07),
+                        side: BorderSide(
+                          color: bannedOnly ? Colors.redAccent : Colors.white12,
+                        ),
+                        labelStyle: TextStyle(
+                          color: bannedOnly ? Colors.white : Colors.white70,
+                          fontWeight: FontWeight.w800,
+                        ),
+                        onSelected: (_) => setState(() => bannedOnly = true),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
               const SizedBox(height: 18),
               if (users.isEmpty)
-                const EmptyStateCard(
-                  icon: Icons.people_outline,
-                  title: 'No users yet',
-                  text: 'Users will appear here after they sign in.',
+                EmptyStateCard(
+                  icon: bannedOnly ? Icons.block : Icons.people_outline,
+                  title: bannedOnly ? 'No banned users' : 'No users yet',
+                  text: bannedOnly
+                      ? 'Banned users will appear here.'
+                      : 'Users will appear here after they sign in.',
                 )
               else
                 for (final user in users) ...[
@@ -35061,6 +36484,20 @@ class _AdminReviewScreenState extends State<AdminReviewScreen> {
               ),
               const SizedBox(height: 10),
               if (currentUser.role == UserRole.admin) ...[
+                _ProfileActionTile(
+                  icon: Icons.block,
+                  title: 'Banned app users',
+                  subtitle: 'Open banned users and remove bans',
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      appPageRoute(
+                        builder: (_) =>
+                            const AdminUsersScreen(initialBannedOnly: true),
+                      ),
+                    );
+                  },
+                ),
                 const SizedBox(height: 10),
                 _ProfileActionTile(
                   icon: Icons.verified_user,
