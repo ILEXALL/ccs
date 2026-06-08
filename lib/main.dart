@@ -4392,7 +4392,7 @@ const spotCategoryIconAssets = {
   'Service': 'assets/spot_icons/service.png',
   'Detailing': 'assets/spot_icons/detailing.png',
   'Wash': 'assets/spot_icons/wash.png',
-  'Store': 'assets/spot_icons/store.png',
+  'Store': 'assets/spot_icons/store_2.png',
   'Drag': 'assets/spot_icons/drag.png',
   'Off-road': 'assets/spot_icons/offroad.png',
   'Food': 'assets/spot_icons/food.png',
@@ -4409,7 +4409,7 @@ const spotCategoryLightIconAssets = {
   'Service': 'assets/spot_icons/service_light.png',
   'Detailing': 'assets/spot_icons/detailing_light.png',
   'Wash': 'assets/spot_icons/wash_light.png',
-  'Store': 'assets/spot_icons/store_light.png',
+  'Store': 'assets/spot_icons/store_light_2.png',
   'Drag': 'assets/spot_icons/drag_light.png',
   'Off-road': 'assets/spot_icons/offroad_light.png',
   'Food': 'assets/spot_icons/food_light.png',
@@ -4423,7 +4423,7 @@ const spotCategoryColors = {
   'Service': Color(0xFFFFD400),
   'Detailing': Color(0xFF00E0C7),
   'Wash': Color(0xFF008CFF),
-  'Store': Color(0xFFA83DFF),
+  'Store': Color(0xFFFF7A00),
   'Drag': Color(0xFFFF1635),
   'Off-road': Color(0xFF8B5A2B),
   'Food': Color(0xFFFF1B8D),
@@ -10692,6 +10692,54 @@ String _spotCacheKey(CarSpot spot) {
   return '${spot.name}_${spot.addedByUid}_${spot.createdAtMillis}';
 }
 
+const String localImmediateSpotCacheSource = 'local immediate';
+
+void upsertSpotIntoLocalImmediateCache(CarSpot spot) {
+  final key = _spotCacheKey(spot);
+  final nextSource = <String, CarSpot>{
+    ...(_firebaseSpotCacheBySource[localImmediateSpotCacheSource] ??
+        const <String, CarSpot>{}),
+    key: spot,
+  };
+
+  _firebaseSpotCacheBySource[localImmediateSpotCacheSource] = nextSource;
+  _publishFirebaseSpotCaches();
+
+  if (approvedSpotIsVisibleForCurrentUser(spot)) {
+    final nextApproved = <String, CarSpot>{
+      ...(_firebaseSpotCacheBySource['approved'] ?? const <String, CarSpot>{}),
+      key: spot,
+    };
+    _firebaseSpotCacheBySource['approved'] = nextApproved;
+    _publishFirebaseSpotCaches();
+    unawaited(saveApprovedSpotsToLocalCache());
+  }
+}
+
+void removeSpotFromLocalImmediateCache(CarSpot spot) {
+  final key = _spotCacheKey(spot);
+  var changed = false;
+
+  for (final sourceEntry in _firebaseSpotCacheBySource.entries.toList()) {
+    if (!sourceEntry.value.containsKey(key)) {
+      continue;
+    }
+
+    final nextSource = <String, CarSpot>{...sourceEntry.value}..remove(key);
+    if (nextSource.isEmpty) {
+      _firebaseSpotCacheBySource.remove(sourceEntry.key);
+    } else {
+      _firebaseSpotCacheBySource[sourceEntry.key] = nextSource;
+    }
+    changed = true;
+  }
+
+  if (changed) {
+    _publishFirebaseSpotCaches();
+    unawaited(saveApprovedSpotsToLocalCache());
+  }
+}
+
 void _publishFirebaseSpotCaches() {
   final merged = <String, CarSpot>{};
 
@@ -12456,6 +12504,12 @@ Future<void> updateSpotStatus(
       .map((item) => isSameSpot(item, spot) ? updatedSpot : item)
       .toList();
 
+  upsertSpotIntoLocalImmediateCache(
+    updatedSpot.copyWith(
+      updatedAtMillis: DateTime.now().millisecondsSinceEpoch,
+    ),
+  );
+
   if (shouldNotifyNearbyMeetUsers) {
     await createMeetSpotNotificationsForNearbyUsers(updatedSpot);
   }
@@ -12494,6 +12548,8 @@ Future<void> deleteSpotFromFirebase(CarSpot spot) async {
   if (spot.id.isNotEmpty) {
     await spotsCollection().doc(spot.id).debugDelete();
   }
+
+  removeSpotFromLocalImmediateCache(spot);
 
   reviewSpots.value = reviewSpots.value
       .where((item) => !isSameSpot(item, spot))
@@ -13014,6 +13070,27 @@ String spotNameFromNotificationBody(String type, String body) {
     return match?.group(1)?.trim().replaceAll(RegExp(r'\.+$'), '') ?? '';
   }
 
+  if (cleanType == 'new_spot' || cleanType == 'temporary_event') {
+    final patterns = [
+      RegExp(
+        r'^(.+?)\s+(?:event\s+)?was\s+added(?:\s+in\s+.+)?\.?$',
+        caseSensitive: false,
+      ),
+      RegExp(
+        r'^(.+?)\s+(?:event\s+)?(?:was\s+)?added(?:\s+in\s+.+)?\.?$',
+        caseSensitive: false,
+      ),
+    ];
+
+    for (final pattern in patterns) {
+      final match = pattern.firstMatch(cleanBody);
+      final value = match?.group(1)?.trim().replaceAll(RegExp(r'\.+$'), '');
+      if (value != null && value.isNotEmpty) {
+        return value;
+      }
+    }
+  }
+
   if (cleanType == 'spot_review_update' ||
       cleanType == 'spot_rejected_by_admin' ||
       cleanType == 'spot_approved_by_admin' ||
@@ -13465,6 +13542,100 @@ List<NotificationCenterItem> removeDuplicateSpotReviewNotifications(
   }).toList();
 }
 
+bool notificationCenterItemIsPublicSpot(NotificationCenterItem item) {
+  return item.type == 'new_spot' || item.type == 'temporary_event';
+}
+
+String publicSpotNotificationDedupKey(NotificationCenterItem item) {
+  final cleanName = item.spotName.trim().toLowerCase();
+  if (cleanName.isNotEmpty) {
+    return '${item.type}:name:$cleanName';
+  }
+
+  final bodyName = spotNameFromNotificationBody(
+    item.type,
+    item.body,
+  ).trim().toLowerCase();
+  if (bodyName.isNotEmpty) {
+    return '${item.type}:name:$bodyName';
+  }
+
+  final cleanSpotId = item.spotId.trim();
+  if (cleanSpotId.isNotEmpty) {
+    return '${item.type}:id:$cleanSpotId';
+  }
+
+  return '';
+}
+
+int publicSpotNotificationStrength(NotificationCenterItem item) {
+  var score = 0;
+  if (item.spotId.trim().isNotEmpty) {
+    score += 4;
+  }
+  if (item.spotName.trim().isNotEmpty) {
+    score += 2;
+  }
+
+  // Backend-created public spot notifications are sent after the local write
+  // and use the shorter body that opens correctly. Prefer them over the older
+  // client-created duplicate that says "was added in ...".
+  if (!item.body.toLowerCase().contains('was added in')) {
+    score += 1;
+  }
+
+  if (item.reference == null) {
+    score += 1;
+  }
+
+  return score;
+}
+
+List<NotificationCenterItem> removeDuplicatePublicSpotNotifications(
+  List<NotificationCenterItem> items,
+) {
+  final strongestBySpot = <String, NotificationCenterItem>{};
+
+  for (final item in items) {
+    if (!notificationCenterItemIsPublicSpot(item)) {
+      continue;
+    }
+
+    final spotKey = publicSpotNotificationDedupKey(item);
+    if (spotKey.isEmpty) {
+      continue;
+    }
+
+    final existing = strongestBySpot[spotKey];
+    if (existing == null ||
+        publicSpotNotificationStrength(item) >
+            publicSpotNotificationStrength(existing) ||
+        (publicSpotNotificationStrength(item) ==
+                publicSpotNotificationStrength(existing) &&
+            item.createdAtMillis >= existing.createdAtMillis)) {
+      strongestBySpot[spotKey] = item;
+    }
+  }
+
+  if (strongestBySpot.isEmpty) {
+    return items;
+  }
+
+  return items.where((item) {
+    if (!notificationCenterItemIsPublicSpot(item)) {
+      return true;
+    }
+
+    final spotKey = publicSpotNotificationDedupKey(item);
+    if (spotKey.isEmpty) {
+      return true;
+    }
+
+    final strongest = strongestBySpot[spotKey];
+    return strongest == null || identical(strongest, item);
+  }).toList();
+}
+
 Future<Map<String, String>?> firebaseNotificationHeaders() async {
   final firebaseUser = FirebaseAuth.instance.currentUser;
 
@@ -13613,8 +13784,10 @@ Future<List<NotificationCenterItem>> loadNotificationCenterItems() async {
     });
   }
 
-  final enrichedItems = removeDuplicateSpotReviewNotifications(
-    await enrichRejectedNotificationCenterItems(items),
+  final enrichedItems = removeDuplicatePublicSpotNotifications(
+    removeDuplicateSpotReviewNotifications(
+      await enrichRejectedNotificationCenterItems(items),
+    ),
   );
   items
     ..clear()
@@ -25715,7 +25888,6 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
       );
 
       if (isAdminCreatedSpot) {
-        await createNewSpotNotificationForUsers(newSpot);
         await sendPushNotificationEvent({
           'type': newSpot.isTemporary ? 'temporary_event' : 'new_spot',
           'spotId': spotRef.id,
@@ -25746,6 +25918,9 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
           message: 'Firebase did not return the saved spot.',
         );
       }
+
+      final savedNewSpot = CarSpot.fromFirestore(savedSpot);
+      upsertSpotIntoLocalImmediateCache(savedNewSpot);
 
       if (!mounted) {
         return;
@@ -28332,10 +28507,27 @@ class ChatThreadTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Avoid one live Firestore user listener per direct chat row. The chat
-    // document already stores member usernames/photos and is kept up to date by
-    // message/chat writes, so the list tile can render from cached thread data.
-    return tile(context, null);
+    if (chat.isGroup) {
+      return tile(context, null);
+    }
+
+    final uid = otherUserId();
+    if (uid == null) {
+      return tile(context, null);
+    }
+
+    final fallbackUser = fallbackChatMember(chat, uid);
+
+    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      stream: usersCollection()
+          .doc(uid)
+          .debugSnapshots('chat: list direct user presence listener'),
+      builder: (context, snapshot) {
+        final directUser =
+            friendUserFromSnapshot(snapshot.data) ?? fallbackUser;
+        return tile(context, directUser);
+      },
+    );
   }
 }
 
