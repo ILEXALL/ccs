@@ -28,7 +28,12 @@ const googleServerClientId =
     '325709324670-cep9b3r2j2mmapmmuougmqai7umvlod6.apps.googleusercontent.com';
 
 // Real Telegram login needs a small backend server.
-// Deploy ccs_app/telegram_auth_server, then paste its HTTPS URL here.
+// Keep a fallback here so login still works when one Vercel hostname
+// has a temporary DNS/network problem for a specific user or carrier.
+const telegramAuthBaseUrls = <String>[
+  'https://ccs-wine.vercel.app',
+  'https://ccs-telegram-auth-server.vercel.app',
+];
 const telegramAuthBaseUrl = 'https://ccs-wine.vercel.app';
 const pushNotificationUrl = '$telegramAuthBaseUrl/api/push-notification';
 const firestoreUsageUrl = '$telegramAuthBaseUrl/api/firestore-usage';
@@ -67,6 +72,7 @@ StreamSubscription<QuerySnapshot<Map<String, dynamic>>>?
 adminNotificationCenterUnreadSubscription;
 StreamSubscription<QuerySnapshot<Map<String, dynamic>>>?
 friendLocationNotificationCenterUnreadSubscription;
+Timer? notificationCenterUnreadRefreshDebounce;
 StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>?
 currentUserDocumentSubscription;
 final notificationCenterUnreadCount = ValueNotifier<int>(0);
@@ -539,6 +545,7 @@ const firestoreDebugButtonVisibleKey = 'firestore_debug_button_visible';
 const firestoreDebugTrackerStorageKey = 'firestore_debug_tracker_storage_v1';
 const firestoreCloudUsageBaselineStorageKey =
     'firestore_cloud_usage_baseline_v1';
+const appDeviceIdStorageKey = 'ccs_app_device_id_v1';
 
 Future<void> loadFirestoreDebugButtonPreference() async {
   try {
@@ -2098,8 +2105,7 @@ const _ruText = <String, String>{
       'Открывайте забаненных пользователей и снимайте бан',
   'All users': 'Все пользователи',
   'No banned users': 'Забаненных пользователей нет',
-  'Banned users will appear here.':
-      'Забаненные пользователи появятся здесь.',
+  'Banned users will appear here.': 'Забаненные пользователи появятся здесь.',
   'Protected account': 'Защищённый аккаунт',
   'Telegram login server is not available. Check internet or backend status.':
       'Сервер Telegram-входа недоступен. Проверьте интернет или backend.',
@@ -2800,8 +2806,7 @@ const _lvText = <String, String>{
       'Atveriet bloķētos lietotājus un noņemiet bloķēšanu',
   'All users': 'Visi lietotāji',
   'No banned users': 'Bloķētu lietotāju nav',
-  'Banned users will appear here.':
-      'Bloķētie lietotāji parādīsies šeit.',
+  'Banned users will appear here.': 'Bloķētie lietotāji parādīsies šeit.',
   'Protected account': 'Aizsargāts konts',
   'Telegram login server is not available. Check internet or backend status.':
       'Telegram pieslēgšanās serveris nav pieejams. Pārbaudiet internetu vai backend.',
@@ -3540,9 +3545,7 @@ class _BannedUserScreenState extends State<BannedUserScreen> {
                       ),
                       const SizedBox(height: 18),
                       Text(
-                        trText(
-                          'Contact an administrator if this looks wrong.',
-                        ),
+                        trText('Contact an administrator if this looks wrong.'),
                         textAlign: TextAlign.center,
                         style: const TextStyle(
                           color: Colors.white54,
@@ -3556,7 +3559,9 @@ class _BannedUserScreenState extends State<BannedUserScreen> {
                         onPressed: signingOut ? null : signOut,
                         icon: const Icon(Icons.logout, color: Colors.white),
                         label: Text(
-                          signingOut ? trText('Signing out...') : trText('Sign out'),
+                          signingOut
+                              ? trText('Signing out...')
+                              : trText('Sign out'),
                           style: const TextStyle(
                             color: Colors.white,
                             fontWeight: FontWeight.w900,
@@ -4568,9 +4573,10 @@ void updateSpotCategoryFilters(Set<String> categories) {
 class MapFocusRequest {
   final String spotId;
   final LatLng coordinates;
+  final CarSpot? spot;
   final int token;
 
-  MapFocusRequest({required this.spotId, required this.coordinates})
+  MapFocusRequest({required this.spotId, required this.coordinates, this.spot})
     : token = DateTime.now().microsecondsSinceEpoch;
 }
 
@@ -5274,6 +5280,8 @@ Future<void> stopCurrentUserAppServicesForAccessBlock() async {
     await subscription.cancel();
   }
   spotSyncSubscriptions.clear();
+  await adminReviewSpotSubscription?.cancel();
+  adminReviewSpotSubscription = null;
   _firebaseSpotCacheBySource.clear();
   await notificationCenterUnreadSubscription?.cancel();
   notificationCenterUnreadSubscription = null;
@@ -5281,6 +5289,8 @@ Future<void> stopCurrentUserAppServicesForAccessBlock() async {
   adminNotificationCenterUnreadSubscription = null;
   await friendLocationNotificationCenterUnreadSubscription?.cancel();
   friendLocationNotificationCenterUnreadSubscription = null;
+  notificationCenterUnreadRefreshDebounce?.cancel();
+  notificationCenterUnreadRefreshDebounce = null;
   notificationCenterUnreadCountsBySource.clear();
   notificationCenterUnreadCount.value = 0;
   await stopCurrentUserLikedSpotsSync();
@@ -5334,6 +5344,8 @@ Future<void> signOutCurrentAccount() async {
     await subscription.cancel();
   }
   spotSyncSubscriptions.clear();
+  await adminReviewSpotSubscription?.cancel();
+  adminReviewSpotSubscription = null;
   _firebaseSpotCacheBySource.clear();
   await notificationCenterUnreadSubscription?.cancel();
   notificationCenterUnreadSubscription = null;
@@ -5341,6 +5353,8 @@ Future<void> signOutCurrentAccount() async {
   adminNotificationCenterUnreadSubscription = null;
   await friendLocationNotificationCenterUnreadSubscription?.cancel();
   friendLocationNotificationCenterUnreadSubscription = null;
+  notificationCenterUnreadRefreshDebounce?.cancel();
+  notificationCenterUnreadRefreshDebounce = null;
   notificationCenterUnreadCountsBySource.clear();
   notificationCenterUnreadCount.value = 0;
   await stopCurrentUserLikedSpotsSync();
@@ -5763,6 +5777,12 @@ Future<AppUser> saveFirebaseUser(
     );
   }
 
+  final appDeviceId = await getOrCreateAppDeviceId();
+  await ensureAppDeviceIsAllowed(
+    deviceId: appDeviceId,
+    currentUid: firebaseUser.uid,
+  );
+
   final role = isNewUser
       ? await defaultRoleForNewFirebaseUser()
       : roleFromFirebase(data?['role']);
@@ -5798,10 +5818,9 @@ Future<AppUser> saveFirebaseUser(
   final verified = data?['verified'] == true;
   final settings = UserSettingsData.fromFirebase(data?['settings']);
   final garage = garageCarsFromFirebase(data?['garage']);
-  final effectiveProvider =
-      !isNewUser && provider == 'firebase'
-          ? stringFromFirebase(data?['provider'], provider)
-          : provider;
+  final effectiveProvider = !isNewUser && provider == 'firebase'
+      ? stringFromFirebase(data?['provider'], provider)
+      : provider;
 
   userSettings.value = settings;
   garageCars.value = garage;
@@ -5856,6 +5875,10 @@ Future<AppUser> saveFirebaseUser(
     'garage': garage.map((car) => car.toFirebase()).toList(),
     'provider': effectiveProvider,
     'telegramUsername': telegramUsername,
+    'deviceIds': FieldValue.arrayUnion([appDeviceId]),
+    'lastDeviceId': appDeviceId,
+    'lastDevicePlatform': Platform.operatingSystem,
+    'lastDeviceSeenAt': FieldValue.serverTimestamp(),
     'isOnline': true,
     'lastSeenAt': FieldValue.serverTimestamp(),
     'updatedAt': FieldValue.serverTimestamp(),
@@ -5889,6 +5912,68 @@ Future<AppUser> saveFirebaseUser(
   );
 }
 
+bool isTransientFirebaseAuthNetworkError(Object error) {
+  final text = error.toString().toLowerCase();
+  if (error is SocketException || error is TimeoutException) {
+    return true;
+  }
+
+  if (error is FirebaseException) {
+    final code = error.code.toLowerCase();
+    if (code == 'network-request-failed' || code == 'unknown') {
+      return true;
+    }
+  }
+
+  return text.contains('i/o error during system call') ||
+      text.contains('software caused connection abort') ||
+      text.contains('connection reset') ||
+      text.contains('connection aborted') ||
+      text.contains('connection closed') ||
+      text.contains('failed host lookup') ||
+      text.contains('socketexception') ||
+      text.contains('timed out') ||
+      text.contains('timeout');
+}
+
+Future<User> signInWithCustomTokenRetrying(String firebaseToken) async {
+  Object? lastError;
+
+  for (var attempt = 0; attempt < 3; attempt++) {
+    try {
+      if (attempt > 0) {
+        await Future.delayed(Duration(milliseconds: 700 * attempt * attempt));
+      }
+
+      final credential = await FirebaseAuth.instance
+          .signInWithCustomToken(firebaseToken)
+          .timeout(const Duration(seconds: 20));
+      final user = credential.user;
+      if (user != null) {
+        return user;
+      }
+
+      throw Exception('Firebase login finished without a user.');
+    } catch (error, stack) {
+      lastError = error;
+      debugPrint('Firebase custom-token sign-in attempt ${attempt + 1} failed');
+      debugPrint('$error');
+      debugPrint('$stack');
+
+      final alreadySignedInUser = FirebaseAuth.instance.currentUser;
+      if (alreadySignedInUser != null) {
+        return alreadySignedInUser;
+      }
+
+      if (!isTransientFirebaseAuthNetworkError(error) || attempt == 2) {
+        rethrow;
+      }
+    }
+  }
+
+  throw Exception('Firebase login failed. Last error: $lastError');
+}
+
 Future<AppUser> signInWithTelegramAndSaveUser({
   NewUserNicknameRequester? requestNewUserNickname,
 }) async {
@@ -5899,20 +5984,65 @@ Future<AppUser> signInWithTelegramAndSaveUser({
     );
   }
 
-  final baseUrl = telegramAuthBaseUrl.trim();
-  if (baseUrl.contains('YOUR_CCS_TELEGRAM_AUTH_BACKEND')) {
+  final baseUrls = telegramAuthBaseUrls
+      .map((url) => url.trim())
+      .where(
+        (url) =>
+            url.isNotEmpty && !url.contains('YOUR_CCS_TELEGRAM_AUTH_BACKEND'),
+      )
+      .toSet()
+      .toList();
+
+  if (baseUrls.isEmpty) {
     throw Exception(
       'Telegram backend URL is not set. Deploy telegram_auth_server first.',
     );
   }
 
-  final startData = await getJsonFromUrl('$baseUrl/api/telegram-start');
+  String? baseUrl;
+  Map<String, dynamic>? startData;
+  Object? lastStartError;
+
+  for (final candidateBaseUrl in baseUrls) {
+    try {
+      debugPrint('Trying Telegram auth backend: $candidateBaseUrl');
+      final candidateStartData = await getJsonFromUrl(
+        '$candidateBaseUrl/api/telegram-start',
+      ).timeout(const Duration(seconds: 12));
+
+      final candidateSessionId = stringFromFirebase(
+        candidateStartData['sessionId'],
+        '',
+      );
+      final candidateLoginUrl = stringFromFirebase(
+        candidateStartData['loginUrl'],
+        '',
+      );
+
+      if (candidateSessionId.isEmpty || candidateLoginUrl.isEmpty) {
+        throw Exception('Telegram backend returned an invalid login session.');
+      }
+
+      baseUrl = candidateBaseUrl;
+      startData = candidateStartData;
+      break;
+    } catch (error, stack) {
+      lastStartError = error;
+      debugPrint('Telegram auth backend failed: $candidateBaseUrl');
+      debugPrint('$error');
+      debugPrint('$stack');
+    }
+  }
+
+  if (baseUrl == null || startData == null) {
+    throw Exception(
+      'Could not reach Telegram login server. Try switching Wi-Fi/mobile data '
+      'or update the app. Last error: $lastStartError',
+    );
+  }
+
   final sessionId = stringFromFirebase(startData['sessionId'], '');
   final loginUrl = stringFromFirebase(startData['loginUrl'], '');
-
-  if (sessionId.isEmpty || loginUrl.isEmpty) {
-    throw Exception('Telegram backend returned an invalid login session.');
-  }
 
   final opened = await launchUrl(
     Uri.parse(loginUrl),
@@ -5924,29 +6054,51 @@ Future<AppUser> signInWithTelegramAndSaveUser({
   }
 
   Map<String, dynamic>? completeData;
+  Object? lastStatusError;
+  var consecutiveStatusErrors = 0;
 
   for (var attempt = 0; attempt < 90; attempt++) {
     await Future.delayed(const Duration(seconds: 2));
 
-    final statusData = await getJsonFromUrl(
-      '$baseUrl/api/telegram-status?sessionId=${Uri.encodeComponent(sessionId)}',
-    );
-    final status = stringFromFirebase(statusData['status'], 'pending');
+    try {
+      final statusData = await getJsonFromUrl(
+        '$baseUrl/api/telegram-status?sessionId=${Uri.encodeComponent(sessionId)}',
+      ).timeout(const Duration(seconds: 12));
+      consecutiveStatusErrors = 0;
+      final status = stringFromFirebase(statusData['status'], 'pending');
 
-    if (status == 'complete') {
-      completeData = statusData;
-      break;
-    }
+      if (status == 'complete') {
+        completeData = statusData;
+        break;
+      }
 
-    if (status == 'error') {
-      throw Exception(
-        stringFromFirebase(statusData['message'], 'Telegram login failed.'),
-      );
+      if (status == 'error') {
+        throw Exception(
+          stringFromFirebase(statusData['message'], 'Telegram login failed.'),
+        );
+      }
+    } catch (error, stack) {
+      lastStatusError = error;
+      consecutiveStatusErrors += 1;
+      debugPrint('Telegram auth status check failed: $baseUrl');
+      debugPrint('$error');
+      debugPrint('$stack');
+
+      if (consecutiveStatusErrors >= 5) {
+        throw Exception(
+          'Telegram login server became unreachable. Try switching Wi-Fi/mobile '
+          'data and try again. Last error: $lastStatusError',
+        );
+      }
     }
   }
 
   if (completeData == null) {
-    throw Exception('Telegram login timed out. Try again.');
+    throw Exception(
+      lastStatusError == null
+          ? 'Telegram login timed out. Try again.'
+          : 'Telegram login timed out. Last error: $lastStatusError',
+    );
   }
 
   final firebaseToken = stringFromFirebase(completeData['firebaseToken'], '');
@@ -5956,14 +6108,7 @@ Future<AppUser> signInWithTelegramAndSaveUser({
     throw Exception('Telegram backend did not return a Firebase token.');
   }
 
-  final userCredential = await FirebaseAuth.instance.signInWithCustomToken(
-    firebaseToken,
-  );
-  final firebaseUser = userCredential.user;
-
-  if (firebaseUser == null) {
-    throw Exception('Firebase login finished without a user.');
-  }
+  final firebaseUser = await signInWithCustomTokenRetrying(firebaseToken);
 
   final telegramUsername = stringFromFirebase(telegramData['username'], '');
   final firstName = stringFromFirebase(telegramData['first_name'], '');
@@ -6784,8 +6929,8 @@ class CarSpot {
       categories: stringListFromFirebase(data['categories'], const ['Photo']),
       rating: doubleFromFirebase(data['rating'], 0),
       ratingCount: intFromFirebase(data['ratingCount'], 0),
-      likeCount: intFromFirebase(data['likeCount'], 0),
-      commentCount: intFromFirebase(data['commentCount'], 0),
+      likeCount: math.max(0, intFromFirebase(data['likeCount'], 0)),
+      commentCount: math.max(0, intFromFirebase(data['commentCount'], 0)),
       photoUrl: stringFromFirebase(data['photoUrl'], ''),
       photoUrls: stringListFromFirebase(data['photoUrls'], const []),
       reelLink: stringFromFirebase(data['reelLink'], ''),
@@ -7064,6 +7209,101 @@ bool localFileExists(String? path) {
 
 CollectionReference<Map<String, dynamic>> usersCollection() {
   return FirebaseFirestore.instance.collection('users');
+}
+
+CollectionReference<Map<String, dynamic>> deviceBansCollection() {
+  return FirebaseFirestore.instance.collection('device_bans');
+}
+
+String generateAppDeviceId() {
+  final random = math.Random.secure();
+  final bytes = List<int>.generate(24, (_) => random.nextInt(256));
+  return base64UrlEncode(bytes).replaceAll('=', '');
+}
+
+Future<String> getOrCreateAppDeviceId() async {
+  final prefs = await SharedPreferences.getInstance();
+  final existing = prefs.getString(appDeviceIdStorageKey)?.trim() ?? '';
+
+  if (existing.isNotEmpty) {
+    return existing;
+  }
+
+  final created = generateAppDeviceId();
+  await prefs.setString(appDeviceIdStorageKey, created);
+  return created;
+}
+
+bool deviceBanIsActive(Map<String, dynamic>? data) {
+  if (data?['banned'] != true) {
+    return false;
+  }
+
+  final untilMillis = nullableTimestampMillisFromFirebase(data?['bannedUntil']);
+  return untilMillis == null ||
+      untilMillis > DateTime.now().millisecondsSinceEpoch;
+}
+
+String deviceBanReasonFromFirebase(Map<String, dynamic>? data) {
+  final reason = stringFromFirebase(data?['reason'], '').trim();
+  if (reason.isNotEmpty) {
+    return reason;
+  }
+
+  return stringFromFirebase(
+    data?['banReason'],
+    'This device is banned.',
+  ).trim();
+}
+
+Future<void> ensureAppDeviceIsAllowed({
+  required String deviceId,
+  String? currentUid,
+}) async {
+  final cleanDeviceId = deviceId.trim();
+  if (cleanDeviceId.isEmpty) {
+    return;
+  }
+
+  final snapshot = await deviceBansCollection()
+      .doc(cleanDeviceId)
+      .debugGet(null, 'login: check device ban');
+  final data = snapshot.data();
+
+  if (!snapshot.exists || !deviceBanIsActive(data)) {
+    return;
+  }
+
+  throw FirebaseException(
+    plugin: 'firebase_auth',
+    code: 'device-banned',
+    message: deviceBanReasonFromFirebase(data),
+  );
+}
+
+Future<void> saveDeviceBanForUser({
+  required String deviceId,
+  required AdminUserData user,
+  required Timestamp bannedUntil,
+  required String reason,
+}) async {
+  final cleanDeviceId = deviceId.trim();
+  if (cleanDeviceId.isEmpty) {
+    return;
+  }
+
+  await deviceBansCollection().doc(cleanDeviceId).debugSet({
+    'deviceId': cleanDeviceId,
+    'banned': true,
+    'bannedUntil': bannedUntil,
+    'reason': reason,
+    'sourceUserUid': user.uid,
+    'sourceUsername': user.username,
+    'bannedByUid': currentUser.uid,
+    'bannedBy': currentUser.username,
+    'bannedAt': FieldValue.serverTimestamp(),
+    'updatedAt': FieldValue.serverTimestamp(),
+  }, SetOptions(merge: true));
 }
 
 class SpotOwnerAssignment {
@@ -7553,8 +7793,20 @@ Future<void> createChatMessageNotification({
   }
 }
 
+void scheduleNotificationCenterUnreadRefresh({
+  Duration delay = const Duration(milliseconds: 350),
+}) {
+  notificationCenterUnreadRefreshDebounce?.cancel();
+  notificationCenterUnreadRefreshDebounce = Timer(delay, () {
+    unawaited(refreshNotificationCenterUnreadCount());
+  });
+}
+
 void startNotificationCenterUnreadWatcher() {
   final firebaseUser = FirebaseAuth.instance.currentUser;
+
+  notificationCenterUnreadRefreshDebounce?.cancel();
+  notificationCenterUnreadRefreshDebounce = null;
 
   if (firebaseUser == null) {
     notificationCenterUnreadCountsBySource.clear();
@@ -7566,17 +7818,7 @@ void startNotificationCenterUnreadWatcher() {
   adminNotificationCenterUnreadSubscription?.cancel();
   friendLocationNotificationCenterUnreadSubscription?.cancel();
   notificationCenterUnreadCountsBySource.clear();
-
-  void updateUnreadSource(String source, int count) {
-    notificationCenterUnreadCountsBySource[source] = count;
-    final total = notificationCenterUnreadCountsBySource.values.fold<int>(
-      0,
-      (sum, value) => sum + value,
-    );
-    if (notificationCenterUnreadCount.value != total) {
-      notificationCenterUnreadCount.value = total;
-    }
-  }
+  notificationCenterUnreadCount.value = 0;
 
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>> watchUnreadQuery(
     String source,
@@ -7586,9 +7828,17 @@ void startNotificationCenterUnreadWatcher() {
       'notification center unread watcher: $source',
       query.where('read', isEqualTo: false).limit(50),
     ).listen(
-      (snapshot) => updateUnreadSource(source, snapshot.docs.length),
+      (snapshot) {
+        // Do not trust raw unread counts for the bell. Older/hidden/invalid
+        // notifications can still be unread in Firestore, while the
+        // notification center filters them out. Recompute the visible unread
+        // count through the same loader used by the notification screen.
+        notificationCenterUnreadCountsBySource[source] = snapshot.docs.length;
+        scheduleNotificationCenterUnreadRefresh();
+      },
       onError: (Object error, StackTrace stack) {
-        updateUnreadSource(source, 0);
+        notificationCenterUnreadCountsBySource[source] = 0;
+        scheduleNotificationCenterUnreadRefresh();
         debugPrint('Notification unread watcher failed ($source): $error');
         debugPrint('$stack');
       },
@@ -7609,6 +7859,10 @@ void startNotificationCenterUnreadWatcher() {
       'userId',
       isEqualTo: firebaseUser.uid,
     ),
+  );
+
+  scheduleNotificationCenterUnreadRefresh(
+    delay: const Duration(milliseconds: 50),
   );
 }
 
@@ -8530,9 +8784,13 @@ Future<String> createOrOpenDirectChat(FriendUserData user) async {
     );
     if (hiddenForUserIds.contains(firebaseUser.uid)) {
       try {
-        await chatRef.debugSet({
-          'hiddenForUserIds': FieldValue.arrayRemove([firebaseUser.uid]),
-        }, SetOptions(merge: true), 'chat: unhide direct chat on open');
+        await chatRef.debugSet(
+          {
+            'hiddenForUserIds': FieldValue.arrayRemove([firebaseUser.uid]),
+          },
+          SetOptions(merge: true),
+          'chat: unhide direct chat on open',
+        );
       } catch (error, stack) {
         debugPrint('Direct chat unhide skipped: $error');
         debugPrint('$stack');
@@ -9156,9 +9414,15 @@ Future<void> hideChatForCurrentUser(ChatThreadData chat) async {
     );
   }
 
-  await chatsCollection().doc(chat.id).debugSet({
-    'hiddenForUserIds': FieldValue.arrayUnion([uid]),
-  }, SetOptions(merge: true), 'chat: hide for current user');
+  await chatsCollection()
+      .doc(chat.id)
+      .debugSet(
+        {
+          'hiddenForUserIds': FieldValue.arrayUnion([uid]),
+        },
+        SetOptions(merge: true),
+        'chat: hide for current user',
+      );
   _chatMessageSessionCache.remove(chat.id);
   _chatOldestMessageDocSessionCache.remove(chat.id);
 }
@@ -9166,8 +9430,8 @@ Future<void> hideChatForCurrentUser(ChatThreadData chat) async {
 Future<void> deleteGroupChat(ChatThreadData chat) async {
   final firebaseUser = FirebaseAuth.instance.currentUser;
   final uid = firebaseUser?.uid ?? currentUser.uid;
-  final canDelete = chat.isGroup &&
-      (chat.isOwner(uid) || userRoleIsStaff(currentUser.role));
+  final canDelete =
+      chat.isGroup && (chat.isOwner(uid) || userRoleIsStaff(currentUser.role));
 
   if (!canDelete) {
     throw FirebaseException(
@@ -9220,13 +9484,19 @@ Future<void> leaveGroupChat(ChatThreadData chat) async {
     break;
   }
 
-  await chatsCollection().doc(chat.id).debugSet({
-    'memberIds': FieldValue.arrayRemove([uid]),
-    'memberUsernames': FieldValue.arrayRemove([username]),
-    'memberPhotoUrls': FieldValue.arrayRemove([photoUrl]),
-    'moderatorIds': FieldValue.arrayRemove([uid]),
-    'updatedAt': FieldValue.serverTimestamp(),
-  }, SetOptions(merge: true), 'chat: leave group');
+  await chatsCollection()
+      .doc(chat.id)
+      .debugSet(
+        {
+          'memberIds': FieldValue.arrayRemove([uid]),
+          'memberUsernames': FieldValue.arrayRemove([username]),
+          'memberPhotoUrls': FieldValue.arrayRemove([photoUrl]),
+          'moderatorIds': FieldValue.arrayRemove([uid]),
+          'updatedAt': FieldValue.serverTimestamp(),
+        },
+        SetOptions(merge: true),
+        'chat: leave group',
+      );
   _chatMessageSessionCache.remove(chat.id);
   _chatOldestMessageDocSessionCache.remove(chat.id);
 }
@@ -9667,10 +9937,8 @@ Future<void> createAdminSpotReviewNotification(CarSpot spot) async {
   final batch = FirebaseFirestore.instance.batch();
 
   for (final adminUid in adminUids) {
-    final notificationRef = userNotificationsCollection().doc(
-      'admin_${spot.id}_review_$adminUid',
-    );
-    batch.debugSet(notificationRef, {
+    final notificationId = 'admin_${spot.id}_review_$adminUid';
+    final notificationData = {
       'userId': adminUid,
       'type': 'spot_pending_review',
       'title': 'Spot review updates',
@@ -9684,7 +9952,13 @@ Future<void> createAdminSpotReviewNotification(CarSpot spot) async {
       'addedByUid': spot.addedByUid,
       'read': false,
       'createdAt': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
+    };
+
+    batch.debugSet(
+      adminNotificationsCollection().doc(notificationId),
+      notificationData,
+      SetOptions(merge: true),
+    );
   }
 
   await batch.commit();
@@ -10200,8 +10474,8 @@ CarSpot? carSpotFromLocalCacheData(Object? value) {
       categories: stringListFromFirebase(data['categories'], const ['Photo']),
       rating: doubleFromFirebase(data['rating'], 0),
       ratingCount: intFromFirebase(data['ratingCount'], 0),
-      likeCount: intFromFirebase(data['likeCount'], 0),
-      commentCount: intFromFirebase(data['commentCount'], 0),
+      likeCount: math.max(0, intFromFirebase(data['likeCount'], 0)),
+      commentCount: math.max(0, intFromFirebase(data['commentCount'], 0)),
       photoUrl: stringFromFirebase(data['photoUrl'], ''),
       photoUrls: stringListFromFirebase(data['photoUrls'], const []),
       reelLink: stringFromFirebase(data['reelLink'], ''),
@@ -10406,6 +10680,8 @@ const int firebaseChatMessagesListenLimit = 10;
 
 final List<StreamSubscription<QuerySnapshot<Map<String, dynamic>>>>
 spotSyncSubscriptions = [];
+StreamSubscription<QuerySnapshot<Map<String, dynamic>>>?
+adminReviewSpotSubscription;
 final Map<String, Map<String, CarSpot>> _firebaseSpotCacheBySource = {};
 
 String _spotCacheKey(CarSpot spot) {
@@ -10461,6 +10737,51 @@ void _listenToSpotQuery({
       );
 
   spotSyncSubscriptions.add(subscription);
+}
+
+Future<void> stopAdminReviewSpotSync() async {
+  await adminReviewSpotSubscription?.cancel();
+  adminReviewSpotSubscription = null;
+  _firebaseSpotCacheBySource.remove('admin review');
+  _publishFirebaseSpotCaches();
+}
+
+void startAdminReviewSpotSync() {
+  if (!userRoleIsStaff(currentUser.role)) {
+    unawaited(stopAdminReviewSpotSync());
+    return;
+  }
+
+  unawaited(adminReviewSpotSubscription?.cancel());
+
+  const adminReviewStatuses = <String>[
+    'pending',
+    'edited',
+    'approved',
+    'rejected',
+  ];
+
+  adminReviewSpotSubscription =
+      trackedQuerySnapshots(
+        'spots listener: admin review',
+        spotsCollection()
+            .where('status', whereIn: adminReviewStatuses)
+            .limit(firebaseAdminReviewSpotsListenLimit),
+      ).listen(
+        (snapshot) {
+          _firebaseSpotCacheBySource['admin review'] = {
+            for (final doc in snapshot.docs)
+              _spotCacheKey(CarSpot.fromFirestore(doc)): CarSpot.fromFirestore(
+                doc,
+              ),
+          };
+          _publishFirebaseSpotCaches();
+        },
+        onError: (Object error, StackTrace stack) {
+          debugPrint('Admin review spot listener failed: $error');
+          debugPrint('$stack');
+        },
+      );
 }
 
 bool _spotSyncInProgress = false;
@@ -10588,7 +10909,7 @@ class SpotReviewData {
       username: stringFromFirebase(data['username'], 'ccs_driver'),
       rating: doubleFromFirebase(data['rating'], 5).round().clamp(1, 5).toInt(),
       comment: stringFromFirebase(data['comment'], ''),
-      likeCount: intFromFirebase(data['likeCount'], 0),
+      likeCount: math.max(0, intFromFirebase(data['likeCount'], 0)),
       createdAt: timestamp is Timestamp
           ? timestamp.toDate()
           : DateTime.fromMillisecondsSinceEpoch(0),
@@ -10621,6 +10942,54 @@ class SpotCommentsCacheEntry {
 }
 
 final spotCommentsSessionCache = <String, SpotCommentsCacheEntry>{};
+
+void removeSpotReviewFromSessionCache(String spotId, String reviewId) {
+  final cleanSpotId = spotId.trim();
+  final cleanReviewId = reviewId.trim();
+  if (cleanSpotId.isEmpty || cleanReviewId.isEmpty) {
+    return;
+  }
+
+  final cached = spotCommentsSessionCache[cleanSpotId];
+  if (cached == null) {
+    return;
+  }
+
+  final nextReviews = cached.reviews
+      .where((review) => review.id != cleanReviewId)
+      .toList(growable: false);
+  spotCommentsSessionCache[cleanSpotId] = SpotCommentsCacheEntry(
+    reviews: List<SpotReviewData>.unmodifiable(nextReviews),
+    lastDocument: cached.lastDocument,
+    hasMoreReviews: cached.hasMoreReviews,
+    useFallbackQuery: cached.useFallbackQuery,
+    cachedAtMillis: DateTime.now().millisecondsSinceEpoch,
+  );
+}
+
+void addSpotReviewToSessionCache(SpotReviewData review) {
+  final cleanSpotId = review.spotId.trim();
+  final cleanReviewId = review.id.trim();
+  if (cleanSpotId.isEmpty || cleanReviewId.isEmpty) {
+    return;
+  }
+
+  final cached = spotCommentsSessionCache[cleanSpotId];
+  final existingReviews = cached?.reviews ?? const <SpotReviewData>[];
+  final nextReviews = <SpotReviewData>[
+    review,
+    ...existingReviews.where((item) => item.id != cleanReviewId),
+  ];
+
+  spotCommentsSessionCache[cleanSpotId] = SpotCommentsCacheEntry(
+    reviews: List<SpotReviewData>.unmodifiable(nextReviews),
+    lastDocument: cached?.lastDocument,
+    hasMoreReviews: cached?.hasMoreReviews ?? true,
+    useFallbackQuery: cached?.useFallbackQuery ?? false,
+    cachedAtMillis: DateTime.now().millisecondsSinceEpoch,
+  );
+}
+
 final currentUserSpotRatingCache = ValueNotifier<Map<String, int>>({});
 final Set<String> currentUserSpotRatingLoadsInFlight = {};
 
@@ -11151,6 +11520,29 @@ Future<void> toggleSpotLike(
   try {
     await FirebaseFirestore.instance.runTransaction((transaction) async {
       final likeSnapshot = await transaction.debugGet(likeRef);
+      DocumentSnapshot<Map<String, dynamic>>? spotSnapshot;
+      if (spotRef != null) {
+        spotSnapshot = await transaction.debugGet(
+          spotRef,
+          'spot like counter current spot get',
+        );
+      }
+
+      void writeSafeSpotLikeCount(int delta, String label) {
+        if (spotRef == null || spotSnapshot == null || !spotSnapshot!.exists) {
+          return;
+        }
+
+        final currentCount = math.max(
+          0,
+          intFromFirebase(spotSnapshot!.data()?['likeCount'], spot.likeCount),
+        );
+        final nextCount = math.max(0, currentCount + delta);
+        transaction.debugUpdate(spotRef, {
+          'likeCount': nextCount,
+          'updatedAt': FieldValue.serverTimestamp(),
+        }, label);
+      }
 
       if (targetLiked) {
         if (likeSnapshot.exists) {
@@ -11166,12 +11558,7 @@ Future<void> toggleSpotLike(
           'username': currentUser.username,
           'createdAt': FieldValue.serverTimestamp(),
         });
-        if (spotRef != null) {
-          transaction.debugUpdate(spotRef, {
-            'likeCount': FieldValue.increment(1),
-            'updatedAt': FieldValue.serverTimestamp(),
-          }, 'spot like counter increment');
-        }
+        writeSafeSpotLikeCount(1, 'spot like counter safe increment');
         likeDelta = 1;
         return;
       }
@@ -11181,12 +11568,7 @@ Future<void> toggleSpotLike(
       }
 
       transaction.debugDelete(likeRef);
-      if (spotRef != null) {
-        transaction.debugUpdate(spotRef, {
-          'likeCount': FieldValue.increment(-1),
-          'updatedAt': FieldValue.serverTimestamp(),
-        }, 'spot like counter decrement');
-      }
+      writeSafeSpotLikeCount(-1, 'spot like counter safe decrement');
       likeDelta = -1;
     });
   } catch (error) {
@@ -11299,6 +11681,28 @@ Future<void> toggleCommentLike(
         likeRef,
         'comment like toggle existing like get',
       );
+      final reviewSnapshot = await transaction.debugGet(
+        reviewRef,
+        'comment like counter current review get',
+      );
+
+      void writeSafeCommentLikeCount(int delta) {
+        if (!reviewSnapshot.exists) {
+          return;
+        }
+
+        final currentCount = math.max(
+          0,
+          intFromFirebase(
+            reviewSnapshot.data()?['likeCount'],
+            review.likeCount,
+          ),
+        );
+        transaction.debugUpdate(reviewRef, {
+          'likeCount': math.max(0, currentCount + delta),
+          'updatedAt': FieldValue.serverTimestamp(),
+        }, 'comment like counter safe update');
+      }
 
       if (targetLiked) {
         if (likeSnapshot.exists) {
@@ -11313,10 +11717,7 @@ Future<void> toggleCommentLike(
           'username': currentUser.username,
           'createdAt': FieldValue.serverTimestamp(),
         });
-        transaction.debugUpdate(reviewRef, {
-          'likeCount': FieldValue.increment(1),
-          'updatedAt': FieldValue.serverTimestamp(),
-        });
+        writeSafeCommentLikeCount(1);
         return;
       }
 
@@ -11325,10 +11726,7 @@ Future<void> toggleCommentLike(
       }
 
       transaction.debugDelete(likeRef);
-      transaction.debugUpdate(reviewRef, {
-        'likeCount': FieldValue.increment(-1),
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
+      writeSafeCommentLikeCount(-1);
     });
   } catch (error) {
     setCurrentUserCommentLikedLocally(review.id, currentlyLiked);
@@ -11481,6 +11879,7 @@ Future<SpotReviewData> saveSpotReview({
     createdAt: now,
   );
 
+  addSpotReviewToSessionCache(review);
   updateSpotCountersLocally(spot, commentDelta: 1);
   unawaited(updateSpotCountersOnServer(spot, commentDelta: 1));
 
@@ -11552,7 +11951,10 @@ Future<void> deleteSpotReview({
     );
   }
 
-  if (firebaseUser.uid != review.userId) {
+  final canDelete =
+      firebaseUser.uid == review.userId || userRoleIsAdmin(currentUser.role);
+
+  if (!canDelete) {
     throw FirebaseException(
       plugin: 'cloud_firestore',
       code: 'permission-denied',
@@ -11560,11 +11962,23 @@ Future<void> deleteSpotReview({
     );
   }
 
-  await spotReviewsCollection().doc(review.id).debugDelete();
+  final reviewRef = spotReviewsCollection().doc(review.id);
+  final reviewSnapshot = await reviewRef.debugGet(
+    const GetOptions(source: Source.server),
+    'spot comment delete server verify get',
+  );
+
+  if (!reviewSnapshot.exists) {
+    removeSpotReviewFromSessionCache(review.spotId, review.id);
+    return;
+  }
+
+  await reviewRef.debugDelete('spot comment delete');
+  removeSpotReviewFromSessionCache(review.spotId, review.id);
 
   if (review.comment.trim().isNotEmpty) {
     updateSpotCountersLocally(spot, commentDelta: -1);
-    unawaited(updateSpotCountersOnServer(spot, commentDelta: -1));
+    await updateSpotCountersOnServer(spot, commentDelta: -1);
   }
 }
 
@@ -11945,24 +12359,51 @@ Future<void> updateSpotCountersOnServer(
   int likeDelta = 0,
   int commentDelta = 0,
 }) async {
-  if (spot.id.trim().isEmpty || (likeDelta == 0 && commentDelta == 0)) {
+  final spotId = spot.id.trim();
+  if (spotId.isEmpty || (likeDelta == 0 && commentDelta == 0)) {
     return;
   }
 
-  final data = <Object, Object?>{'updatedAt': FieldValue.serverTimestamp()};
-  if (likeDelta != 0) {
-    data['likeCount'] = FieldValue.increment(likeDelta);
-  }
-  if (commentDelta != 0) {
-    data['commentCount'] = FieldValue.increment(commentDelta);
-  }
+  final spotRef = spotsCollection().doc(spotId);
 
   try {
-    await spotsCollection()
-        .doc(spot.id)
-        .debugUpdate(data, 'spot counter update');
+    await FirebaseFirestore.instance.runTransaction((transaction) async {
+      final snapshot = await transaction.debugGet(
+        spotRef,
+        'spot counter safe current spot get',
+      );
+      if (!snapshot.exists) {
+        return;
+      }
+
+      final data = snapshot.data() ?? const <String, dynamic>{};
+      final update = <Object, Object?>{
+        'updatedAt': FieldValue.serverTimestamp(),
+      };
+
+      if (likeDelta != 0) {
+        final currentLikeCount = math.max(
+          0,
+          intFromFirebase(data['likeCount'], spot.likeCount),
+        );
+        update['likeCount'] = math.max(0, currentLikeCount + likeDelta);
+      }
+
+      if (commentDelta != 0) {
+        final currentCommentCount = math.max(
+          0,
+          intFromFirebase(data['commentCount'], spot.commentCount),
+        );
+        update['commentCount'] = math.max(
+          0,
+          currentCommentCount + commentDelta,
+        );
+      }
+
+      transaction.debugUpdate(spotRef, update, 'spot counter safe update');
+    });
   } catch (error, stack) {
-    debugPrint('Spot counter update failed for ${spot.id}: $error');
+    debugPrint('Spot counter update failed for $spotId: $error');
     debugPrint('$stack');
   }
 }
@@ -12410,8 +12851,10 @@ bool notificationCenterItemIsRejected(NotificationCenterItem item) {
       type == 'spot_rejected_by_admin' ||
       type.contains('reject') ||
       title.contains('rejected') ||
+      title.contains('not approved') ||
       body.contains('rejected') ||
       body.contains('was rejected') ||
+      body.contains('not approved') ||
       item.rejectionReason.trim().isNotEmpty;
 }
 
@@ -12533,6 +12976,14 @@ String notificationCenterDisplayTitle(NotificationCenterItem item) {
 String notificationCenterDisplayBody(NotificationCenterItem item) {
   final body = item.body.trim();
   if (item.type != 'chat_message') {
+    if (notificationCenterItemIsRejected(item) &&
+        item.rejectionReason.trim().isNotEmpty &&
+        !body.toLowerCase().contains('reason:')) {
+      final spotName = item.spotName.trim().isEmpty
+          ? 'Your spot'
+          : item.spotName.trim();
+      return '$spotName was rejected. Reason: ${item.rejectionReason.trim()}';
+    }
     return body;
   }
 
@@ -12561,6 +13012,31 @@ String spotNameFromNotificationBody(String type, String body) {
       caseSensitive: false,
     ).firstMatch(cleanBody);
     return match?.group(1)?.trim().replaceAll(RegExp(r'\.+$'), '') ?? '';
+  }
+
+  if (cleanType == 'spot_review_update' ||
+      cleanType == 'spot_rejected_by_admin' ||
+      cleanType == 'spot_approved_by_admin' ||
+      cleanType == 'spot_pending_review') {
+    final patterns = [
+      RegExp(r'^(.+?)\s+was\s+not\s+approved\.?$', caseSensitive: false),
+      RegExp(
+        r'^(.+?)\s+was\s+rejected(?:\.|\s+Reason:|$)',
+        caseSensitive: false,
+      ),
+      RegExp(r'^(.+?)\s+was\s+approved\.?$', caseSensitive: false),
+      RegExp(r'^(.+?)\s+is\s+waiting\s+for\s+review\.?$', caseSensitive: false),
+      RegExp(r'^(.+?)\s+rejected\b', caseSensitive: false),
+      RegExp(r'^(.+?)\s+approved\b', caseSensitive: false),
+    ];
+
+    for (final pattern in patterns) {
+      final match = pattern.firstMatch(cleanBody);
+      final value = match?.group(1)?.trim().replaceAll(RegExp(r'\.+$'), '');
+      if (value != null && value.isNotEmpty) {
+        return value;
+      }
+    }
   }
 
   return '';
@@ -12629,11 +13105,12 @@ NotificationCenterItem notificationCenterItemFromJson(Object? value) {
       status == 'rejected' &&
       rejectionReason.trim().isNotEmpty &&
       !body.toLowerCase().contains('reason:')) {
-    if (body.trim().isEmpty) {
+    final lowerBody = body.toLowerCase();
+    if (body.trim().isEmpty || lowerBody.contains('not approved')) {
       body = spotName.trim().isEmpty
           ? 'Your spot was rejected. Reason: ${rejectionReason.trim()}'
           : '$spotName was rejected. Reason: ${rejectionReason.trim()}';
-    } else if (body.toLowerCase().contains('rejected')) {
+    } else if (lowerBody.contains('rejected')) {
       body = bodyWithRejectionReason(body, rejectionReason);
     }
   }
@@ -12894,6 +13371,100 @@ Future<List<NotificationCenterItem>> enrichRejectedNotificationCenterItems(
   return enriched;
 }
 
+String notificationCenterSpotDedupKey(NotificationCenterItem item) {
+  final cleanName = item.spotName.trim().toLowerCase();
+  if (cleanName.isNotEmpty) {
+    return 'name:$cleanName';
+  }
+
+  final bodyName = spotNameFromNotificationBody(
+    item.type,
+    item.body,
+  ).trim().toLowerCase();
+  if (bodyName.isNotEmpty) {
+    return 'name:$bodyName';
+  }
+
+  final cleanSpotId = item.spotId.trim();
+  if (cleanSpotId.isNotEmpty) {
+    return 'id:$cleanSpotId';
+  }
+
+  return '';
+}
+
+int rejectedNotificationStrength(NotificationCenterItem item) {
+  final body = item.body.toLowerCase();
+  var score = 1;
+
+  if (body.contains('rejected')) {
+    score = 2;
+  }
+  if (body.contains('reason:')) {
+    score = 3;
+  }
+  if (item.rejectionReason.trim().isNotEmpty) {
+    score = 4;
+  }
+
+  // Generic legacy wording is weaker than the explicit rejected notification,
+  // even if we later enrich it with the rejection reason from the spot doc.
+  if (body.contains('not approved')) {
+    score -= 1;
+  }
+
+  return score;
+}
+
+List<NotificationCenterItem> removeDuplicateSpotReviewNotifications(
+  List<NotificationCenterItem> items,
+) {
+  final strongestRejectedBySpot = <String, NotificationCenterItem>{};
+
+  for (final item in items) {
+    if (!notificationCenterItemIsRejected(item)) {
+      continue;
+    }
+
+    final spotKey = notificationCenterSpotDedupKey(item);
+    if (spotKey.isEmpty) {
+      continue;
+    }
+
+    final existing = strongestRejectedBySpot[spotKey];
+    if (existing == null ||
+        rejectedNotificationStrength(item) >=
+            rejectedNotificationStrength(existing)) {
+      strongestRejectedBySpot[spotKey] = item;
+    }
+  }
+
+  if (strongestRejectedBySpot.isEmpty) {
+    return items;
+  }
+
+  return items.where((item) {
+    if (!notificationCenterItemIsRejected(item)) {
+      return true;
+    }
+
+    final spotKey = notificationCenterSpotDedupKey(item);
+    if (spotKey.isEmpty) {
+      return true;
+    }
+
+    final strongest = strongestRejectedBySpot[spotKey];
+    if (strongest == null || identical(strongest, item)) {
+      return true;
+    }
+
+    // Keep only the best rejected notification per spot. This removes the
+    // older generic "was not approved" item when the proper rejected item
+    // with a reason exists.
+    return false;
+  }).toList();
+}
+
 Future<Map<String, String>?> firebaseNotificationHeaders() async {
   final firebaseUser = FirebaseAuth.instance.currentUser;
 
@@ -12909,29 +13480,38 @@ Future<Map<String, String>?> firebaseNotificationHeaders() async {
   return {HttpHeaders.authorizationHeader: 'Bearer $token'};
 }
 
-Future<QuerySnapshot<Map<String, dynamic>>> loadUserNotificationCenterSnapshot(
+Future<QuerySnapshot<Map<String, dynamic>>> loadNotificationCenterSnapshot(
+  CollectionReference<Map<String, dynamic>> collection,
   String uid,
+  String label,
 ) async {
-  final query = userNotificationsCollection()
+  final query = collection
       .where('userId', isEqualTo: uid)
       .orderBy('createdAt', descending: true)
       .limit(25);
 
   try {
-    return await query.debugGet(
-      null,
-      'notification center: user notifications',
-    );
+    return await query.debugGet(null, 'notification center: $label');
   } catch (error, stack) {
     debugPrint(
-      'Ordered notification query failed, retrying without order: $error',
+      'Ordered notification query failed for $label, retrying without order: $error',
     );
     debugPrint('$stack');
-    return userNotificationsCollection()
+    return collection
         .where('userId', isEqualTo: uid)
         .limit(25)
-        .debugGet(null, 'notification center: user notifications fallback');
+        .debugGet(null, 'notification center: $label fallback');
   }
+}
+
+Future<QuerySnapshot<Map<String, dynamic>>> loadUserNotificationCenterSnapshot(
+  String uid,
+) {
+  return loadNotificationCenterSnapshot(
+    userNotificationsCollection(),
+    uid,
+    'user notifications',
+  );
 }
 
 Future<List<NotificationCenterItem>> loadNotificationCenterItems() async {
@@ -12945,15 +13525,55 @@ Future<List<NotificationCenterItem>> loadNotificationCenterItems() async {
     return const [];
   }
 
-  try {
-    final snapshot = await loadUserNotificationCenterSnapshot(firebaseUser.uid);
-    for (final doc in snapshot.docs) {
-      items.add(notificationCenterItemFromDocument(doc));
+  Future<void> loadFromCollection(
+    CollectionReference<Map<String, dynamic>> collection,
+    String label,
+  ) async {
+    try {
+      final snapshot = await loadNotificationCenterSnapshot(
+        collection,
+        firebaseUser.uid,
+        label,
+      );
+      for (final doc in snapshot.docs) {
+        items.add(notificationCenterItemFromDocument(doc));
+      }
+    } catch (error, stack) {
+      debugPrint('Notification center could not load $label: $error');
+      debugPrint('$stack');
     }
-  } catch (error, stack) {
-    debugPrint('Notification center could not load user notifications: $error');
-    debugPrint('$stack');
   }
+
+  await loadFromCollection(userNotificationsCollection(), 'user notifications');
+  await loadFromCollection(
+    adminNotificationsCollection(),
+    'admin notifications',
+  );
+  await loadFromCollection(
+    friendLocationNotificationsCollection(),
+    'friend location notifications',
+  );
+
+  final uniqueItemsById = <String, NotificationCenterItem>{};
+  final uniqueItemsWithoutId = <NotificationCenterItem>[];
+  for (final item in items) {
+    final id = item.id.trim();
+    if (id.isEmpty) {
+      uniqueItemsWithoutId.add(item);
+      continue;
+    }
+
+    final existing = uniqueItemsById[id];
+    if (existing == null ||
+        item.createdAtMillis >= existing.createdAtMillis ||
+        item.reference?.path.startsWith('admin_notifications/') == true) {
+      uniqueItemsById[id] = item;
+    }
+  }
+  items
+    ..clear()
+    ..addAll(uniqueItemsById.values)
+    ..addAll(uniqueItemsWithoutId);
 
   // User-facing action notifications need a real target. Old push/history
   // copies can have only title/body, which cannot open a chat or spot.
@@ -12993,7 +13613,9 @@ Future<List<NotificationCenterItem>> loadNotificationCenterItems() async {
     });
   }
 
-  final enrichedItems = await enrichRejectedNotificationCenterItems(items);
+  final enrichedItems = removeDuplicateSpotReviewNotifications(
+    await enrichRejectedNotificationCenterItems(items),
+  );
   items
     ..clear()
     ..addAll(enrichedItems);
@@ -14040,6 +14662,12 @@ class _LoginScreenState extends State<LoginScreen>
       );
     }
 
+    if (isTransientFirebaseAuthNetworkError(error)) {
+      return trText(
+        'Login connection was interrupted. Please try again or switch Wi-Fi/mobile data.',
+      );
+    }
+
     if (error is FirebaseException && error.code == 'permission-denied') {
       return trText(
         'Login could not access your account data. Try again or contact admin.',
@@ -14135,7 +14763,10 @@ class _LoginScreenState extends State<LoginScreen>
                     style: const TextStyle(color: Colors.white),
                     decoration: InputDecoration(
                       labelText: trText('Nickname'),
-                      prefixIcon: const Icon(Icons.alternate_email, color: blue),
+                      prefixIcon: const Icon(
+                        Icons.alternate_email,
+                        color: blue,
+                      ),
                     ),
                   ),
                   if (errorText != null) ...[
@@ -14160,7 +14791,11 @@ class _LoginScreenState extends State<LoginScreen>
                 TextButton(
                   onPressed: isChecking ? null : () => unawaited(submit()),
                   child: Text(
-                    trText(isChecking ? 'Checking nickname availability...' : 'Create account'),
+                    trText(
+                      isChecking
+                          ? 'Checking nickname availability...'
+                          : 'Create account',
+                    ),
                     style: const TextStyle(color: blue),
                   ),
                 ),
@@ -14404,14 +15039,16 @@ class _RememberMeRow extends StatelessWidget {
 }
 
 class MainScreen extends StatefulWidget {
-  const MainScreen({super.key});
+  final int initialIndex;
+
+  const MainScreen({super.key, this.initialIndex = 0});
 
   @override
   State<MainScreen> createState() => _MainScreenState();
 }
 
 class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
-  int index = 0;
+  late int index;
   bool hasOpenedMap = false;
   bool hasOpenedChat = false;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>?
@@ -14435,8 +15072,18 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   @override
   void initState() {
     super.initState();
+    index = widget.initialIndex.clamp(0, 4).toInt();
+    hasOpenedMap = index == 1;
+    hasOpenedChat = index == 3;
     WidgetsBinding.instance.addObserver(this);
     mapFocusRequest.addListener(handleMapFocusRequest);
+    if (mapFocusRequest.value != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          handleMapFocusRequest();
+        }
+      });
+    }
     unawaited(loadFirestoreDebugButtonPreference());
     unawaited(initializePushNotificationsForCurrentUser());
     startNotificationCenterUnreadWatcher();
@@ -14628,10 +15275,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
               );
             }
 
-            await change.doc.reference.debugSet({
-              'read': true,
-              'readAt': FieldValue.serverTimestamp(),
-            }, SetOptions(merge: true));
+            scheduleNotificationCenterUnreadRefresh();
           }
         });
   }
@@ -16540,6 +17184,7 @@ class _MapScreenState extends State<MapScreen>
   sosReportSubscription;
   Timer? sosDistanceCheckTimer;
   CarSpot? selectedSpot;
+  CarSpot? focusedReviewSpot;
   PoliceReportData? selectedPoliceReport;
   SosReportData? selectedSosReport;
   LiveLocationData? selectedLiveLocation;
@@ -17318,9 +17963,71 @@ class _MapScreenState extends State<MapScreen>
     }).toList();
   }
 
+  List<Marker> get focusedReviewSpotMarkers {
+    final spot = focusedReviewSpot;
+    if (spot == null || !isValidLatLng(spot.coordinates)) {
+      return const <Marker>[];
+    }
+
+    final alreadyVisible = markers.any(
+      (marker) =>
+          distanceBetweenLatLngMeters(marker.point, spot.coordinates) < 1,
+    );
+    if (alreadyVisible) {
+      return const <Marker>[];
+    }
+
+    return [
+      Marker(
+        point: spot.coordinates,
+        width: 64,
+        height: 64,
+        rotate: false,
+        child: GestureDetector(
+          onTap: () {
+            setState(() {
+              selectedSpot = spot;
+              selectedPoliceReport = null;
+              selectedSosReport = null;
+              selectedLiveLocation = null;
+            });
+          },
+          child: Tooltip(
+            message: 'Submitted pin: ${spot.name}',
+            child: Container(
+              decoration: BoxDecoration(
+                color: Colors.redAccent.withValues(alpha: 0.18),
+                shape: BoxShape.circle,
+                border: Border.all(color: Colors.redAccent, width: 2.5),
+                boxShadow: const [
+                  BoxShadow(
+                    color: Colors.black54,
+                    blurRadius: 12,
+                    spreadRadius: 2,
+                  ),
+                ],
+              ),
+              child: Center(
+                child: Container(
+                  width: 12,
+                  height: 12,
+                  decoration: const BoxDecoration(
+                    color: Colors.redAccent,
+                    shape: BoxShape.circle,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    ];
+  }
+
   List<Marker> get allMapMarkers {
     final allMarkers = [
       ...markers,
+      ...focusedReviewSpotMarkers,
       ...policeReportMarkers,
       ...sosReportMarkers,
       ...liveLocationMarkers,
@@ -17767,9 +18474,12 @@ class _MapScreenState extends State<MapScreen>
       }
     }
 
+    final focusSpot = matchingSpot ?? request.spot;
+
     if (mounted) {
       setState(() {
-        selectedSpot = matchingSpot;
+        selectedSpot = focusSpot;
+        focusedReviewSpot = matchingSpot == null ? request.spot : null;
         selectedPoliceReport = null;
         selectedSosReport = null;
         selectedLiveLocation = null;
@@ -22372,6 +23082,7 @@ class _SpotDetailScreenState extends State<SpotDetailScreen> {
     mapFocusRequest.value = MapFocusRequest(
       spotId: spot.id,
       coordinates: spot.coordinates,
+      spot: spot,
     );
 
     // MainScreen listens to mapFocusRequest and switches to the Map tab.
@@ -23698,6 +24409,10 @@ class _SpotReviewsSectionState extends State<SpotReviewsSection> {
                 setState(() {
                   reviews.removeWhere((item) => item.id == review.id);
                 });
+                removeSpotReviewFromSessionCache(
+                  spotReviewKey(widget.spot),
+                  review.id,
+                );
                 saveReviewsToSessionCache();
               },
             ),
@@ -23920,7 +24635,9 @@ class SpotReviewCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final canManage = FirebaseAuth.instance.currentUser?.uid == review.userId;
+    final currentUid = FirebaseAuth.instance.currentUser?.uid;
+    final canEdit = currentUid == review.userId;
+    final canDelete = canEdit || userRoleIsAdmin(currentUser.role);
 
     return Container(
       width: double.infinity,
@@ -23970,25 +24687,31 @@ class SpotReviewCard extends StatelessWidget {
             review.comment,
             style: const TextStyle(color: Colors.white70, height: 1.35),
           ),
-          if (canManage) ...[
+          if (canEdit || canDelete) ...[
             const SizedBox(height: 10),
             Row(
               mainAxisAlignment: MainAxisAlignment.end,
               children: [
-                IconButton(
-                  onPressed: () => _showEditDialog(context),
-                  icon: const Icon(Icons.edit, color: Colors.white54, size: 18),
-                  tooltip: 'Edit comment',
-                ),
-                IconButton(
-                  onPressed: () => _showDeleteDialog(context),
-                  icon: const Icon(
-                    Icons.delete_outline,
-                    color: Colors.white54,
-                    size: 18,
+                if (canEdit)
+                  IconButton(
+                    onPressed: () => _showEditDialog(context),
+                    icon: const Icon(
+                      Icons.edit,
+                      color: Colors.white54,
+                      size: 18,
+                    ),
+                    tooltip: 'Edit comment',
                   ),
-                  tooltip: 'Delete comment',
-                ),
+                if (canDelete)
+                  IconButton(
+                    onPressed: () => _showDeleteDialog(context),
+                    icon: const Icon(
+                      Icons.delete_outline,
+                      color: Colors.white54,
+                      size: 18,
+                    ),
+                    tooltip: 'Delete comment',
+                  ),
               ],
             ),
           ],
@@ -31699,6 +32422,44 @@ class PublicUserProfileScreen extends StatelessWidget {
     );
   }
 
+  Widget staffRoleBadge(UserRole role) {
+    if (!userRoleIsStaff(role)) {
+      return const SizedBox.shrink();
+    }
+
+    final isAdminRole = userRoleIsAdmin(role);
+    final label = isAdminRole ? 'Admin' : 'Moderator';
+    final color = isAdminRole ? Colors.redAccent : blue;
+    final icon = isAdminRole
+        ? Icons.admin_panel_settings
+        : Icons.shield_outlined;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.14),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: color.withValues(alpha: 0.78)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, color: color, size: 15),
+          const SizedBox(width: 5),
+          Text(
+            label,
+            style: TextStyle(
+              color: color,
+              fontSize: 12,
+              fontWeight: FontWeight.w900,
+              letterSpacing: 0.4,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget profileHeader(PublicUserProfileData profile) {
     return Container(
       padding: const EdgeInsets.all(18),
@@ -31735,6 +32496,10 @@ class PublicUserProfileScreen extends StatelessWidget {
                     ],
                   ],
                 ),
+                if (userRoleIsStaff(profile.role)) ...[
+                  const SizedBox(height: 8),
+                  staffRoleBadge(profile.role),
+                ],
                 const SizedBox(height: 7),
                 Row(
                   mainAxisSize: MainAxisSize.min,
@@ -33143,7 +33908,7 @@ class _ProfileRoleBadge extends StatelessWidget {
   Widget build(BuildContext context) {
     final isAdmin = role == UserRole.admin;
     final color = isAdmin ? Colors.redAccent : blue;
-    final label = isAdmin ? 'Admin' : 'Mod';
+    final label = isAdmin ? 'Admin' : 'Moderator';
     final icon = isAdmin ? Icons.shield : Icons.shield_outlined;
 
     return Container(
@@ -35163,6 +35928,7 @@ class AdminUserData {
   final bool banned;
   final int? bannedUntilMillis;
   final String banReason;
+  final List<String> deviceIds;
   final bool deleted;
 
   const AdminUserData({
@@ -35175,6 +35941,7 @@ class AdminUserData {
     required this.banned,
     this.bannedUntilMillis,
     this.banReason = '',
+    this.deviceIds = const [],
     required this.deleted,
   });
 
@@ -35212,6 +35979,7 @@ class AdminUserData {
       banned: data['banned'] == true,
       bannedUntilMillis: bannedUntilMillis,
       banReason: userBanReasonFromFirebase(data),
+      deviceIds: stringListFromFirebase(data['deviceIds'], const []),
       deleted: data['deleted'] == true,
     );
   }
@@ -35418,8 +36186,7 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
   @override
   void initState() {
     super.initState();
-    bannedOnly =
-        widget.initialBannedOnly && currentUser.role == UserRole.admin;
+    bannedOnly = widget.initialBannedOnly && currentUser.role == UserRole.admin;
   }
 
   Future<bool> canManageUser(BuildContext context, AdminUserData user) async {
@@ -35506,7 +36273,6 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
         'roleUpdatedAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
-
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -35587,9 +36353,7 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
                   TextField(
                     controller: daysController,
                     keyboardType: TextInputType.number,
-                    inputFormatters: [
-                      FilteringTextInputFormatter.digitsOnly,
-                    ],
+                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
                     style: const TextStyle(color: Colors.white),
                     decoration: InputDecoration(
                       labelText: trText('Ban duration (days)'),
@@ -35668,6 +36432,7 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
       'bannedByUid': currentUser.uid,
       'bannedBy': currentUser.username,
       'bannedAt': FieldValue.serverTimestamp(),
+      'knownDeviceIdsAtBan': user.deviceIds,
       'updatedAt': FieldValue.serverTimestamp(),
     };
 
@@ -35696,6 +36461,15 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
           .debugSet(banData, SetOptions(merge: true))
           .timeout(const Duration(seconds: 12));
 
+      for (final deviceId in user.deviceIds) {
+        await saveDeviceBanForUser(
+          deviceId: deviceId,
+          user: user,
+          bannedUntil: bannedUntil,
+          reason: input.reason,
+        ).timeout(const Duration(seconds: 12));
+      }
+
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -35711,10 +36485,12 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
         );
       }
     } on FirebaseException catch (error) {
-      if (error.code == 'permission-denied' && banData.containsKey('banReason')) {
+      if (error.code == 'permission-denied' &&
+          banData.containsKey('banReason')) {
         try {
           final legacyBanData = Map<String, Object?>.from(banData)
-            ..remove('banReason');
+            ..remove('banReason')
+            ..remove('knownDeviceIdsAtBan');
           await usersCollection()
               .doc(user.uid)
               .debugSet(legacyBanData, SetOptions(merge: true))
@@ -35769,11 +36545,26 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
         'banned': false,
         'bannedUntil': FieldValue.delete(),
         'banReason': FieldValue.delete(),
+        'knownDeviceIdsAtBan': FieldValue.delete(),
         'unbannedByUid': currentUser.uid,
         'unbannedBy': currentUser.username,
         'unbannedAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
+
+      for (final deviceId in user.deviceIds) {
+        final cleanDeviceId = deviceId.trim();
+        if (cleanDeviceId.isEmpty) {
+          continue;
+        }
+        await deviceBansCollection().doc(cleanDeviceId).debugSet({
+          'banned': false,
+          'unbannedByUid': currentUser.uid,
+          'unbannedBy': currentUser.username,
+          'unbannedAt': FieldValue.serverTimestamp(),
+          'updatedAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+      }
 
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -36373,6 +37164,18 @@ class AdminReviewScreen extends StatefulWidget {
 class _AdminReviewScreenState extends State<AdminReviewScreen> {
   AdminSpotFilter selectedFilter = AdminSpotFilter.pending;
 
+  @override
+  void initState() {
+    super.initState();
+    startAdminReviewSpotSync();
+  }
+
+  @override
+  void dispose() {
+    unawaited(stopAdminReviewSpotSync());
+    super.dispose();
+  }
+
   Widget filterChip(AdminSpotFilter filter) {
     final selected = selectedFilter == filter;
     final count = adminSpotCount(filter);
@@ -36634,16 +37437,7 @@ class AdminSpotTile extends StatelessWidget {
                 ],
               ),
             ),
-            IconButton(
-              tooltip: 'Edit spot',
-              onPressed: () => openAdminEditSpot(context, spot),
-              icon: const Icon(Icons.edit_outlined, color: blue),
-            ),
-            IconButton(
-              tooltip: 'Delete spot',
-              onPressed: () => deleteAdminSpot(context, spot),
-              icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
-            ),
+            const SizedBox(width: 8),
             const Icon(Icons.chevron_right, color: Colors.white38),
           ],
         ),
@@ -37697,6 +38491,226 @@ class _AdminEditSpotScreenState extends State<AdminEditSpotScreen> {
   }
 }
 
+class AdminSpotLocationReviewMapScreen extends StatefulWidget {
+  final CarSpot spot;
+
+  const AdminSpotLocationReviewMapScreen({super.key, required this.spot});
+
+  @override
+  State<AdminSpotLocationReviewMapScreen> createState() =>
+      _AdminSpotLocationReviewMapScreenState();
+}
+
+class _AdminSpotLocationReviewMapScreenState
+    extends State<AdminSpotLocationReviewMapScreen> {
+  final MapController mapController = MapController();
+  CcsMapStyle mapStyle = CcsMapStyle.dark;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(loadMapStylePreference());
+  }
+
+  Future<void> loadMapStylePreference() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final adaptive = prefs.getBool(ccsAdaptiveMapStylePreferenceKey) ?? false;
+      final savedStyle = prefs.getString(ccsMapStylePreferenceKey);
+      final nextStyle = adaptive
+          ? mapStyleForLocalTime(DateTime.now())
+          : CcsMapStyle.values.firstWhere(
+              (style) => style.name == savedStyle,
+              orElse: () => CcsMapStyle.dark,
+            );
+      if (mounted && nextStyle != mapStyle) {
+        setState(() => mapStyle = nextStyle);
+      }
+    } catch (_) {}
+  }
+
+  Marker submittedPinMarker() {
+    final spot = widget.spot;
+    return Marker(
+      point: spot.coordinates,
+      width: 76,
+      height: 76,
+      rotate: false,
+      child: Tooltip(
+        message: 'Submitted pin: ${spot.name}',
+        child: Container(
+          decoration: BoxDecoration(
+            color: Colors.redAccent.withValues(alpha: 0.18),
+            shape: BoxShape.circle,
+            border: Border.all(color: Colors.redAccent, width: 2.8),
+            boxShadow: const [
+              BoxShadow(color: Colors.black54, blurRadius: 14, spreadRadius: 2),
+            ],
+          ),
+          child: Center(
+            child: Container(
+              width: 14,
+              height: 14,
+              decoration: const BoxDecoration(
+                color: Colors.redAccent,
+                shape: BoxShape.circle,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final spot = widget.spot;
+
+    return Scaffold(
+      backgroundColor: Colors.transparent,
+      body: Stack(
+        children: [
+          FlutterMap(
+            mapController: mapController,
+            options: MapOptions(
+              initialCenter: spot.coordinates,
+              initialZoom: 17,
+              minZoom: 4,
+              maxZoom: 18,
+              backgroundColor: mapStyle.backgroundColor,
+            ),
+            children: [
+              ColorFiltered(
+                colorFilter: ColorFilter.matrix(mapStyle.tileColorMatrix),
+                child: TileLayer(
+                  key: ValueKey(mapStyle),
+                  urlTemplate: mapStyle.tileUrl,
+                  userAgentPackageName: 'com.example.ccs_app',
+                  maxNativeZoom: 19,
+                ),
+              ),
+              MarkerLayer(markers: [submittedPinMarker()]),
+            ],
+          ),
+          SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+              child: Row(
+                children: [
+                  Material(
+                    color: panelGlass,
+                    borderRadius: BorderRadius.circular(16),
+                    child: IconButton(
+                      onPressed: () => Navigator.pop(context),
+                      icon: const Icon(Icons.arrow_back, color: blue),
+                      tooltip: 'Back to review',
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 12,
+                      ),
+                      decoration: BoxDecoration(
+                        color: panelGlass,
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: Colors.white12),
+                      ),
+                      child: const Text(
+                        'Review submitted pin',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          Positioned(
+            left: 16,
+            right: 16,
+            bottom: 24,
+            child: Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: panelGlass,
+                borderRadius: BorderRadius.circular(22),
+                border: Border.all(
+                  color: Colors.redAccent.withValues(alpha: 0.7),
+                ),
+                boxShadow: const [
+                  BoxShadow(
+                    color: Colors.black54,
+                    blurRadius: 18,
+                    offset: Offset(0, 8),
+                  ),
+                ],
+              ),
+              child: Row(
+                children: [
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(16),
+                    child: SpotPhoto(
+                      spot: spot,
+                      width: 96,
+                      height: 86,
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          spot.name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 20,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                        const SizedBox(height: 5),
+                        Text(
+                          spot.cityCountry,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(color: Colors.white54),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          'Lat ${spot.coordinates.latitude.toStringAsFixed(6)} • Lng ${spot.coordinates.longitude.toStringAsFixed(6)}',
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Colors.white60,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class AdminSpotReviewScreen extends StatelessWidget {
   final CarSpot spot;
 
@@ -37850,6 +38864,18 @@ class AdminSpotReviewScreen extends StatelessWidget {
     await deleteAdminSpot(context, spot, popAfterDelete: true);
   }
 
+  void showSpotOnMap(BuildContext context) {
+    // Review locations should not leak into the main Map tab state.
+    // Open a dedicated, review-only map screen instead of using the global
+    // map focus request used by normal public spots.
+    mapFocusRequest.value = null;
+    Navigator.of(context).push(
+      appPageRoute(
+        builder: (_) => AdminSpotLocationReviewMapScreen(spot: spot),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -37858,14 +38884,6 @@ class AdminSpotReviewScreen extends StatelessWidget {
         title: const Text('Manage Spot'),
         backgroundColor: Colors.transparent,
         foregroundColor: blue,
-        actions: [
-          IconButton(
-            tooltip: 'Edit spot',
-            onPressed: () =>
-                openAdminEditSpot(context, spot, popAfterSave: true),
-            icon: const Icon(Icons.edit_outlined),
-          ),
-        ],
       ),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(20, 18, 20, 28),
@@ -37982,6 +39000,23 @@ class AdminSpotReviewScreen extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 22),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: () => showSpotOnMap(context),
+              icon: const Icon(Icons.map_outlined),
+              label: const Text('Show on map'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: blue,
+                side: const BorderSide(color: blue),
+                minimumSize: const Size.fromHeight(52),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
           Row(
             children: [
               Expanded(
@@ -38020,43 +39055,6 @@ class AdminSpotReviewScreen extends StatelessWidget {
                 ),
               ),
             ],
-          ),
-          const SizedBox(height: 12),
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton.icon(
-              onPressed: () =>
-                  openAdminEditSpot(context, spot, popAfterSave: true),
-              icon: const Icon(Icons.edit_outlined),
-              label: const Text('Edit Spot'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: blue,
-                foregroundColor: Colors.white,
-                minimumSize: const Size.fromHeight(52),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16),
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(height: 12),
-          SizedBox(
-            width: double.infinity,
-            child: OutlinedButton.icon(
-              onPressed: () {
-                deleteSpot(context);
-              },
-              icon: const Icon(Icons.delete_outline),
-              label: const Text('Delete Spot'),
-              style: OutlinedButton.styleFrom(
-                foregroundColor: Colors.redAccent,
-                side: const BorderSide(color: Colors.redAccent),
-                minimumSize: const Size.fromHeight(52),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16),
-                ),
-              ),
-            ),
           ),
         ],
       ),
