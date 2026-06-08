@@ -1,0 +1,11 @@
+{
+  "remoteName": "origin",
+  "projects": [
+    {
+      "id": "prj_0JHXarM8RMHLWpAvXkjHbUK20hoa",
+      "name": "ccs",
+      "directory": "telegram_auth_server",
+      "orgId": "team_oBfxCLsNMQCxeuuOgjgtCT2O"
+    }
+  ]
+}
