@@ -64,6 +64,7 @@ const liveLocationDurationChoices = <Duration>[
   Duration(hours: 4),
 ];
 const liveLocationStaleAfter = Duration(minutes: 10);
+const userLocationLookupTimeout = Duration(seconds: 15);
 StreamSubscription<String>? pushTokenRefreshSubscription;
 StreamSubscription<RemoteMessage>? foregroundPushSubscription;
 StreamSubscription<QuerySnapshot<Map<String, dynamic>>>?
@@ -8961,15 +8962,67 @@ Future<void> sendChatMessage({
 }
 
 Future<Position?> getChatSharePosition(BuildContext context) async {
-  final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+  try {
+    final serviceEnabled = await Geolocator.isLocationServiceEnabled();
 
-  if (!serviceEnabled) {
+    if (!serviceEnabled) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            backgroundColor: Colors.redAccent,
+            content: Text(
+              'Turn on phone location first.',
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        );
+      }
+
+      return null;
+    }
+
+    var permission = await Geolocator.checkPermission();
+
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+    }
+
+    if (permission == LocationPermission.denied ||
+        permission == LocationPermission.deniedForever) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            backgroundColor: Colors.redAccent,
+            content: Text(
+              'Location permission is needed to share your location.',
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        );
+      }
+
+      return null;
+    }
+
+    return Geolocator.getCurrentPosition(
+      locationSettings: const LocationSettings(
+        accuracy: LocationAccuracy.high,
+        timeLimit: userLocationLookupTimeout,
+      ),
+    );
+  } on TimeoutException {
     if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           backgroundColor: Colors.redAccent,
           content: Text(
-            'Turn on phone location first.',
+            'Could not find your location. Try again in a moment.',
             style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
           ),
         ),
@@ -8977,23 +9030,17 @@ Future<Position?> getChatSharePosition(BuildContext context) async {
     }
 
     return null;
-  }
-
-  var permission = await Geolocator.checkPermission();
-
-  if (permission == LocationPermission.denied) {
-    permission = await Geolocator.requestPermission();
-  }
-
-  if (permission == LocationPermission.denied ||
-      permission == LocationPermission.deniedForever) {
+  } catch (error) {
     if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
+        SnackBar(
           backgroundColor: Colors.redAccent,
           content: Text(
-            'Location permission is needed to share your location.',
-            style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+            'Could not share location: $error',
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w700,
+            ),
           ),
         ),
       );
@@ -9001,10 +9048,6 @@ Future<Position?> getChatSharePosition(BuildContext context) async {
 
     return null;
   }
-
-  return Geolocator.getCurrentPosition(
-    locationSettings: const LocationSettings(accuracy: LocationAccuracy.high),
-  );
 }
 
 String liveLocationDurationLabel(Duration duration) {
@@ -21019,15 +21062,67 @@ class _MapScreenState extends State<MapScreen>
   }
 
   Future<Position?> getMapUserPosition({required bool showErrors}) async {
-    final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    try {
+      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
 
-    if (!serviceEnabled) {
+      if (!serviceEnabled) {
+        if (showErrors && mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              backgroundColor: Colors.redAccent,
+              content: Text(
+                'Turn on phone location first.',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          );
+        }
+
+        return null;
+      }
+
+      var permission = await Geolocator.checkPermission();
+
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+
+      if (permission == LocationPermission.denied ||
+          permission == LocationPermission.deniedForever) {
+        if (showErrors && mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              backgroundColor: Colors.redAccent,
+              content: Text(
+                'Location permission is needed to show you on the map.',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          );
+        }
+
+        return null;
+      }
+
+      return Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+          timeLimit: userLocationLookupTimeout,
+        ),
+      );
+    } on TimeoutException {
       if (showErrors && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             backgroundColor: Colors.redAccent,
             content: Text(
-              'Turn on phone location first.',
+              'Could not find your location. Try again in a moment.',
               style: TextStyle(
                 color: Colors.white,
                 fontWeight: FontWeight.w700,
@@ -21038,23 +21133,14 @@ class _MapScreenState extends State<MapScreen>
       }
 
       return null;
-    }
-
-    var permission = await Geolocator.checkPermission();
-
-    if (permission == LocationPermission.denied) {
-      permission = await Geolocator.requestPermission();
-    }
-
-    if (permission == LocationPermission.denied ||
-        permission == LocationPermission.deniedForever) {
+    } catch (error) {
       if (showErrors && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
+          SnackBar(
             backgroundColor: Colors.redAccent,
             content: Text(
-              'Location permission is needed to show you on the map.',
-              style: TextStyle(
+              'Could not use location: $error',
+              style: const TextStyle(
                 color: Colors.white,
                 fontWeight: FontWeight.w700,
               ),
@@ -21065,10 +21151,6 @@ class _MapScreenState extends State<MapScreen>
 
       return null;
     }
-
-    return Geolocator.getCurrentPosition(
-      locationSettings: const LocationSettings(accuracy: LocationAccuracy.high),
-    );
   }
 
   double headingForNewUserLocation(
@@ -21192,6 +21274,7 @@ class _MapScreenState extends State<MapScreen>
 
     final location = safeLatLngFromPosition(position);
     if (location == null) {
+      setState(() => isLocatingUser = false);
       return;
     }
     final speed = position.speed.isFinite ? math.max(0.0, position.speed) : 0.0;
@@ -25347,6 +25430,7 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
       final position = await Geolocator.getCurrentPosition(
         locationSettings: const LocationSettings(
           accuracy: LocationAccuracy.high,
+          timeLimit: userLocationLookupTimeout,
         ),
       );
 
