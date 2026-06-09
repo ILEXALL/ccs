@@ -12,8 +12,10 @@ workflows:
       xcode: latest
       cocoapods: default
       ios_signing:
-        distribution_type: app_store
-        bundle_identifier: lv.ilexall.ccs
+       distribution_type: app_store
+       bundle_identifier: lv.ilexall.ccs
+       provisioning_profiles:
+         - "XC lv ilexall ccs ios_app_store 1780962505"
 
     scripts:
       - name: Get Flutter packages
