@@ -26,10 +26,6 @@ workflows:
           pod install
           cd ..
 
-      - name: Set up iOS code signing
-         script: |
-           xcode-project use-profiles --project ios/Runner.xcodeproj
-
       - name: Build iOS IPA
         script: |
           flutter build ipa --release -t lib/main.dart
