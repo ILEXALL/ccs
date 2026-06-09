@@ -27,8 +27,8 @@ workflows:
           cd ..
 
       - name: Set up iOS code signing
-        script: |
-          xcode-project use-profiles
+         script: |
+           xcode-project use-profiles --project ios/Runner.xcodeproj
 
       - name: Build iOS IPA
         script: |
