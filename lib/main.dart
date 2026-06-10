@@ -53,6 +53,23 @@ const int r2GaragePhotoMaxLongSide = 1280;
 const int r2JpegQuality = 76;
 const double garagePhotoAspectRatio = 1.45;
 
+// Map gesture setup.
+// Rotation is enabled on all maps, but it should not trigger from a tiny
+// accidental two-finger movement. A medium threshold keeps the map stable
+// during normal pan/zoom, while still allowing rotation with a clear gesture.
+const InteractionOptions ccsMapInteractionOptions = InteractionOptions(
+  flags: InteractiveFlag.all,
+  enableMultiFingerGestureRace: true,
+  rotationThreshold: 22,
+  pinchZoomThreshold: 0.35,
+  pinchMoveThreshold: 22,
+  rotationWinGestures: MultiFingerGesture.rotate,
+  pinchZoomWinGestures:
+      MultiFingerGesture.pinchZoom | MultiFingerGesture.pinchMove,
+  pinchMoveWinGestures:
+      MultiFingerGesture.pinchMove | MultiFingerGesture.pinchZoom,
+);
+
 String? googleSignInSetupError;
 bool firebaseReady = false;
 bool rememberMeEnabled = false;
@@ -16298,7 +16315,6 @@ class _ExploreScreenState extends State<ExploreScreen> {
         return Scaffold(
           backgroundColor: Colors.transparent,
           appBar: AppBar(
-            automaticallyImplyLeading: false,
             title: const CcsAppBarLogo(),
             backgroundColor: Colors.transparent,
             foregroundColor: blue,
@@ -21384,6 +21400,7 @@ class _MapScreenState extends State<MapScreen>
               initialRotation: currentMapRotationDegrees,
               minZoom: 4,
               maxZoom: 18,
+              interactionOptions: ccsMapInteractionOptions,
               backgroundColor: mapStyle.backgroundColor,
               onPositionChanged: (camera, hasGesture) {
                 if (!isValidLatLng(camera.center) || !camera.zoom.isFinite) {
@@ -26120,7 +26137,6 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
     return Scaffold(
       backgroundColor: Colors.transparent,
       appBar: AppBar(
-        automaticallyImplyLeading: false,
         title: const CcsAppBarLogo(),
         backgroundColor: Colors.transparent,
         foregroundColor: blue,
@@ -26664,6 +26680,7 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
               initialZoom: defaultZoom,
               minZoom: 4,
               maxZoom: 18,
+              interactionOptions: ccsMapInteractionOptions,
               backgroundColor: night,
               onTap: (_, point) => setState(() => pickedLocation = point),
             ),
@@ -28255,7 +28272,6 @@ class _ChatScreenState extends State<ChatScreen> {
       return Scaffold(
         backgroundColor: Colors.transparent,
         appBar: AppBar(
-          automaticallyImplyLeading: false,
           title: const CcsAppBarLogo(),
           backgroundColor: Colors.transparent,
           foregroundColor: blue,
@@ -28392,7 +28408,6 @@ class _ChatScreenState extends State<ChatScreen> {
         return Scaffold(
           backgroundColor: Colors.transparent,
           appBar: AppBar(
-            automaticallyImplyLeading: false,
             title: const CcsAppBarLogo(),
             backgroundColor: Colors.transparent,
             foregroundColor: blue,
@@ -32116,7 +32131,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
     return Scaffold(
       backgroundColor: Colors.transparent,
       appBar: AppBar(
-        automaticallyImplyLeading: false,
         title: const CcsAppBarLogo(),
         backgroundColor: Colors.transparent,
         foregroundColor: blue,
@@ -38998,6 +39012,7 @@ class _AdminSpotLocationReviewMapScreenState
               initialZoom: 17,
               minZoom: 4,
               maxZoom: 18,
+              interactionOptions: ccsMapInteractionOptions,
               backgroundColor: mapStyle.backgroundColor,
             ),
             children: [

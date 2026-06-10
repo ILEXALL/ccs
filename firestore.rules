@@ -175,6 +175,10 @@ service cloud.firestore {
         'fcmTokens',
         'fcmTokenUpdatedAt',
         'lastFcmTokenPlatform',
+        'deviceIds',
+        'lastDeviceId',
+        'lastDevicePlatform',
+        'lastDeviceSeenAt',
         'isOnline',
         'lastSeenAt',
         'isSharingLiveLocation',
@@ -694,6 +698,12 @@ service cloud.firestore {
           .hasOnly(selfUserEditableKeys())
       ) || isAdmin() || moderatorCanUpdateUser();
       allow delete: if isAdmin();
+    }
+
+    match /device_bans/{deviceId} {
+      allow get: if isSignedIn();
+      allow list: if isAdmin();
+      allow create, update, delete: if isAdmin();
     }
 
     match /usernames/{usernameKey} {
