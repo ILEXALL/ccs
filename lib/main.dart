@@ -1714,7 +1714,14 @@ const _ruText = <String, String>{
   'Street, city, country': 'Улица, город, страна',
   'Find': 'Найти',
   'Basic info': 'Основная информация',
+  'Spot details': 'Детали спота',
+  'Create a pin for review or publish instantly as staff.':
+      'Создайте метку для проверки или сразу опубликуйте с правами модератора.',
   'Spot name': 'Название спота',
+  'Location': 'Локация',
+  'Choose by map, address, or GPS': 'Выберите на карте, по адресу или GPS',
+  'Address': 'Адрес',
+  'GPS': 'GPS',
   'Pin on the map': 'Поставить метку на карте',
   'Use current location': 'Использовать текущее местоположение',
   'Visibility': 'Видимость',
@@ -2418,7 +2425,14 @@ const _lvText = <String, String>{
   'Street, city, country': 'Iela, pilsēta, valsts',
   'Find': 'Atrast',
   'Basic info': 'Pamatinformācija',
+  'Spot details': 'Vietas detaļas',
+  'Create a pin for review or publish instantly as staff.':
+      'Izveidojiet atzīmi pārbaudei vai publicējiet uzreiz kā staff.',
   'Spot name': 'Vietas nosaukums',
+  'Location': 'Atrašanās vieta',
+  'Choose by map, address, or GPS': 'Izvēlieties kartē, pēc adreses vai GPS',
+  'Address': 'Adrese',
+  'GPS': 'GPS',
   'Pin on the map': 'Atzīmēt kartē',
   'Use current location': 'Izmantot pašreizējo atrašanās vietu',
   'Visibility': 'Redzamība',
@@ -4097,6 +4111,7 @@ PageRoute<T> appPageRoute<T>({
 }
 
 const photoPickerChannel = MethodChannel('ccs/photo_picker');
+const deviceIdentityChannel = MethodChannel('ccs/device_identity');
 const screenAwakeChannel = MethodChannel('ccs/screen_awake');
 const liveLocationBackgroundChannel = MethodChannel(
   'ccs/live_location_background',
@@ -5778,10 +5793,10 @@ Future<AppUser> saveFirebaseUser(
     );
   }
 
-  final appDeviceId = await getOrCreateAppDeviceId();
+  final appDeviceIds = await getAppDeviceIds();
+  final appDeviceId = appDeviceIds.first;
   await ensureAppDeviceIsAllowed(
-    deviceId: appDeviceId,
-    currentUid: firebaseUser.uid,
+    deviceIds: appDeviceIds,
   );
 
   final role = isNewUser
@@ -5876,7 +5891,7 @@ Future<AppUser> saveFirebaseUser(
     'garage': garage.map((car) => car.toFirebase()).toList(),
     'provider': effectiveProvider,
     'telegramUsername': telegramUsername,
-    'deviceIds': FieldValue.arrayUnion([appDeviceId]),
+    'deviceIds': FieldValue.arrayUnion(appDeviceIds),
     'lastDeviceId': appDeviceId,
     'lastDevicePlatform': Platform.operatingSystem,
     'lastDeviceSeenAt': FieldValue.serverTimestamp(),
@@ -7222,17 +7237,54 @@ String generateAppDeviceId() {
   return base64UrlEncode(bytes).replaceAll('=', '');
 }
 
-Future<String> getOrCreateAppDeviceId() async {
+String cleanDeviceIdForStorage(String value) {
+  return value.trim().replaceAll('/', '_');
+}
+
+Future<String?> getNativeAppDeviceId() async {
+  if (!Platform.isAndroid && !Platform.isIOS) {
+    return null;
+  }
+
+  try {
+    final deviceId = await deviceIdentityChannel.invokeMethod<String>(
+      'getDeviceId',
+    );
+    final cleanDeviceId = cleanDeviceIdForStorage(deviceId ?? '');
+    return cleanDeviceId.isEmpty ? null : cleanDeviceId;
+  } on MissingPluginException {
+    return null;
+  } on PlatformException catch (error) {
+    debugPrint('Native device id unavailable: ${error.message ?? error.code}');
+    return null;
+  }
+}
+
+Future<String> getOrCreateLegacyAppDeviceId() async {
   final prefs = await SharedPreferences.getInstance();
   final existing = prefs.getString(appDeviceIdStorageKey)?.trim() ?? '';
 
   if (existing.isNotEmpty) {
-    return existing;
+    return cleanDeviceIdForStorage(existing);
   }
 
   final created = generateAppDeviceId();
   await prefs.setString(appDeviceIdStorageKey, created);
   return created;
+}
+
+Future<List<String>> getAppDeviceIds() async {
+  final nativeDeviceId = await getNativeAppDeviceId();
+  final legacyDeviceId = await getOrCreateLegacyAppDeviceId();
+
+  return uniqueNonEmptyStrings([
+    if (nativeDeviceId != null) nativeDeviceId,
+    legacyDeviceId,
+  ]);
+}
+
+Future<String> getOrCreateAppDeviceId() async {
+  return (await getAppDeviceIds()).first;
 }
 
 bool deviceBanIsActive(Map<String, dynamic>? data) {
@@ -7258,28 +7310,29 @@ String deviceBanReasonFromFirebase(Map<String, dynamic>? data) {
 }
 
 Future<void> ensureAppDeviceIsAllowed({
-  required String deviceId,
-  String? currentUid,
+  required List<String> deviceIds,
 }) async {
-  final cleanDeviceId = deviceId.trim();
-  if (cleanDeviceId.isEmpty) {
-    return;
+  for (final deviceId in uniqueNonEmptyStrings(deviceIds)) {
+    final cleanDeviceId = cleanDeviceIdForStorage(deviceId);
+    if (cleanDeviceId.isEmpty) {
+      continue;
+    }
+
+    final snapshot = await deviceBansCollection()
+        .doc(cleanDeviceId)
+        .debugGet(null, 'login: check device ban');
+    final data = snapshot.data();
+
+    if (!snapshot.exists || !deviceBanIsActive(data)) {
+      continue;
+    }
+
+    throw FirebaseException(
+      plugin: 'firebase_auth',
+      code: 'device-banned',
+      message: deviceBanReasonFromFirebase(data),
+    );
   }
-
-  final snapshot = await deviceBansCollection()
-      .doc(cleanDeviceId)
-      .debugGet(null, 'login: check device ban');
-  final data = snapshot.data();
-
-  if (!snapshot.exists || !deviceBanIsActive(data)) {
-    return;
-  }
-
-  throw FirebaseException(
-    plugin: 'firebase_auth',
-    code: 'device-banned',
-    message: deviceBanReasonFromFirebase(data),
-  );
 }
 
 Future<void> saveDeviceBanForUser({
@@ -7288,7 +7341,7 @@ Future<void> saveDeviceBanForUser({
   required Timestamp bannedUntil,
   required String reason,
 }) async {
-  final cleanDeviceId = deviceId.trim();
+  final cleanDeviceId = cleanDeviceIdForStorage(deviceId);
   if (cleanDeviceId.isEmpty) {
     return;
   }
@@ -21330,6 +21383,10 @@ class _MapScreenState extends State<MapScreen>
               initialRotation: currentMapRotationDegrees,
               minZoom: 4,
               maxZoom: 18,
+              interactionOptions: const InteractionOptions(
+                flags: InteractiveFlag.all,
+                rotationThreshold: 35,
+              ),
               backgroundColor: mapStyle.backgroundColor,
               onPositionChanged: (camera, hasGesture) {
                 if (!isValidLatLng(camera.center) || !camera.zoom.isFinite) {
@@ -25083,30 +25140,39 @@ class _SpotCategoryDropdown extends StatelessWidget {
       dropdownColor: panel,
       iconEnabledColor: blue,
       decoration: InputDecoration(
+        isDense: true,
         labelText: trText('Category'),
         labelStyle: const TextStyle(
           color: Colors.white70,
           fontWeight: FontWeight.w700,
         ),
         prefixIcon: Padding(
-          padding: const EdgeInsets.all(10),
+          padding: const EdgeInsets.all(9),
           child: Image.asset(
             spotIconAssetPathForCategory(value),
-            width: 24,
-            height: 24,
+            width: 22,
+            height: 22,
             fit: BoxFit.contain,
             errorBuilder: (context, error, stackTrace) =>
                 const Icon(Icons.local_offer, color: blue),
           ),
         ),
+        prefixIconConstraints: const BoxConstraints(
+          minWidth: 42,
+          minHeight: 42,
+        ),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 12,
+          vertical: 12,
+        ),
         filled: true,
         fillColor: Colors.white.withValues(alpha: 0.06),
         enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(14),
           borderSide: const BorderSide(color: Colors.white12),
         ),
         focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(14),
           borderSide: const BorderSide(color: blue, width: 1.4),
         ),
       ),
@@ -25118,8 +25184,8 @@ class _SpotCategoryDropdown extends StatelessWidget {
             children: [
               Image.asset(
                 spotIconAssetPathForCategory(category),
-                width: 30,
-                height: 30,
+                width: 26,
+                height: 26,
                 fit: BoxFit.contain,
                 errorBuilder: (context, error, stackTrace) =>
                     const Icon(Icons.local_offer, color: blue, size: 20),
@@ -26063,58 +26129,59 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
         actions: ccsAppBarActions(),
       ),
       body: ListView(
-        padding: const EdgeInsets.fromLTRB(20, 18, 20, 28),
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 22),
         children: [
-          Container(
-            padding: const EdgeInsets.all(18),
-            decoration: BoxDecoration(
-              color: panelGlass,
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: Colors.white12),
-            ),
-            child: Row(
-              children: [
-                Container(
-                  width: 48,
-                  height: 48,
-                  decoration: BoxDecoration(
-                    color: blue.withValues(alpha: 0.18),
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  child: const Icon(Icons.add_location_alt, color: blue),
+          Row(
+            children: [
+              Container(
+                width: 38,
+                height: 38,
+                decoration: BoxDecoration(
+                  color: blue.withValues(alpha: 0.16),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: blue.withValues(alpha: 0.24)),
                 ),
-                const SizedBox(width: 14),
-                const Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Add Spot',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 28,
-                          fontWeight: FontWeight.w900,
-                        ),
+                child: const Icon(Icons.add_location_alt, color: blue, size: 21),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      trText('Add Spot'),
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 22,
+                        fontWeight: FontWeight.w900,
                       ),
-                      SizedBox(height: 4),
-                      Text(
-                        'Admins publish instantly. User spots wait for review.',
-                        style: TextStyle(color: Colors.white54, height: 1.3),
+                    ),
+                    const SizedBox(height: 1),
+                    Text(
+                      trText(
+                        'Create a pin for review or publish instantly as staff.',
                       ),
-                    ],
-                  ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Colors.white54,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
                 ),
-                _PendingBadge(
-                  status: userRoleIsStaff(currentUser.role)
-                      ? SpotStatus.approved
-                      : SpotStatus.pending,
-                ),
-              ],
-            ),
+              ),
+              const SizedBox(width: 8),
+              _PendingBadge(
+                status: userRoleIsStaff(currentUser.role)
+                    ? SpotStatus.approved
+                    : SpotStatus.pending,
+              ),
+            ],
           ),
-          const SizedBox(height: 18),
+          const SizedBox(height: 12),
           _AddSpotSection(
-            title: 'Basic info',
+            title: 'Spot details',
             children: [
               _CcsTextField(
                 controller: nameController,
@@ -26122,66 +26189,50 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
                 hint: 'Andrejsala Harbor',
                 icon: Icons.place,
               ),
-              _LocationPickerField(
-                title: 'Pin on the map',
-                icon: Icons.map,
+              _SpotCategoryDropdown(
+                value: selectedCategory,
+                categories: categoryOptions,
+                onChanged: (category) {
+                  if (category == null) {
+                    return;
+                  }
+
+                  setState(() => selectedCategory = category);
+                },
+              ),
+              _SpotLocationPicker(
                 hasLocation: selectedLocation != null,
-                subtitle: isDetectingCityCountry
+                isBusy: isDetectingCityCountry || isUsingCurrentLocation,
+                statusText: isUsingCurrentLocation
+                    ? 'Getting your GPS position...'
+                    : isDetectingCityCountry
                     ? 'Detecting city/country...'
                     : selectedLocation == null
-                    ? 'Choose the spot on map'
+                    ? 'Choose by map, address, or GPS'
                     : detectedCityCountry,
-                onTap: chooseLocation,
-              ),
-              const SizedBox(height: 10),
-              _LocationPickerField(
-                title: 'Find exact address',
-                icon: Icons.search,
-                hasLocation: selectedLocation != null,
-                subtitle: selectedLocation == null
-                    ? 'Type an address and place the pin automatically'
-                    : 'Current pin: $detectedCityCountry',
-                onTap: findExactAddress,
-              ),
-              const SizedBox(height: 10),
-              _LocationPickerField(
-                title: 'Use current location',
-                icon: Icons.my_location,
-                hasLocation: selectedLocation != null,
-                subtitle: isUsingCurrentLocation
-                    ? 'Getting your GPS position...'
-                    : selectedLocation == null
-                    ? 'Use your phone GPS position'
-                    : 'Replace pin with your current GPS position',
-                onTap: useCurrentLocation,
+                onMapTap: chooseLocation,
+                onAddressTap: findExactAddress,
+                onCurrentTap: useCurrentLocation,
               ),
               _CcsTextField(
                 controller: descriptionController,
                 label: 'Description',
-                hint: 'What makes this spot good for car photos?',
+                hint: '',
                 icon: Icons.notes,
-                maxLines: 4,
+                maxLines: 3,
               ),
-            ],
-          ),
-          if (currentUserCanUseVerifiedOnlySpots) ...[
-            const SizedBox(height: 16),
-            _AddSpotSection(
-              title: 'Visibility',
-              children: [
+              if (currentUserCanUseVerifiedOnlySpots)
                 _SettingsSwitchTile(
                   icon: Icons.verified_user,
                   title: 'Verified only',
-                  subtitle:
-                      'Only verified users and admins can see this spot after approval',
+                  subtitle: 'Only verified users and admins can see this spot',
                   value: verifiedOnlySpot,
                   onChanged: (value) =>
                       setState(() => verifiedOnlySpot = value),
                 ),
-              ],
-            ),
-          ],
-          const SizedBox(height: 16),
+            ],
+          ),
+          const SizedBox(height: 10),
           _AddSpotSection(
             title: 'Temporary schedule',
             children: [
@@ -26230,24 +26281,7 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
               ),
             ],
           ),
-          const SizedBox(height: 16),
-          _AddSpotSection(
-            title: 'Categories',
-            children: [
-              _SpotCategoryDropdown(
-                value: selectedCategory,
-                categories: categoryOptions,
-                onChanged: (category) {
-                  if (category == null) {
-                    return;
-                  }
-
-                  setState(() => selectedCategory = category);
-                },
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 10),
           if (spotCategorySupportsContacts(selectedCategory)) ...[
             _AddSpotSection(
               title: 'Contacts',
@@ -26280,7 +26314,7 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
                   ),
               ],
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 10),
             _AddSpotSection(
               title: 'Opening hours',
               children: [
@@ -26290,7 +26324,7 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
                 ),
               ],
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 10),
           ],
           _AddSpotSection(
             title: 'Media',
@@ -26316,16 +26350,16 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
               ),
             ],
           ),
-          const SizedBox(height: 22),
+          const SizedBox(height: 14),
           SizedBox(
-            height: 56,
+            height: 50,
             child: ElevatedButton(
               onPressed: isSubmitting ? null : submitSpot,
               style: ElevatedButton.styleFrom(
                 backgroundColor: blue,
                 foregroundColor: Colors.white,
                 shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(18),
+                  borderRadius: BorderRadius.circular(14),
                 ),
               ),
               child: Row(
@@ -26441,18 +26475,18 @@ class _TemporarySpotScheduleCard extends StatelessWidget {
   }) {
     return InkWell(
       onTap: enabled ? onTap : null,
-      borderRadius: BorderRadius.circular(16),
+      borderRadius: BorderRadius.circular(12),
       child: Container(
-        padding: const EdgeInsets.all(14),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
         decoration: BoxDecoration(
           color: Colors.white.withValues(alpha: enabled ? 0.06 : 0.03),
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(12),
           border: Border.all(color: Colors.white12),
         ),
         child: Row(
           children: [
-            Icon(icon, color: enabled ? blue : Colors.white30),
-            const SizedBox(width: 12),
+            Icon(icon, color: enabled ? blue : Colors.white30, size: 18),
+            const SizedBox(width: 8),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -26461,18 +26495,21 @@ class _TemporarySpotScheduleCard extends StatelessWidget {
                     label,
                     style: const TextStyle(
                       color: Colors.white,
+                      fontSize: 12,
                       fontWeight: FontWeight.w800,
                     ),
                   ),
-                  const SizedBox(height: 3),
+                  const SizedBox(height: 2),
                   Text(
                     value == null ? 'Choose time' : formatShortDateTime(value),
-                    style: const TextStyle(color: Colors.white54),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(color: Colors.white54, fontSize: 12),
                   ),
                 ],
               ),
             ),
-            const Icon(Icons.chevron_right, color: Colors.white54),
+            const Icon(Icons.chevron_right, color: Colors.white54, size: 18),
           ],
         ),
       ),
@@ -26482,10 +26519,10 @@ class _TemporarySpotScheduleCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: Colors.white.withValues(alpha: 0.06),
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(14),
         border: Border.all(
           color: enabled ? blue.withValues(alpha: 0.7) : Colors.white12,
         ),
@@ -26496,6 +26533,8 @@ class _TemporarySpotScheduleCard extends StatelessWidget {
             value: enabled,
             onChanged: onEnabledChanged,
             activeThumbColor: blue,
+            dense: true,
+            visualDensity: VisualDensity.compact,
             contentPadding: EdgeInsets.zero,
             secondary: const Icon(Icons.timer, color: blue),
             title: const Text(
@@ -26506,30 +26545,32 @@ class _TemporarySpotScheduleCard extends StatelessWidget {
               ),
             ),
             subtitle: const Text(
-              'Use this for meets and events. Maximum active time is 12 hours.',
-              style: TextStyle(color: Colors.white54),
+              'For meets and events. Max active time is 12 hours.',
+              style: TextStyle(color: Colors.white54, fontSize: 12),
             ),
           ),
           if (enabled) ...[
-            const SizedBox(height: 10),
+            const SizedBox(height: 8),
             timeButton(
               label: 'Starts at',
               value: startsAt,
               icon: Icons.play_arrow,
               onTap: onPickStart,
             ),
-            const SizedBox(height: 10),
+            const SizedBox(height: 8),
             timeButton(
               label: 'Ends at',
               value: expiresAt,
               icon: Icons.stop,
               onTap: onPickEnd,
             ),
-            const SizedBox(height: 10),
+            const SizedBox(height: 8),
             SwitchListTile(
               value: showOnMapAtEnabled,
               onChanged: enabled ? onShowOnMapAtEnabledChanged : null,
               activeThumbColor: blue,
+              dense: true,
+              visualDensity: VisualDensity.compact,
               contentPadding: EdgeInsets.zero,
               secondary: const Icon(Icons.visibility_outlined, color: blue),
               title: const Text(
@@ -26540,12 +26581,12 @@ class _TemporarySpotScheduleCard extends StatelessWidget {
                 ),
               ),
               subtitle: const Text(
-                'Optional. If disabled, location appears at the beginning of the event day.',
-                style: TextStyle(color: Colors.white54),
+                'Optional delayed map reveal.',
+                style: TextStyle(color: Colors.white54, fontSize: 12),
               ),
             ),
             if (showOnMapAtEnabled) ...[
-              const SizedBox(height: 10),
+              const SizedBox(height: 8),
               timeButton(
                 label: 'Location visible from',
                 value: showOnMapAt,
@@ -26625,6 +26666,10 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
               initialZoom: defaultZoom,
               minZoom: 4,
               maxZoom: 18,
+              interactionOptions: const InteractionOptions(
+                flags: InteractiveFlag.all,
+                rotationThreshold: 35,
+              ),
               backgroundColor: night,
               onTap: (_, point) => setState(() => pickedLocation = point),
             ),
@@ -26743,18 +26788,126 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
   }
 }
 
-class _LocationPickerField extends StatelessWidget {
-  final String title;
-  final IconData icon;
+class _SpotLocationPicker extends StatelessWidget {
   final bool hasLocation;
-  final String? subtitle;
+  final bool isBusy;
+  final String statusText;
+  final VoidCallback onMapTap;
+  final VoidCallback onAddressTap;
+  final VoidCallback onCurrentTap;
+
+  const _SpotLocationPicker({
+    required this.hasLocation,
+    required this.isBusy,
+    required this.statusText,
+    required this.onMapTap,
+    required this.onAddressTap,
+    required this.onCurrentTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.06),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: hasLocation ? blue.withValues(alpha: 0.7) : Colors.white12,
+        ),
+      ),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 34,
+                height: 34,
+                decoration: BoxDecoration(
+                  color: blue.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(11),
+                ),
+                child: Icon(
+                  hasLocation ? Icons.check_circle : Icons.location_on,
+                  color: blue,
+                  size: 19,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      trText('Location'),
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      trText(statusText),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Colors.white54,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (isBusy)
+                const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: _SpotLocationActionButton(
+                  icon: Icons.map,
+                  label: 'Map',
+                  onTap: onMapTap,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _SpotLocationActionButton(
+                  icon: Icons.search,
+                  label: 'Address',
+                  onTap: onAddressTap,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _SpotLocationActionButton(
+                  icon: Icons.my_location,
+                  label: 'GPS',
+                  onTap: onCurrentTap,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SpotLocationActionButton extends StatelessWidget {
+  final IconData icon;
+  final String label;
   final VoidCallback onTap;
 
-  const _LocationPickerField({
-    this.title = 'Location',
-    this.icon = Icons.map,
-    required this.hasLocation,
-    this.subtitle,
+  const _SpotLocationActionButton({
+    required this.icon,
+    required this.label,
     required this.onTap,
   });
 
@@ -26762,53 +26915,32 @@ class _LocationPickerField extends StatelessWidget {
   Widget build(BuildContext context) {
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(16),
+      borderRadius: BorderRadius.circular(12),
       child: Container(
-        padding: const EdgeInsets.all(14),
+        height: 40,
+        padding: const EdgeInsets.symmetric(horizontal: 8),
         decoration: BoxDecoration(
           color: Colors.white.withValues(alpha: 0.06),
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(
-            color: hasLocation ? blue.withValues(alpha: 0.7) : Colors.white12,
-          ),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.white12),
         ),
         child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Container(
-              width: 40,
-              height: 40,
-              decoration: BoxDecoration(
-                color: blue.withValues(alpha: 0.15),
-                borderRadius: BorderRadius.circular(13),
-              ),
-              child: Icon(hasLocation ? Icons.check_circle : icon, color: blue),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    trText(title),
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                  const SizedBox(height: 3),
-                  Text(
-                    subtitle ??
-                        (hasLocation
-                            ? 'Spot location selected on map'
-                            : 'Choose the spot on map'),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(color: Colors.white54),
-                  ),
-                ],
+            Icon(icon, color: blue, size: 17),
+            const SizedBox(width: 5),
+            Flexible(
+              child: Text(
+                trText(label),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w800,
+                ),
               ),
             ),
-            const Icon(Icons.chevron_right, color: Colors.white54),
           ],
         ),
       ),
@@ -26836,12 +26968,12 @@ class _SpotPhotoPickerField extends StatelessWidget {
       children: [
         InkWell(
           onTap: canAddMore ? onAddPhoto : null,
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(14),
           child: Container(
-            padding: const EdgeInsets.all(14),
+            padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
               color: Colors.white.withValues(alpha: 0.06),
-              borderRadius: BorderRadius.circular(16),
+              borderRadius: BorderRadius.circular(14),
               border: Border.all(
                 color: photoPaths.isNotEmpty
                     ? blue.withValues(alpha: 0.7)
@@ -26851,11 +26983,11 @@ class _SpotPhotoPickerField extends StatelessWidget {
             child: Row(
               children: [
                 Container(
-                  width: 72,
-                  height: 72,
+                  width: 54,
+                  height: 54,
                   decoration: BoxDecoration(
                     color: blue.withValues(alpha: 0.15),
-                    borderRadius: BorderRadius.circular(14),
+                    borderRadius: BorderRadius.circular(12),
                   ),
                   child: Icon(
                     canAddMore ? Icons.add_photo_alternate : Icons.check,
@@ -26873,17 +27005,19 @@ class _SpotPhotoPickerField extends StatelessWidget {
                             : '${photoPaths.length}/$maxSpotGalleryPhotos photos selected',
                         style: const TextStyle(
                           color: Colors.white,
+                          fontSize: 13,
                           fontWeight: FontWeight.w800,
                         ),
                       ),
-                      const SizedBox(height: 4),
+                      const SizedBox(height: 2),
                       Text(
                         canAddMore
-                            ? 'Add up to 4 spot photos. The first photo becomes the Explore thumbnail.'
-                            : 'Maximum 4 photos selected. First photo is the spot thumbnail.',
+                            ? 'Add up to 4 photos. First one is the cover.'
+                            : 'Maximum 4 photos selected.',
                         style: const TextStyle(
                           color: Colors.white54,
-                          height: 1.3,
+                          fontSize: 12,
+                          height: 1.2,
                         ),
                       ),
                     ],
@@ -26898,10 +27032,10 @@ class _SpotPhotoPickerField extends StatelessWidget {
           ),
         ),
         if (photoPaths.isNotEmpty) ...[
-          const SizedBox(height: 12),
+          const SizedBox(height: 10),
           Wrap(
-            spacing: 10,
-            runSpacing: 10,
+            spacing: 8,
+            runSpacing: 8,
             children: [
               for (var index = 0; index < photoPaths.length; index++)
                 Stack(
@@ -26910,13 +27044,13 @@ class _SpotPhotoPickerField extends StatelessWidget {
                       borderRadius: BorderRadius.circular(14),
                       child: Image.file(
                         File(photoPaths[index]),
-                        width: 88,
-                        height: 88,
+                        width: 72,
+                        height: 72,
                         fit: BoxFit.cover,
                         errorBuilder: (_, _, _) {
                           return Container(
-                            width: 88,
-                            height: 88,
+                            width: 72,
+                            height: 72,
                             color: Colors.white.withValues(alpha: 0.06),
                             child: const Icon(
                               Icons.broken_image,
@@ -26931,8 +27065,8 @@ class _SpotPhotoPickerField extends StatelessWidget {
                       bottom: 6,
                       child: Container(
                         padding: const EdgeInsets.symmetric(
-                          horizontal: 7,
-                          vertical: 4,
+                          horizontal: 6,
+                          vertical: 3,
                         ),
                         decoration: BoxDecoration(
                           color: index == 0
@@ -26944,7 +27078,7 @@ class _SpotPhotoPickerField extends StatelessWidget {
                           index == 0 ? 'Cover' : '${index + 1}',
                           style: const TextStyle(
                             color: Colors.white,
-                            fontSize: 11,
+                            fontSize: 10,
                             fontWeight: FontWeight.w900,
                           ),
                         ),
@@ -26957,8 +27091,8 @@ class _SpotPhotoPickerField extends StatelessWidget {
                         onTap: () => onRemovePhoto(index),
                         borderRadius: BorderRadius.circular(999),
                         child: Container(
-                          width: 28,
-                          height: 28,
+                          width: 24,
+                          height: 24,
                           decoration: BoxDecoration(
                             color: Colors.black.withValues(alpha: 0.78),
                             shape: BoxShape.circle,
@@ -26967,7 +27101,7 @@ class _SpotPhotoPickerField extends StatelessWidget {
                           child: const Icon(
                             Icons.close,
                             color: Colors.white,
-                            size: 16,
+                            size: 14,
                           ),
                         ),
                       ),
@@ -26991,28 +27125,28 @@ class _AddSpotSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: panelGlass,
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(14),
         border: Border.all(color: Colors.white12),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            title,
+            trText(title),
             style: const TextStyle(
               color: Colors.white,
-              fontSize: 18,
+              fontSize: 16,
               fontWeight: FontWeight.w900,
             ),
           ),
-          const SizedBox(height: 14),
+          const SizedBox(height: 10),
           ...children.expand(
             (child) => [
               child,
-              if (child != children.last) const SizedBox(height: 12),
+              if (child != children.last) const SizedBox(height: 10),
             ],
           ),
         ],
@@ -27044,7 +27178,7 @@ class _CcsTextField extends StatelessWidget {
   Widget build(BuildContext context) {
     return TextField(
       controller: controller,
-      minLines: maxLines > 1 ? 3 : 1,
+      minLines: maxLines > 1 ? 2 : 1,
       maxLines: maxLines,
       keyboardType: maxLines > 1 ? TextInputType.multiline : keyboardType,
       textInputAction: maxLines > 1
@@ -27053,19 +27187,28 @@ class _CcsTextField extends StatelessWidget {
       readOnly: readOnly,
       style: TextStyle(color: appPrimaryText, fontWeight: FontWeight.w600),
       decoration: InputDecoration(
+        isDense: true,
         labelText: trText(label),
         hintText: trText(hint),
         prefixIcon: Icon(icon, color: blue),
+        prefixIconConstraints: const BoxConstraints(
+          minWidth: 42,
+          minHeight: 42,
+        ),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 12,
+          vertical: 12,
+        ),
         labelStyle: TextStyle(color: appSecondaryText),
         hintStyle: TextStyle(color: appSubtleText),
         filled: true,
         fillColor: appSurfaceOverlay,
         enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(14),
           borderSide: BorderSide(color: appOutline),
         ),
         focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(14),
           borderSide: const BorderSide(color: blue, width: 1.4),
         ),
       ),
@@ -36242,6 +36385,11 @@ class AdminUserData {
     final bannedUntilMillis = nullableTimestampMillisFromFirebase(
       data['bannedUntil'],
     );
+    final deviceIds = uniqueNonEmptyStrings([
+      ...stringListFromFirebase(data['deviceIds'], const []),
+      stringFromFirebase(data['lastDeviceId'], ''),
+      ...stringListFromFirebase(data['knownDeviceIdsAtBan'], const []),
+    ]);
 
     return AdminUserData(
       uid: stringFromFirebase(data['uid'], doc.id),
@@ -36255,7 +36403,7 @@ class AdminUserData {
       banned: data['banned'] == true,
       bannedUntilMillis: bannedUntilMillis,
       banReason: userBanReasonFromFirebase(data),
-      deviceIds: stringListFromFirebase(data['deviceIds'], const []),
+      deviceIds: deviceIds,
       deleted: data['deleted'] == true,
     );
   }
@@ -38507,7 +38655,7 @@ class _AdminEditSpotScreenState extends State<AdminEditSpotScreen> {
               _CcsTextField(
                 controller: descriptionController,
                 label: 'Description',
-                hint: 'What makes this spot good for car photos?',
+                hint: '',
                 icon: Icons.notes,
                 maxLines: 4,
               ),
@@ -38853,6 +39001,10 @@ class _AdminSpotLocationReviewMapScreenState
               initialZoom: 17,
               minZoom: 4,
               maxZoom: 18,
+              interactionOptions: const InteractionOptions(
+                flags: InteractiveFlag.all,
+                rotationThreshold: 35,
+              ),
               backgroundColor: mapStyle.backgroundColor,
             ),
             children: [
