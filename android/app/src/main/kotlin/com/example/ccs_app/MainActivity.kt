@@ -9,6 +9,7 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
+import android.provider.Settings
 import android.view.WindowManager
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -18,6 +19,7 @@ import java.io.FileOutputStream
 
 class MainActivity : FlutterActivity() {
     private val photoPickerChannelName = "ccs/photo_picker"
+    private val deviceIdentityChannelName = "ccs/device_identity"
     private val screenAwakeChannelName = "ccs/screen_awake"
     private val notificationsChannelName = "ccs/system_notifications"
     private val liveLocationChannelName = "ccs/live_location_background"
@@ -32,6 +34,14 @@ class MainActivity : FlutterActivity() {
             .setMethodCallHandler { call, result ->
                 when (call.method) {
                     "pickPhoto" -> openPhotoPicker(result)
+                    else -> result.notImplemented()
+                }
+            }
+
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, deviceIdentityChannelName)
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "getDeviceId" -> result.success(getStableAndroidDeviceId())
                     else -> result.notImplemented()
                 }
             }
@@ -221,5 +231,18 @@ class MainActivity : FlutterActivity() {
         }
 
         return photoFile.absolutePath
+    }
+
+    private fun getStableAndroidDeviceId(): String? {
+        val androidId = Settings.Secure.getString(
+            contentResolver,
+            Settings.Secure.ANDROID_ID
+        )?.trim()
+
+        if (androidId.isNullOrEmpty() || androidId == "9774d56d682e549c") {
+            return null
+        }
+
+        return "android:$androidId"
     }
 }
