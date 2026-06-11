@@ -9,6 +9,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart' hide Text;
 import 'package:flutter/material.dart' as material show Text;
+import 'package:flutter/rendering.dart' show ScrollDirection;
 import 'package:flutter/services.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:geocoding/geocoding.dart';
@@ -997,7 +998,7 @@ class _FirestoreDebugScreenState extends State<FirestoreDebugScreen> {
                       'Since reset',
                       style: TextStyle(
                         color: Colors.white70,
-                        fontSize: 12,
+                        fontSize: 10.8,
                         fontWeight: FontWeight.w800,
                       ),
                     ),
@@ -1030,7 +1031,7 @@ class _FirestoreDebugScreenState extends State<FirestoreDebugScreen> {
                   ],
                 ),
               ),
-              const SizedBox(height: 10),
+              const SizedBox(height: 7),
               _FirestoreCloudUsageCard(
                 controller: firestoreCloudUsageController,
                 timeLabel: _timeLabel,
@@ -1098,7 +1099,7 @@ class _FirestoreDebugScreenState extends State<FirestoreDebugScreen> {
                     padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
                       color: panelGlass,
-                      borderRadius: BorderRadius.circular(14),
+                      borderRadius: BorderRadius.circular(10),
                       border: Border.all(color: Colors.white10),
                     ),
                     child: Column(
@@ -1622,7 +1623,7 @@ const _ruText = <String, String>{
   'Saved Spots': 'Сохранённые споты',
   'No saved spots yet': 'Сохранённых спотов пока нет',
   'No spots here yet': 'Здесь пока нет спотов',
-  'No spots match your filters': 'Нет спотов по выбранным фильтрам',
+  'No spots in this category': 'Нет спотов по выбранным фильтрам',
   'Tap the bookmark on a spot to keep it here.':
       'Нажмите закладку на споте, чтобы сохранить его здесь.',
   'Approved spots will appear here after moderation.':
@@ -2332,7 +2333,7 @@ const _lvText = <String, String>{
   'Saved Spots': 'Saglabātās vietas',
   'No saved spots yet': 'Saglabātu vietu vēl nav',
   'No spots here yet': 'Šeit vietu vēl nav',
-  'No spots match your filters': 'Filtriem neatbilst neviena vieta',
+  'No spots in this category': 'Filtriem neatbilst neviena vieta',
   'Tap the bookmark on a spot to keep it here.':
       'Nospiediet grāmatzīmi, lai saglabātu vietu.',
   'Approved spots will appear here after moderation.':
@@ -3630,7 +3631,7 @@ class _BanInfoBox extends StatelessWidget {
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: Colors.black.withValues(alpha: 0.24),
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(10),
         border: Border.all(color: Colors.white10),
       ),
       child: Column(
@@ -3885,7 +3886,7 @@ class _VersionInfoRow extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       decoration: BoxDecoration(
         color: Colors.black.withValues(alpha: 0.24),
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(10),
         border: Border.all(color: Colors.white10),
       ),
       child: Row(
@@ -9240,7 +9241,7 @@ Future<Duration?> showLiveLocationDurationDialog(BuildContext context) async {
                     side: const BorderSide(color: Colors.white12),
                     padding: const EdgeInsets.symmetric(vertical: 14),
                     shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(14),
+                      borderRadius: BorderRadius.circular(10),
                     ),
                   ),
                   child: Text(
@@ -11063,7 +11064,13 @@ class SpotReviewData {
 
     return SpotReviewData(
       id: doc.id,
-      spotId: stringFromFirebase(data['spotId'], ''),
+      spotId: (() {
+        final v = stringFromFirebase(data['spotId'], '');
+        if (v.trim().isNotEmpty) return v;
+        final alt = stringFromFirebase(data['spot_id'], '');
+        if (alt.trim().isNotEmpty) return alt;
+        return stringFromFirebase(data['spotReviewId'], '');
+      })(),
       userId: stringFromFirebase(data['userId'], ''),
       username: stringFromFirebase(data['username'], 'ccs_driver'),
       rating: doubleFromFirebase(data['rating'], 5).round().clamp(1, 5).toInt(),
@@ -13137,6 +13144,8 @@ class NotificationCenterItem {
                   id.trim().startsWith('chat_'))) ||
           addedByUid.trim().isNotEmpty ||
           userId.trim().isNotEmpty ||
+          ((type == 'new_spot' || type == 'temporary_event') &&
+              spotName.trim().isNotEmpty) ||
           type == 'friend_request' ||
           type == 'spot_pending_review');
 }
@@ -13325,6 +13334,9 @@ String spotNameFromNotificationBody(String type, String body) {
         r'^(.+?)\s+(?:event\s+)?(?:was\s+)?added(?:\s+in\s+.+)?\.?$',
         caseSensitive: false,
       ),
+      // Backend/user notification rows can be shorter, for example:
+      // "Oak Burgers in Riga, Latvia". Extract the name before " in ".
+      RegExp(r'^(.+?)\s+in\s+.+$', caseSensitive: false),
     ];
 
     for (final pattern in patterns) {
@@ -13466,24 +13478,31 @@ NotificationCenterItem notificationCenterItemFromDocument(
   bool projectNews = false,
 }) {
   final data = doc.data() ?? {};
-  final type = stringFromFirebase(
-    data['type'],
+  final payload = mapFromFirebase(data['data']);
+
+  String pickString(String key, String fallback) {
+    final topLevel = stringFromFirebase(data[key], '');
+    if (topLevel.trim().isNotEmpty) {
+      return topLevel;
+    }
+    return stringFromFirebase(payload[key], fallback);
+  }
+
+  final type = pickString(
+    'type',
     projectNews ? 'project_news' : 'notification',
   );
-  final rawSpotName = stringFromFirebase(data['spotName'], '');
-  final status = stringFromFirebase(data['status'], '');
-  final reviewedBy = stringFromFirebase(data['reviewedBy'], '');
-  final rejectionReason = stringFromFirebase(data['rejectionReason'], '');
-  final actorUsername = stringFromFirebase(
-    data['actorUsername'],
-    stringFromFirebase(data['senderUsername'], ''),
+  final rawSpotName = pickString('spotName', '');
+  final status = pickString('status', '');
+  final reviewedBy = pickString('reviewedBy', '');
+  final rejectionReason = pickString('rejectionReason', '');
+  final actorUsername = pickString(
+    'actorUsername',
+    pickString('senderUsername', ''),
   );
-  final actorUserId = stringFromFirebase(
-    data['actorUserId'],
-    stringFromFirebase(data['senderUid'], ''),
-  );
-  final comment = stringFromFirebase(data['comment'], '');
-  final friendUsername = stringFromFirebase(data['friendUsername'], '');
+  final actorUserId = pickString('actorUserId', pickString('senderUid', ''));
+  final comment = pickString('comment', '');
+  final friendUsername = pickString('friendUsername', '');
   // Always use the canonical title for each type — ignore whatever Firebase stored.
   final title = switch (type) {
     'spot_like' => 'Likes on my spots',
@@ -13500,7 +13519,7 @@ NotificationCenterItem notificationCenterItemFromDocument(
     'project_news' => 'Project news',
     _ => stringFromFirebase(data['title'], 'CCS'),
   };
-  var body = stringFromFirebase(data['body'], '');
+  var body = pickString('body', '');
   final spotName = rawSpotName.trim().isNotEmpty
       ? rawSpotName
       : spotNameFromNotificationBody(type, body);
@@ -13559,7 +13578,7 @@ NotificationCenterItem notificationCenterItemFromDocument(
         friendUsername.trim().isEmpty
             ? 'A friend is at a spot.'
             : '@$friendUsername is at ${spotName.trim().isEmpty ? 'a spot' : spotName}.',
-      _ => stringFromFirebase(data['message'], ''),
+      _ => pickString('message', ''),
     };
   }
 
@@ -13583,15 +13602,21 @@ NotificationCenterItem notificationCenterItemFromDocument(
     read: data['read'] == true,
     reference: projectNews ? null : doc.reference,
     projectNews: projectNews,
-    spotId: stringFromFirebase(data['spotId'], ''),
+    spotId: (() {
+      final v = pickString('spotId', '');
+      if (v.trim().isNotEmpty) return v;
+      final alt = pickString('spot_id', '');
+      if (alt.trim().isNotEmpty) return alt;
+      return pickString('spotReviewId', '');
+    })(),
     spotName: spotName,
     chatId: (() {
-      final v = stringFromFirebase(data['chatId'], '');
+      final v = pickString('chatId', '');
       if (v.isNotEmpty) return v;
-      return stringFromFirebase(data['chat_id'], '');
+      return pickString('chat_id', '');
     })(),
-    userId: stringFromFirebase(data['userId'], ''),
-    addedByUid: stringFromFirebase(data['addedByUid'], ''),
+    userId: pickString('userId', ''),
+    addedByUid: pickString('addedByUid', ''),
     actorUserId: actorUserId,
     actorUsername: actorUsername.trim().isEmpty
         ? actorUsernameFromNotificationBody(body)
@@ -14312,12 +14337,50 @@ List<Widget> ccsAppBarActions() {
 }
 
 Future<CarSpot?> spotForNotificationItem(NotificationCenterItem item) async {
-  final cleanSpotId = item.spotId.trim();
-  final cleanSpotName = item.spotName.trim().toLowerCase();
+  var cleanSpotId = item.spotId.trim();
+  var cleanSpotName = item.spotName.trim();
+
+  if (cleanSpotName.isEmpty) {
+    cleanSpotName = spotNameFromNotificationBody(item.type, item.body).trim();
+  }
+
+  if (cleanSpotId.isEmpty) {
+    final itemId = item.id.trim();
+    final idMatch = RegExp(
+      r'^(?:new_spot|temporary_event|spot_like|spot_comment|spot_review)_(.+)_[^_]+$',
+    ).firstMatch(itemId);
+    cleanSpotId = idMatch?.group(1)?.trim() ?? '';
+
+    // Some older notification documents may have user ids or spot ids that
+    // contain underscores. Prefer a best-effort prefix/suffix strip before
+    // falling back to name lookup.
+    if (cleanSpotId.isEmpty) {
+      for (final prefix in [
+        'temporary_event_',
+        'spot_comment_',
+        'spot_like_',
+        'spot_review_',
+        'new_spot_',
+      ]) {
+        if (!itemId.startsWith(prefix)) {
+          continue;
+        }
+
+        final withoutPrefix = itemId.substring(prefix.length);
+        final lastSeparator = withoutPrefix.lastIndexOf('_');
+        if (lastSeparator > 0) {
+          cleanSpotId = withoutPrefix.substring(0, lastSeparator).trim();
+        }
+        break;
+      }
+    }
+  }
 
   if (cleanSpotId.isEmpty && cleanSpotName.isEmpty) {
     return null;
   }
+
+  final cleanSpotNameLower = cleanSpotName.toLowerCase();
 
   bool matchesNotificationSpot(CarSpot spot) {
     if (cleanSpotId.isNotEmpty &&
@@ -14325,60 +14388,94 @@ Future<CarSpot?> spotForNotificationItem(NotificationCenterItem item) async {
       return true;
     }
 
-    return cleanSpotName.isNotEmpty &&
-        spot.name.trim().toLowerCase() == cleanSpotName;
+    return cleanSpotNameLower.isNotEmpty &&
+        spot.name.trim().toLowerCase() == cleanSpotNameLower;
   }
 
-  for (final spot in reviewSpots.value) {
-    if (matchesNotificationSpot(spot)) {
-      return spot;
+  CarSpot? firstMatchingLocalSpot() {
+    for (final spots in [
+      reviewSpots.value,
+      approvedPublicSpots(),
+      submittedSpots.value,
+      savedSpots.value,
+    ]) {
+      for (final spot in spots) {
+        if (matchesNotificationSpot(spot)) {
+          return spot;
+        }
+      }
     }
-  }
-  for (final spot in approvedPublicSpots()) {
-    if (matchesNotificationSpot(spot)) {
-      return spot;
-    }
-  }
-  for (final spot in submittedSpots.value) {
-    if (matchesNotificationSpot(spot)) {
-      return spot;
-    }
+    return null;
   }
 
+  final localSpot = firstMatchingLocalSpot();
+  if (localSpot != null) {
+    return localSpot;
+  }
+
+  // Fast path for current/new notification documents that carry the real
+  // Firestore document id. This can fail for older/backend notifications when
+  // the id is stored only in nested data, is a review key, or rules require an
+  // approved-spots query instead of direct document get, so we always continue
+  // to the query fallbacks below instead of giving up.
   if (cleanSpotId.isNotEmpty) {
     try {
       final doc = await spotsCollection()
           .doc(cleanSpotId)
           .debugGet(null, 'notification center: open spot by id');
       if (doc.exists) {
-        return CarSpot.fromFirestore(doc);
+        final spot = CarSpot.fromFirestore(doc);
+        upsertSpotIntoLocalImmediateCache(spot);
+        return spot;
       }
     } catch (error) {
       debugPrint('Notification spot id lookup failed: $error');
     }
   }
 
-  // Older like/comment notifications may store a local review key instead of the
-  // Firestore document id. Fall back to the saved spot name so existing
-  // notifications still open the real approved spot.
-  if (item.spotName.trim().isNotEmpty) {
+  // New spot notifications created by the push backend commonly have a body
+  // like "Spot name in Riga, Latvia". Query by the parsed name so old
+  // notifications still open even if their spotId was not copied to the
+  // top-level Firestore notification document.
+  if (cleanSpotName.isNotEmpty) {
     try {
       final snapshot = await spotsCollection()
-          .where('name', isEqualTo: item.spotName.trim())
-          .limit(5)
-          .debugGet(null, 'notification center: open spot by name');
-      if (snapshot.docs.isNotEmpty) {
-        final approved = snapshot.docs
-            .map((doc) => CarSpot.fromFirestore(doc))
-            .where((spot) => spot.status == SpotStatus.approved)
-            .toList();
-        return approved.isNotEmpty
-            ? approved.first
-            : CarSpot.fromFirestore(snapshot.docs.first);
+          .where('name', isEqualTo: cleanSpotName)
+          .limit(10)
+          .debugGet(null, 'notification center: open spot by exact name');
+      for (final doc in snapshot.docs) {
+        final spot = CarSpot.fromFirestore(doc);
+        if (approvedSpotIsVisibleForCurrentUser(spot) ||
+            userRoleIsStaff(currentUser.role) ||
+            spot.addedByUid == (FirebaseAuth.instance.currentUser?.uid ?? '')) {
+          upsertSpotIntoLocalImmediateCache(spot);
+          return spot;
+        }
       }
     } catch (error) {
-      debugPrint('Notification spot name lookup failed: $error');
+      debugPrint('Notification spot exact name lookup failed: $error');
     }
+  }
+
+  // Last-resort server fallback: load the approved visible set and match by id,
+  // review key, or parsed name. This costs reads only when the user taps a
+  // notification that cannot be resolved from the local cache/direct doc.
+  try {
+    final snapshot = await approvedSpotsForCurrentUserQuery()
+        .limit(firebaseApprovedSpotsListenLimit)
+        .debugGet(
+          const GetOptions(source: Source.server),
+          'notification center: open spot approved fallback',
+        );
+    for (final doc in snapshot.docs) {
+      final spot = CarSpot.fromFirestore(doc);
+      if (matchesNotificationSpot(spot)) {
+        upsertSpotIntoLocalImmediateCache(spot);
+        return spot;
+      }
+    }
+  } catch (error) {
+    debugPrint('Notification approved spot fallback lookup failed: $error');
   }
 
   return null;
@@ -14747,7 +14844,7 @@ class _NotificationCenterScreenState extends State<NotificationCenterScreen> {
                         ),
                         child: Icon(notificationCenterIcon(item), color: color),
                       ),
-                      const SizedBox(width: 12),
+                      const SizedBox(width: 10),
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
@@ -14779,7 +14876,7 @@ class _NotificationCenterScreenState extends State<NotificationCenterScreen> {
                                 notificationCenterTime(item.createdAtMillis),
                                 style: const TextStyle(
                                   color: Colors.white38,
-                                  fontSize: 11,
+                                  fontSize: 10.5,
                                   fontWeight: FontWeight.w700,
                                 ),
                               ),
@@ -14906,7 +15003,7 @@ class _AllNotificationsScreenState extends State<_AllNotificationsScreen> {
                                   notificationCenterTime(item.createdAtMillis),
                                   style: const TextStyle(
                                     color: Colors.white38,
-                                    fontSize: 11,
+                                    fontSize: 10.5,
                                     fontWeight: FontWeight.w700,
                                   ),
                                 ),
@@ -15467,6 +15564,7 @@ class MainScreen extends StatefulWidget {
 
 class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   late int index;
+  final List<int> tabHistory = [];
   bool hasOpenedMap = false;
   bool hasOpenedChat = false;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>?
@@ -15527,34 +15625,56 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     }
 
     if (index != 1 || !hasOpenedMap) {
-      setState(() {
+      selectBottomTab(1);
+    }
+  }
+
+  void selectBottomTab(int nextIndex) {
+    final cleanIndex = nextIndex.clamp(0, 4).toInt();
+    if (cleanIndex == index) {
+      return;
+    }
+
+    setState(() {
+      if (tabHistory.isEmpty || tabHistory.last != index) {
+        tabHistory.add(index);
+      }
+      if (tabHistory.length > 12) {
+        tabHistory.removeAt(0);
+      }
+
+      if (cleanIndex == 1) {
         hasOpenedMap = true;
-        index = 1;
+      } else if (cleanIndex == 3) {
+        hasOpenedChat = true;
+      }
+      index = cleanIndex;
+    });
+  }
+
+  Future<bool> handleSystemBack() async {
+    if (tabHistory.isNotEmpty) {
+      final previousIndex = tabHistory.removeLast().clamp(0, 4).toInt();
+      setState(() {
+        if (previousIndex == 1) {
+          hasOpenedMap = true;
+        } else if (previousIndex == 3) {
+          hasOpenedChat = true;
+        }
+        index = previousIndex;
       });
-    }
-  }
-
-  void openMapTab() {
-    if (index == 1 && hasOpenedMap) {
-      return;
+      return false;
     }
 
-    setState(() {
-      hasOpenedMap = true;
-      index = 1;
-    });
-  }
-
-  void openChatTab() {
-    if (index == 3 && hasOpenedChat) {
-      return;
+    if (index != 0) {
+      setState(() => index = 0);
     }
-
-    setState(() {
-      hasOpenedChat = true;
-      index = 3;
-    });
+    return false;
   }
+
+  void openMapTab() => selectBottomTab(1);
+
+  void openChatTab() => selectBottomTab(3);
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
@@ -15817,105 +15937,108 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     return AnimatedBuilder(
       animation: appUiPreferences,
       builder: (context, _) {
-        return Scaffold(
-          backgroundColor: Colors.transparent,
-          extendBody: false,
-          body: Stack(
-            children: [
-              IndexedStack(index: index, children: screens),
-              ValueListenableBuilder<bool>(
-                valueListenable: firestoreDebugButtonVisible,
-                builder: (context, visible, _) {
-                  if (!visible || !userRoleIsStaff(currentUser.role)) {
-                    return const SizedBox.shrink();
-                  }
+        return WillPopScope(
+          onWillPop: handleSystemBack,
+          child: Scaffold(
+            backgroundColor: Colors.transparent,
+            extendBody: false,
+            body: Stack(
+              children: [
+                IndexedStack(index: index, children: screens),
+                ValueListenableBuilder<bool>(
+                  valueListenable: firestoreDebugButtonVisible,
+                  builder: (context, visible, _) {
+                    if (!visible || !userRoleIsStaff(currentUser.role)) {
+                      return const SizedBox.shrink();
+                    }
 
-                  return Positioned(
-                    left: 12,
-                    top: MediaQuery.of(context).padding.top + 8,
-                    child: Material(
-                      color: blue.withValues(alpha: 0.88),
-                      shape: const CircleBorder(),
-                      elevation: 10,
-                      child: InkWell(
-                        customBorder: const CircleBorder(),
-                        onTap: () {
-                          Navigator.push(
-                            context,
-                            appPageRoute(
-                              builder: (_) => const FirestoreDebugScreen(),
+                    return Positioned(
+                      left: 12,
+                      top: MediaQuery.of(context).padding.top + 8,
+                      child: Material(
+                        color: blue.withValues(alpha: 0.88),
+                        shape: const CircleBorder(),
+                        elevation: 10,
+                        child: InkWell(
+                          customBorder: const CircleBorder(),
+                          onTap: () {
+                            Navigator.push(
+                              context,
+                              appPageRoute(
+                                builder: (_) => const FirestoreDebugScreen(),
+                              ),
+                            );
+                          },
+                          child: const SizedBox(
+                            width: 42,
+                            height: 42,
+                            child: Icon(
+                              Icons.bug_report_outlined,
+                              color: Colors.white,
+                              size: 22,
                             ),
-                          );
-                        },
-                        child: const SizedBox(
-                          width: 42,
-                          height: 42,
-                          child: Icon(
-                            Icons.bug_report_outlined,
-                            color: Colors.white,
-                            size: 22,
                           ),
                         ),
                       ),
+                    );
+                  },
+                ),
+              ],
+            ),
+            bottomNavigationBar: SafeArea(
+              top: false,
+              child: Container(
+                height: 62,
+                decoration: BoxDecoration(
+                  color: panelGlass,
+                  border: const Border(top: BorderSide(color: Colors.white12)),
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: _CcsBottomNavItem(
+                        icon: Icons.location_on,
+                        label: trText('Spots'),
+                        selected: index == 0,
+                        onTap: () => selectBottomTab(0),
+                      ),
                     ),
-                  );
-                },
-              ),
-            ],
-          ),
-          bottomNavigationBar: SafeArea(
-            top: false,
-            child: Container(
-              height: 62,
-              decoration: BoxDecoration(
-                color: panelGlass,
-                border: const Border(top: BorderSide(color: Colors.white12)),
-              ),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: _CcsBottomNavItem(
-                      icon: Icons.location_on,
-                      label: trText('Spots'),
-                      selected: index == 0,
-                      onTap: () => setState(() => index = 0),
+                    Expanded(
+                      child: _CcsBottomNavItem(
+                        icon: Icons.map,
+                        label: trText('Map'),
+                        selected: index == 1,
+                        onTap: openMapTab,
+                      ),
                     ),
-                  ),
-                  Expanded(
-                    child: _CcsBottomNavItem(
-                      icon: Icons.map,
-                      label: trText('Map'),
-                      selected: index == 1,
-                      onTap: openMapTab,
+                    Expanded(
+                      child: _CcsBottomNavItem(
+                        icon: Icons.add_circle_outline,
+                        label: trText('Add Spot Nav'),
+                        selected: index == 2,
+                        onTap: () => selectBottomTab(2),
+                        twoLineCentered:
+                            appUiPreferences.language != AppLanguage.en,
+                      ),
                     ),
-                  ),
-                  Expanded(
-                    child: _CcsBottomNavItem(
-                      icon: Icons.add_circle_outline,
-                      label: trText('Add Spot Nav'),
-                      selected: index == 2,
-                      onTap: () => setState(() => index = 2),
-                      twoLineCentered:
-                          appUiPreferences.language != AppLanguage.en,
+                    Expanded(
+                      child: _CcsBottomNavItem(
+                        icon: Icons.chat_bubble_outline,
+                        label: trText('Chat'),
+                        selected: index == 3,
+                        onTap: openChatTab,
+                      ),
                     ),
-                  ),
-                  Expanded(
-                    child: _CcsBottomNavItem(
-                      icon: Icons.chat_bubble_outline,
-                      label: trText('Chat'),
-                      selected: index == 3,
-                      onTap: openChatTab,
+                    Expanded(
+                      child: _CcsBottomNavItem(
+                        icon: Icons.person_outline,
+                        label: trText('Profile'),
+                        selected: index == 4,
+                        onTap: () => selectBottomTab(4),
+                      ),
                     ),
-                  ),
-                  Expanded(
-                    child: _CcsBottomNavItem(
-                      icon: Icons.person_outline,
-                      label: trText('Profile'),
-                      selected: index == 4,
-                      onTap: () => setState(() => index = 4),
-                    ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
           ),
@@ -16024,26 +16147,38 @@ class ExploreScreen extends StatefulWidget {
 class _ExploreScreenState extends State<ExploreScreen> {
   ExploreSortMode selectedMode = ExploreSortMode.popular;
   bool showSavedOnly = false;
+  String searchQuery = '';
+  String selectedExploreCategory = '';
+  bool userSelectedExploreCategory = false;
+  late final ScrollController categoryScrollController;
+  late final ScrollController spotCardScrollController;
   final Set<String> expandedCategories = {};
   Timer? temporarySpotRefreshTimer;
+  Timer? nextTemporarySpotExpiryTimer;
 
   @override
   void initState() {
     super.initState();
+    categoryScrollController = ScrollController();
+    spotCardScrollController = ScrollController();
     savedSpots.addListener(refreshSavedFilter);
     spotCategoryFilters.addListener(refreshSpotCategoryFilters);
     // Temporary spots can expire or reveal their location without a Firestore
     // update. Refresh the Spots tab so the temporary card removes expired spots
     // and updates availability labels while the user stays on this screen.
     temporarySpotRefreshTimer = Timer.periodic(
-      const Duration(seconds: 10),
+      const Duration(minutes: 1),
       (_) => refreshTemporarySpots(),
     );
+    scheduleNextTemporarySpotRefresh();
   }
 
   @override
   void dispose() {
     temporarySpotRefreshTimer?.cancel();
+    nextTemporarySpotExpiryTimer?.cancel();
+    categoryScrollController.dispose();
+    spotCardScrollController.dispose();
     savedSpots.removeListener(refreshSavedFilter);
     spotCategoryFilters.removeListener(refreshSpotCategoryFilters);
     super.dispose();
@@ -16062,9 +16197,44 @@ class _ExploreScreenState extends State<ExploreScreen> {
   }
 
   void refreshTemporarySpots() {
-    if (mounted && approvedPublicSpots().any((spot) => spot.isTemporary)) {
+    if (!mounted) {
+      return;
+    }
+
+    if (approvedPublicSpots().any((spot) => spot.hasTemporaryWindow)) {
       setState(() {});
     }
+
+    scheduleNextTemporarySpotRefresh();
+  }
+
+  void scheduleNextTemporarySpotRefresh() {
+    nextTemporarySpotExpiryTimer?.cancel();
+
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final nextAt = approvedPublicSpots()
+        .where((spot) => spot.hasTemporaryWindow)
+        .expand<int>((spot) sync* {
+          final startsAt = spot.startsAtMillis;
+          final expiresAt = spot.expiresAtMillis;
+          final revealAt = spot.effectiveShowOnMapAtMillis;
+          if (revealAt != null && revealAt > now) yield revealAt;
+          if (startsAt != null && startsAt > now) yield startsAt;
+          if (expiresAt != null && expiresAt > now) yield expiresAt;
+        })
+        .fold<int?>(null, (best, value) {
+          if (best == null || value < best) {
+            return value;
+          }
+          return best;
+        });
+
+    if (nextAt == null) {
+      return;
+    }
+
+    final delay = Duration(milliseconds: nextAt - now + 150);
+    nextTemporarySpotExpiryTimer = Timer(delay, refreshTemporarySpots);
   }
 
   void toggleCategoryExpansion(String category) {
@@ -16077,10 +16247,6 @@ class _ExploreScreenState extends State<ExploreScreen> {
 
   List<CarSpot> sortedSpots(List<CarSpot> spots) {
     final list = [...spots];
-
-    if (selectedMode == ExploreSortMode.meet) {
-      list.removeWhere((spot) => !spot.categories.contains('Meet'));
-    }
 
     switch (selectedMode) {
       case ExploreSortMode.popular:
@@ -16107,27 +16273,89 @@ class _ExploreScreenState extends State<ExploreScreen> {
   }
 
   List<CarSpot> filteredSpots() {
-    final enabledCategoryFilters = spotCategoryFilters.value;
-
-    if (enabledCategoryFilters.isEmpty) {
-      return const [];
-    }
+    final selectedCategory = selectedExploreCategory;
+    final query = searchQuery.trim().toLowerCase();
 
     return approvedPublicSpots().where((spot) {
-      if (spot.isTemporary && spot.isExpired) {
+      if (spot.isExpired) {
         return false;
       }
 
-      if (!spot.categories.any(enabledCategoryFilters.contains)) {
+      // Temporary spots/events live only inside the Upcoming category so the
+      // same card is not duplicated under Photo, Meet, Food, etc.
+      if (spot.hasTemporaryWindow) {
         return false;
       }
 
-      if (!showSavedOnly) {
+      if (selectedCategory == upcomingCategoryName) {
+        return false;
+      }
+
+      if (!spot.categories.contains(selectedCategory)) {
+        return false;
+      }
+
+      if (showSavedOnly &&
+          !savedSpots.value.any((saved) => isSameSpot(saved, spot))) {
+        return false;
+      }
+
+      if (query.isEmpty) {
         return true;
       }
 
-      return savedSpots.value.any((saved) => isSameSpot(saved, spot));
+      final searchable = [
+        spot.name,
+        spot.cityCountry,
+        spot.description,
+        spot.addedBy,
+        ...spot.categories,
+      ].join(' ').toLowerCase();
+
+      return searchable.contains(query);
     }).toList();
+  }
+
+  List<CarSpot> upcomingTemporarySpots() {
+    final query = searchQuery.trim().toLowerCase();
+    final spots = approvedPublicSpots().where((spot) {
+      if (!spot.hasTemporaryWindow || spot.isExpired) {
+        return false;
+      }
+
+      if (showSavedOnly &&
+          !savedSpots.value.any((saved) => isSameSpot(saved, spot))) {
+        return false;
+      }
+
+      if (query.isEmpty) {
+        return true;
+      }
+
+      final searchable = [
+        spot.name,
+        spot.cityCountry,
+        spot.description,
+        spot.addedBy,
+        upcomingCategoryName,
+        ...spot.categories,
+      ].join(' ').toLowerCase();
+
+      return searchable.contains(query);
+    }).toList();
+
+    spots.sort((a, b) {
+      final aActive = a.isTemporaryActiveNow;
+      final bActive = b.isTemporaryActiveNow;
+      if (aActive != bActive) {
+        return aActive ? -1 : 1;
+      }
+      return (a.startsAtMillis ?? a.createdAtMillis).compareTo(
+        b.startsAtMillis ?? b.createdAtMillis,
+      );
+    });
+
+    return spots;
   }
 
   Map<String, List<CarSpot>> upcomingTemporarySpotGroups() {
@@ -16152,17 +16380,13 @@ class _ExploreScreenState extends State<ExploreScreen> {
       'Next month': [],
     };
 
-    for (final spot in approvedPublicSpots()) {
-      if (!spot.hasTemporaryWindow || spot.isExpired) {
+    for (final spot in upcomingTemporarySpots()) {
+      final startsAtMillis = spot.startsAtMillis;
+      if (startsAtMillis == null) {
         continue;
       }
 
-      final startsAt = DateTime.fromMillisecondsSinceEpoch(
-        spot.startsAtMillis!,
-      );
-      final expiresAt = DateTime.fromMillisecondsSinceEpoch(
-        spot.expiresAtMillis!,
-      );
+      final startsAt = DateTime.fromMillisecondsSinceEpoch(startsAtMillis);
       final startsToday = isSameLocalDate(now, startsAt);
       final startsTomorrow =
           !startsAt.isBefore(tomorrowStart) &&
@@ -16184,8 +16408,6 @@ class _ExploreScreenState extends State<ExploreScreen> {
       } else if (!startsAt.isBefore(thisMonthEnd) &&
           startsAt.isBefore(nextMonthEnd)) {
         groups['Next month']!.add(spot);
-      } else if (expiresAt.isAfter(now) && startsAt.isBefore(tomorrowStart)) {
-        groups['Today']!.add(spot);
       }
     }
 
@@ -16426,155 +16648,528 @@ class _ExploreScreenState extends State<ExploreScreen> {
     );
   }
 
+  Map<String, int> visibleCategoryCounts(
+    List<CarSpot> spots, {
+    int upcomingCount = 0,
+  }) {
+    final counts = <String, int>{
+      for (final category in spotCategoryOptions)
+        category: spots
+            .where(
+              (spot) =>
+                  !spot.isExpired &&
+                  !spot.hasTemporaryWindow &&
+                  spot.categories.contains(category) &&
+                  (!showSavedOnly ||
+                      savedSpots.value.any((saved) => isSameSpot(saved, spot))),
+            )
+            .length,
+    };
+
+    if (upcomingCount > 0) {
+      counts[upcomingCategoryName] = upcomingCount;
+    }
+
+    return counts;
+  }
+
+  List<String> orderedExploreCategories(Map<String, int> counts) {
+    final categories = <String>[
+      if ((counts[upcomingCategoryName] ?? 0) > 0) upcomingCategoryName,
+      ...spotCategoryOptions.where((category) => (counts[category] ?? 0) > 0),
+    ];
+
+    final normalCategories =
+        categories
+            .where((category) => category != upcomingCategoryName)
+            .toList()
+          ..sort((first, second) {
+            final countCompare = (counts[second] ?? 0).compareTo(
+              counts[first] ?? 0,
+            );
+            if (countCompare != 0) {
+              return countCompare;
+            }
+            return spotCategoryOptions
+                .indexOf(first)
+                .compareTo(spotCategoryOptions.indexOf(second));
+          });
+
+    return [
+      if ((counts[upcomingCategoryName] ?? 0) > 0) upcomingCategoryName,
+      ...normalCategories,
+      if ((counts[upcomingCategoryName] ?? 0) <= 0 && normalCategories.isEmpty)
+        ...spotCategoryOptions,
+    ];
+  }
+
+  void normalizeSelectedExploreCategory(Map<String, int> counts) {
+    final categories = orderedExploreCategories(counts);
+    if (categories.isEmpty) {
+      selectedExploreCategory = 'Photo';
+      userSelectedExploreCategory = false;
+      return;
+    }
+
+    if (!categories.contains(selectedExploreCategory)) {
+      selectedExploreCategory = categories.first;
+      userSelectedExploreCategory = false;
+    }
+  }
+
+  IconData spotCategoryMaterialIcon(String category) {
+    switch (category) {
+      case upcomingCategoryName:
+        return Icons.event_available_outlined;
+      case 'Drift':
+        return Icons.sports_motorsports;
+      case 'Photo':
+        return Icons.photo_camera_outlined;
+      case 'Meet':
+        return Icons.groups_2_outlined;
+      case 'Drive':
+        return Icons.route_outlined;
+      case 'Service':
+        return Icons.build_outlined;
+      case 'Detailing':
+        return Icons.auto_fix_high_outlined;
+      case 'Wash':
+        return Icons.local_car_wash_outlined;
+      case 'Store':
+        return Icons.shopping_bag_outlined;
+      case 'Drag':
+        return Icons.speed_outlined;
+      case 'Off-road':
+        return Icons.terrain_outlined;
+      case 'Food':
+        return Icons.restaurant_outlined;
+    }
+
+    return Icons.local_offer_outlined;
+  }
+
+  Widget sortPill(ExploreSortMode mode, IconData icon) {
+    final selected = selectedMode == mode;
+
+    return Expanded(
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: () => setState(() => selectedMode = mode),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          padding: const EdgeInsets.symmetric(vertical: 10),
+          decoration: BoxDecoration(
+            gradient: selected
+                ? const LinearGradient(colors: [blue, Color(0xFF7B35FF)])
+                : null,
+            color: selected ? null : Colors.transparent,
+            borderRadius: BorderRadius.circular(10),
+            boxShadow: selected
+                ? [
+                    BoxShadow(
+                      color: blue.withValues(alpha: 0.26),
+                      blurRadius: 16,
+                      offset: const Offset(0, 8),
+                    ),
+                  ]
+                : null,
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                icon,
+                size: 16,
+                color: selected ? Colors.white : Colors.white60,
+              ),
+              const SizedBox(width: 6),
+              Flexible(
+                child: Text(
+                  exploreSortLabel(mode),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: selected ? Colors.white : Colors.white60,
+                    fontSize: 13,
+                    fontWeight: selected ? FontWeight.w900 : FontWeight.w700,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget sortSegmentedControl() {
+    return Container(
+      padding: const EdgeInsets.all(4),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.055),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
+      ),
+      child: Row(
+        children: [
+          sortPill(ExploreSortMode.popular, Icons.trending_up),
+          sortPill(ExploreSortMode.newest, Icons.auto_awesome),
+          sortPill(ExploreSortMode.old, Icons.schedule),
+        ],
+      ),
+    );
+  }
+
+  static const String upcomingCategoryName = 'Upcoming';
+  static const double _categoryCardGap = 8;
+
+  void _snapCategoryStrip(double itemExtent) {
+    if (!categoryScrollController.hasClients || itemExtent <= 0) {
+      return;
+    }
+
+    final position = categoryScrollController.position;
+    if (position.maxScrollExtent <= 0) {
+      return;
+    }
+
+    final current = position.pixels;
+    final target = (current / itemExtent).round() * itemExtent;
+    final clampedTarget = target
+        .clamp(0.0, position.maxScrollExtent)
+        .toDouble();
+
+    if ((clampedTarget - current).abs() < 1.5) {
+      return;
+    }
+
+    unawaited(
+      categoryScrollController.animateTo(
+        clampedTarget,
+        duration: const Duration(milliseconds: 220),
+        curve: Curves.easeOutCubic,
+      ),
+    );
+  }
+
+  Widget categorySelectionStrip(Map<String, int> counts) {
+    final uniqueCategories = orderedExploreCategories(counts);
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final itemWidth = (constraints.maxWidth - (_categoryCardGap * 2)) / 3;
+        final itemExtent = itemWidth + _categoryCardGap;
+
+        return SizedBox(
+          height: 50,
+          child: NotificationListener<ScrollEndNotification>(
+            onNotification: (_) {
+              _snapCategoryStrip(itemExtent);
+              return false;
+            },
+            child: NotificationListener<UserScrollNotification>(
+              onNotification: (notification) {
+                if (notification.direction == ScrollDirection.idle) {
+                  _snapCategoryStrip(itemExtent);
+                }
+                return false;
+              },
+              child: ListView.builder(
+                controller: categoryScrollController,
+                scrollDirection: Axis.horizontal,
+                physics: const BouncingScrollPhysics(
+                  parent: AlwaysScrollableScrollPhysics(),
+                ),
+                padding: EdgeInsets.zero,
+                itemCount: uniqueCategories.length,
+                itemBuilder: (context, index) {
+                  final category = uniqueCategories[index];
+                  return Padding(
+                    padding: EdgeInsets.only(
+                      right: index == uniqueCategories.length - 1
+                          ? 0
+                          : _categoryCardGap,
+                    ),
+                    child: categorySelectionButton(
+                      category: category,
+                      count: counts[category] ?? 0,
+                      width: itemWidth,
+                    ),
+                  );
+                },
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget categorySelectionButton({
+    required String category,
+    required int count,
+    required double width,
+  }) {
+    final selected = selectedExploreCategory == category;
+    final color = category == upcomingCategoryName
+        ? Colors.orangeAccent
+        : spotColorForCategory(category);
+
+    return InkWell(
+      onTap: () {
+        setState(() {
+          selectedExploreCategory = category;
+          userSelectedExploreCategory = true;
+        });
+      },
+      borderRadius: BorderRadius.circular(9),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        width: width,
+        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: selected ? 0.060 : 0.035),
+          borderRadius: BorderRadius.circular(11),
+          border: Border.all(
+            color: selected
+                ? color.withValues(alpha: 0.82)
+                : Colors.white.withValues(alpha: 0.10),
+            width: selected ? 1.45 : 1,
+          ),
+          boxShadow: selected
+              ? [
+                  BoxShadow(
+                    color: color.withValues(alpha: 0.16),
+                    blurRadius: 10,
+                    spreadRadius: 0.2,
+                  ),
+                ]
+              : null,
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 25,
+              height: 25,
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.050),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Icon(
+                spotCategoryMaterialIcon(category),
+                size: 16,
+                color: color,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    category,
+                    maxLines: 1,
+                    overflow: TextOverflow.visible,
+                    style: TextStyle(
+                      color: selected ? Colors.white : Colors.white60,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  const SizedBox(height: 0),
+                  Text(
+                    '$count',
+                    style: TextStyle(
+                      color: selected ? Colors.white70 : Colors.white38,
+                      fontSize: 10.5,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _snapSpotCards(double itemExtent) {
+    if (!spotCardScrollController.hasClients || itemExtent <= 0) {
+      return;
+    }
+
+    final position = spotCardScrollController.position;
+    if (position.maxScrollExtent <= 0) {
+      return;
+    }
+
+    final current = position.pixels;
+    final target = (current / itemExtent).round() * itemExtent;
+    final clampedTarget = target
+        .clamp(0.0, position.maxScrollExtent)
+        .toDouble();
+
+    if ((clampedTarget - current).abs() < 2.5) {
+      return;
+    }
+
+    unawaited(
+      spotCardScrollController.animateTo(
+        clampedTarget,
+        duration: const Duration(milliseconds: 260),
+        curve: Curves.easeOutCubic,
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return ValueListenableBuilder<List<CarSpot>>(
       valueListenable: reviewSpots,
       builder: (context, _, _) {
+        final upcomingSpots = upcomingTemporarySpots();
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) {
+            scheduleNextTemporarySpotRefresh();
+          }
+        });
+        final categoryCounts = visibleCategoryCounts(
+          approvedPublicSpots(),
+          upcomingCount: upcomingSpots.length,
+        );
+        normalizeSelectedExploreCategory(categoryCounts);
+
         final approvedSpots = filteredSpots();
-        final upcomingTemporaryGroups = upcomingTemporarySpotGroups();
-        final upcomingTemporaryCount = upcomingTemporaryGroups.values.fold<int>(
-          0,
-          (count, spots) => count + spots.length,
-        );
-        final groupedSpots = groupedSpotsByCategory(
-          approvedSpots
-              .where((spot) => !spot.hasTemporaryWindow || spot.isExpired)
-              .toList(),
-        );
-        final selectedCount = spotCategoryFilters.value.length;
+        final feedSpots = selectedExploreCategory == upcomingCategoryName
+            ? upcomingSpots
+            : sortedSpots(approvedSpots);
 
         return Scaffold(
           backgroundColor: Colors.transparent,
           appBar: AppBar(
+            automaticallyImplyLeading: false,
             title: const CcsAppBarLogo(),
             backgroundColor: Colors.transparent,
             foregroundColor: blue,
             actions: ccsAppBarActions(),
           ),
-          body: ListView(
-            padding: const EdgeInsets.fromLTRB(20, 18, 20, 28),
-            children: [
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Spots',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 34,
-                            fontWeight: FontWeight.w900,
-                          ),
-                        ),
-                        SizedBox(height: 6),
-                        Text(
-                          'Approved car spots',
-                          style: TextStyle(color: Colors.white54, height: 1.35),
-                        ),
-                      ],
+          body: Padding(
+            padding: const EdgeInsets.fromLTRB(10, 6, 10, 0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                TextField(
+                  onChanged: (value) => setState(() => searchQuery = value),
+                  style: const TextStyle(color: Colors.white),
+                  decoration: InputDecoration(
+                    hintText: 'Search spots...',
+                    hintStyle: const TextStyle(color: Colors.white38),
+                    prefixIcon: const Icon(Icons.search, color: Colors.white54),
+                    filled: true,
+                    fillColor: Colors.white.withValues(alpha: 0.045),
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 13,
                     ),
-                  ),
-                  const SizedBox(width: 10),
-                  OutlinedButton.icon(
-                    onPressed: showExploreCategoryFilterSheet,
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: Colors.white,
-                      side: const BorderSide(color: Colors.white24),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(16),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(7),
+                      borderSide: BorderSide(
+                        color: Colors.white.withValues(alpha: 0.12),
                       ),
                     ),
-                    icon: const Icon(Icons.tune, size: 18),
-                    label: Text(
-                      selectedCount == spotCategoryOptions.length
-                          ? 'Filters'
-                          : '$selectedCount/${spotCategoryOptions.length}',
-                      style: const TextStyle(fontWeight: FontWeight.w800),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(7),
+                      borderSide: const BorderSide(color: blue),
                     ),
                   ),
-                ],
-              ),
-              const SizedBox(height: 18),
-              SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: Row(
-                  children: [
-                    sortChip(ExploreSortMode.popular),
-                    sortChip(ExploreSortMode.newest),
-                    sortChip(ExploreSortMode.old),
-                    sortChip(ExploreSortMode.meet),
-                    savedFilterChip(),
-                  ],
                 ),
-              ),
-              const SizedBox(height: 18),
-              if (upcomingTemporaryGroups.isNotEmpty) ...[
-                UpcomingTemporarySpotsSection(groups: upcomingTemporaryGroups),
-                const SizedBox(height: 18),
-              ],
-              if (groupedSpots.isEmpty && upcomingTemporaryCount == 0)
-                EmptyStateCard(
-                  icon: Icons.explore,
-                  title: showSavedOnly
-                      ? 'No saved spots yet'
-                      : approvedPublicSpots().isEmpty
-                      ? 'No spots here yet'
-                      : 'No spots match your filters',
-                  text: showSavedOnly
-                      ? 'Tap the bookmark on a spot to keep it here.'
-                      : approvedPublicSpots().isEmpty
-                      ? 'Approved spots will appear here after moderation.'
-                      : 'Open filters and enable more categories to see more spots.',
-                ),
-              for (final entry in groupedSpots.entries) ...[
-                ExploreCategoryHeader(
-                  category: entry.key,
-                  count: entry.value.length,
-                ),
+                const SizedBox(height: 12),
+                sortSegmentedControl(),
                 const SizedBox(height: 10),
-                for (final spot
-                    in (expandedCategories.contains(entry.key)
-                        ? entry.value
-                        : entry.value.take(2))) ...[
-                  ExploreSpotCard(spot: spot),
-                  const SizedBox(height: 14),
-                ],
-                if (entry.value.length > 2)
-                  SizedBox(
-                    width: double.infinity,
-                    child: OutlinedButton.icon(
-                      onPressed: () => toggleCategoryExpansion(entry.key),
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: spotColorForCategory(entry.key),
-                        side: BorderSide(
-                          color: spotColorForCategory(
-                            entry.key,
-                          ).withValues(alpha: 0.55),
-                        ),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(14),
-                        ),
-                      ),
-                      icon: Icon(
-                        expandedCategories.contains(entry.key)
-                            ? Icons.expand_less
-                            : Icons.expand_more,
-                      ),
-                      label: Text(
-                        expandedCategories.contains(entry.key)
-                            ? 'Show less'
-                            : 'Show ${entry.value.length - 2} more',
-                        style: const TextStyle(fontWeight: FontWeight.w800),
-                      ),
-                    ),
+                categorySelectionStrip(categoryCounts),
+                const SizedBox(height: 10),
+                Expanded(
+                  child: Builder(
+                    builder: (context) {
+                      if (selectedExploreCategory == upcomingCategoryName) {
+                        final groups = upcomingTemporarySpotGroups();
+                        if (groups.isEmpty) {
+                          return EmptyStateCard(
+                            icon: Icons.event_available_outlined,
+                            title: 'No upcoming spots',
+                            text:
+                                'Temporary spots will appear here when they are scheduled.',
+                          );
+                        }
+
+                        return SingleChildScrollView(
+                          physics: const BouncingScrollPhysics(
+                            parent: AlwaysScrollableScrollPhysics(),
+                          ),
+                          padding: const EdgeInsets.only(bottom: 14),
+                          child: UpcomingTemporarySpotsSection(groups: groups),
+                        );
+                      }
+
+                      if (feedSpots.isEmpty) {
+                        return EmptyStateCard(
+                          icon: Icons.explore,
+                          title: approvedPublicSpots().isEmpty
+                              ? 'No spots here yet'
+                              : 'No spots in this category',
+                          text: approvedPublicSpots().isEmpty
+                              ? 'Approved spots will appear here after moderation.'
+                              : 'Choose another category or update your search.',
+                        );
+                      }
+
+                      final cards = <Widget>[
+                        for (final spot in feedSpots)
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 8),
+                            child: ExploreSpotCard(spot: spot),
+                          ),
+                      ];
+
+                      return LayoutBuilder(
+                        builder: (context, constraints) {
+                          final itemExtent = constraints.maxHeight / 3;
+
+                          return NotificationListener<ScrollEndNotification>(
+                            onNotification: (_) {
+                              _snapSpotCards(itemExtent);
+                              return false;
+                            },
+                            child: NotificationListener<UserScrollNotification>(
+                              onNotification: (notification) {
+                                if (notification.direction ==
+                                    ScrollDirection.idle) {
+                                  _snapSpotCards(itemExtent);
+                                }
+                                return false;
+                              },
+                              child: ListView.builder(
+                                controller: spotCardScrollController,
+                                physics: const BouncingScrollPhysics(
+                                  parent: AlwaysScrollableScrollPhysics(),
+                                ),
+                                padding: EdgeInsets.zero,
+                                itemExtent: itemExtent,
+                                itemCount: cards.length,
+                                itemBuilder: (context, index) => cards[index],
+                              ),
+                            ),
+                          );
+                        },
+                      );
+                    },
                   ),
-                const SizedBox(height: 6),
+                ),
               ],
-            ],
+            ),
           ),
         );
       },
@@ -16675,13 +17270,9 @@ class UpcomingTemporarySpotsSection extends StatelessWidget {
                 ],
               ),
             ),
-            for (
-              var index = 0;
-              index < groupEntry.value.take(6).length;
-              index++
-            ) ...[
+            for (var index = 0; index < groupEntry.value.length; index++) ...[
               UpcomingTemporarySpotNewsCard(spot: groupEntry.value[index]),
-              if (index != groupEntry.value.take(6).length - 1)
+              if (index != groupEntry.value.length - 1)
                 const SizedBox(height: 10),
             ],
             if (groupEntry != groups.entries.last) const SizedBox(height: 14),
@@ -16699,6 +17290,17 @@ class UpcomingTemporarySpotNewsCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final startsAt = spot.startsAtMillis == null
+        ? null
+        : DateTime.fromMillisecondsSinceEpoch(spot.startsAtMillis!);
+    final endsAt = spot.expiresAtMillis == null
+        ? null
+        : DateTime.fromMillisecondsSinceEpoch(spot.expiresAtMillis!);
+    final timeWindow = startsAt == null || endsAt == null
+        ? spot.temporaryTimeLabel
+        : '${formatClockTime(startsAt)} - ${formatClockTime(endsAt)}';
+    final description = spot.description.trim();
+
     return InkWell(
       onTap: () {
         Navigator.push(
@@ -16708,7 +17310,7 @@ class UpcomingTemporarySpotNewsCard extends StatelessWidget {
       },
       borderRadius: BorderRadius.circular(16),
       child: Container(
-        padding: const EdgeInsets.all(10),
+        padding: const EdgeInsets.fromLTRB(8, 5, 8, 5),
         decoration: BoxDecoration(
           color: Colors.black.withValues(alpha: 0.30),
           borderRadius: BorderRadius.circular(16),
@@ -16741,7 +17343,7 @@ class UpcomingTemporarySpotNewsCard extends StatelessWidget {
                   spot: spot,
                   width: 52,
                   height: 52,
-                  borderRadius: BorderRadius.circular(14),
+                  borderRadius: BorderRadius.circular(10),
                 ),
               ],
             ),
@@ -16776,6 +17378,29 @@ class UpcomingTemporarySpotNewsCard extends StatelessWidget {
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(color: Colors.white54, fontSize: 12),
                   ),
+                  const SizedBox(height: 2),
+                  Text(
+                    timeWindow,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Colors.white70,
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  if (description.isNotEmpty) ...[
+                    const SizedBox(height: 2),
+                    Text(
+                      description,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Colors.white54,
+                        fontSize: 11,
+                      ),
+                    ),
+                  ],
                   if (!spot.isTemporaryLocationAvailableNow) ...[
                     const SizedBox(height: 2),
                     Text(
@@ -16784,7 +17409,7 @@ class UpcomingTemporarySpotNewsCard extends StatelessWidget {
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
                         color: Colors.white38,
-                        fontSize: 11,
+                        fontSize: 10.5,
                         fontWeight: FontWeight.w800,
                       ),
                     ),
@@ -16855,33 +17480,17 @@ class ExploreSpotCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final visibleCategories = <String>{
-      for (final category in spot.categories)
-        if (category.trim().isNotEmpty) category.trim(),
-    }.take(3).toList();
-
-    final tagWidgets = <Widget>[
-      if (spot.verifiedOnly)
-        _SmallTag(label: 'Verified only', icon: Icons.verified),
-      if (spot.isTemporary)
-        _SmallTag(
-          label: spot.isTemporaryMapVisibleNow
-              ? spot.temporaryTodayLabel
-              : spot.temporaryTimeLabel,
-          icon: Icons.event,
-        ),
-      for (final category in visibleCategories)
-        _SmallTag(label: category, icon: Icons.local_offer),
-    ];
-    final addedDateText = spot.createdAtMillis > 0
-        ? 'Added ${formatShortDate(DateTime.fromMillisecondsSinceEpoch(spot.createdAtMillis))}'
-        : 'Added date unknown';
     final categoryColor = spot.isTemporary
         ? Colors.orangeAccent
         : spotColorForSpot(spot);
-    final addedByText = spot.addedBy.trim().isEmpty
-        ? 'Added by: unknown'
-        : 'Added by: ${spot.addedBy}';
+    final addedDateText = spot.createdAtMillis > 0
+        ? 'Added ${formatShortDate(DateTime.fromMillisecondsSinceEpoch(spot.createdAtMillis))}'
+        : 'Added date unknown';
+    final addedByText = spot.addedByUid.trim().isEmpty
+        ? (spot.addedBy.trim().isEmpty
+              ? 'Added by unknown'
+              : 'Added by ${spot.addedBy}')
+        : 'Added by ${displayUsername(spot.addedBy)}';
 
     return InkWell(
       onTap: () {
@@ -16890,162 +17499,159 @@ class ExploreSpotCard extends StatelessWidget {
           appPageRoute(builder: (_) => SpotDetailScreen(spot: spot)),
         );
       },
-      borderRadius: BorderRadius.circular(16),
+      borderRadius: BorderRadius.circular(12),
       child: Container(
-        padding: const EdgeInsets.all(8),
+        padding: const EdgeInsets.fromLTRB(7, 6, 7, 6),
         decoration: BoxDecoration(
-          color: panelGlass,
-          borderRadius: BorderRadius.circular(16),
+          color: const Color(0xFF0D111A).withValues(alpha: 0.88),
+          borderRadius: BorderRadius.circular(12),
           border: Border.all(
-            color: categoryColor.withValues(alpha: 0.85),
-            width: 1.4,
+            color: categoryColor.withValues(alpha: 0.50),
+            width: 1.15,
           ),
           boxShadow: [
             BoxShadow(
-              color: categoryColor.withValues(alpha: 0.10),
-              blurRadius: 16,
-              offset: const Offset(0, 8),
+              color: categoryColor.withValues(alpha: 0.12),
+              blurRadius: 14,
+              spreadRadius: 0.3,
+              offset: const Offset(0, 7),
+            ),
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.28),
+              blurRadius: 18,
+              offset: const Offset(0, 10),
             ),
           ],
         ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                SpotPhoto(
-                  spot: spot,
-                  width: 118,
-                  height: 104,
-                  fit: BoxFit.cover,
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Column(
+            SpotPhoto(
+              spot: spot,
+              width: 103,
+              height: double.infinity,
+              fit: BoxFit.cover,
+              borderRadius: BorderRadius.circular(10),
+            ),
+            const SizedBox(width: 13),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              spot.name,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
+                      Expanded(
+                        child: Text(
+                          spot.name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: -0.25,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 7,
+                          vertical: 3,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.055),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(
+                            color: Colors.white.withValues(alpha: 0.11),
+                          ),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.star, color: blue, size: 14),
+                            const SizedBox(width: 4),
+                            Text(
+                              spot.rating.toStringAsFixed(1),
                               style: const TextStyle(
                                 color: Colors.white,
-                                fontSize: 16,
+                                fontSize: 12,
                                 fontWeight: FontWeight.w900,
                               ),
                             ),
-                          ),
-                          const SizedBox(width: 8),
-                          const Icon(Icons.star, color: blue, size: 15),
-                          const SizedBox(width: 3),
-                          Text(
-                            spot.rating.toStringAsFixed(1),
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 12,
-                              fontWeight: FontWeight.w800,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        spot.cityCountry,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: Colors.white54,
-                          fontSize: 12,
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-                      Row(
-                        children: [
-                          const Icon(
-                            Icons.schedule,
-                            color: Colors.white38,
-                            size: 12,
-                          ),
-                          const SizedBox(width: 4),
-                          Expanded(
-                            child: Text(
-                              addedDateText,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                color: Colors.white38,
-                                fontSize: 11,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 2),
-                      Row(
-                        children: [
-                          const Icon(
-                            Icons.person_outline,
-                            color: Colors.white38,
-                            size: 12,
-                          ),
-                          const SizedBox(width: 4),
-                          Expanded(
-                            child: Text(
-                              spot.addedByUid.trim().isEmpty
-                                  ? addedByText
-                                  : 'Added by ${displayUsername(spot.addedBy)}',
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                color: Colors.white38,
-                                fontSize: 11,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        spot.description,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: Colors.white70,
-                          fontSize: 12,
-                          height: 1.2,
+                          ],
                         ),
                       ),
                     ],
                   ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                ExploreSpotStatsRow(spot: spot),
-                const SizedBox(width: 6),
-                SaveSpotButton(spot: spot, compact: true),
-                const SizedBox(width: 6),
-                if (tagWidgets.isNotEmpty)
-                  Flexible(
-                    child: Align(
-                      alignment: Alignment.centerLeft,
-                      child: tagWidgets.first,
+                  const SizedBox(height: 2),
+                  _SpotMetaLine(
+                    icon: Icons.location_on_outlined,
+                    text: spot.cityCountry,
+                  ),
+                  const SizedBox(height: 1),
+                  _SpotMetaLine(
+                    icon: Icons.calendar_month_outlined,
+                    text: addedDateText,
+                  ),
+                  const SizedBox(height: 1),
+                  _SpotMetaLine(icon: Icons.person_outline, text: addedByText),
+                  const SizedBox(height: 2),
+                  Text(
+                    spot.description,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Colors.white70,
+                      fontSize: 10.4,
+                      height: 1.0,
                     ),
                   ),
-              ],
+                  const Spacer(),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      ExploreSpotStatsRow(spot: spot),
+                      const SizedBox(width: 7),
+                      SaveSpotButton(spot: spot, compact: true),
+                    ],
+                  ),
+                ],
+              ),
             ),
           ],
         ),
       ),
+    );
+  }
+}
+
+class _SpotMetaLine extends StatelessWidget {
+  final IconData icon;
+  final String text;
+
+  const _SpotMetaLine({required this.icon, required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Icon(icon, color: Colors.white38, size: 12),
+        const SizedBox(width: 4),
+        Expanded(
+          child: Text(
+            text,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              color: Colors.white54,
+              fontSize: 10.8,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+      ],
     );
   }
 }
@@ -17067,15 +17673,16 @@ class ExploreSpotStatsRow extends StatelessWidget {
     VoidCallback? onTap,
   }) {
     final content = Row(
+      mainAxisAlignment: MainAxisAlignment.center,
       mainAxisSize: MainAxisSize.min,
       children: [
-        Icon(icon, color: color, size: overlay ? 16 : 18),
+        Icon(icon, color: color, size: overlay ? 16 : 15),
         const SizedBox(width: 5),
         Text(
           '$count',
           style: TextStyle(
             color: color,
-            fontSize: overlay ? 12 : 13,
+            fontSize: overlay ? 12 : 12,
             fontWeight: FontWeight.w900,
             shadows: overlay
                 ? const [Shadow(color: Colors.black, blurRadius: 5)]
@@ -17096,17 +17703,21 @@ class ExploreSpotStatsRow extends StatelessWidget {
       );
     }
 
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(999),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-        decoration: BoxDecoration(
-          color: color.withValues(alpha: 0.14),
-          borderRadius: BorderRadius.circular(999),
-          border: Border.all(color: color.withValues(alpha: 0.42)),
+    return SizedBox(
+      width: 40,
+      height: 30,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(8),
+        child: Container(
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: color.withValues(alpha: 0.14),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: color.withValues(alpha: 0.42)),
+          ),
+          child: content,
         ),
-        child: content,
       ),
     );
   }
@@ -17136,7 +17747,7 @@ class ExploreSpotStatsRow extends StatelessWidget {
             return simpleStat(
               icon: liked ? Icons.favorite : Icons.favorite_border,
               count: spot.likeCount,
-              color: liked ? Colors.redAccent : inactiveColor,
+              color: Colors.redAccent,
               onTap: () => toggleSpotLike(context, spot, liked),
             );
           },
@@ -17295,7 +17906,7 @@ class _SpotCommentComposerSheetState extends State<_SpotCommentComposerSheet> {
     return SafeArea(
       top: false,
       child: AnimatedPadding(
-        duration: const Duration(milliseconds: 180),
+        duration: const Duration(milliseconds: 240),
         curve: Curves.easeOutCubic,
         padding: EdgeInsets.fromLTRB(18, 14, 18, 18 + bottomInset),
         child: Column(
@@ -17670,6 +18281,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
   final mapController = MapController();
   late final AnimationController mapAlertPulseController;
   Timer? temporarySpotRefreshTimer;
+  Timer? nextTemporarySpotExpiryTimer;
   Timer? adaptiveMapStyleTimer;
   Timer? liveLocationUploadTimer;
   Timer? liveLocationPromptTimer;
@@ -18727,7 +19339,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                           showSosRadius ? 'SOS' : '',
                           style: const TextStyle(
                             color: Colors.white,
-                            fontSize: 11,
+                            fontSize: 10.5,
                             fontWeight: FontWeight.w900,
                             letterSpacing: 0.3,
                           ),
@@ -19705,7 +20317,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                         height: 44,
                         decoration: BoxDecoration(
                           color: color.withValues(alpha: 0.18),
-                          borderRadius: BorderRadius.circular(14),
+                          borderRadius: BorderRadius.circular(10),
                           border: Border.all(
                             color: color.withValues(alpha: 0.72),
                             width: 1.5,
@@ -19750,7 +20362,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                           color: sosAlertColor.withValues(
                             alpha: 0.18 + pulse * 0.12,
                           ),
-                          borderRadius: BorderRadius.circular(14),
+                          borderRadius: BorderRadius.circular(10),
                           border: Border.all(
                             color: sosAlertColor.withValues(
                               alpha: 0.82 + pulse * 0.18,
@@ -21859,14 +22471,14 @@ class MapStyleSelector extends StatelessWidget {
                   color: selectedStyle == style
                       ? blue.withValues(alpha: 0.22)
                       : Colors.transparent,
-                  borderRadius: BorderRadius.circular(8),
+                  borderRadius: BorderRadius.circular(7),
                   child: InkWell(
                     onTap: () => onSelected(style),
-                    borderRadius: BorderRadius.circular(8),
+                    borderRadius: BorderRadius.circular(7),
                     child: Container(
                       height: double.infinity,
                       decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(8),
+                        borderRadius: BorderRadius.circular(7),
                         border: Border.all(
                           color: selectedStyle == style
                               ? blue
@@ -21894,7 +22506,7 @@ class MapStyleSelector extends StatelessWidget {
                                 color: selectedStyle == style
                                     ? Colors.white
                                     : Colors.white70,
-                                fontSize: 11,
+                                fontSize: 10.5,
                                 fontWeight: FontWeight.w800,
                               ),
                             ),
@@ -22227,7 +22839,7 @@ class _MapHeader extends StatelessWidget {
         children: [
           Icon(
             Icons.near_me_outlined,
-            size: 17,
+            size: 15,
             color: isSharingLiveLocation ? blue : Colors.white60,
           ),
           const SizedBox(width: 8),
@@ -22315,7 +22927,7 @@ class SosReportMapCard extends StatelessWidget {
                 height: 44,
                 decoration: BoxDecoration(
                   color: blue.withValues(alpha: 0.18),
-                  borderRadius: BorderRadius.circular(14),
+                  borderRadius: BorderRadius.circular(10),
                 ),
                 child: const Center(
                   child: Text(
@@ -22403,7 +23015,7 @@ class SosReportMapCard extends StatelessWidget {
                       foregroundColor: Colors.white70,
                       side: const BorderSide(color: Colors.white24),
                       shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(14),
+                        borderRadius: BorderRadius.circular(10),
                       ),
                     ),
                   ),
@@ -22418,7 +23030,7 @@ class SosReportMapCard extends StatelessWidget {
                       foregroundColor: Colors.white70,
                       side: const BorderSide(color: Colors.white24),
                       shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(14),
+                        borderRadius: BorderRadius.circular(10),
                       ),
                     ),
                   ),
@@ -22436,7 +23048,7 @@ class SosReportMapCard extends StatelessWidget {
                   backgroundColor: blue,
                   foregroundColor: Colors.white,
                   shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(14),
+                    borderRadius: BorderRadius.circular(10),
                   ),
                 ),
               ),
@@ -22454,7 +23066,7 @@ class SosReportMapCard extends StatelessWidget {
                     foregroundColor: blue,
                     side: const BorderSide(color: blue),
                     shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(14),
+                      borderRadius: BorderRadius.circular(10),
                     ),
                   ),
                 ),
@@ -22536,7 +23148,7 @@ class PoliceReportMapCard extends StatelessWidget {
                 height: 44,
                 decoration: BoxDecoration(
                   color: Colors.redAccent.withValues(alpha: 0.18),
-                  borderRadius: BorderRadius.circular(14),
+                  borderRadius: BorderRadius.circular(10),
                 ),
                 child: const Icon(Icons.local_police, color: Colors.redAccent),
               ),
@@ -22605,7 +23217,7 @@ class PoliceReportMapCard extends StatelessWidget {
                   foregroundColor: Colors.redAccent,
                   side: const BorderSide(color: Colors.redAccent),
                   shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(14),
+                    borderRadius: BorderRadius.circular(10),
                   ),
                 ),
               ),
@@ -22618,7 +23230,7 @@ class PoliceReportMapCard extends StatelessWidget {
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
                 color: Colors.white.withValues(alpha: 0.06),
-                borderRadius: BorderRadius.circular(14),
+                borderRadius: BorderRadius.circular(10),
                 border: Border.all(color: Colors.white12),
               ),
               child: Text(
@@ -22644,7 +23256,7 @@ class PoliceReportMapCard extends StatelessWidget {
                       foregroundColor: Colors.white70,
                       side: const BorderSide(color: Colors.white24),
                       shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(14),
+                        borderRadius: BorderRadius.circular(10),
                       ),
                     ),
                   ),
@@ -22659,7 +23271,7 @@ class PoliceReportMapCard extends StatelessWidget {
                       backgroundColor: blue,
                       foregroundColor: Colors.white,
                       shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(14),
+                        borderRadius: BorderRadius.circular(10),
                       ),
                     ),
                   ),
@@ -22785,7 +23397,7 @@ class SpotMapCard extends StatelessWidget {
                             backgroundColor: blue,
                             foregroundColor: Colors.white,
                             shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(14),
+                              borderRadius: BorderRadius.circular(10),
                             ),
                           ),
                           child: const Row(
@@ -22925,7 +23537,7 @@ class LiveLocationMapCard extends StatelessWidget {
                       backgroundColor: blue,
                       foregroundColor: Colors.white,
                       shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(14),
+                        borderRadius: BorderRadius.circular(10),
                       ),
                     ),
                     child: const Row(
@@ -22990,8 +23602,8 @@ class SaveSpotButton extends StatelessWidget {
 
         if (compact) {
           return SizedBox(
-            width: 44,
-            height: 38,
+            width: 40,
+            height: 30,
             child: OutlinedButton(
               onPressed: () => toggleSaved(context, saved),
               style: OutlinedButton.styleFrom(
@@ -23005,12 +23617,12 @@ class SaveSpotButton extends StatelessWidget {
                   width: saved ? 1.4 : 1,
                 ),
                 shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(999),
+                  borderRadius: BorderRadius.circular(8),
                 ),
               ),
               child: Icon(
                 saved ? Icons.bookmark : Icons.bookmark_border,
-                size: 18,
+                size: 16,
               ),
             ),
           );
@@ -23065,7 +23677,7 @@ class SavedSpotTile extends StatelessWidget {
               spot: spot,
               width: 84,
               height: 84,
-              borderRadius: BorderRadius.circular(14),
+              borderRadius: BorderRadius.circular(10),
             ),
             const SizedBox(width: 12),
             Expanded(
@@ -23391,7 +24003,7 @@ class _SpotPhotoCarouselState extends State<SpotPhotoCarousel> {
                         duration: const Duration(milliseconds: 160),
                         height: 46,
                         decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(11),
+                          borderRadius: BorderRadius.circular(9),
                           boxShadow: currentIndex == index
                               ? [
                                   BoxShadow(
@@ -23403,7 +24015,7 @@ class _SpotPhotoCarouselState extends State<SpotPhotoCarousel> {
                               : null,
                         ),
                         foregroundDecoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(11),
+                          borderRadius: BorderRadius.circular(9),
                           border: Border.all(
                             color: currentIndex == index
                                 ? blue
@@ -23703,7 +24315,7 @@ class _SpotDetailScreenState extends State<SpotDetailScreen> {
                       Icon(
                         Icons.schedule,
                         color: Colors.white.withValues(alpha: 0.45),
-                        size: 17,
+                        size: 16,
                       ),
                       const SizedBox(width: 6),
                       Text(
@@ -23828,13 +24440,13 @@ class _SpotDetailScreenState extends State<SpotDetailScreen> {
                   const SizedBox(height: 8),
                   InkWell(
                     onTap: () => launchExternalUrl(context, spot.reelLink),
-                    borderRadius: BorderRadius.circular(14),
+                    borderRadius: BorderRadius.circular(10),
                     child: Container(
                       width: double.infinity,
                       padding: const EdgeInsets.all(11),
                       decoration: BoxDecoration(
                         color: panelGlass,
-                        borderRadius: BorderRadius.circular(14),
+                        borderRadius: BorderRadius.circular(10),
                         border: Border.all(color: Colors.white12),
                       ),
                       child: Row(
@@ -24337,7 +24949,7 @@ class _SpotDetailEngagementPanelState extends State<SpotDetailEngagementPanel> {
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       decoration: BoxDecoration(
         color: panelGlass,
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(10),
         border: Border.all(color: Colors.white12),
       ),
       child: Row(
@@ -24457,7 +25069,7 @@ class SpotRouteActions extends StatelessWidget {
       padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
         color: panelGlass,
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(10),
         border: Border.all(color: Colors.white12),
       ),
       child: Column(
@@ -24852,15 +25464,15 @@ class _SpotReviewsSectionState extends State<SpotReviewsSection> {
                   filled: true,
                   fillColor: Colors.white.withValues(alpha: 0.06),
                   border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(14),
+                    borderRadius: BorderRadius.circular(10),
                     borderSide: const BorderSide(color: Colors.white12),
                   ),
                   enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(14),
+                    borderRadius: BorderRadius.circular(10),
                     borderSide: const BorderSide(color: Colors.white12),
                   ),
                   focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(14),
+                    borderRadius: BorderRadius.circular(10),
                     borderSide: const BorderSide(color: blue),
                   ),
                 ),
@@ -24877,7 +25489,7 @@ class _SpotReviewsSectionState extends State<SpotReviewsSection> {
                     backgroundColor: blue,
                     foregroundColor: Colors.white,
                     shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(15),
+                      borderRadius: BorderRadius.circular(9),
                     ),
                   ),
                 ),
@@ -24979,7 +25591,7 @@ class _SpotReviewsSectionState extends State<SpotReviewsSection> {
                 foregroundColor: blue,
                 side: const BorderSide(color: blue),
                 shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(15),
+                  borderRadius: BorderRadius.circular(9),
                 ),
               ),
             ),
@@ -25030,7 +25642,7 @@ class SpotReviewCard extends StatelessWidget {
                       filled: true,
                       fillColor: Colors.white.withValues(alpha: 0.06),
                       border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(14),
+                        borderRadius: BorderRadius.circular(10),
                         borderSide: const BorderSide(color: Colors.white12),
                       ),
                     ),
@@ -25309,22 +25921,25 @@ class _SpotPhotoPlaceholder extends StatelessWidget {
 class _SmallTag extends StatelessWidget {
   final String label;
   final IconData icon;
+  final Color? color;
 
-  const _SmallTag({required this.label, required this.icon});
+  const _SmallTag({required this.label, required this.icon, this.color});
 
   @override
   Widget build(BuildContext context) {
+    final accent = color ?? blue;
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.08),
+        color: accent.withValues(alpha: 0.13),
         borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: Colors.white10),
+        border: Border.all(color: accent.withValues(alpha: 0.34)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, color: blue, size: 14),
+          Icon(icon, color: accent, size: 14),
           const SizedBox(width: 5),
           ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 98),
@@ -25333,10 +25948,12 @@ class _SmallTag extends StatelessWidget {
               maxLines: 1,
               softWrap: false,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                color: Colors.white70,
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
+              style: TextStyle(
+                color: accent.computeLuminance() > 0.55
+                    ? Colors.black87
+                    : Colors.white,
+                fontSize: 11.5,
+                fontWeight: FontWeight.w800,
               ),
             ),
           ),
@@ -25392,11 +26009,11 @@ class _SpotCategoryDropdown extends StatelessWidget {
         filled: true,
         fillColor: Colors.white.withValues(alpha: 0.06),
         enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: BorderRadius.circular(10),
           borderSide: const BorderSide(color: Colors.white12),
         ),
         focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: BorderRadius.circular(10),
           borderSide: const BorderSide(color: blue, width: 1.4),
         ),
       ),
@@ -25539,15 +26156,15 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
               filled: true,
               fillColor: Colors.white.withValues(alpha: 0.06),
               border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(14),
+                borderRadius: BorderRadius.circular(10),
                 borderSide: const BorderSide(color: Colors.white12),
               ),
               enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(14),
+                borderRadius: BorderRadius.circular(10),
                 borderSide: const BorderSide(color: Colors.white12),
               ),
               focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(14),
+                borderRadius: BorderRadius.circular(10),
                 borderSide: const BorderSide(color: blue),
               ),
             ),
@@ -26265,6 +26882,8 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
         await sendPushNotificationEvent({
           'type': newSpot.isTemporary ? 'temporary_event' : 'new_spot',
           'spotId': spotRef.id,
+          'spotName': newSpot.name,
+          'cityCountry': newSpot.cityCountry,
         });
       }
 
@@ -26384,7 +27003,7 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
                         fontWeight: FontWeight.w900,
                       ),
                     ),
-                    const SizedBox(height: 1),
+                    const SizedBox(height: 0),
                     Text(
                       trText(
                         'Create a pin for review or publish instantly as staff.',
@@ -26587,7 +27206,7 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
                 backgroundColor: blue,
                 foregroundColor: Colors.white,
                 shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(14),
+                  borderRadius: BorderRadius.circular(10),
                 ),
               ),
               child: Row(
@@ -26750,7 +27369,7 @@ class _TemporarySpotScheduleCard extends StatelessWidget {
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: Colors.white.withValues(alpha: 0.06),
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(10),
         border: Border.all(
           color: enabled ? blue.withValues(alpha: 0.7) : Colors.white12,
         ),
@@ -27036,7 +27655,7 @@ class _SpotLocationPicker extends StatelessWidget {
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: Colors.white.withValues(alpha: 0.06),
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(10),
         border: Border.all(
           color: hasLocation ? blue.withValues(alpha: 0.7) : Colors.white12,
         ),
@@ -27050,7 +27669,7 @@ class _SpotLocationPicker extends StatelessWidget {
                 height: 34,
                 decoration: BoxDecoration(
                   color: blue.withValues(alpha: 0.15),
-                  borderRadius: BorderRadius.circular(11),
+                  borderRadius: BorderRadius.circular(9),
                 ),
                 child: Icon(
                   hasLocation ? Icons.check_circle : Icons.location_on,
@@ -27193,12 +27812,12 @@ class _SpotPhotoPickerField extends StatelessWidget {
       children: [
         InkWell(
           onTap: canAddMore ? onAddPhoto : null,
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: BorderRadius.circular(10),
           child: Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
               color: Colors.white.withValues(alpha: 0.06),
-              borderRadius: BorderRadius.circular(14),
+              borderRadius: BorderRadius.circular(10),
               border: Border.all(
                 color: photoPaths.isNotEmpty
                     ? blue.withValues(alpha: 0.7)
@@ -27266,7 +27885,7 @@ class _SpotPhotoPickerField extends StatelessWidget {
                 Stack(
                   children: [
                     ClipRRect(
-                      borderRadius: BorderRadius.circular(14),
+                      borderRadius: BorderRadius.circular(10),
                       child: Image.file(
                         File(photoPaths[index]),
                         width: 72,
@@ -27353,7 +27972,7 @@ class _AddSpotSection extends StatelessWidget {
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: panelGlass,
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(10),
         border: Border.all(color: Colors.white12),
       ),
       child: Column(
@@ -27429,11 +28048,11 @@ class _CcsTextField extends StatelessWidget {
         filled: true,
         fillColor: appSurfaceOverlay,
         enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: BorderRadius.circular(10),
           borderSide: BorderSide(color: appOutline),
         ),
         focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: BorderRadius.circular(10),
           borderSide: const BorderSide(color: blue, width: 1.4),
         ),
       ),
@@ -28126,7 +28745,7 @@ class _ServiceSpotBusinessEditScreenState
         foregroundColor: blue,
       ),
       body: ListView(
-        padding: const EdgeInsets.fromLTRB(20, 18, 20, 28),
+        padding: const EdgeInsets.fromLTRB(12, 18, 12, 28),
         children: [
           _AddSpotSection(
             title: 'Contacts',
@@ -28202,7 +28821,7 @@ class UserSubmissionsScreen extends StatelessWidget {
         valueListenable: submittedSpots,
         builder: (context, spots, _) {
           return ListView(
-            padding: const EdgeInsets.fromLTRB(20, 18, 20, 28),
+            padding: const EdgeInsets.fromLTRB(12, 18, 12, 28),
             children: [
               Text(
                 spots.isEmpty
@@ -28247,7 +28866,7 @@ class SavedScreen extends StatelessWidget {
         valueListenable: savedSpots,
         builder: (context, spots, _) {
           return ListView(
-            padding: const EdgeInsets.fromLTRB(20, 18, 20, 28),
+            padding: const EdgeInsets.fromLTRB(12, 18, 12, 28),
             children: [
               const Text(
                 'Saved Spots',
@@ -29433,7 +30052,7 @@ class _ChatManageScreenState extends State<ChatManageScreen> {
         foregroundColor: blue,
       ),
       body: ListView(
-        padding: const EdgeInsets.fromLTRB(20, 18, 20, 28),
+        padding: const EdgeInsets.fromLTRB(12, 18, 12, 28),
         children: [
           const Text(
             'Pin up to 3 direct chats and 3 groups. Use arrows to change pinned order.',
@@ -29681,7 +30300,7 @@ class _NewChatScreenState extends State<NewChatScreen> {
                           color: user.appearsOnline
                               ? Colors.greenAccent
                               : Colors.white54,
-                          fontSize: 11,
+                          fontSize: 10.5,
                           fontWeight: FontWeight.w900,
                           letterSpacing: 0.3,
                         ),
@@ -29741,7 +30360,7 @@ class _NewChatScreenState extends State<NewChatScreen> {
               const <FriendUserData>[];
 
           return ListView(
-            padding: const EdgeInsets.fromLTRB(20, 18, 20, 28),
+            padding: const EdgeInsets.fromLTRB(12, 18, 12, 28),
             children: [
               Row(
                 children: [
@@ -30183,7 +30802,7 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
                           'you',
                           style: TextStyle(
                             color: Colors.white38,
-                            fontSize: 11,
+                            fontSize: 10.5,
                             fontWeight: FontWeight.w800,
                           ),
                         ),
@@ -30302,7 +30921,7 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
         foregroundColor: blue,
       ),
       body: ListView(
-        padding: const EdgeInsets.fromLTRB(20, 18, 20, 28),
+        padding: const EdgeInsets.fromLTRB(12, 18, 12, 28),
         children: [
           Center(
             child: InkWell(
@@ -31142,7 +31761,7 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
 
       return InkWell(
         onTap: () => openChatUserProfile(currentUid),
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(10),
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 5),
           child: Row(
@@ -31481,7 +32100,7 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
                               'Scroll up to load older messages',
                               style: TextStyle(
                                 color: Colors.white.withValues(alpha: 0.35),
-                                fontSize: 11,
+                                fontSize: 10.5,
                                 fontWeight: FontWeight.w700,
                               ),
                             ),
@@ -32632,7 +33251,7 @@ class _BlockedUsersScreenState extends State<BlockedUsersScreen> {
                 side: BorderSide(color: blue.withValues(alpha: 0.7)),
                 padding: const EdgeInsets.symmetric(horizontal: 12),
                 shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(999),
+                  borderRadius: BorderRadius.circular(7),
                 ),
               ),
             ),
@@ -32678,7 +33297,7 @@ class _BlockedUsersScreenState extends State<BlockedUsersScreen> {
           }
 
           return ListView(
-            padding: const EdgeInsets.fromLTRB(20, 18, 20, 28),
+            padding: const EdgeInsets.fromLTRB(12, 18, 12, 28),
             children: [for (final user in users) blockedUserTile(user)],
           );
         },
@@ -33136,7 +33755,7 @@ class PublicUserProfileScreen extends StatelessWidget {
                       ),
                     ),
                     if (profile.verified) ...[
-                      const SizedBox(width: 7),
+                      const SizedBox(width: 8),
                       const Icon(Icons.verified, color: blue, size: 19),
                     ],
                   ],
@@ -33170,7 +33789,7 @@ class PublicUserProfileScreen extends StatelessWidget {
                             : const [],
                       ),
                     ),
-                    const SizedBox(width: 7),
+                    const SizedBox(width: 8),
                     Text(
                       trText(profile.appearsOnline ? 'online' : 'offline'),
                       style: TextStyle(
@@ -33357,7 +33976,7 @@ class PublicUserProfileScreen extends StatelessWidget {
     PublicUserProfileData profile,
   ) {
     return ListView(
-      padding: const EdgeInsets.fromLTRB(20, 18, 20, 28),
+      padding: const EdgeInsets.fromLTRB(12, 18, 12, 28),
       children: [
         Container(
           padding: const EdgeInsets.all(18),
@@ -33389,7 +34008,7 @@ class PublicUserProfileScreen extends StatelessWidget {
                           ),
                         ),
                         if (profile.verified) ...[
-                          const SizedBox(width: 7),
+                          const SizedBox(width: 8),
                           const Icon(Icons.verified, color: blue, size: 19),
                         ],
                       ],
@@ -33423,7 +34042,7 @@ class PublicUserProfileScreen extends StatelessWidget {
         : const <GarageCar>[];
 
     return ListView(
-      padding: const EdgeInsets.fromLTRB(20, 18, 20, 28),
+      padding: const EdgeInsets.fromLTRB(12, 18, 12, 28),
       children: [
         profileHeader(profile),
         const SizedBox(height: 12),
@@ -33854,7 +34473,7 @@ class _FriendsScreenState extends State<FriendsScreen> {
                           color: user.appearsOnline
                               ? Colors.greenAccent
                               : Colors.white54,
-                          fontSize: 11,
+                          fontSize: 10.5,
                           fontWeight: FontWeight.w900,
                           letterSpacing: 0.3,
                         ),
@@ -34333,15 +34952,15 @@ class _FriendsScreenState extends State<FriendsScreen> {
         body: TabBarView(
           children: [
             SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(20, 18, 20, 28),
+              padding: const EdgeInsets.fromLTRB(12, 18, 12, 28),
               child: friendsTab(),
             ),
             SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(20, 18, 20, 28),
+              padding: const EdgeInsets.fromLTRB(12, 18, 12, 28),
               child: requestsTab(),
             ),
             SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(20, 18, 20, 28),
+              padding: const EdgeInsets.fromLTRB(12, 18, 12, 28),
               child: findUsersTab(),
             ),
           ],
@@ -34533,7 +35152,7 @@ class _ProfileHeader extends StatelessWidget {
                 foregroundColor: Colors.white,
                 side: const BorderSide(color: Colors.white24),
                 shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(15),
+                  borderRadius: BorderRadius.circular(9),
                 ),
               ),
             ),
@@ -34758,7 +35377,7 @@ class _GarageGalleryHeaderState extends State<_GarageGalleryHeader> {
                           duration: const Duration(milliseconds: 160),
                           height: 70,
                           decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(14),
+                            borderRadius: BorderRadius.circular(10),
                             boxShadow: currentIndex == index
                                 ? [
                                     BoxShadow(
@@ -34770,7 +35389,7 @@ class _GarageGalleryHeaderState extends State<_GarageGalleryHeader> {
                                 : null,
                           ),
                           foregroundDecoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(14),
+                            borderRadius: BorderRadius.circular(10),
                             border: Border.all(
                               color: currentIndex == index
                                   ? blue
@@ -34927,7 +35546,7 @@ class _GarageCard extends StatelessWidget {
                         backgroundColor: blue,
                         foregroundColor: Colors.white,
                         shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(15),
+                          borderRadius: BorderRadius.circular(9),
                         ),
                       ),
                     ),
@@ -34996,7 +35615,7 @@ class _EmptyGarageCard extends StatelessWidget {
                 backgroundColor: blue,
                 foregroundColor: Colors.white,
                 shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(15),
+                  borderRadius: BorderRadius.circular(9),
                 ),
               ),
             ),
@@ -35070,13 +35689,13 @@ class _CompactSocialLinkButton extends StatelessWidget {
       message: label,
       child: InkWell(
         onTap: () => launchExternalUrl(context, value.trim()),
-        borderRadius: BorderRadius.circular(11),
+        borderRadius: BorderRadius.circular(9),
         child: Container(
           height: 34,
           padding: const EdgeInsets.symmetric(horizontal: 8),
           decoration: BoxDecoration(
             color: blue.withValues(alpha: 0.10),
-            borderRadius: BorderRadius.circular(11),
+            borderRadius: BorderRadius.circular(9),
             border: Border.all(color: blue.withValues(alpha: 0.24)),
           ),
           child: Row(
@@ -35410,7 +36029,7 @@ class _ProfileSubmissionsPreview extends StatelessWidget {
                     spot: latest,
                     width: 64,
                     height: 64,
-                    borderRadius: BorderRadius.circular(13),
+                    borderRadius: BorderRadius.circular(10),
                   ),
                   const SizedBox(width: 12),
                   Expanded(
@@ -35520,7 +36139,7 @@ class _ProfileSavedSpotsPreview extends StatelessWidget {
                       ),
                     );
                   },
-                  borderRadius: BorderRadius.circular(14),
+                  borderRadius: BorderRadius.circular(10),
                   child: Padding(
                     padding: const EdgeInsets.symmetric(vertical: 8),
                     child: Row(
@@ -35607,7 +36226,7 @@ class _ProfileActionTile extends StatelessWidget {
               height: 42,
               decoration: BoxDecoration(
                 color: color.withValues(alpha: 0.16),
-                borderRadius: BorderRadius.circular(14),
+                borderRadius: BorderRadius.circular(10),
               ),
               child: Icon(icon, color: color),
             ),
@@ -35657,7 +36276,7 @@ class _ProfileActionTile extends StatelessWidget {
                       count > 9 ? '9+' : '$count',
                       style: const TextStyle(
                         color: Colors.white,
-                        fontSize: 11,
+                        fontSize: 10.5,
                         fontWeight: FontWeight.w900,
                       ),
                     ),
@@ -35823,7 +36442,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         foregroundColor: blue,
       ),
       body: ListView(
-        padding: const EdgeInsets.fromLTRB(20, 18, 20, 28),
+        padding: const EdgeInsets.fromLTRB(12, 18, 12, 28),
         children: [
           Container(
             padding: const EdgeInsets.all(16),
@@ -35908,7 +36527,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                     color: usernameAvailabilityColor(usernameAvailability),
                     size: 16,
                   ),
-                  const SizedBox(width: 7),
+                  const SizedBox(width: 8),
                   Expanded(
                     child: Text(
                       usernameAvailabilityText(usernameAvailability),
@@ -36077,7 +36696,7 @@ class _EditGarageScreenState extends State<EditGarageScreen> {
         foregroundColor: blue,
       ),
       body: ListView(
-        padding: const EdgeInsets.fromLTRB(20, 18, 20, 28),
+        padding: const EdgeInsets.fromLTRB(12, 18, 12, 28),
         children: [
           _AddSpotSection(
             title: 'Car photos',
@@ -36169,7 +36788,7 @@ class _GaragePhotoPickerField extends StatelessWidget {
                   height: 72,
                   decoration: BoxDecoration(
                     color: blue.withValues(alpha: 0.15),
-                    borderRadius: BorderRadius.circular(14),
+                    borderRadius: BorderRadius.circular(10),
                   ),
                   child: Icon(
                     canAddMore ? Icons.add_photo_alternate : Icons.check,
@@ -36237,7 +36856,7 @@ class _GaragePhotoPickerField extends StatelessWidget {
                         );
                       },
                       child: ClipRRect(
-                        borderRadius: BorderRadius.circular(14),
+                        borderRadius: BorderRadius.circular(10),
                         child: garagePhotoImage(
                           photoPaths[index],
                           width: 88,
@@ -36264,7 +36883,7 @@ class _GaragePhotoPickerField extends StatelessWidget {
                           index == 0 ? 'Cover' : '${index + 1}',
                           style: const TextStyle(
                             color: Colors.white,
-                            fontSize: 11,
+                            fontSize: 10.5,
                             fontWeight: FontWeight.w900,
                           ),
                         ),
@@ -36433,7 +37052,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         foregroundColor: blue,
       ),
       body: ListView(
-        padding: const EdgeInsets.fromLTRB(20, 18, 20, 28),
+        padding: const EdgeInsets.fromLTRB(12, 18, 12, 28),
         children: [
           _AddSpotSection(
             title: 'Notifications',
@@ -36717,7 +37336,7 @@ class AdminVerifiedUsersScreen extends StatelessWidget {
               const <AdminUserData>[];
 
           return ListView(
-            padding: const EdgeInsets.fromLTRB(20, 18, 20, 28),
+            padding: const EdgeInsets.fromLTRB(12, 18, 12, 28),
             children: [
               const Text(
                 'Grant verified status',
@@ -37533,7 +38152,7 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
               : allUsers;
 
           return ListView(
-            padding: const EdgeInsets.fromLTRB(20, 18, 20, 28),
+            padding: const EdgeInsets.fromLTRB(12, 18, 12, 28),
             children: [
               Text(
                 bannedOnly ? 'Banned app users' : 'Users',
@@ -37868,7 +38487,7 @@ class _AdminReviewScreenState extends State<AdminReviewScreen> {
           final label = adminSpotFilterLabel(selectedFilter).toLowerCase();
 
           return ListView(
-            padding: const EdgeInsets.fromLTRB(20, 18, 20, 28),
+            padding: const EdgeInsets.fromLTRB(12, 18, 12, 28),
             children: [
               Text(
                 currentUser.role == UserRole.admin
@@ -38027,7 +38646,7 @@ class AdminSpotTile extends StatelessWidget {
               spot: spot,
               width: 82,
               height: 82,
-              borderRadius: BorderRadius.circular(14),
+              borderRadius: BorderRadius.circular(10),
             ),
             const SizedBox(width: 12),
             Expanded(
@@ -38779,7 +39398,7 @@ class _AdminEditSpotScreenState extends State<AdminEditSpotScreen> {
 
     return Stack(
       children: [
-        ClipRRect(borderRadius: BorderRadius.circular(14), child: image),
+        ClipRRect(borderRadius: BorderRadius.circular(10), child: image),
         Positioned(
           left: 6,
           bottom: 6,
@@ -38835,7 +39454,7 @@ class _AdminEditSpotScreenState extends State<AdminEditSpotScreen> {
         foregroundColor: blue,
       ),
       body: ListView(
-        padding: const EdgeInsets.fromLTRB(20, 18, 20, 28),
+        padding: const EdgeInsets.fromLTRB(12, 18, 12, 28),
         children: [
           _AddSpotSection(
             title: 'Basic info',
@@ -38866,7 +39485,7 @@ class _AdminEditSpotScreenState extends State<AdminEditSpotScreen> {
                       ),
                     ),
                   ),
-                  const SizedBox(width: 10),
+                  const SizedBox(width: 9),
                   Expanded(
                     child: _CcsTextField(
                       controller: lngController,
@@ -39047,7 +39666,7 @@ class _AdminEditSpotScreenState extends State<AdminEditSpotScreen> {
                         height: 72,
                         decoration: BoxDecoration(
                           color: blue.withValues(alpha: 0.15),
-                          borderRadius: BorderRadius.circular(14),
+                          borderRadius: BorderRadius.circular(10),
                         ),
                         child: Icon(
                           canAddMore ? Icons.add_photo_alternate : Icons.check,
@@ -39536,7 +40155,7 @@ class AdminSpotReviewScreen extends StatelessWidget {
         foregroundColor: blue,
       ),
       body: ListView(
-        padding: const EdgeInsets.fromLTRB(20, 18, 20, 28),
+        padding: const EdgeInsets.fromLTRB(12, 18, 12, 28),
         children: [
           SpotPhoto(
             spot: spot,
@@ -39613,7 +40232,7 @@ class AdminSpotReviewScreen extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const Icon(Icons.info_outline, color: Colors.redAccent),
-                  const SizedBox(width: 10),
+                  const SizedBox(width: 9),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
