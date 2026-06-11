@@ -3389,10 +3389,7 @@ class CCSApp extends StatelessWidget {
               child: BannedUserGate(
                 child: Stack(
                   fit: StackFit.expand,
-                  children: [
-                    const AppMapBackground(),
-                    if (child != null) child,
-                  ],
+                  children: [const AppMapBackground(), ?child],
                 ),
               ),
             );
@@ -6160,7 +6157,7 @@ Future<AppUser> signInWithTelegramAndSaveUser({
     await saveFirebaseUser(
       firebaseUser,
       provider: 'telegram',
-      displayNameOverride: fullName.isEmpty ? '$fallbackUsername' : fullName,
+      displayNameOverride: fullName.isEmpty ? fallbackUsername : fullName,
       usernameOverride: newUserUsernameOverride ?? fallbackUsername,
       emailOverride: '',
       photoUrlOverride: photoUrl.isEmpty ? null : photoUrl,
@@ -7290,10 +7287,7 @@ Future<List<String>> getAppDeviceIds() async {
   final nativeDeviceId = await getNativeAppDeviceId();
   final legacyDeviceId = await getOrCreateLegacyAppDeviceId();
 
-  return uniqueNonEmptyStrings([
-    if (nativeDeviceId != null) nativeDeviceId,
-    legacyDeviceId,
-  ]);
+  return uniqueNonEmptyStrings([?nativeDeviceId, legacyDeviceId]);
 }
 
 Future<String> getOrCreateAppDeviceId() async {
@@ -11833,15 +11827,13 @@ Future<void> toggleSpotLike(
         }
 
         void writeSafeSpotLikeCount(int delta, String label) {
-          if (spotRef == null ||
-              spotSnapshot == null ||
-              !spotSnapshot!.exists) {
+          if (spotRef == null || spotSnapshot == null || !spotSnapshot.exists) {
             return;
           }
 
           final currentCount = math.max(
             0,
-            intFromFirebase(spotSnapshot!.data()?['likeCount'], spot.likeCount),
+            intFromFirebase(spotSnapshot.data()?['likeCount'], spot.likeCount),
           );
           final nextCount = math.max(0, currentCount + delta);
           transaction.debugUpdate(spotRef, {
@@ -21509,9 +21501,8 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
       // GPS can drift while standing. Move the anchor quietly so the next real
       // driving segment does not calculate a bearing from an old point.
       previousAcceptedHeadingLocation = nextLocation;
-    } else if (previousAcceptedHeadingLocation == null) {
-      previousAcceptedHeadingLocation = nextLocation;
-    }
+    } else
+      previousAcceptedHeadingLocation ??= nextLocation;
 
     final smoothingAmount = speed >= 11.0
         ? 0.58
@@ -30071,8 +30062,9 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
   }
 
   Future<void> toggleGroupModerator(FriendUserData user) async {
-    if (!isCurrentUserGroupOwner || user.uid == currentUser.uid || isSaving)
+    if (!isCurrentUserGroupOwner || user.uid == currentUser.uid || isSaving) {
       return;
+    }
 
     final isModerator = widget.chat.moderatorIds.contains(user.uid);
     setState(() => isSaving = true);
@@ -38620,16 +38612,19 @@ class _AdminEditSpotScreenState extends State<AdminEditSpotScreen> {
       );
 
       final editChangeSummary = <String>[];
-      if (widget.spot.name != updatedSpot.name)
+      if (widget.spot.name != updatedSpot.name) {
         editChangeSummary.add(
           'Name: ${widget.spot.name} → ${updatedSpot.name}',
         );
-      if (widget.spot.cityCountry != updatedSpot.cityCountry)
+      }
+      if (widget.spot.cityCountry != updatedSpot.cityCountry) {
         editChangeSummary.add(
           'Location text: ${widget.spot.cityCountry} → ${updatedSpot.cityCountry}',
         );
-      if (widget.spot.description != updatedSpot.description)
+      }
+      if (widget.spot.description != updatedSpot.description) {
         editChangeSummary.add('Description changed');
+      }
       if ((widget.spot.coordinates.latitude - updatedSpot.coordinates.latitude)
                   .abs() >
               0.000001 ||
@@ -39421,14 +39416,18 @@ class AdminSpotReviewScreen extends StatelessWidget {
               hintText: 'Write the reason the user will see...',
               hintStyle: const TextStyle(color: Colors.white38),
               filled: true,
-              fillColor: Colors.white.withOpacity(0.06),
+              fillColor: Colors.white.withValues(alpha: 0.06),
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(16),
-                borderSide: BorderSide(color: Colors.white.withOpacity(0.12)),
+                borderSide: BorderSide(
+                  color: Colors.white.withValues(alpha: 0.12),
+                ),
               ),
               enabledBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(16),
-                borderSide: BorderSide(color: Colors.white.withOpacity(0.12)),
+                borderSide: BorderSide(
+                  color: Colors.white.withValues(alpha: 0.12),
+                ),
               ),
               focusedBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(16),
@@ -39604,9 +39603,11 @@ class AdminSpotReviewScreen extends StatelessWidget {
             Container(
               padding: const EdgeInsets.all(14),
               decoration: BoxDecoration(
-                color: Colors.redAccent.withOpacity(0.12),
+                color: Colors.redAccent.withValues(alpha: 0.12),
                 borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: Colors.redAccent.withOpacity(0.35)),
+                border: Border.all(
+                  color: Colors.redAccent.withValues(alpha: 0.35),
+                ),
               ),
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
