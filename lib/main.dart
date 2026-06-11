@@ -5812,9 +5812,7 @@ Future<AppUser> saveFirebaseUser(
 
   final appDeviceIds = await getAppDeviceIds();
   final appDeviceId = appDeviceIds.first;
-  await ensureAppDeviceIsAllowed(
-    deviceIds: appDeviceIds,
-  );
+  await ensureAppDeviceIsAllowed(deviceIds: appDeviceIds);
 
   final role = isNewUser
       ? await defaultRoleForNewFirebaseUser()
@@ -6820,12 +6818,10 @@ class CarSpot {
       return customReveal;
     }
 
-    final startsAt = DateTime.fromMillisecondsSinceEpoch(startsAtMillis!);
-    return DateTime(
-      startsAt.year,
-      startsAt.month,
-      startsAt.day,
-    ).millisecondsSinceEpoch;
+    // Temporary spots should become visible on the map as soon as they are
+    // approved/published. The old fallback revealed the location at midnight
+    // on the event day, which made upcoming temporary spots look missing.
+    return createdAtMillis > 0 ? createdAtMillis : 0;
   }
 
   bool get isTemporaryActiveNow {
@@ -7326,9 +7322,7 @@ String deviceBanReasonFromFirebase(Map<String, dynamic>? data) {
   ).trim();
 }
 
-Future<void> ensureAppDeviceIsAllowed({
-  required List<String> deviceIds,
-}) async {
+Future<void> ensureAppDeviceIsAllowed({required List<String> deviceIds}) async {
   for (final deviceId in uniqueNonEmptyStrings(deviceIds)) {
     final cleanDeviceId = cleanDeviceIdForStorage(deviceId);
     if (cleanDeviceId.isEmpty) {
@@ -10900,6 +10894,15 @@ void _listenToSpotQuery({
   spotSyncSubscriptions.add(subscription);
 }
 
+void startApprovedSpotsLiveSync() {
+  _listenToSpotQuery(
+    source: 'approved live',
+    query: approvedSpotsForCurrentUserQuery().limit(
+      firebaseApprovedSpotsListenLimit,
+    ),
+  );
+}
+
 Future<void> stopAdminReviewSpotSync() async {
   await adminReviewSpotSubscription?.cancel();
   adminReviewSpotSubscription = null;
@@ -10971,6 +10974,7 @@ Future<void> _startCachedSpotSync() async {
     // Then ask Firestore only for documents changed since the last sync. On a
     // fresh install / empty cache this falls back to one full approved feed read.
     await syncApprovedSpotsWithServerDelta();
+    startApprovedSpotsLiveSync();
   } catch (error, stack) {
     debugPrint('Cached spot sync failed: $error');
     debugPrint('$stack');
@@ -11185,6 +11189,123 @@ currentUserLikedSpotsSubscription;
 String? currentUserLikedSpotsSyncUid;
 bool currentUserLikedSpotsSyncStarting = false;
 const currentUserLikedSpotIdsStoragePrefix = 'current_user_liked_spot_ids_';
+
+const spotLikeDailyToggleCountStoragePrefix = 'spot_like_daily_toggle_count_';
+const int maxDailySpotLikeTogglesPerUserPerSpot = 4;
+final Set<String> spotLikeTogglesInFlight = {};
+
+String spotLikeDailyToggleCountStorageKey({
+  required String spotId,
+  required String userId,
+  required String dayKey,
+}) {
+  return '$spotLikeDailyToggleCountStoragePrefix${safeDailyCounterPathPart(spotId)}_${safeDailyCounterPathPart(userId)}_${safeDailyCounterPathPart(dayKey)}';
+}
+
+Future<int> loadLocalSpotLikeDailyToggleCount({
+  required String spotId,
+  required String userId,
+  required String dayKey,
+}) async {
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getInt(
+          spotLikeDailyToggleCountStorageKey(
+            spotId: spotId,
+            userId: userId,
+            dayKey: dayKey,
+          ),
+        ) ??
+        0;
+  } catch (_) {
+    return 0;
+  }
+}
+
+Future<void> saveLocalSpotLikeDailyToggleCount({
+  required String spotId,
+  required String userId,
+  required String dayKey,
+  required int count,
+}) async {
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(
+      spotLikeDailyToggleCountStorageKey(
+        spotId: spotId,
+        userId: userId,
+        dayKey: dayKey,
+      ),
+      count,
+    );
+  } catch (_) {}
+}
+
+Future<void> showSpotLikeDailyLimitDialog(BuildContext context) async {
+  if (!context.mounted) {
+    return;
+  }
+
+  await showDialog<void>(
+    context: context,
+    builder: (dialogContext) {
+      return AlertDialog(
+        backgroundColor: panelGlass,
+        title: Text(
+          trText('Daily limit reached'),
+          style: const TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.w900,
+          ),
+        ),
+        content: Text(
+          trText(
+            'You can like and remove your like twice per day for each spot. Try again tomorrow.',
+          ),
+          style: const TextStyle(color: Colors.white70, height: 1.35),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: Text(trText('OK')),
+          ),
+        ],
+      );
+    },
+  );
+}
+
+Future<void> showSpotLikeSaveErrorDialog(BuildContext context) async {
+  if (!context.mounted) {
+    return;
+  }
+
+  await showDialog<void>(
+    context: context,
+    builder: (dialogContext) {
+      return AlertDialog(
+        backgroundColor: panelGlass,
+        title: Text(
+          trText('Could not save like'),
+          style: const TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.w900,
+          ),
+        ),
+        content: Text(
+          trText('Please try again in a moment.'),
+          style: const TextStyle(color: Colors.white70, height: 1.35),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: Text(trText('OK')),
+          ),
+        ],
+      );
+    },
+  );
+}
 
 final currentUserLikedCommentIds = ValueNotifier<Set<String>>({});
 final currentUserCommentLikeCountOverrides = ValueNotifier<Map<String, int>>(
@@ -11674,112 +11795,133 @@ Future<void> toggleSpotLike(
       : spotsCollection().doc(spot.id.trim());
 
   final targetLiked = !currentlyLiked;
+  final todayKey = localDayKey(DateTime.now());
+  final toggleKey = likeRef.id;
   var likeDelta = 0;
 
-  setCurrentUserSpotLikedLocally(spotId, targetLiked);
-
-  try {
-    await FirebaseFirestore.instance.runTransaction((transaction) async {
-      final likeSnapshot = await transaction.debugGet(likeRef);
-      DocumentSnapshot<Map<String, dynamic>>? spotSnapshot;
-      if (spotRef != null) {
-        spotSnapshot = await transaction.debugGet(
-          spotRef,
-          'spot like counter current spot get',
-        );
-      }
-
-      void writeSafeSpotLikeCount(int delta, String label) {
-        if (spotRef == null || spotSnapshot == null || !spotSnapshot!.exists) {
-          return;
-        }
-
-        final currentCount = math.max(
-          0,
-          intFromFirebase(spotSnapshot!.data()?['likeCount'], spot.likeCount),
-        );
-        final nextCount = math.max(0, currentCount + delta);
-        transaction.debugUpdate(spotRef, {
-          'likeCount': nextCount,
-          'updatedAt': FieldValue.serverTimestamp(),
-        }, label);
-      }
-
-      if (targetLiked) {
-        if (likeSnapshot.exists) {
-          return;
-        }
-
-        transaction.debugSet(likeRef, {
-          'targetType': 'spot',
-          'spotId': spotId,
-          'spotName': spot.name,
-          'spotOwnerUid': spotNotificationOwnerUid(spot),
-          'userId': firebaseUser.uid,
-          'username': currentUser.username,
-          'createdAt': FieldValue.serverTimestamp(),
-        });
-        writeSafeSpotLikeCount(1, 'spot like counter safe increment');
-        likeDelta = 1;
-        return;
-      }
-
-      if (!likeSnapshot.exists) {
-        return;
-      }
-
-      transaction.debugDelete(likeRef);
-      writeSafeSpotLikeCount(-1, 'spot like counter safe decrement');
-      likeDelta = -1;
-    });
-  } catch (error) {
-    setCurrentUserSpotLikedLocally(spotId, currentlyLiked);
-    if (context.mounted) {
-      final code = error is FirebaseException ? error.code : error.toString();
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          backgroundColor: Colors.redAccent,
-          content: Text(
-            'Could not update like: $code',
-            style: const TextStyle(
-              color: Colors.white,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-        ),
-      );
-    }
+  // Ignore rapid double taps while the first toggle is still writing. This
+  // prevents accidental duplicate transactions and saves Firebase reads.
+  if (!spotLikeTogglesInFlight.add(toggleKey)) {
     return;
   }
 
-  if (likeDelta != 0) {
-    updateSpotCountersLocally(spot, likeDelta: likeDelta);
-  }
+  try {
+    final dailyToggleCount = await loadLocalSpotLikeDailyToggleCount(
+      spotId: spotId,
+      userId: firebaseUser.uid,
+      dayKey: todayKey,
+    );
 
-  if (likeDelta == 1) {
-    final notificationId = 'spot_like_${likeRef.id}';
-    final alreadyNotified = await userNotificationsCollection()
-        .doc(notificationId)
-        .debugGet()
-        .then((snapshot) {
-          return snapshot.exists;
-        })
-        .catchError((_) => false);
+    // Allow: like -> unlike -> like -> unlike. The next tap is blocked locally,
+    // so the limit warning costs 0 Firebase reads on this device.
+    if (dailyToggleCount >= maxDailySpotLikeTogglesPerUserPerSpot) {
+      await showSpotLikeDailyLimitDialog(context);
+      return;
+    }
 
-    if (!alreadyNotified) {
-      try {
-        await createSpotLikeNotification(spot, likeRef.id);
-        await sendPushNotificationEvent({
-          'type': 'spot_like',
-          'likeId': likeRef.id,
-          'spotId': spotId,
-          'spotName': spot.name,
-        });
-      } catch (error, stack) {
-        debugPrint('Spot like notification failed: $error');
-        debugPrint('$stack');
+    setCurrentUserSpotLikedLocally(spotId, targetLiked);
+
+    try {
+      await FirebaseFirestore.instance.runTransaction((transaction) async {
+        final likeSnapshot = await transaction.debugGet(likeRef);
+        DocumentSnapshot<Map<String, dynamic>>? spotSnapshot;
+        if (spotRef != null) {
+          spotSnapshot = await transaction.debugGet(
+            spotRef,
+            'spot like counter current spot get',
+          );
+        }
+
+        void writeSafeSpotLikeCount(int delta, String label) {
+          if (spotRef == null ||
+              spotSnapshot == null ||
+              !spotSnapshot!.exists) {
+            return;
+          }
+
+          final currentCount = math.max(
+            0,
+            intFromFirebase(spotSnapshot!.data()?['likeCount'], spot.likeCount),
+          );
+          final nextCount = math.max(0, currentCount + delta);
+          transaction.debugUpdate(spotRef, {
+            'likeCount': nextCount,
+            'updatedAt': FieldValue.serverTimestamp(),
+          }, label);
+        }
+
+        if (targetLiked) {
+          if (likeSnapshot.exists) {
+            return;
+          }
+
+          transaction.debugSet(likeRef, {
+            'targetType': 'spot',
+            'spotId': spotId,
+            'spotName': spot.name,
+            'spotOwnerUid': spotNotificationOwnerUid(spot),
+            'userId': firebaseUser.uid,
+            'username': currentUser.username,
+            'createdAt': FieldValue.serverTimestamp(),
+          });
+          writeSafeSpotLikeCount(1, 'spot like counter safe increment');
+          likeDelta = 1;
+          return;
+        }
+
+        if (!likeSnapshot.exists) {
+          return;
+        }
+
+        transaction.debugDelete(likeRef);
+        writeSafeSpotLikeCount(-1, 'spot like counter safe decrement');
+        likeDelta = -1;
+      });
+    } catch (error) {
+      setCurrentUserSpotLikedLocally(spotId, currentlyLiked);
+      if (context.mounted) {
+        await showSpotLikeSaveErrorDialog(context);
+      }
+      return;
+    }
+
+    if (likeDelta != 0) {
+      await saveLocalSpotLikeDailyToggleCount(
+        spotId: spotId,
+        userId: firebaseUser.uid,
+        dayKey: todayKey,
+        count: dailyToggleCount + 1,
+      );
+      updateSpotCountersLocally(spot, likeDelta: likeDelta);
+    }
+
+    if (likeDelta == 1) {
+      final notificationId = 'spot_like_${likeRef.id}';
+      final alreadyNotified = await userNotificationsCollection()
+          .doc(notificationId)
+          .debugGet()
+          .then((snapshot) {
+            return snapshot.exists;
+          })
+          .catchError((_) => false);
+
+      if (!alreadyNotified) {
+        try {
+          await createSpotLikeNotification(spot, likeRef.id);
+          await sendPushNotificationEvent({
+            'type': 'spot_like',
+            'likeId': likeRef.id,
+            'spotId': spotId,
+            'spotName': spot.name,
+          });
+        } catch (error, stack) {
+          debugPrint('Spot like notification failed: $error');
+          debugPrint('$stack');
+        }
       }
     }
+  } finally {
+    spotLikeTogglesInFlight.remove(toggleKey);
   }
 }
 
@@ -12586,12 +12728,14 @@ Future<void> updateSpotStatus(
       statusChanged &&
       (status == SpotStatus.approved || status == SpotStatus.rejected);
 
+  final nowMillis = DateTime.now().millisecondsSinceEpoch;
   final updatedSpot = spot.copyWith(
     status: status,
     rating: status == SpotStatus.approved && spot.rating == 0
         ? 4.5
         : spot.rating,
     rejectionReason: cleanRejectionReason,
+    updatedAtMillis: nowMillis,
   );
 
   if (spot.id.isNotEmpty) {
@@ -12617,11 +12761,7 @@ Future<void> updateSpotStatus(
       .map((item) => isSameSpot(item, spot) ? updatedSpot : item)
       .toList();
 
-  upsertSpotIntoLocalImmediateCache(
-    updatedSpot.copyWith(
-      updatedAtMillis: DateTime.now().millisecondsSinceEpoch,
-    ),
-  );
+  upsertSpotIntoLocalImmediateCache(updatedSpot);
 
   if (shouldNotifyNearbyMeetUsers) {
     await createMeetSpotNotificationsForNearbyUsers(updatedSpot);
@@ -17424,6 +17564,94 @@ extension CcsMapStylePresentation on CcsMapStyle {
   }
 }
 
+class _CcsSmoothMapTileLayer extends StatefulWidget {
+  final CcsMapStyle mapStyle;
+
+  const _CcsSmoothMapTileLayer({required this.mapStyle});
+
+  @override
+  State<_CcsSmoothMapTileLayer> createState() => _CcsSmoothMapTileLayerState();
+}
+
+class _CcsSmoothMapTileLayerState extends State<_CcsSmoothMapTileLayer>
+    with SingleTickerProviderStateMixin {
+  static const transitionDuration = Duration(milliseconds: 650);
+
+  late final AnimationController controller;
+  late CcsMapStyle currentStyle;
+  CcsMapStyle? previousStyle;
+
+  @override
+  void initState() {
+    super.initState();
+    currentStyle = widget.mapStyle;
+    controller =
+        AnimationController(vsync: this, duration: transitionDuration, value: 1)
+          ..addStatusListener((status) {
+            if (status == AnimationStatus.completed && previousStyle != null) {
+              setState(() => previousStyle = null);
+            }
+          });
+  }
+
+  @override
+  void didUpdateWidget(covariant _CcsSmoothMapTileLayer oldWidget) {
+    super.didUpdateWidget(oldWidget);
+
+    if (widget.mapStyle == currentStyle) {
+      return;
+    }
+
+    setState(() {
+      previousStyle = currentStyle;
+      currentStyle = widget.mapStyle;
+    });
+    controller.forward(from: 0);
+  }
+
+  @override
+  void dispose() {
+    controller.dispose();
+    super.dispose();
+  }
+
+  Widget _tileLayer(CcsMapStyle style) {
+    return ColorFiltered(
+      colorFilter: ColorFilter.matrix(style.tileColorMatrix),
+      child: TileLayer(
+        key: ValueKey('ccs-map-tiles-${style.name}'),
+        urlTemplate: style.tileUrl,
+        userAgentPackageName: 'com.example.ccs_app',
+        maxNativeZoom: 19,
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final previous = previousStyle;
+
+    return AnimatedBuilder(
+      animation: controller,
+      builder: (context, _) {
+        final progress = Curves.easeInOutCubic.transform(controller.value);
+
+        return Stack(
+          fit: StackFit.expand,
+          children: [
+            if (previous != null)
+              Opacity(opacity: 1 - progress, child: _tileLayer(previous)),
+            Opacity(
+              opacity: previous == null ? 1 : progress,
+              child: _tileLayer(currentStyle),
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
 class MapScreen extends StatefulWidget {
   final bool isVisible;
 
@@ -17433,8 +17661,7 @@ class MapScreen extends StatefulWidget {
   State<MapScreen> createState() => _MapScreenState();
 }
 
-class _MapScreenState extends State<MapScreen>
-    with SingleTickerProviderStateMixin {
+class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
   // Default map view: open Riga area first, do not auto-jump to the user.
   static const rigaCenter = LatLng(56.9496, 24.1052);
   static const rigaZoom = 11.25;
@@ -21440,15 +21667,7 @@ class _MapScreenState extends State<MapScreen>
               }),
             ),
             children: [
-              ColorFiltered(
-                colorFilter: ColorFilter.matrix(mapStyle.tileColorMatrix),
-                child: TileLayer(
-                  key: ValueKey(mapStyle),
-                  urlTemplate: mapStyle.tileUrl,
-                  userAgentPackageName: 'com.example.ccs_app',
-                  maxNativeZoom: 19,
-                ),
-              ),
+              _CcsSmoothMapTileLayer(mapStyle: mapStyle),
               MarkerLayer(markers: allMapMarkers),
               RichAttributionWidget(
                 attributions: mapAttributions,
@@ -26155,7 +26374,11 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
                   borderRadius: BorderRadius.circular(12),
                   border: Border.all(color: blue.withValues(alpha: 0.24)),
                 ),
-                child: const Icon(Icons.add_location_alt, color: blue, size: 21),
+                child: const Icon(
+                  Icons.add_location_alt,
+                  color: blue,
+                  size: 21,
+                ),
               ),
               const SizedBox(width: 10),
               Expanded(
@@ -39016,15 +39239,7 @@ class _AdminSpotLocationReviewMapScreenState
               backgroundColor: mapStyle.backgroundColor,
             ),
             children: [
-              ColorFiltered(
-                colorFilter: ColorFilter.matrix(mapStyle.tileColorMatrix),
-                child: TileLayer(
-                  key: ValueKey(mapStyle),
-                  urlTemplate: mapStyle.tileUrl,
-                  userAgentPackageName: 'com.example.ccs_app',
-                  maxNativeZoom: 19,
-                ),
-              ),
+              _CcsSmoothMapTileLayer(mapStyle: mapStyle),
               MarkerLayer(markers: [submittedPinMarker()]),
             ],
           ),
@@ -39453,45 +39668,65 @@ class AdminSpotReviewScreen extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: OutlinedButton.icon(
-                  onPressed: () {
-                    rejectSpot(context);
-                  },
-                  icon: const Icon(Icons.close),
-                  label: const Text('Reject'),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: Colors.redAccent,
-                    side: const BorderSide(color: Colors.redAccent),
-                    minimumSize: const Size.fromHeight(52),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(16),
-                    ),
+          if (spot.status == SpotStatus.approved)
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: () {
+                  deleteSpot(context);
+                },
+                icon: const Icon(Icons.delete_outline),
+                label: const Text('Remove'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: Colors.redAccent,
+                  side: const BorderSide(color: Colors.redAccent),
+                  minimumSize: const Size.fromHeight(52),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
                   ),
                 ),
               ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: ElevatedButton.icon(
-                  onPressed: () {
-                    approveSpot(context);
-                  },
-                  icon: const Icon(Icons.check),
-                  label: const Text('Approve'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: blue,
-                    foregroundColor: Colors.white,
-                    minimumSize: const Size.fromHeight(52),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(16),
+            )
+          else
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: () {
+                      rejectSpot(context);
+                    },
+                    icon: const Icon(Icons.close),
+                    label: const Text('Reject'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.redAccent,
+                      side: const BorderSide(color: Colors.redAccent),
+                      minimumSize: const Size.fromHeight(52),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
+                      ),
                     ),
                   ),
                 ),
-              ),
-            ],
-          ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: () {
+                      approveSpot(context);
+                    },
+                    icon: const Icon(Icons.check),
+                    label: const Text('Approve'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: blue,
+                      foregroundColor: Colors.white,
+                      minimumSize: const Size.fromHeight(52),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
         ],
       ),
     );
