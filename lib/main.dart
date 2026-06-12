@@ -81,7 +81,8 @@ const liveLocationDurationChoices = <Duration>[
   Duration(hours: 2),
   Duration(hours: 4),
 ];
-const liveLocationStaleAfter = Duration(minutes: 10);
+const liveLocationStaleAfter = Duration(minutes: 30);
+const double liveLocationSpotStaleKeepRadiusMeters = 200;
 const userLocationLookupTimeout = Duration(seconds: 15);
 StreamSubscription<String>? pushTokenRefreshSubscription;
 StreamSubscription<RemoteMessage>? foregroundPushSubscription;
@@ -1641,6 +1642,12 @@ const _ruText = <String, String>{
   'Fresh approved locations nearby': 'Новые одобренные места поблизости',
   'Messages': 'Сообщения',
   'New direct and group messages': 'Новые личные и групповые сообщения',
+  'Friends at spots': 'Друзья на спотах',
+  'When friends stay near a spot for 5 minutes':
+      'Когда друзья находятся возле спота 5 минут',
+  'Friends sharing location': 'Друзья делятся геопозицией',
+  'After a friend shares live location for 10 minutes':
+      'После 10 минут показа геопозиции другом',
   'Public profile': 'Публичный профиль',
   'Let other drivers see your profile':
       'Разрешить другим водителям видеть профиль',
@@ -1672,6 +1679,8 @@ const _ruText = <String, String>{
   'Drag': 'Драг',
   'Off-road': 'Бездорожье',
   'Food': 'Еда',
+  'Track': 'Трек',
+  'Activity': 'Активности',
   'Today': 'Сегодня',
   'Tomorrow': 'Завтра',
   'This week': 'На этой неделе',
@@ -1833,6 +1842,8 @@ const _ruText = <String, String>{
   'Spot owner': 'Владелец спота',
   'Search nickname, name, or email': 'Поиск по никнейму, имени или эл. почте',
   'Search to change owner': 'Найдите нового владельца',
+  'Enter at least 2 characters to search owners.':
+      'Введите минимум 2 символа для поиска владельца.',
   'Add friends first, then start a chat here.':
       'Сначала добавьте друзей, затем начните чат здесь.',
   'Add map alert': 'Добавить отметку на карте',
@@ -2088,6 +2099,7 @@ const _ruText = <String, String>{
   'edited': 'изменено',
   'New': 'Новые',
   'Old': 'Старые',
+  'Nearest': 'Ближайшие',
   'Like': 'Лайк',
   'Liked': 'Лайкнуто',
   'Create Spot': 'Создать спот',
@@ -2182,6 +2194,11 @@ const _ruText = <String, String>{
   'Friends share': 'Друзья',
   'online': 'в сети',
   'offline': 'не в сети',
+  'Last online unknown': 'Последний онлайн неизвестен',
+  'Last online just now': 'был(а) онлайн только что',
+  'Last online today at': 'был(а) онлайн сегодня в',
+  'Last online yesterday at': 'был(а) онлайн вчера в',
+  'Last online on': 'был(а) онлайн',
   'Shared live location with this group.':
       'Геопозиция отправлена в эту группу.',
   'Shared live location with you.': 'Геопозиция отправлена вам.',
@@ -2351,6 +2368,12 @@ const _lvText = <String, String>{
   'Fresh approved locations nearby': 'Jaunas apstiprinātas vietas tuvumā',
   'Messages': 'Ziņas',
   'New direct and group messages': 'Jaunas privātās un grupu ziņas',
+  'Friends at spots': 'Draugi pie vietām',
+  'When friends stay near a spot for 5 minutes':
+      'Kad draugi 5 minūtes atrodas pie vietas',
+  'Friends sharing location': 'Draugi kopīgo atrašanās vietu',
+  'After a friend shares live location for 10 minutes':
+      'Pēc 10 minūtēm, kad draugs kopīgo tiešo atrašanās vietu',
   'Public profile': 'Publisks profils',
   'Let other drivers see your profile':
       'Ļaut citiem autovadītājiem redzēt profilu',
@@ -2382,6 +2405,8 @@ const _lvText = <String, String>{
   'Drag': 'Drags',
   'Off-road': 'Bezceļi',
   'Food': 'Ēdiens',
+  'Track': 'Trase',
+  'Activity': 'Aktivitātes',
   'Today': 'Šodien',
   'Tomorrow': 'Rīt',
   'This week': 'Šonedēļ',
@@ -2543,6 +2568,8 @@ const _lvText = <String, String>{
   'Spot owner': 'Vietas īpašnieks',
   'Search nickname, name, or email': 'Meklēt pēc segvārda, vārda vai e-pasta',
   'Search to change owner': 'Meklēt jaunu īpašnieku',
+  'Enter at least 2 characters to search owners.':
+      'Ievadiet vismaz 2 rakstzīmes, lai meklētu īpašnieku.',
   'Add friends first, then start a chat here.':
       'Vispirms pievienojiet draugus, pēc tam sāciet čatu.',
   'Add map alert': 'Pievienot brīdinājumu kartē',
@@ -2797,6 +2824,7 @@ const _lvText = <String, String>{
   'edited': 'rediģēts',
   'New': 'Jauni',
   'Old': 'Veci',
+  'Nearest': 'Tuvākie',
   'Like': 'Patīk',
   'Liked': 'Patīk',
   'Create Spot': 'Izveidot vietu',
@@ -2888,6 +2916,11 @@ const _lvText = <String, String>{
   'Friends share': 'Draugi',
   'online': 'tiešsaistē',
   'offline': 'bezsaistē',
+  'Last online unknown': 'Pēdējais tiešsaistes laiks nav zināms',
+  'Last online just now': 'pēdējo reizi tiešsaistē tikko',
+  'Last online today at': 'pēdējo reizi tiešsaistē šodien plkst.',
+  'Last online yesterday at': 'pēdējo reizi tiešsaistē vakar plkst.',
+  'Last online on': 'pēdējo reizi tiešsaistē',
   'Shared live location with this group.':
       'Atrašanās vieta nosūtīta šai grupai.',
   'Shared live location with you.': 'Atrašanās vieta nosūtīta jums.',
@@ -4291,6 +4324,8 @@ const spotCategoryOptions = [
   'Wash',
   'Store',
   'Drag',
+  'Track',
+  'Activity',
   'Off-road',
   'Food',
 ];
@@ -4301,6 +4336,8 @@ const contactEnabledSpotCategories = {
   'Wash',
   'Store',
   'Food',
+  'Track',
+  'Activity',
 };
 
 bool spotCategorySupportsContacts(String category) {
@@ -4354,12 +4391,26 @@ class OpeningHoursData {
 Map<int, OpeningHoursData> defaultServiceOpeningHours() {
   return {
     for (var weekday = 1; weekday <= 7; weekday++)
-      weekday: OpeningHoursData(
-        isOpen: weekday <= DateTime.friday,
-        opensAt: '08:00',
-        closesAt: '20:00',
+      weekday: const OpeningHoursData(
+        isOpen: true,
+        opensAt: '00:00',
+        closesAt: '23:59',
       ),
   };
+}
+
+bool openingHoursAreTwentyFourSeven(Map<int, OpeningHoursData> openingHours) {
+  for (var weekday = DateTime.monday; weekday <= DateTime.sunday; weekday++) {
+    final day = openingHours[weekday];
+    if (day == null ||
+        !day.isOpen ||
+        day.opensAt.trim() != '00:00' ||
+        day.closesAt.trim() != '23:59') {
+      return false;
+    }
+  }
+
+  return true;
 }
 
 Map<int, OpeningHoursData> openingHoursFromFirebase(Object? value) {
@@ -4425,6 +4476,8 @@ const spotCategoryIconAssets = {
   'Wash': 'assets/spot_icons/wash.png',
   'Store': 'assets/spot_icons/store_2.png',
   'Drag': 'assets/spot_icons/drag.png',
+  'Track': 'assets/spot_icons/track.png',
+  'Activity': 'assets/spot_icons/activity.png',
   'Off-road': 'assets/spot_icons/offroad.png',
   'Food': 'assets/spot_icons/food.png',
 };
@@ -4442,6 +4495,8 @@ const spotCategoryLightIconAssets = {
   'Wash': 'assets/spot_icons/wash_light.png',
   'Store': 'assets/spot_icons/store_light_2.png',
   'Drag': 'assets/spot_icons/drag_light.png',
+  'Track': 'assets/spot_icons/track_light.png',
+  'Activity': 'assets/spot_icons/activity_light.png',
   'Off-road': 'assets/spot_icons/offroad_light.png',
   'Food': 'assets/spot_icons/food_light.png',
 };
@@ -4456,6 +4511,8 @@ const spotCategoryColors = {
   'Wash': Color(0xFF008CFF),
   'Store': Color(0xFFFF7A00),
   'Drag': Color(0xFFFF1635),
+  'Track': Color(0xFF00F5A0),
+  'Activity': Color(0xFFFF6652),
   'Off-road': Color(0xFF8B5A2B),
   'Food': Color(0xFFFF1B8D),
 };
@@ -5899,6 +5956,8 @@ Future<AppUser> saveFirebaseUser(
     'commentNotifications': settings.commentNotifications,
     'newSpotNotifications': settings.newSpotNotifications,
     'newMessageNotifications': settings.newMessageNotifications,
+    'friendAtSpotNotifications': settings.friendAtSpotNotifications,
+    'friendLiveShareNotifications': settings.friendLiveShareNotifications,
     'publicProfile': settings.publicProfile,
     'showGarage': settings.showGarage,
     'garage': garage.map((car) => car.toFirebase()).toList(),
@@ -6472,6 +6531,8 @@ class UserSettingsData {
   final bool commentNotifications;
   final bool newSpotNotifications;
   final bool newMessageNotifications;
+  final bool friendAtSpotNotifications;
+  final bool friendLiveShareNotifications;
   final bool publicProfile;
   final bool showGarage;
 
@@ -6484,6 +6545,8 @@ class UserSettingsData {
     required this.commentNotifications,
     required this.newSpotNotifications,
     this.newMessageNotifications = true,
+    this.friendAtSpotNotifications = true,
+    this.friendLiveShareNotifications = true,
     required this.publicProfile,
     required this.showGarage,
   });
@@ -6516,6 +6579,14 @@ class UserSettingsData {
         data['newMessageNotifications'],
         defaults.newMessageNotifications,
       ),
+      friendAtSpotNotifications: boolFromFirebase(
+        data['friendAtSpotNotifications'],
+        defaults.friendAtSpotNotifications,
+      ),
+      friendLiveShareNotifications: boolFromFirebase(
+        data['friendLiveShareNotifications'],
+        defaults.friendLiveShareNotifications,
+      ),
       publicProfile: boolFromFirebase(
         data['publicProfile'],
         defaults.publicProfile,
@@ -6534,6 +6605,8 @@ class UserSettingsData {
       'commentNotifications': commentNotifications,
       'newSpotNotifications': newSpotNotifications,
       'newMessageNotifications': newMessageNotifications,
+      'friendAtSpotNotifications': friendAtSpotNotifications,
+      'friendLiveShareNotifications': friendLiveShareNotifications,
       'publicProfile': publicProfile,
       'showGarage': showGarage,
     };
@@ -6548,6 +6621,8 @@ class UserSettingsData {
     bool? commentNotifications,
     bool? newSpotNotifications,
     bool? newMessageNotifications,
+    bool? friendAtSpotNotifications,
+    bool? friendLiveShareNotifications,
     bool? publicProfile,
     bool? showGarage,
   }) {
@@ -6561,6 +6636,10 @@ class UserSettingsData {
       newSpotNotifications: newSpotNotifications ?? this.newSpotNotifications,
       newMessageNotifications:
           newMessageNotifications ?? this.newMessageNotifications,
+      friendAtSpotNotifications:
+          friendAtSpotNotifications ?? this.friendAtSpotNotifications,
+      friendLiveShareNotifications:
+          friendLiveShareNotifications ?? this.friendLiveShareNotifications,
       publicProfile: publicProfile ?? this.publicProfile,
       showGarage: showGarage ?? this.showGarage,
     );
@@ -6587,6 +6666,8 @@ Future<void> saveCurrentUserSettings(UserSettingsData settings) async {
     'commentNotifications': settings.commentNotifications,
     'newSpotNotifications': settings.newSpotNotifications,
     'newMessageNotifications': settings.newMessageNotifications,
+    'friendAtSpotNotifications': settings.friendAtSpotNotifications,
+    'friendLiveShareNotifications': settings.friendLiveShareNotifications,
     'publicProfile': settings.publicProfile,
     'showGarage': settings.showGarage,
     'updatedAt': FieldValue.serverTimestamp(),
@@ -6603,6 +6684,8 @@ UserSettingsData defaultUserSettings() {
     commentNotifications: true,
     newSpotNotifications: true,
     newMessageNotifications: true,
+    friendAtSpotNotifications: true,
+    friendLiveShareNotifications: true,
     publicProfile: true,
     showGarage: true,
   );
@@ -8459,7 +8542,9 @@ Future<void> unblockUserById(String userId) async {
 }
 
 const double friendNearbyRadiusMeters = 5000;
-const double friendAtSpotRadiusMeters = 200;
+const double friendAtSpotRadiusMeters = 100;
+const Duration friendAtSpotNotificationDwellTime = Duration(minutes: 5);
+const Duration friendLiveSharingNotificationDelay = Duration(minutes: 10);
 const Duration friendLocationNotificationCooldown = Duration(minutes: 30);
 
 String friendNearbyNotificationId(String userId, String friendUid) {
@@ -9684,6 +9769,147 @@ Future<void> createFriendLocationNotification({
   }, SetOptions(merge: true));
 }
 
+Future<void> createCurrentUserFriendLocationNotification({
+  required String notificationId,
+  required String userId,
+  required String type,
+  required String settingName,
+  required LatLng coordinates,
+  required double distanceMeters,
+  CarSpot? spot,
+}) async {
+  final firebaseUser = FirebaseAuth.instance.currentUser;
+  final cleanUserId = userId.trim();
+
+  if (firebaseUser == null ||
+      cleanUserId.isEmpty ||
+      cleanUserId == firebaseUser.uid) {
+    return;
+  }
+
+  final allowed = await userNotificationPreferenceEnabled(
+    cleanUserId,
+    settingName,
+  );
+  if (!allowed) {
+    return;
+  }
+
+  if (!await shouldCreateFriendLocationNotification(notificationId)) {
+    return;
+  }
+
+  final nowMillis = DateTime.now().millisecondsSinceEpoch;
+  final spotName = spot?.name.trim() ?? '';
+  final body = switch (type) {
+    'friend_at_spot' =>
+      '@${currentUser.username} is at ${spotName.isEmpty ? 'a spot' : spotName}.',
+    'friend_live_sharing' =>
+      '@${currentUser.username} has been sharing live location for 10 minutes.',
+    _ => '@${currentUser.username} is on the map.',
+  };
+
+  await userNotificationsCollection().doc(notificationId).debugSet({
+    'userId': cleanUserId,
+    'type': type,
+    'title': 'Live location',
+    'body': body,
+    'actorUserId': firebaseUser.uid,
+    'actorUsername': currentUser.username,
+    'friendUid': firebaseUser.uid,
+    'friendUsername': currentUser.username,
+    'friendName': currentUser.name,
+    'friendLat': coordinates.latitude,
+    'friendLng': coordinates.longitude,
+    'friendCoordinates': GeoPoint(coordinates.latitude, coordinates.longitude),
+    'distanceMeters': distanceMeters.round(),
+    'spotId': spot?.id ?? '',
+    'spotName': spotName,
+    'spotCategory': spot?.categories.isEmpty == true
+        ? ''
+        : spot?.categories.first ?? '',
+    'read': false,
+    'lastNotifiedAtMillis': nowMillis,
+    'createdAt': FieldValue.serverTimestamp(),
+    'updatedAt': FieldValue.serverTimestamp(),
+  }, SetOptions(merge: true));
+}
+
+Future<void> notifyCurrentUserFriendsAboutSpotPresence({
+  required LatLng coordinates,
+  required CarSpot spot,
+  required double distanceMeters,
+}) async {
+  final firebaseUser = FirebaseAuth.instance.currentUser;
+
+  if (firebaseUser == null || spot.id.trim().isEmpty) {
+    return;
+  }
+
+  final friendUids = await loadCurrentFriendUids();
+  for (final friendUid in friendUids) {
+    await createCurrentUserFriendLocationNotification(
+      notificationId: friendSpotNotificationId(
+        friendUid,
+        firebaseUser.uid,
+        spot.id,
+      ),
+      userId: friendUid,
+      type: 'friend_at_spot',
+      settingName: 'friendAtSpotNotifications',
+      coordinates: coordinates,
+      distanceMeters: distanceMeters,
+      spot: spot,
+    );
+  }
+
+  unawaited(
+    sendPushNotificationEvent({
+      'type': 'friend_at_spot',
+      'spotId': spot.id,
+      'spotName': spot.name,
+      'lat': coordinates.latitude,
+      'lng': coordinates.longitude,
+      'recipientUserIds': friendUids,
+    }),
+  );
+}
+
+Future<void> notifyCurrentUserFriendsAboutLiveSharing({
+  required LatLng coordinates,
+}) async {
+  final firebaseUser = FirebaseAuth.instance.currentUser;
+
+  if (firebaseUser == null) {
+    return;
+  }
+
+  final friendUids = await loadCurrentFriendUids();
+  final sessionKey =
+      DateTime.now().millisecondsSinceEpoch ~/
+      Duration(minutes: 30).inMilliseconds;
+
+  for (final friendUid in friendUids) {
+    await createCurrentUserFriendLocationNotification(
+      notificationId: 'live_share_${friendUid}_${firebaseUser.uid}_$sessionKey',
+      userId: friendUid,
+      type: 'friend_live_sharing',
+      settingName: 'friendLiveShareNotifications',
+      coordinates: coordinates,
+      distanceMeters: 0,
+    );
+  }
+
+  unawaited(
+    sendPushNotificationEvent({
+      'type': 'friend_live_sharing',
+      'lat': coordinates.latitude,
+      'lng': coordinates.longitude,
+      'recipientUserIds': friendUids,
+    }),
+  );
+}
+
 Future<void> checkFriendLocationNotifications() async {
   final firebaseUser = FirebaseAuth.instance.currentUser;
 
@@ -10337,6 +10563,42 @@ bool userAppearsOnlineFromPresence({
   return (isOnline && isOnlinePresenceFresh(lastSeenAtMillis)) ||
       (isSharingLiveLocation &&
           liveLocationShareIsFresh(liveLocationExpiresAtMillis));
+}
+
+bool isSameLocalDay(DateTime first, DateTime second) {
+  return first.year == second.year &&
+      first.month == second.month &&
+      first.day == second.day;
+}
+
+String lastOnlineLabelFromMillis(int lastSeenAtMillis) {
+  if (lastSeenAtMillis <= 0) {
+    return trText('Last online unknown');
+  }
+
+  final seenAt = DateTime.fromMillisecondsSinceEpoch(
+    lastSeenAtMillis,
+  ).toLocal();
+  final now = DateTime.now();
+  final difference = now.difference(seenAt);
+  final time = '${twoDigits(seenAt.hour)}:${twoDigits(seenAt.minute)}';
+
+  if (difference.inSeconds < 90) {
+    return trText('Last online just now');
+  }
+
+  if (isSameLocalDay(seenAt, now)) {
+    return '${trText('Last online today at')} $time';
+  }
+
+  final yesterday = now.subtract(const Duration(days: 1));
+  if (isSameLocalDay(seenAt, yesterday)) {
+    return '${trText('Last online yesterday at')} $time';
+  }
+
+  final date =
+      '${twoDigits(seenAt.day)}.${twoDigits(seenAt.month)}.${seenAt.year}';
+  return '${trText('Last online on')} $date $time';
 }
 
 Future<void> updateCurrentUserOnlinePresence({required bool isOnline}) async {
@@ -13071,6 +13333,8 @@ class NotificationCenterItem {
   final String addedByUid;
   final String actorUserId;
   final String actorUsername;
+  final double friendLat;
+  final double friendLng;
   final String status;
   final String rejectionReason;
 
@@ -13090,6 +13354,8 @@ class NotificationCenterItem {
     this.addedByUid = '',
     this.actorUserId = '',
     this.actorUsername = '',
+    this.friendLat = 0,
+    this.friendLng = 0,
     this.status = '',
     this.rejectionReason = '',
   });
@@ -13111,6 +13377,8 @@ class NotificationCenterItem {
     String? addedByUid,
     String? actorUserId,
     String? actorUsername,
+    double? friendLat,
+    double? friendLng,
     String? status,
     String? rejectionReason,
   }) {
@@ -13130,6 +13398,8 @@ class NotificationCenterItem {
       addedByUid: addedByUid ?? this.addedByUid,
       actorUserId: actorUserId ?? this.actorUserId,
       actorUsername: actorUsername ?? this.actorUsername,
+      friendLat: friendLat ?? this.friendLat,
+      friendLng: friendLng ?? this.friendLng,
       status: status ?? this.status,
       rejectionReason: rejectionReason ?? this.rejectionReason,
     );
@@ -13147,7 +13417,10 @@ class NotificationCenterItem {
           ((type == 'new_spot' || type == 'temporary_event') &&
               spotName.trim().isNotEmpty) ||
           type == 'friend_request' ||
-          type == 'spot_pending_review');
+          type == 'spot_pending_review' ||
+          type == 'friend_nearby' ||
+          type == 'friend_at_spot' ||
+          type == 'friend_live_sharing');
 }
 
 bool notificationCenterItemIsRejected(NotificationCenterItem item) {
@@ -13208,7 +13481,9 @@ IconData notificationCenterIcon(NotificationCenterItem item) {
     'new_spot' => Icons.add_location_alt,
     'temporary_event' => Icons.event_available,
     'friend_request' => Icons.person_add_alt_1,
-    'friend_nearby' || 'friend_at_spot' => Icons.location_on,
+    'friend_nearby' ||
+    'friend_at_spot' ||
+    'friend_live_sharing' => Icons.location_on,
     _ => Icons.notifications,
   };
 }
@@ -13234,7 +13509,9 @@ Color notificationCenterColor(NotificationCenterItem item) {
     'new_spot' => const Color(0xFF9B35FF),
     'temporary_event' => const Color(0xFFFF7A00),
     'friend_request' => blue,
-    'friend_nearby' || 'friend_at_spot' => Colors.greenAccent.shade700,
+    'friend_nearby' ||
+    'friend_at_spot' ||
+    'friend_live_sharing' => Colors.greenAccent.shade700,
     _ => blue,
   };
 }
@@ -13412,6 +13689,18 @@ NotificationCenterItem notificationCenterItemFromJson(Object? value) {
     return 0;
   }
 
+  double pickDouble(String key) {
+    final topLevel = data[key];
+    if (topLevel is num) {
+      return topLevel.toDouble();
+    }
+    final nested = payload[key];
+    if (nested is num) {
+      return nested.toDouble();
+    }
+    return 0;
+  }
+
   final type = pickString('type', 'notification');
   final status = pickString('status', '');
   final rawSpotName = pickString('spotName', '');
@@ -13468,6 +13757,8 @@ NotificationCenterItem notificationCenterItemFromJson(Object? value) {
     addedByUid: pickString('addedByUid', ''),
     actorUserId: actorUserId,
     actorUsername: actorUsername,
+    friendLat: pickDouble('friendLat'),
+    friendLng: pickDouble('friendLng'),
     status: status,
     rejectionReason: rejectionReason,
   );
@@ -13486,6 +13777,18 @@ NotificationCenterItem notificationCenterItemFromDocument(
       return topLevel;
     }
     return stringFromFirebase(payload[key], fallback);
+  }
+
+  double pickDouble(String key) {
+    final topLevel = data[key];
+    if (topLevel is num) {
+      return topLevel.toDouble();
+    }
+    final nested = payload[key];
+    if (nested is num) {
+      return nested.toDouble();
+    }
+    return 0;
   }
 
   final type = pickString(
@@ -13515,7 +13818,9 @@ NotificationCenterItem notificationCenterItemFromDocument(
     'spot_approved_by_admin' ||
     'spot_rejected_by_admin' => 'Spot review updates',
     'friend_request' => 'New friend request',
-    'friend_nearby' || 'friend_at_spot' => 'Live location',
+    'friend_nearby' ||
+    'friend_at_spot' ||
+    'friend_live_sharing' => 'Live location',
     'project_news' => 'Project news',
     _ => stringFromFirebase(data['title'], 'CCS'),
   };
@@ -13578,6 +13883,10 @@ NotificationCenterItem notificationCenterItemFromDocument(
         friendUsername.trim().isEmpty
             ? 'A friend is at a spot.'
             : '@$friendUsername is at ${spotName.trim().isEmpty ? 'a spot' : spotName}.',
+      'friend_live_sharing' =>
+        friendUsername.trim().isEmpty
+            ? 'A friend is sharing live location.'
+            : '@$friendUsername has been sharing live location for 10 minutes.',
       _ => pickString('message', ''),
     };
   }
@@ -13621,6 +13930,8 @@ NotificationCenterItem notificationCenterItemFromDocument(
     actorUsername: actorUsername.trim().isEmpty
         ? actorUsernameFromNotificationBody(body)
         : actorUsername,
+    friendLat: pickDouble('friendLat'),
+    friendLng: pickDouble('friendLng'),
     status: status,
     rejectionReason: rejectionReason,
   );
@@ -13955,6 +14266,50 @@ Future<QuerySnapshot<Map<String, dynamic>>> loadUserNotificationCenterSnapshot(
   );
 }
 
+const int maxVisibleNotificationCenterItems = 9;
+
+Future<void> pruneOldNotificationCenterItems(
+  String uid,
+  List<NotificationCenterItem> sortedItems,
+) async {
+  final visibleItems = sortedItems.where((item) => !item.projectNews).toList();
+  if (visibleItems.length <= maxVisibleNotificationCenterItems) {
+    return;
+  }
+
+  final oldItems = visibleItems
+      .skip(maxVisibleNotificationCenterItems)
+      .toList();
+  final references = oldItems
+      .map((item) => item.reference)
+      .whereType<DocumentReference<Map<String, dynamic>>>()
+      .toList();
+
+  if (references.isNotEmpty) {
+    try {
+      final batch = FirebaseFirestore.instance.batch();
+      for (final reference in references) {
+        batch.debugDelete(reference);
+      }
+      await batch.commit();
+    } catch (error, stack) {
+      debugPrint('Notification center old-item pruning failed: $error');
+      debugPrint('$stack');
+    }
+  }
+
+  final serverOnlyIds = oldItems
+      .where((item) => item.reference == null && !item.projectNews)
+      .map((item) => item.id.trim())
+      .where((id) => id.isNotEmpty)
+      .toSet();
+  if (serverOnlyIds.isNotEmpty) {
+    final hiddenIds = await loadHiddenNotificationCenterIds(uid);
+    hiddenIds.addAll(serverOnlyIds);
+    await saveHiddenNotificationCenterIds(uid, hiddenIds);
+  }
+}
+
 Future<List<NotificationCenterItem>> loadNotificationCenterItems() async {
   final firebaseUser = FirebaseAuth.instance.currentUser;
   final items = <NotificationCenterItem>[];
@@ -14071,10 +14426,30 @@ Future<List<NotificationCenterItem>> loadNotificationCenterItems() async {
     return second.createdAtMillis.compareTo(first.createdAtMillis);
   });
 
-  notificationCenterUnreadCount.value = items
-      .where((item) => !item.read)
+  await pruneOldNotificationCenterItems(firebaseUser.uid, items);
+
+  final realItems = items.where((item) => !item.projectNews).toList();
+  final projectItems = items.where((item) => item.projectNews).toList();
+  final visibleItems = <NotificationCenterItem>[
+    ...realItems.take(maxVisibleNotificationCenterItems),
+  ];
+  if (visibleItems.isEmpty && projectItems.isNotEmpty) {
+    visibleItems.add(projectItems.first);
+  } else if (visibleItems.length < maxVisibleNotificationCenterItems &&
+      projectItems.isNotEmpty) {
+    visibleItems.add(projectItems.first);
+  }
+  visibleItems.sort((first, second) {
+    if (first.createdAtMillis == second.createdAtMillis) {
+      return first.projectNews ? 1 : -1;
+    }
+    return second.createdAtMillis.compareTo(first.createdAtMillis);
+  });
+
+  notificationCenterUnreadCount.value = visibleItems
+      .where((item) => !item.read && !item.projectNews)
       .length;
-  return items.take(25).toList();
+  return visibleItems.take(maxVisibleNotificationCenterItems).toList();
 }
 
 Future<void> markNotificationCenterItemsRead(
@@ -14596,11 +14971,35 @@ Future<void> openNotificationCenterItem(
     return;
   }
 
+  if (item.type == 'friend_nearby' ||
+      item.type == 'friend_at_spot' ||
+      item.type == 'friend_live_sharing') {
+    if ((item.friendLat != 0 || item.friendLng != 0) &&
+        isValidLatLngValues(item.friendLat, item.friendLng)) {
+      mapFocusRequest.value = MapFocusRequest(
+        spotId: item.spotId.trim(),
+        coordinates: LatLng(item.friendLat, item.friendLng),
+      );
+      Navigator.of(context).maybePop();
+      return;
+    }
+
+    final cleanFriendUid = item.actorUserId.trim().isNotEmpty
+        ? item.actorUserId.trim()
+        : item.addedByUid.trim().isNotEmpty
+        ? item.addedByUid.trim()
+        : item.userId.trim();
+    if (cleanFriendUid.isNotEmpty) {
+      openUserProfile(context, uid: cleanFriendUid);
+      return;
+    }
+  }
+
   final cleanProfileUid = item.addedByUid.trim().isNotEmpty
       ? item.addedByUid.trim()
       : item.userId.trim();
-  if ((item.type == 'friend_nearby' || item.type == 'friend_at_spot') &&
-      cleanProfileUid.isNotEmpty) {
+  if (cleanProfileUid.isNotEmpty &&
+      (item.type == 'friend_nearby' || item.type == 'friend_at_spot')) {
     openUserProfile(context, uid: cleanProfileUid);
     return;
   }
@@ -15940,6 +16339,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
         return WillPopScope(
           onWillPop: handleSystemBack,
           child: Scaffold(
+            resizeToAvoidBottomInset: false,
             backgroundColor: Colors.transparent,
             extendBody: false,
             body: Stack(
@@ -16122,7 +16522,7 @@ class _CcsBottomNavItem extends StatelessWidget {
   }
 }
 
-enum ExploreSortMode { popular, newest, old, meet }
+enum ExploreSortMode { popular, newest, nearest, meet }
 
 String exploreSortLabel(ExploreSortMode mode) {
   switch (mode) {
@@ -16130,8 +16530,8 @@ String exploreSortLabel(ExploreSortMode mode) {
       return 'Popular';
     case ExploreSortMode.newest:
       return 'New';
-    case ExploreSortMode.old:
-      return 'Old';
+    case ExploreSortMode.nearest:
+      return 'Nearest';
     case ExploreSortMode.meet:
       return 'Meet';
   }
@@ -16146,6 +16546,8 @@ class ExploreScreen extends StatefulWidget {
 
 class _ExploreScreenState extends State<ExploreScreen> {
   ExploreSortMode selectedMode = ExploreSortMode.popular;
+  LatLng? nearestSortLocation;
+  bool nearestSortLocationLoading = false;
   bool showSavedOnly = false;
   String searchQuery = '';
   String selectedExploreCategory = '';
@@ -16261,8 +16663,25 @@ class _ExploreScreenState extends State<ExploreScreen> {
       case ExploreSortMode.newest:
         list.sort((a, b) => b.createdAtMillis.compareTo(a.createdAtMillis));
         break;
-      case ExploreSortMode.old:
-        list.sort((a, b) => a.createdAtMillis.compareTo(b.createdAtMillis));
+      case ExploreSortMode.nearest:
+        final location = nearestSortLocation;
+        if (location == null) {
+          // Until location is available, keep the feed stable instead of doing
+          // an incorrect distance sort. The location request starts when the
+          // user taps Nearest.
+          list.sort((a, b) => b.createdAtMillis.compareTo(a.createdAtMillis));
+        } else {
+          list.sort((a, b) {
+            final distanceCompare = distanceBetweenLatLngMeters(
+              location,
+              a.coordinates,
+            ).compareTo(distanceBetweenLatLngMeters(location, b.coordinates));
+            if (distanceCompare != 0) {
+              return distanceCompare;
+            }
+            return b.createdAtMillis.compareTo(a.createdAtMillis);
+          });
+        }
         break;
       case ExploreSortMode.meet:
         list.sort((a, b) => b.createdAtMillis.compareTo(a.createdAtMillis));
@@ -16603,16 +17022,110 @@ class _ExploreScreenState extends State<ExploreScreen> {
     );
   }
 
+  Future<void> selectExploreSortMode(ExploreSortMode mode) async {
+    if (mode != ExploreSortMode.nearest) {
+      if (mounted) {
+        setState(() => selectedMode = mode);
+      }
+      return;
+    }
+
+    if (mounted) {
+      setState(() {
+        selectedMode = mode;
+        nearestSortLocationLoading = true;
+      });
+    }
+
+    try {
+      var permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+
+      if (permission == LocationPermission.denied ||
+          permission == LocationPermission.deniedForever) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              backgroundColor: Colors.orangeAccent,
+              content: Text(
+                trText('Location permission is needed for distance.'),
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          );
+        }
+        return;
+      }
+
+      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              backgroundColor: Colors.orangeAccent,
+              content: Text(
+                trText('Turn on phone location to show distance.'),
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          );
+        }
+        return;
+      }
+
+      final position = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.medium,
+        timeLimit: const Duration(seconds: 10),
+      );
+      final location = safeLatLngFromPosition(position);
+      if (location == null) {
+        return;
+      }
+
+      if (mounted) {
+        setState(() => nearestSortLocation = location);
+      }
+    } catch (error) {
+      debugPrint('Nearest spots location failed: $error');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: Colors.orangeAccent,
+            content: Text(
+              trText('Could not get your location.'),
+              style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => nearestSortLocationLoading = false);
+      }
+    }
+  }
+
   Widget sortChip(ExploreSortMode mode) {
     final selected = selectedMode == mode;
 
     return Padding(
       padding: const EdgeInsets.only(right: 8),
       child: ChoiceChip(
-        label: Text(exploreSortLabel(mode)),
+        label: Text(trText(exploreSortLabel(mode))),
         selected: selected,
         showCheckmark: false,
-        onSelected: (_) => setState(() => selectedMode = mode),
+        onSelected: (_) => unawaited(selectExploreSortMode(mode)),
         selectedColor: blue,
         backgroundColor: Colors.white.withValues(alpha: 0.07),
         side: BorderSide(color: selected ? blue : Colors.white12),
@@ -16739,6 +17252,10 @@ class _ExploreScreenState extends State<ExploreScreen> {
         return Icons.shopping_bag_outlined;
       case 'Drag':
         return Icons.speed_outlined;
+      case 'Track':
+        return Icons.sports_score_outlined;
+      case 'Activity':
+        return Icons.confirmation_number_outlined;
       case 'Off-road':
         return Icons.terrain_outlined;
       case 'Food':
@@ -16754,7 +17271,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
     return Expanded(
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
-        onTap: () => setState(() => selectedMode = mode),
+        onTap: () => unawaited(selectExploreSortMode(mode)),
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 180),
           padding: const EdgeInsets.symmetric(vertical: 10),
@@ -16786,7 +17303,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
               const SizedBox(width: 6),
               Flexible(
                 child: Text(
-                  exploreSortLabel(mode),
+                  trText(exploreSortLabel(mode)),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
@@ -16815,7 +17332,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
         children: [
           sortPill(ExploreSortMode.popular, Icons.trending_up),
           sortPill(ExploreSortMode.newest, Icons.auto_awesome),
-          sortPill(ExploreSortMode.old, Icons.schedule),
+          sortPill(ExploreSortMode.nearest, Icons.near_me_outlined),
         ],
       ),
     );
@@ -17048,6 +17565,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
             : sortedSpots(approvedSpots);
 
         return Scaffold(
+          resizeToAvoidBottomInset: false,
           backgroundColor: Colors.transparent,
           appBar: AppBar(
             automaticallyImplyLeading: false,
@@ -17056,119 +17574,130 @@ class _ExploreScreenState extends State<ExploreScreen> {
             foregroundColor: blue,
             actions: ccsAppBarActions(),
           ),
-          body: Padding(
-            padding: const EdgeInsets.fromLTRB(10, 6, 10, 0),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                TextField(
-                  onChanged: (value) => setState(() => searchQuery = value),
-                  style: const TextStyle(color: Colors.white),
-                  decoration: InputDecoration(
-                    hintText: 'Search spots...',
-                    hintStyle: const TextStyle(color: Colors.white38),
-                    prefixIcon: const Icon(Icons.search, color: Colors.white54),
-                    filled: true,
-                    fillColor: Colors.white.withValues(alpha: 0.045),
-                    contentPadding: const EdgeInsets.symmetric(
-                      horizontal: 14,
-                      vertical: 13,
-                    ),
-                    enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(7),
-                      borderSide: BorderSide(
-                        color: Colors.white.withValues(alpha: 0.12),
+          body: MediaQuery.removeViewInsets(
+            context: context,
+            removeBottom: true,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(10, 6, 10, 0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  TextField(
+                    onChanged: (value) => setState(() => searchQuery = value),
+                    style: const TextStyle(color: Colors.white),
+                    decoration: InputDecoration(
+                      hintText: 'Search spots...',
+                      hintStyle: const TextStyle(color: Colors.white38),
+                      prefixIcon: const Icon(
+                        Icons.search,
+                        color: Colors.white54,
+                      ),
+                      filled: true,
+                      fillColor: Colors.white.withValues(alpha: 0.045),
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 13,
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(7),
+                        borderSide: BorderSide(
+                          color: Colors.white.withValues(alpha: 0.12),
+                        ),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(7),
+                        borderSide: const BorderSide(color: blue),
                       ),
                     ),
-                    focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(7),
-                      borderSide: const BorderSide(color: blue),
-                    ),
                   ),
-                ),
-                const SizedBox(height: 12),
-                sortSegmentedControl(),
-                const SizedBox(height: 10),
-                categorySelectionStrip(categoryCounts),
-                const SizedBox(height: 10),
-                Expanded(
-                  child: Builder(
-                    builder: (context) {
-                      if (selectedExploreCategory == upcomingCategoryName) {
-                        final groups = upcomingTemporarySpotGroups();
-                        if (groups.isEmpty) {
-                          return EmptyStateCard(
-                            icon: Icons.event_available_outlined,
-                            title: 'No upcoming spots',
-                            text:
-                                'Temporary spots will appear here when they are scheduled.',
+                  const SizedBox(height: 12),
+                  sortSegmentedControl(),
+                  const SizedBox(height: 10),
+                  categorySelectionStrip(categoryCounts),
+                  const SizedBox(height: 10),
+                  Expanded(
+                    child: Builder(
+                      builder: (context) {
+                        if (selectedExploreCategory == upcomingCategoryName) {
+                          final groups = upcomingTemporarySpotGroups();
+                          if (groups.isEmpty) {
+                            return EmptyStateCard(
+                              icon: Icons.event_available_outlined,
+                              title: 'No upcoming spots',
+                              text:
+                                  'Temporary spots will appear here when they are scheduled.',
+                            );
+                          }
+
+                          return SingleChildScrollView(
+                            physics: const BouncingScrollPhysics(
+                              parent: AlwaysScrollableScrollPhysics(),
+                            ),
+                            padding: const EdgeInsets.only(bottom: 14),
+                            child: UpcomingTemporarySpotsSection(
+                              groups: groups,
+                            ),
                           );
                         }
 
-                        return SingleChildScrollView(
-                          physics: const BouncingScrollPhysics(
-                            parent: AlwaysScrollableScrollPhysics(),
-                          ),
-                          padding: const EdgeInsets.only(bottom: 14),
-                          child: UpcomingTemporarySpotsSection(groups: groups),
-                        );
-                      }
+                        if (feedSpots.isEmpty) {
+                          return EmptyStateCard(
+                            icon: Icons.explore,
+                            title: approvedPublicSpots().isEmpty
+                                ? 'No spots here yet'
+                                : 'No spots in this category',
+                            text: approvedPublicSpots().isEmpty
+                                ? 'Approved spots will appear here after moderation.'
+                                : 'Choose another category or update your search.',
+                          );
+                        }
 
-                      if (feedSpots.isEmpty) {
-                        return EmptyStateCard(
-                          icon: Icons.explore,
-                          title: approvedPublicSpots().isEmpty
-                              ? 'No spots here yet'
-                              : 'No spots in this category',
-                          text: approvedPublicSpots().isEmpty
-                              ? 'Approved spots will appear here after moderation.'
-                              : 'Choose another category or update your search.',
-                        );
-                      }
+                        final cards = <Widget>[
+                          for (final spot in feedSpots)
+                            Padding(
+                              padding: const EdgeInsets.only(bottom: 8),
+                              child: ExploreSpotCard(spot: spot),
+                            ),
+                        ];
 
-                      final cards = <Widget>[
-                        for (final spot in feedSpots)
-                          Padding(
-                            padding: const EdgeInsets.only(bottom: 8),
-                            child: ExploreSpotCard(spot: spot),
-                          ),
-                      ];
+                        return LayoutBuilder(
+                          builder: (context, constraints) {
+                            final itemExtent = constraints.maxHeight / 3;
 
-                      return LayoutBuilder(
-                        builder: (context, constraints) {
-                          final itemExtent = constraints.maxHeight / 3;
-
-                          return NotificationListener<ScrollEndNotification>(
-                            onNotification: (_) {
-                              _snapSpotCards(itemExtent);
-                              return false;
-                            },
-                            child: NotificationListener<UserScrollNotification>(
-                              onNotification: (notification) {
-                                if (notification.direction ==
-                                    ScrollDirection.idle) {
-                                  _snapSpotCards(itemExtent);
-                                }
+                            return NotificationListener<ScrollEndNotification>(
+                              onNotification: (_) {
+                                _snapSpotCards(itemExtent);
                                 return false;
                               },
-                              child: ListView.builder(
-                                controller: spotCardScrollController,
-                                physics: const BouncingScrollPhysics(
-                                  parent: AlwaysScrollableScrollPhysics(),
-                                ),
-                                padding: EdgeInsets.zero,
-                                itemExtent: itemExtent,
-                                itemCount: cards.length,
-                                itemBuilder: (context, index) => cards[index],
-                              ),
-                            ),
-                          );
-                        },
-                      );
-                    },
+                              child:
+                                  NotificationListener<UserScrollNotification>(
+                                    onNotification: (notification) {
+                                      if (notification.direction ==
+                                          ScrollDirection.idle) {
+                                        _snapSpotCards(itemExtent);
+                                      }
+                                      return false;
+                                    },
+                                    child: ListView.builder(
+                                      controller: spotCardScrollController,
+                                      physics: const BouncingScrollPhysics(
+                                        parent: AlwaysScrollableScrollPhysics(),
+                                      ),
+                                      padding: EdgeInsets.zero,
+                                      itemExtent: itemExtent,
+                                      itemCount: cards.length,
+                                      itemBuilder: (context, index) =>
+                                          cards[index],
+                                    ),
+                                  ),
+                            );
+                          },
+                        );
+                      },
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         );
@@ -18118,44 +18647,74 @@ extension CcsMapStylePresentation on CcsMapStyle {
       case CcsMapStyle.dark:
         return 'https://basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png';
       case CcsMapStyle.light:
-        return 'https://basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png';
+        // Gray, high-contrast light map. Voyager keeps roads/buildings clear
+        // and preserves naturally blue water without washing the whole map blue.
+        return 'https://basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png?ccs=gray_v29_neutral';
     }
   }
 
   Color get backgroundColor {
-    return this == CcsMapStyle.light ? const Color(0xFFE8EDF2) : night;
+    return this == CcsMapStyle.light ? const Color(0xFF9EA4AA) : night;
   }
 
   Color get mapLabelColor {
-    return this == CcsMapStyle.light ? Colors.black : Colors.white;
+    return this == CcsMapStyle.light ? const Color(0xFF101820) : Colors.white;
   }
 
   Color get mapMutedLabelColor {
-    return this == CcsMapStyle.light ? Colors.black54 : Colors.white54;
+    return this == CcsMapStyle.light ? const Color(0xFF31404E) : Colors.white54;
   }
 
   Color get mapLabelShadowColor {
     return this == CcsMapStyle.light
-        ? Colors.white.withValues(alpha: 0.82)
+        ? Colors.white.withValues(alpha: 0.72)
         : Colors.black.withValues(alpha: 0.92);
   }
 
   List<double> get tileColorMatrix {
-    final brightness = this == CcsMapStyle.dark ? 1.20 : 0.86;
-    return [
-      brightness,
+    if (this == CcsMapStyle.light) {
+      // Neutral gray + contrast pass for CCS Light.
+      // Rows sum equally for neutral land/roads/buildings so the whole map
+      // does not get a blue wash, while the blue channel still reacts more
+      // to real water so rivers/lakes/sea remain blue.
+      return const [
+        0.45,
+        0.45,
+        0.10,
+        0,
+        -64,
+        0.38,
+        0.50,
+        0.12,
+        0,
+        -64,
+        0.22,
+        0.30,
+        0.48,
+        0,
+        -64,
+        0,
+        0,
+        0,
+        1,
+        0,
+      ];
+    }
+
+    return const [
+      1.20,
       0,
       0,
       0,
       0,
       0,
-      brightness,
+      1.20,
       0,
       0,
       0,
       0,
       0,
-      brightness,
+      1.20,
       0,
       0,
       0,
@@ -18222,7 +18781,7 @@ class _CcsSmoothMapTileLayerState extends State<_CcsSmoothMapTileLayer>
     return ColorFiltered(
       colorFilter: ColorFilter.matrix(style.tileColorMatrix),
       child: TileLayer(
-        key: ValueKey('ccs-map-tiles-${style.name}'),
+        key: ValueKey('ccs-map-tiles-${style.name}-${style.tileUrl}'),
         urlTemplate: style.tileUrl,
         userAgentPackageName: 'com.example.ccs_app',
         maxNativeZoom: 19,
@@ -18286,6 +18845,8 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
   Timer? liveLocationUploadTimer;
   Timer? liveLocationPromptTimer;
   Timer? liveLocationAutoStopTimer;
+  Timer? friendLiveSharingNotificationTimer;
+  Timer? friendAtSpotDwellTimer;
   Timer? liveLocationStaleSweepTimer;
   Timer? navigationPredictionTimer;
   StreamSubscription<Position>? navigationPositionSubscription;
@@ -18310,6 +18871,9 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
   LatLng? lastGpsUserLocation;
   LatLng? lastUploadedLiveLocation;
   DateTime? lastGpsUserLocationAt;
+  String? friendAtSpotCandidateId;
+  String? friendAtSpotNotifiedSpotId;
+  LatLng? friendAtSpotCandidateLocation;
   double currentUserSpeedMetersPerSecond = 0;
   bool isLocatingUser = false;
   bool isAddingPoliceReport = false;
@@ -18584,7 +19148,8 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
         selectedSosReport = null;
       }
 
-      if (liveLocation != null && !liveLocation.isActive) {
+      if (liveLocation != null &&
+          !liveLocationShouldStayVisibleOnMap(liveLocation)) {
         selectedLiveLocation = null;
       }
     });
@@ -18927,7 +19492,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
           },
         );
 
-        final icon = SizedBox(
+        final rawIcon = SizedBox(
           width: markerVisualSize,
           height: markerVisualSize,
           child: closedNow || isTemporaryUpcoming
@@ -18943,6 +19508,28 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                 )
               : image,
         );
+
+        final icon = mapStyle == CcsMapStyle.light
+            ? SizedBox(
+                width: markerVisualSize,
+                height: markerVisualSize,
+                child: Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    ClipOval(
+                      child: BackdropFilter(
+                        filter: ui.ImageFilter.blur(sigmaX: 2.2, sigmaY: 2.2),
+                        child: SizedBox(
+                          width: markerVisualSize * 0.86,
+                          height: markerVisualSize * 0.86,
+                        ),
+                      ),
+                    ),
+                    rawIcon,
+                  ],
+                ),
+              )
+            : rawIcon;
 
         Widget withVerifiedBadge(Widget child) {
           if (!spot.verifiedOnly) {
@@ -19047,7 +19634,38 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
           event: isTemporaryActive || isTemporaryUpcoming,
         );
 
-        Widget marker = point;
+        Widget marker = mapStyle == CcsMapStyle.light
+            ? SizedBox(
+                width: markerVisualSize + 12,
+                height: markerVisualSize + 12,
+                child: Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    Container(
+                      width: markerVisualSize + 3,
+                      height: markerVisualSize + 3,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.52),
+                            blurRadius: 6,
+                            spreadRadius: 0.45,
+                            offset: const Offset(0, 1.4),
+                          ),
+                          BoxShadow(
+                            color: markerColor.withValues(alpha: 0.18),
+                            blurRadius: 4,
+                            spreadRadius: 0.15,
+                          ),
+                        ],
+                      ),
+                    ),
+                    point,
+                  ],
+                ),
+              )
+            : point;
 
         if (isTemporaryActive) {
           marker = PulsingTemporarySpotIconGlow(
@@ -19406,7 +20024,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     final firebaseUser = FirebaseAuth.instance.currentUser;
 
     return liveLocations
-        .where((location) => location.isActive)
+        .where(liveLocationShouldStayVisibleOnMap)
         .where((location) => location.uid != firebaseUser?.uid)
         .map((location) {
           final carIconSize = scaledMapIconValue(
@@ -20875,6 +21493,36 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     return location.visibleToUserIds.contains(firebaseUser.uid);
   }
 
+  bool liveLocationIsNearAnyApprovedSpot(LiveLocationData location) {
+    for (final spot in approvedPublicSpots()) {
+      if (!spot.isVisibleOnMapNow) {
+        continue;
+      }
+
+      final distanceMeters = distanceBetweenLatLngMeters(
+        location.coordinates,
+        spot.coordinates,
+      );
+      if (distanceMeters <= liveLocationSpotStaleKeepRadiusMeters) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  bool liveLocationShouldStayVisibleOnMap(LiveLocationData location) {
+    if (location.isExpired) {
+      return false;
+    }
+
+    if (!location.isStale) {
+      return true;
+    }
+
+    return liveLocationIsNearAnyApprovedSpot(location);
+  }
+
   void updateLiveLocationCacheFromSnapshot(
     Map<String, LiveLocationData> cache,
     QuerySnapshot<Map<String, dynamic>> snapshot,
@@ -20886,7 +21534,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
       }
 
       final location = LiveLocationData.fromFirestore(change.doc);
-      if (!location.isActive) {
+      if (!liveLocationShouldStayVisibleOnMap(location)) {
         cache.remove(location.uid);
       } else {
         cache[location.uid] = location;
@@ -20919,14 +21567,14 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
 
     final mergedByUid = <String, LiveLocationData>{};
     for (final location in publicLiveLocationsByUid.values) {
-      if (location.isActive &&
+      if (liveLocationShouldStayVisibleOnMap(location) &&
           liveLocationCanBeSeenByCurrentUser(location, firebaseUser)) {
         mergedByUid[location.uid] = location;
       }
     }
 
     for (final location in visibleLiveLocationsByUid.values) {
-      if (location.isActive &&
+      if (liveLocationShouldStayVisibleOnMap(location) &&
           liveLocationCanBeSeenByCurrentUser(location, firebaseUser)) {
         mergedByUid[location.uid] = location;
       }
@@ -21099,7 +21747,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
             }
 
             final ownLocation = LiveLocationData.fromFirestore(snapshot);
-            if (!ownLocation.isActive) {
+            if (!liveLocationShouldStayVisibleOnMap(ownLocation)) {
               removeLiveLocationFromCaches(ownLocation.uid);
               setState(() {
                 liveLocations = liveLocations
@@ -21223,6 +21871,106 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
       liveLocationUploadTimer?.cancel();
       liveLocationUploadTimer = null;
     }
+  }
+
+  void cancelFriendAtSpotDwellTimer() {
+    friendAtSpotDwellTimer?.cancel();
+    friendAtSpotDwellTimer = null;
+    friendAtSpotCandidateId = null;
+    friendAtSpotCandidateLocation = null;
+  }
+
+  CarSpot? nearestSpotForFriendPresence(LatLng location) {
+    CarSpot? nearestSpot;
+    var nearestDistance = double.infinity;
+
+    for (final spot in approvedPublicSpots()) {
+      if (spot.status != SpotStatus.approved ||
+          spot.id.trim().isEmpty ||
+          !spot.isVisibleOnMapNow) {
+        continue;
+      }
+
+      final distance = distanceBetweenLatLngMeters(location, spot.coordinates);
+      if (distance < nearestDistance) {
+        nearestDistance = distance;
+        nearestSpot = spot;
+      }
+    }
+
+    if (nearestSpot == null || nearestDistance > friendAtSpotRadiusMeters) {
+      return null;
+    }
+
+    return nearestSpot;
+  }
+
+  void monitorCurrentUserSpotPresenceForFriends(LatLng location) {
+    if (!isSharingLiveLocation) {
+      cancelFriendAtSpotDwellTimer();
+      return;
+    }
+
+    final spot = nearestSpotForFriendPresence(location);
+    if (spot == null) {
+      cancelFriendAtSpotDwellTimer();
+      return;
+    }
+
+    final spotId = spot.id.trim();
+    if (friendAtSpotNotifiedSpotId == spotId ||
+        friendAtSpotCandidateId == spotId) {
+      friendAtSpotCandidateLocation = location;
+      return;
+    }
+
+    cancelFriendAtSpotDwellTimer();
+    friendAtSpotCandidateId = spotId;
+    friendAtSpotCandidateLocation = location;
+    friendAtSpotDwellTimer = Timer(friendAtSpotNotificationDwellTime, () {
+      final dwellLocation = friendAtSpotCandidateLocation ?? location;
+      final currentSpot = approvedPublicSpots().firstWhere(
+        (item) => item.id == spotId,
+        orElse: () => spot,
+      );
+      final distance = distanceBetweenLatLngMeters(
+        dwellLocation,
+        currentSpot.coordinates,
+      );
+
+      if (!isSharingLiveLocation ||
+          distance > friendAtSpotRadiusMeters ||
+          friendAtSpotCandidateId != spotId) {
+        return;
+      }
+
+      friendAtSpotNotifiedSpotId = spotId;
+      unawaited(
+        notifyCurrentUserFriendsAboutSpotPresence(
+          coordinates: dwellLocation,
+          spot: currentSpot,
+          distanceMeters: distance,
+        ),
+      );
+    });
+  }
+
+  void scheduleFriendLiveSharingNotification(LatLng location) {
+    friendLiveSharingNotificationTimer?.cancel();
+    friendLiveSharingNotificationTimer = Timer(
+      friendLiveSharingNotificationDelay,
+      () {
+        if (!isSharingLiveLocation) {
+          return;
+        }
+
+        final latestLocation =
+            currentUserLocation ?? displayedUserLocation ?? location;
+        unawaited(
+          notifyCurrentUserFriendsAboutLiveSharing(coordinates: latestLocation),
+        );
+      },
+    );
   }
 
   void scheduleLiveLocationTimers() {
@@ -21392,6 +22140,9 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
       isTogglingLiveLocation = false;
     });
 
+    scheduleFriendLiveSharingNotification(location);
+    monitorCurrentUserSpotPresenceForFriends(location);
+
     startNavigationTracking();
     updateFollowCamera(location, heading);
 
@@ -21452,6 +22203,8 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
         currentUserSpeedMetersPerSecond = speed;
       });
 
+      monitorCurrentUserSpotPresenceForFriends(location);
+
       if (mapCenteredOnCurrentUser) {
         updateFollowCamera(displayedUserLocation ?? location, heading);
       }
@@ -21477,6 +22230,8 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
       currentUserHeadingDegrees = heading;
       currentUserSpeedMetersPerSecond = speed;
     });
+
+    monitorCurrentUserSpotPresenceForFriends(location);
 
     if (mapCenteredOnCurrentUser) {
       updateFollowCamera(displayedUserLocation ?? location, heading);
@@ -21583,6 +22338,10 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
 
     liveLocationUploadTimer?.cancel();
     liveLocationUploadTimer = null;
+    friendLiveSharingNotificationTimer?.cancel();
+    friendLiveSharingNotificationTimer = null;
+    cancelFriendAtSpotDwellTimer();
+    friendAtSpotNotifiedSpotId = null;
     cancelLiveLocationTimers(keepUploadTimer: true);
     nativeLiveLocationBackgroundSignature = null;
     unawaited(stopNativeLiveLocationBackgroundService());
@@ -28347,6 +29106,32 @@ class _SpotOwnerSelectorState extends State<SpotOwnerSelector> {
   }
 
   Widget ownerResults() {
+    final query = searchText.trim();
+
+    if (query.length < 2) {
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: 0.05),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: Colors.white10),
+        ),
+        child: Row(
+          children: [
+            const Icon(Icons.person_search, color: Colors.white38),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                trText('Enter at least 2 characters to search owners.'),
+                style: const TextStyle(color: Colors.white54),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
       stream: usersCollection()
           .orderBy('usernameKey')
@@ -28354,12 +29139,14 @@ class _SpotOwnerSelectorState extends State<SpotOwnerSelector> {
           .debugSnapshots('spot form: owner search users listener'),
       builder: (context, snapshot) {
         final users =
-            snapshot.data?.docs
-                .map((doc) => FriendUserData.fromFirestore(doc))
-                .where((user) => user.canAppearInUserLists)
-                .where(userMatchesSearch)
-                .toList() ??
-            const <FriendUserData>[];
+            (snapshot.data?.docs
+                        .map((doc) => FriendUserData.fromFirestore(doc))
+                        .where((user) => user.canAppearInUserLists)
+                        .where(userMatchesSearch)
+                        .toList() ??
+                    const <FriendUserData>[])
+                .take(6)
+                .toList();
 
         if (snapshot.connectionState == ConnectionState.waiting &&
             snapshot.data == null) {
@@ -28371,17 +29158,17 @@ class _SpotOwnerSelectorState extends State<SpotOwnerSelector> {
               borderRadius: BorderRadius.circular(16),
               border: Border.all(color: Colors.white10),
             ),
-            child: const Row(
+            child: Row(
               children: [
-                SizedBox(
+                const SizedBox(
                   width: 18,
                   height: 18,
                   child: CircularProgressIndicator(strokeWidth: 2),
                 ),
-                SizedBox(width: 12),
+                const SizedBox(width: 12),
                 Text(
-                  'Loading users...',
-                  style: TextStyle(color: Colors.white70),
+                  trText('Loading users...'),
+                  style: const TextStyle(color: Colors.white70),
                 ),
               ],
             ),
@@ -28397,14 +29184,14 @@ class _SpotOwnerSelectorState extends State<SpotOwnerSelector> {
               borderRadius: BorderRadius.circular(16),
               border: Border.all(color: Colors.white10),
             ),
-            child: const Row(
+            child: Row(
               children: [
-                Icon(Icons.person_search, color: Colors.white38),
-                SizedBox(width: 10),
+                const Icon(Icons.person_search, color: Colors.white38),
+                const SizedBox(width: 10),
                 Expanded(
                   child: Text(
-                    'No users found.',
-                    style: TextStyle(color: Colors.white54),
+                    trText('No users found.'),
+                    style: const TextStyle(color: Colors.white54),
                   ),
                 ),
               ],
@@ -28412,15 +29199,14 @@ class _SpotOwnerSelectorState extends State<SpotOwnerSelector> {
           );
         }
 
-        return ConstrainedBox(
-          constraints: const BoxConstraints(maxHeight: 290),
-          child: ListView.separated(
-            padding: EdgeInsets.zero,
-            shrinkWrap: true,
-            itemCount: users.length,
-            separatorBuilder: (_, _) => const SizedBox(height: 8),
-            itemBuilder: (context, index) => ownerUserTile(users[index]),
-          ),
+        return Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (var index = 0; index < users.length; index++) ...[
+              if (index > 0) const SizedBox(height: 8),
+              ownerUserTile(users[index]),
+            ],
+          ],
         );
       },
     );
@@ -28428,7 +29214,7 @@ class _SpotOwnerSelectorState extends State<SpotOwnerSelector> {
 
   @override
   Widget build(BuildContext context) {
-    final showResults = isPicking || searchText.trim().isNotEmpty;
+    final showResults = searchText.trim().isNotEmpty;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -28444,7 +29230,7 @@ class _SpotOwnerSelectorState extends State<SpotOwnerSelector> {
   }
 }
 
-class OpeningHoursEditor extends StatelessWidget {
+class OpeningHoursEditor extends StatefulWidget {
   final Map<int, OpeningHoursData> openingHours;
   final ValueChanged<Map<int, OpeningHoursData>> onChanged;
 
@@ -28454,17 +29240,119 @@ class OpeningHoursEditor extends StatelessWidget {
     required this.onChanged,
   });
 
+  @override
+  State<OpeningHoursEditor> createState() => _OpeningHoursEditorState();
+}
+
+class _OpeningHoursEditorState extends State<OpeningHoursEditor> {
+  late bool useCustomHours;
+  final Set<int> manuallyAdjustedWeekdays = <int>{};
+
+  @override
+  void initState() {
+    super.initState();
+    useCustomHours = !openingHoursAreTwentyFourSeven(widget.openingHours);
+  }
+
+  @override
+  void didUpdateWidget(covariant OpeningHoursEditor oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!mapEqualsOpeningHours(oldWidget.openingHours, widget.openingHours)) {
+      useCustomHours = !openingHoursAreTwentyFourSeven(widget.openingHours);
+    }
+  }
+
+  bool mapEqualsOpeningHours(
+    Map<int, OpeningHoursData> first,
+    Map<int, OpeningHoursData> second,
+  ) {
+    for (var weekday = DateTime.monday; weekday <= DateTime.sunday; weekday++) {
+      final a = first[weekday];
+      final b = second[weekday];
+      if (a == null && b == null) {
+        continue;
+      }
+      if (a == null || b == null) {
+        return false;
+      }
+      if (a.isOpen != b.isOpen ||
+          a.opensAt != b.opensAt ||
+          a.closesAt != b.closesAt) {
+        return false;
+      }
+    }
+
+    return true;
+  }
+
   OpeningHoursData dayData(int weekday) {
-    return openingHours[weekday] ??
+    return widget.openingHours[weekday] ??
         const OpeningHoursData(
-          isOpen: false,
-          opensAt: '08:00',
-          closesAt: '20:00',
+          isOpen: true,
+          opensAt: '00:00',
+          closesAt: '23:59',
         );
   }
 
+  Map<int, OpeningHoursData> fullTwentyFourSevenHours() {
+    return {
+      for (var weekday = DateTime.monday; weekday <= DateTime.sunday; weekday++)
+        weekday: const OpeningHoursData(
+          isOpen: true,
+          opensAt: '00:00',
+          closesAt: '23:59',
+        ),
+    };
+  }
+
+  Map<int, OpeningHoursData> normalWorkingHours() {
+    return {
+      for (var weekday = DateTime.monday; weekday <= DateTime.sunday; weekday++)
+        weekday: OpeningHoursData(
+          isOpen: weekday <= DateTime.friday,
+          opensAt: '08:00',
+          closesAt: '20:00',
+        ),
+    };
+  }
+
+  void setMode(bool custom) {
+    setState(() {
+      useCustomHours = custom;
+      manuallyAdjustedWeekdays.clear();
+    });
+
+    if (custom) {
+      final currentIs247 = openingHoursAreTwentyFourSeven(widget.openingHours);
+      widget.onChanged(
+        currentIs247 ? normalWorkingHours() : widget.openingHours,
+      );
+    } else {
+      widget.onChanged(fullTwentyFourSevenHours());
+    }
+  }
+
   void updateDay(int weekday, OpeningHoursData value) {
-    onChanged({...openingHours, weekday: value});
+    final nextHours = {...widget.openingHours};
+
+    if (weekday == DateTime.monday) {
+      nextHours[weekday] = value;
+
+      for (
+        var otherWeekday = DateTime.tuesday;
+        otherWeekday <= DateTime.sunday;
+        otherWeekday++
+      ) {
+        if (!manuallyAdjustedWeekdays.contains(otherWeekday)) {
+          nextHours[otherWeekday] = value;
+        }
+      }
+    } else {
+      manuallyAdjustedWeekdays.add(weekday);
+      nextHours[weekday] = value;
+    }
+
+    widget.onChanged(nextHours);
   }
 
   Future<void> pickTime({
@@ -28508,20 +29396,133 @@ class OpeningHoursEditor extends StatelessWidget {
     return OutlinedButton.icon(
       onPressed: () =>
           pickTime(context: context, weekday: weekday, opensAt: opensAt),
-      icon: Icon(opensAt ? Icons.login : Icons.logout, size: 16),
+      icon: Icon(opensAt ? Icons.login : Icons.logout, size: 15),
       label: Text(value),
       style: OutlinedButton.styleFrom(
         foregroundColor: Colors.white,
         side: const BorderSide(color: Colors.white24),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        minimumSize: const Size(0, 38),
+        padding: const EdgeInsets.symmetric(horizontal: 10),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      ),
+    );
+  }
+
+  Widget modeButton({
+    required String label,
+    required IconData icon,
+    required bool selected,
+    required VoidCallback onTap,
+  }) {
+    return Expanded(
+      child: GestureDetector(
+        onTap: onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          height: 44,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: selected
+                ? blue.withValues(alpha: 0.22)
+                : Colors.white.withValues(alpha: 0.045),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: selected ? blue : Colors.white.withValues(alpha: 0.12),
+            ),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(icon, color: selected ? blue : Colors.white54, size: 18),
+              const SizedBox(width: 7),
+              Text(
+                label,
+                style: TextStyle(
+                  color: selected ? Colors.white : Colors.white60,
+                  fontWeight: FontWeight.w900,
+                  fontSize: 13,
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
+    if (!useCustomHours) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              modeButton(
+                label: '24/7',
+                icon: Icons.all_inclusive,
+                selected: true,
+                onTap: () => setMode(false),
+              ),
+              const SizedBox(width: 8),
+              modeButton(
+                label: 'Custom',
+                icon: Icons.schedule,
+                selected: false,
+                onTap: () => setMode(true),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.045),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.white10),
+            ),
+            child: const Row(
+              children: [
+                Icon(Icons.check_circle, color: Colors.greenAccent, size: 18),
+                SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Open all day, every day. Switch to Custom to set opening and closing times.',
+                    style: TextStyle(
+                      color: Colors.white60,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      );
+    }
+
     return Column(
       children: [
+        Row(
+          children: [
+            modeButton(
+              label: '24/7',
+              icon: Icons.all_inclusive,
+              selected: false,
+              onTap: () => setMode(false),
+            ),
+            const SizedBox(width: 8),
+            modeButton(
+              label: 'Custom',
+              icon: Icons.schedule,
+              selected: true,
+              onTap: () => setMode(true),
+            ),
+          ],
+        ),
+        const SizedBox(height: 10),
         for (
           var weekday = DateTime.monday;
           weekday <= DateTime.sunday;
@@ -28535,7 +29536,7 @@ class OpeningHoursEditor extends StatelessWidget {
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
                 color: Colors.white.withValues(alpha: 0.06),
-                borderRadius: BorderRadius.circular(16),
+                borderRadius: BorderRadius.circular(14),
                 border: Border.all(color: Colors.white12),
               ),
               child: Column(
@@ -28543,12 +29544,16 @@ class OpeningHoursEditor extends StatelessWidget {
                   Row(
                     children: [
                       Expanded(
-                        child: Text(
-                          weekdayLabels[weekday] ?? 'Day',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.w800,
-                          ),
+                        child: Row(
+                          children: [
+                            Text(
+                              weekdayLabels[weekday] ?? 'Day',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                       Switch(
@@ -32666,6 +33671,8 @@ Future<void> saveSettingsToFirebase(UserSettingsData settings) async {
     'commentNotifications': settings.commentNotifications,
     'newSpotNotifications': settings.newSpotNotifications,
     'newMessageNotifications': settings.newMessageNotifications,
+    'friendAtSpotNotifications': settings.friendAtSpotNotifications,
+    'friendLiveShareNotifications': settings.friendLiveShareNotifications,
     'publicProfile': settings.publicProfile,
     'showGarage': settings.showGarage,
   });
@@ -33765,40 +34772,57 @@ class PublicUserProfileScreen extends StatelessWidget {
                   staffRoleBadge(profile.role),
                 ],
                 const SizedBox(height: 7),
-                Row(
-                  mainAxisSize: MainAxisSize.min,
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Container(
-                      width: 9,
-                      height: 9,
-                      decoration: BoxDecoration(
-                        color: profile.appearsOnline
-                            ? Colors.greenAccent
-                            : Colors.white38,
-                        shape: BoxShape.circle,
-                        boxShadow: profile.appearsOnline
-                            ? [
-                                BoxShadow(
-                                  color: Colors.greenAccent.withValues(
-                                    alpha: 0.38,
-                                  ),
-                                  blurRadius: 9,
-                                  spreadRadius: 1,
-                                ),
-                              ]
-                            : const [],
-                      ),
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Container(
+                          width: 9,
+                          height: 9,
+                          decoration: BoxDecoration(
+                            color: profile.appearsOnline
+                                ? Colors.greenAccent
+                                : Colors.white38,
+                            shape: BoxShape.circle,
+                            boxShadow: profile.appearsOnline
+                                ? [
+                                    BoxShadow(
+                                      color: Colors.greenAccent.withValues(
+                                        alpha: 0.38,
+                                      ),
+                                      blurRadius: 9,
+                                      spreadRadius: 1,
+                                    ),
+                                  ]
+                                : const [],
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          trText(profile.appearsOnline ? 'online' : 'offline'),
+                          style: TextStyle(
+                            color: profile.appearsOnline
+                                ? Colors.greenAccent
+                                : Colors.white54,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: 0.4,
+                          ),
+                        ),
+                      ],
                     ),
-                    const SizedBox(width: 8),
+                    const SizedBox(height: 3),
                     Text(
-                      trText(profile.appearsOnline ? 'online' : 'offline'),
-                      style: TextStyle(
-                        color: profile.appearsOnline
-                            ? Colors.greenAccent
-                            : Colors.white54,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w900,
-                        letterSpacing: 0.4,
+                      lastOnlineLabelFromMillis(profile.lastSeenAtMillis),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Colors.white54,
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 0.2,
                       ),
                     ),
                   ],
@@ -36938,6 +37962,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   late bool commentNotifications;
   late bool newSpotNotifications;
   late bool newMessageNotifications;
+  late bool friendAtSpotNotifications;
+  late bool friendLiveShareNotifications;
   late bool publicProfile;
   late bool showGarage;
   bool isSavingSettings = false;
@@ -36954,6 +37980,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     commentNotifications = settings.commentNotifications;
     newSpotNotifications = settings.newSpotNotifications;
     newMessageNotifications = settings.newMessageNotifications;
+    friendAtSpotNotifications = settings.friendAtSpotNotifications;
+    friendLiveShareNotifications = settings.friendLiveShareNotifications;
     publicProfile = settings.publicProfile;
     showGarage = settings.showGarage;
   }
@@ -36976,6 +38004,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
       commentNotifications: commentNotifications,
       newSpotNotifications: newSpotNotifications,
       newMessageNotifications: newMessageNotifications,
+      friendAtSpotNotifications: friendAtSpotNotifications,
+      friendLiveShareNotifications: friendLiveShareNotifications,
       publicProfile: publicProfile,
       showGarage: showGarage,
     );
@@ -37097,6 +38127,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 onChanged: (value) =>
                     updateSettingsSwitch(() => newMessageNotifications = value),
               ),
+              _SettingsSwitchTile(
+                icon: Icons.place,
+                title: 'Friends at spots',
+                subtitle: 'When friends stay near a spot for 5 minutes',
+                value: friendAtSpotNotifications,
+                onChanged: (value) => updateSettingsSwitch(
+                  () => friendAtSpotNotifications = value,
+                ),
+              ),
+              _SettingsSwitchTile(
+                icon: Icons.share_location,
+                title: 'Friends sharing location',
+                subtitle: 'After a friend shares live location for 10 minutes',
+                value: friendLiveShareNotifications,
+                onChanged: (value) => updateSettingsSwitch(
+                  () => friendLiveShareNotifications = value,
+                ),
+              ),
             ],
           ),
           const SizedBox(height: 16),
@@ -37173,10 +38221,13 @@ class _SettingsSwitchTile extends StatelessWidget {
         activeThumbColor: blue,
         secondary: Icon(icon, color: blue),
         title: Text(
-          title,
+          trText(title),
           style: TextStyle(color: appPrimaryText, fontWeight: FontWeight.w800),
         ),
-        subtitle: Text(subtitle, style: TextStyle(color: appSecondaryText)),
+        subtitle: Text(
+          trText(subtitle),
+          style: TextStyle(color: appSecondaryText),
+        ),
       ),
     );
   }
