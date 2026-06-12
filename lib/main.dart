@@ -6361,6 +6361,59 @@ Future<Map<String, dynamic>> postJsonToUrl(
   }
 }
 
+final Map<String, int> _recentPushEventSentAtMillis = <String, int>{};
+
+String pushNotificationEventDedupKey(
+  Map<String, Object?> event,
+  String senderUid,
+) {
+  final notificationId = stringFromFirebase(event['notificationId'], '').trim();
+  if (notificationId.isNotEmpty) {
+    return '$senderUid|notificationId:$notificationId';
+  }
+
+  final type = stringFromFirebase(event['type'], '').trim();
+  final chatId = stringFromFirebase(event['chatId'], '').trim();
+  final messageId = stringFromFirebase(event['messageId'], '').trim();
+  if (type == 'chat_message' && chatId.isNotEmpty && messageId.isNotEmpty) {
+    return '$senderUid|chat:$chatId:$messageId';
+  }
+
+  final reviewId = stringFromFirebase(event['reviewId'], '').trim();
+  if (type == 'spot_comment' && reviewId.isNotEmpty) {
+    return '$senderUid|spot_comment:$reviewId';
+  }
+
+  final likeId = stringFromFirebase(event['likeId'], '').trim();
+  if (type == 'spot_like' && likeId.isNotEmpty) {
+    return '$senderUid|spot_like:$likeId';
+  }
+
+  final spotId = stringFromFirebase(event['spotId'], '').trim();
+  if (type.isNotEmpty && spotId.isNotEmpty) {
+    return '$senderUid|$type:$spotId';
+  }
+
+  return '$senderUid|${event.toString()}';
+}
+
+bool shouldSendPushNotificationEvent(
+  Map<String, Object?> event,
+  String senderUid,
+) {
+  final key = pushNotificationEventDedupKey(event, senderUid);
+  final now = DateTime.now().millisecondsSinceEpoch;
+  final previous = _recentPushEventSentAtMillis[key];
+  if (previous != null && now - previous < 10000) {
+    debugPrint('Duplicate push event skipped: $key');
+    return false;
+  }
+
+  _recentPushEventSentAtMillis[key] = now;
+  _recentPushEventSentAtMillis.removeWhere((_, value) => now - value > 60000);
+  return true;
+}
+
 Future<void> sendPushNotificationEvent(Map<String, Object?> event) async {
   final firebaseUser = FirebaseAuth.instance.currentUser;
 
@@ -6368,6 +6421,10 @@ Future<void> sendPushNotificationEvent(Map<String, Object?> event) async {
     debugPrint(
       'Push event skipped because there is no signed-in Firebase user. event=$event',
     );
+    return;
+  }
+
+  if (!shouldSendPushNotificationEvent(event, firebaseUser.uid)) {
     return;
   }
 
@@ -9073,32 +9130,12 @@ Future<void> sendChatMessage({
     debugPrint('$stack');
   }
 
-  try {
-    var notificationChat = chat;
-    if (notificationChat == null) {
-      try {
-        final chatSnapshot = await chatsCollection().doc(chatId).debugGet();
-        if (chatSnapshot.exists) {
-          notificationChat = ChatThreadData.fromFirestore(chatSnapshot);
-        }
-      } catch (error) {
-        debugPrint('Chat notification lookup skipped: $error');
-      }
-    }
-
-    if (notificationChat != null) {
-      await createChatMessageNotification(
-        chat: notificationChat,
-        messageText: cleanText,
-      );
-    }
-  } catch (error, stack) {
-    debugPrint('Chat notification creation skipped: $error');
-    debugPrint('$stack');
-  }
-
+  // Do not create a local user_notifications chat row here. The push backend
+  // creates the notification-center item for chat messages. Creating a local
+  // row plus calling the backend caused duplicated direct-chat notifications.
   await sendPushNotificationEvent({
     'type': 'chat_message',
+    'notificationId': 'chat_${chatId}_${messageRef.id}',
     'chatId': chatId,
     'messageId': messageRef.id,
     'senderUsername': currentUser.username,
@@ -12157,28 +12194,20 @@ Future<void> toggleSpotLike(
     }
 
     if (likeDelta == 1) {
-      final notificationId = 'spot_like_${likeRef.id}';
-      final alreadyNotified = await userNotificationsCollection()
-          .doc(notificationId)
-          .debugGet()
-          .then((snapshot) {
-            return snapshot.exists;
-          })
-          .catchError((_) => false);
-
-      if (!alreadyNotified) {
-        try {
-          await createSpotLikeNotification(spot, likeRef.id);
-          await sendPushNotificationEvent({
-            'type': 'spot_like',
-            'likeId': likeRef.id,
-            'spotId': spotId,
-            'spotName': spot.name,
-          });
-        } catch (error, stack) {
-          debugPrint('Spot like notification failed: $error');
-          debugPrint('$stack');
-        }
+      // Do not also create the user_notifications document here. The push
+      // backend creates the notification-center item for spot likes. Creating
+      // one locally as well caused duplicated notifications in the app.
+      try {
+        await sendPushNotificationEvent({
+          'type': 'spot_like',
+          'notificationId': 'spot_like_${likeRef.id}',
+          'likeId': likeRef.id,
+          'spotId': spotId,
+          'spotName': spot.name,
+        });
+      } catch (error, stack) {
+        debugPrint('Spot like notification failed: $error');
+        debugPrint('$stack');
       }
     }
   } finally {
@@ -12448,9 +12477,12 @@ Future<SpotReviewData> saveSpotReview({
   unawaited(updateSpotCountersOnServer(spot, commentDelta: 1));
 
   try {
-    await createSpotCommentNotification(spot, reviewRef.id, cleanComment);
+    // Do not also create the user_notifications document here. The push
+    // backend creates the notification-center item for spot comments. Creating
+    // one locally as well caused duplicated notifications in the app.
     await sendPushNotificationEvent({
       'type': 'spot_comment',
+      'notificationId': 'spot_comment_${reviewRef.id}',
       'reviewId': reviewRef.id,
       'spotId': spotId,
       'spotName': spot.name,
@@ -13237,6 +13269,23 @@ class _SplashScreenState extends State<SplashScreen>
                     ),
                   ),
                   Align(
+                    alignment: Alignment.bottomLeft,
+                    child: Padding(
+                      padding: const EdgeInsets.only(left: 2, bottom: 12),
+                      child: Text(
+                        currentAppVersion.trim().isEmpty
+                            ? 'version -'
+                            : 'version $currentAppVersion',
+                        style: const TextStyle(
+                          color: Colors.white38,
+                          fontSize: 10.5,
+                          letterSpacing: 0.4,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ),
+                  Align(
                     alignment: const Alignment(0, 0.76),
                     child: Padding(
                       padding: const EdgeInsets.only(bottom: 8),
@@ -13329,6 +13378,9 @@ class NotificationCenterItem {
   final String spotId;
   final String spotName;
   final String chatId;
+  final String reviewId;
+  final String messageId;
+  final String likeId;
   final String userId;
   final String addedByUid;
   final String actorUserId;
@@ -13350,6 +13402,9 @@ class NotificationCenterItem {
     this.spotId = '',
     this.spotName = '',
     this.chatId = '',
+    this.reviewId = '',
+    this.messageId = '',
+    this.likeId = '',
     this.userId = '',
     this.addedByUid = '',
     this.actorUserId = '',
@@ -13373,6 +13428,9 @@ class NotificationCenterItem {
     String? spotId,
     String? spotName,
     String? chatId,
+    String? reviewId,
+    String? messageId,
+    String? likeId,
     String? userId,
     String? addedByUid,
     String? actorUserId,
@@ -13394,6 +13452,9 @@ class NotificationCenterItem {
       spotId: spotId ?? this.spotId,
       spotName: spotName ?? this.spotName,
       chatId: chatId ?? this.chatId,
+      reviewId: reviewId ?? this.reviewId,
+      messageId: messageId ?? this.messageId,
+      likeId: likeId ?? this.likeId,
       userId: userId ?? this.userId,
       addedByUid: addedByUid ?? this.addedByUid,
       actorUserId: actorUserId ?? this.actorUserId,
@@ -13753,6 +13814,9 @@ NotificationCenterItem notificationCenterItemFromJson(Object? value) {
       if (v.isNotEmpty) return v;
       return pickString('chat_id', '');
     })(),
+    reviewId: pickString('reviewId', ''),
+    messageId: pickString('messageId', ''),
+    likeId: pickString('likeId', ''),
     userId: pickString('userId', ''),
     addedByUid: pickString('addedByUid', ''),
     actorUserId: actorUserId,
@@ -13924,6 +13988,9 @@ NotificationCenterItem notificationCenterItemFromDocument(
       if (v.isNotEmpty) return v;
       return pickString('chat_id', '');
     })(),
+    reviewId: pickString('reviewId', ''),
+    messageId: pickString('messageId', ''),
+    likeId: pickString('likeId', ''),
     userId: pickString('userId', ''),
     addedByUid: pickString('addedByUid', ''),
     actorUserId: actorUserId,
@@ -14266,6 +14333,127 @@ Future<QuerySnapshot<Map<String, dynamic>>> loadUserNotificationCenterSnapshot(
   );
 }
 
+String notificationCenterActionDedupKey(NotificationCenterItem item) {
+  final type = item.type.trim();
+  final actorKey = item.actorUserId.trim().isNotEmpty
+      ? 'uid:${item.actorUserId.trim()}'
+      : 'user:${item.actorUsername.trim().toLowerCase()}';
+
+  if (type == 'chat_message') {
+    final chatKey = chatIdFromNotificationItem(item).trim();
+    final messageKey = item.messageId.trim().isNotEmpty
+        ? item.messageId.trim()
+        : (() {
+            final match = RegExp(
+              r'^chat_[^_]+_(.+?)(?:_[^_]+)?$',
+            ).firstMatch(item.id.trim());
+            return match?.group(1)?.trim() ?? '';
+          })();
+    if (chatKey.isNotEmpty && messageKey.isNotEmpty) {
+      return 'chat_message:$chatKey:$messageKey';
+    }
+
+    final bodyKey = notificationCenterDisplayBody(item).trim().toLowerCase();
+    if (chatKey.isNotEmpty && bodyKey.isNotEmpty) {
+      final bucket = (item.createdAtMillis / 60000).floor();
+      return 'chat_message:$chatKey:$actorKey:$bodyKey:$bucket';
+    }
+  }
+
+  if (type == 'spot_comment') {
+    if (item.reviewId.trim().isNotEmpty) {
+      return 'spot_comment:review:${item.reviewId.trim()}';
+    }
+
+    final spotKey = notificationCenterSpotDedupKey(item);
+    if (spotKey.isNotEmpty) {
+      final bucket = (item.createdAtMillis / 60000).floor();
+      return 'spot_comment:$spotKey:$actorKey:$bucket';
+    }
+  }
+
+  if (type == 'spot_like') {
+    if (item.likeId.trim().isNotEmpty) {
+      return 'spot_like:like:${item.likeId.trim()}';
+    }
+
+    final match = RegExp(r'^spot_like_(.+)$').firstMatch(item.id.trim());
+    final idLikeKey = match?.group(1)?.trim() ?? '';
+    if (idLikeKey.isNotEmpty) {
+      return 'spot_like:like:$idLikeKey';
+    }
+
+    final spotKey = notificationCenterSpotDedupKey(item);
+    if (spotKey.isNotEmpty) {
+      return 'spot_like:$spotKey:$actorKey';
+    }
+  }
+
+  return '';
+}
+
+int notificationCenterActionStrength(NotificationCenterItem item) {
+  var score = 0;
+  if (item.reference != null) score += 8;
+  if (item.spotId.trim().isNotEmpty) score += 4;
+  if (item.spotName.trim().isNotEmpty) score += 3;
+  if (item.chatId.trim().isNotEmpty) score += 4;
+  if (item.reviewId.trim().isNotEmpty) score += 5;
+  if (item.messageId.trim().isNotEmpty) score += 5;
+  if (item.likeId.trim().isNotEmpty) score += 5;
+  if (item.actorUserId.trim().isNotEmpty) score += 2;
+  if (item.actorUsername.trim().isNotEmpty) score += 1;
+
+  final body = item.body.trim().toLowerCase();
+  if (item.type == 'spot_comment') {
+    // Prefer the row that still contains the actual comment text, as long as it
+    // also has enough metadata to open the target spot.
+    if (body.startsWith('@') && !body.contains('commented on')) score += 2;
+  }
+  if (item.type == 'chat_message') {
+    if (body.startsWith('@')) score += 1;
+  }
+
+  return score;
+}
+
+List<NotificationCenterItem> removeDuplicateActionNotifications(
+  List<NotificationCenterItem> items,
+) {
+  final strongestByKey = <String, NotificationCenterItem>{};
+
+  for (final item in items) {
+    final key = notificationCenterActionDedupKey(item);
+    if (key.isEmpty) {
+      continue;
+    }
+
+    final existing = strongestByKey[key];
+    if (existing == null ||
+        notificationCenterActionStrength(item) >
+            notificationCenterActionStrength(existing) ||
+        (notificationCenterActionStrength(item) ==
+                notificationCenterActionStrength(existing) &&
+            item.createdAtMillis >= existing.createdAtMillis)) {
+      strongestByKey[key] = item;
+    }
+  }
+
+  if (strongestByKey.isEmpty) {
+    return items;
+  }
+
+  return items.where((item) {
+    final key = notificationCenterActionDedupKey(item);
+    if (key.isEmpty) {
+      return true;
+    }
+
+    final strongest = strongestByKey[key];
+    return strongest == null || identical(strongest, item);
+  }).toList();
+}
+
 const int maxVisibleNotificationCenterItems = 9;
 
 Future<void> pruneOldNotificationCenterItems(
@@ -14409,9 +14597,11 @@ Future<List<NotificationCenterItem>> loadNotificationCenterItems() async {
     });
   }
 
-  final enrichedItems = removeDuplicatePublicSpotNotifications(
-    removeDuplicateSpotReviewNotifications(
-      await enrichRejectedNotificationCenterItems(items),
+  final enrichedItems = removeDuplicateActionNotifications(
+    removeDuplicatePublicSpotNotifications(
+      removeDuplicateSpotReviewNotifications(
+        await enrichRejectedNotificationCenterItems(items),
+      ),
     ),
   );
   items
@@ -18071,16 +18261,27 @@ class ExploreSpotCard extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Expanded(
-                        child: Text(
-                          spot.name,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 14,
-                            fontWeight: FontWeight.w900,
-                            letterSpacing: -0.25,
-                          ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Flexible(
+                              child: Text(
+                                spot.name,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w900,
+                                  letterSpacing: -0.25,
+                                ),
+                              ),
+                            ),
+                            if (spot.verifiedOnly) ...[
+                              const SizedBox(width: 5),
+                              const _VerifiedSpotBadge(size: 14),
+                            ],
+                          ],
                         ),
                       ),
                       const SizedBox(width: 6),
@@ -18848,6 +19049,8 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
   Timer? friendLiveSharingNotificationTimer;
   Timer? friendAtSpotDwellTimer;
   Timer? liveLocationStaleSweepTimer;
+  Timer? mapGestureIdleTimer;
+  DateTime? lastMapCameraUiUpdateAt;
   Timer? navigationPredictionTimer;
   StreamSubscription<Position>? navigationPositionSubscription;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>?
@@ -18910,6 +19113,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
   int? lastHandledMapFocusRequestToken;
   CcsMapStyle mapStyle = CcsMapStyle.dark;
   bool adaptiveMapStyleEnabled = false;
+  bool mapGestureInProgress = false;
 
   double scaledMapIconValue({
     required double zoom,
@@ -19509,7 +19713,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
               : image,
         );
 
-        final icon = mapStyle == CcsMapStyle.light
+        final icon = mapStyle == CcsMapStyle.light && !mapGestureInProgress
             ? SizedBox(
                 width: markerVisualSize,
                 height: markerVisualSize,
@@ -19518,10 +19722,10 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                   children: [
                     ClipOval(
                       child: BackdropFilter(
-                        filter: ui.ImageFilter.blur(sigmaX: 2.2, sigmaY: 2.2),
+                        filter: ui.ImageFilter.blur(sigmaX: 1.6, sigmaY: 1.6),
                         child: SizedBox(
-                          width: markerVisualSize * 0.86,
-                          height: markerVisualSize * 0.86,
+                          width: markerVisualSize * 0.78,
+                          height: markerVisualSize * 0.78,
                         ),
                       ),
                     ),
@@ -22519,7 +22723,10 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     liveLocationUploadTimer?.cancel();
     liveLocationPromptTimer?.cancel();
     liveLocationAutoStopTimer?.cancel();
+    friendLiveSharingNotificationTimer?.cancel();
+    friendAtSpotDwellTimer?.cancel();
     liveLocationStaleSweepTimer?.cancel();
+    mapGestureIdleTimer?.cancel();
     liveLocationSubscription?.cancel();
     publicLiveLocationSubscription?.cancel();
     ownLiveLocationSubscription?.cancel();
@@ -23011,14 +23218,40 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                     (nextRotation - currentMapRotationDegrees).abs() >= 0.5;
 
                 if (zoomChanged || rotationChanged || hasGesture) {
-                  setState(() {
-                    currentMapCenter = camera.center;
-                    currentMapZoom = nextZoom;
-                    currentMapRotationDegrees = nextRotation;
-                    if (hasGesture) {
-                      mapCenteredOnCurrentUser = false;
-                    }
-                  });
+                  final now = DateTime.now();
+                  final allowUiRefresh =
+                      !hasGesture ||
+                      lastMapCameraUiUpdateAt == null ||
+                      now.difference(lastMapCameraUiUpdateAt!) >=
+                          const Duration(milliseconds: 90);
+
+                  currentMapCenter = camera.center;
+                  currentMapZoom = nextZoom;
+                  currentMapRotationDegrees = nextRotation;
+                  if (hasGesture) {
+                    mapCenteredOnCurrentUser = false;
+                    mapGestureIdleTimer?.cancel();
+                    mapGestureIdleTimer = Timer(
+                      const Duration(milliseconds: 320),
+                      () {
+                        if (!mounted || !mapGestureInProgress) {
+                          return;
+                        }
+                        setState(() => mapGestureInProgress = false);
+                      },
+                    );
+                  }
+
+                  if (allowUiRefresh) {
+                    lastMapCameraUiUpdateAt = now;
+                    setState(() {
+                      if (hasGesture) {
+                        mapGestureInProgress = true;
+                      }
+                    });
+                  } else if (hasGesture && !mapGestureInProgress) {
+                    setState(() => mapGestureInProgress = true);
+                  }
                 }
               },
               onTap: (_, _) => setState(() {
@@ -24443,15 +24676,26 @@ class SavedSpotTile extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    spot.name,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 17,
-                      fontWeight: FontWeight.w900,
-                    ),
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Flexible(
+                        child: Text(
+                          spot.name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 17,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                      ),
+                      if (spot.verifiedOnly) ...[
+                        const SizedBox(width: 6),
+                        const _VerifiedSpotBadge(size: 16),
+                      ],
+                    ],
                   ),
                   const SizedBox(height: 5),
                   Text(
@@ -28222,11 +28466,31 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
 
   final mapController = MapController();
   LatLng? pickedLocation;
+  CcsMapStyle mapStyle = CcsMapStyle.dark;
 
   @override
   void initState() {
     super.initState();
     pickedLocation = widget.initialLocation;
+    unawaited(loadMapStylePreference());
+  }
+
+  Future<void> loadMapStylePreference() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final adaptive = prefs.getBool(ccsAdaptiveMapStylePreferenceKey) ?? false;
+      final savedStyle = prefs.getString(ccsMapStylePreferenceKey);
+      final nextStyle = adaptive
+          ? mapStyleForLocalTime(DateTime.now())
+          : CcsMapStyle.values.firstWhere(
+              (style) => style.name == savedStyle,
+              orElse: () => CcsMapStyle.dark,
+            );
+
+      if (mounted && nextStyle != mapStyle) {
+        setState(() => mapStyle = nextStyle);
+      }
+    } catch (_) {}
   }
 
   @override
@@ -28273,16 +28537,11 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
               minZoom: 4,
               maxZoom: 18,
               interactionOptions: ccsMapInteractionOptions,
-              backgroundColor: night,
+              backgroundColor: mapStyle.backgroundColor,
               onTap: (_, point) => setState(() => pickedLocation = point),
             ),
             children: [
-              TileLayer(
-                urlTemplate:
-                    'https://basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',
-                userAgentPackageName: 'com.example.ccs_app',
-                maxNativeZoom: 19,
-              ),
+              _CcsSmoothMapTileLayer(mapStyle: mapStyle),
               MarkerLayer(markers: markers),
             ],
           ),
@@ -30406,7 +30665,7 @@ Future<bool> confirmAndRemoveChat(
   }
 }
 
-class ChatThreadTile extends StatelessWidget {
+class ChatThreadTile extends StatefulWidget {
   final ChatThreadData chat;
   final String currentUid;
   final bool pinned;
@@ -30417,6 +30676,40 @@ class ChatThreadTile extends StatelessWidget {
     required this.currentUid,
     this.pinned = false,
   });
+
+  @override
+  State<ChatThreadTile> createState() => _ChatThreadTileState();
+}
+
+class _ChatThreadTileState extends State<ChatThreadTile> {
+  Stream<DocumentSnapshot<Map<String, dynamic>>>? _directUserPresenceStream;
+  String? _directUserPresenceUid;
+
+  ChatThreadData get chat => widget.chat;
+  String get currentUid => widget.currentUid;
+  bool get pinned => widget.pinned;
+
+  void _ensureDirectUserPresenceStream(String uid) {
+    if (_directUserPresenceUid == uid && _directUserPresenceStream != null) {
+      return;
+    }
+
+    _directUserPresenceUid = uid;
+    _directUserPresenceStream = usersCollection()
+        .doc(uid)
+        .debugSnapshots('chat: list direct user presence listener');
+  }
+
+  @override
+  void didUpdateWidget(covariant ChatThreadTile oldWidget) {
+    super.didUpdateWidget(oldWidget);
+
+    final nextUid = otherUserId();
+    if (nextUid != _directUserPresenceUid) {
+      _directUserPresenceUid = null;
+      _directUserPresenceStream = null;
+    }
+  }
 
   String? otherUserId() {
     if (chat.isGroup) {
@@ -30594,10 +30887,10 @@ class ChatThreadTile extends StatelessWidget {
 
     final fallbackUser = fallbackChatMember(chat, uid);
 
+    _ensureDirectUserPresenceStream(uid);
+
     return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-      stream: usersCollection()
-          .doc(uid)
-          .debugSnapshots('chat: list direct user presence listener'),
+      stream: _directUserPresenceStream,
       builder: (context, snapshot) {
         final directUser =
             friendUserFromSnapshot(snapshot.data) ?? fallbackUser;
@@ -37179,14 +37472,25 @@ class _ProfileSavedSpotsPreview extends StatelessWidget {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text(
-                                spot.name,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.w900,
-                                ),
+                              Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Flexible(
+                                    child: Text(
+                                      spot.name,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontWeight: FontWeight.w900,
+                                      ),
+                                    ),
+                                  ),
+                                  if (spot.verifiedOnly) ...[
+                                    const SizedBox(width: 5),
+                                    const _VerifiedSpotBadge(size: 14),
+                                  ],
+                                ],
                               ),
                               const SizedBox(height: 4),
                               Text(
@@ -40986,15 +41290,26 @@ class _AdminSpotLocationReviewMapScreenState
                       crossAxisAlignment: CrossAxisAlignment.start,
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Text(
-                          spot.name,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 20,
-                            fontWeight: FontWeight.w900,
-                          ),
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Flexible(
+                              child: Text(
+                                spot.name,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 20,
+                                  fontWeight: FontWeight.w900,
+                                ),
+                              ),
+                            ),
+                            if (spot.verifiedOnly) ...[
+                              const SizedBox(width: 7),
+                              const _VerifiedSpotBadge(size: 18),
+                            ],
+                          ],
                         ),
                         const SizedBox(height: 5),
                         Text(
