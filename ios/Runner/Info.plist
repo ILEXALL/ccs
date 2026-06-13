@@ -28,6 +28,8 @@
 	<true/>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>CCS uses your location to show nearby spots, map features, your live position, and to create nearby spots.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>CCS lets you choose photos for spots, chats, profiles, groups, and your garage.</string>
 	<key>NSLocationTemporaryUsageDescriptionDictionary</key>
 	<dict>
 		<key>TemporaryPreciseAccuracy</key>

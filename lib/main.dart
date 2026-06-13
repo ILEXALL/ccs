@@ -4717,7 +4717,7 @@ Future<String?> pickPhotoFromPhone(
         const SnackBar(
           backgroundColor: Colors.redAccent,
           content: Text(
-            'Photo picker is not connected in Android native code.',
+            'Photo picker is not connected in the native app.',
             style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
           ),
         ),
