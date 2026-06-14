@@ -1,11 +1,13 @@
 import Flutter
 import PhotosUI
+import UserNotifications
 import UIKit
 
 @main
 @objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate, PHPickerViewControllerDelegate {
   private var photoPickerChannel: FlutterMethodChannel?
   private var deviceIdentityChannel: FlutterMethodChannel?
+  private var appBadgeChannel: FlutterMethodChannel?
   private var pendingPhotoResult: FlutterResult?
 
   override func application(
@@ -19,6 +21,7 @@ import UIKit
     GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
     registerPhotoPickerChannel(messenger: engineBridge.applicationRegistrar.messenger())
     registerDeviceIdentityChannel(messenger: engineBridge.applicationRegistrar.messenger())
+    registerAppBadgeChannel(messenger: engineBridge.applicationRegistrar.messenger())
   }
 
   private func registerPhotoPickerChannel(messenger: FlutterBinaryMessenger) {
@@ -59,6 +62,49 @@ import UIKit
         result(FlutterMethodNotImplemented)
       }
     }
+  }
+
+  private func registerAppBadgeChannel(messenger: FlutterBinaryMessenger) {
+    appBadgeChannel = FlutterMethodChannel(
+      name: "ccs/app_badge",
+      binaryMessenger: messenger
+    )
+
+    appBadgeChannel?.setMethodCallHandler { call, result in
+      switch call.method {
+      case "setBadgeCount":
+        let arguments = call.arguments as? [String: Any]
+        let count = max(0, arguments?["count"] as? Int ?? 0)
+        self.setAppIconBadgeCount(count, result: result)
+      default:
+        result(FlutterMethodNotImplemented)
+      }
+    }
+  }
+
+  private func setAppIconBadgeCount(_ count: Int, result: @escaping FlutterResult) {
+    if #available(iOS 16.0, *) {
+      UNUserNotificationCenter.current().setBadgeCount(count) { error in
+        DispatchQueue.main.async {
+          if let error = error {
+            result(
+              FlutterError(
+                code: "badge_update_failed",
+                message: error.localizedDescription,
+                details: nil
+              )
+            )
+            return
+          }
+
+          result(nil)
+        }
+      }
+      return
+    }
+
+    UIApplication.shared.applicationIconBadgeNumber = count
+    result(nil)
   }
 
   private func openPhotoPicker(result: @escaping FlutterResult) {

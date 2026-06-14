@@ -31,6 +31,7 @@ const defaultNotificationSettings = {
   commentNotifications: false,
   newSpotNotifications: true,
   newMessageNotifications: true,
+  friendRequestNotifications: true,
 };
 
 function cleanText(value, fallback = '') {
@@ -84,10 +85,21 @@ async function claimDelivery(deliveryKey, userId) {
   }
 }
 
+async function unreadNotificationCount(userId) {
+  const snapshot = await db
+    .collection('user_notifications')
+    .where('userId', '==', userId)
+    .where('read', '==', false)
+    .get();
+
+  return snapshot.size;
+}
+
 async function sendPushToUser({
   userId,
   settingName,
   deliveryKey,
+  notificationId,
   title,
   body,
   data = {},
@@ -115,17 +127,23 @@ async function sendPushToUser({
   }
 
   const notificationType = cleanText(data.type, 'notification');
-  const notificationRef = db.collection('user_notifications').doc(deliveryRef.id);
+  const notificationRef = db
+    .collection('user_notifications')
+    .doc(cleanText(notificationId, deliveryRef.id));
 
-  await notificationRef.set({
-    userId,
-    type: notificationType,
-    title,
-    body,
-    data,
-    read: false,
-    createdAt: admin.firestore.FieldValue.serverTimestamp(),
-  });
+  await notificationRef.set(
+    {
+      userId,
+      type: notificationType,
+      title,
+      body,
+      data,
+      read: false,
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    },
+    { merge: true },
+  );
+  const badgeCount = Math.max(1, await unreadNotificationCount(userId));
 
   const tokens = userTokens(user);
   if (!tokens.length) {
@@ -144,6 +162,18 @@ async function sendPushToUser({
         notification: {
           channelId: 'ccs_updates',
           sound: 'default',
+          notificationCount: badgeCount,
+        },
+      },
+      apns: {
+        headers: {
+          'apns-priority': '10',
+        },
+        payload: {
+          aps: {
+            sound: 'default',
+            badge: badgeCount,
+          },
         },
       },
     });
@@ -405,6 +435,45 @@ async function handleChatMessage(userId, payload) {
   );
 }
 
+async function handleFriendRequest(userId, payload) {
+  const friendRequestId = cleanText(payload.friendRequestId);
+  const requestSnapshot = await db.collection('friend_requests').doc(friendRequestId).get();
+
+  if (!requestSnapshot.exists) {
+    return [];
+  }
+
+  const request = requestSnapshot.data() || {};
+
+  if (request.fromUid !== userId || request.status !== 'pending') {
+    return [];
+  }
+
+  const toUid = cleanText(request.toUid);
+  if (!toUid || toUid === userId) {
+    return [];
+  }
+
+  const senderUsername = cleanText(request.fromUsername, 'driver');
+
+  return [
+    await sendPushToUser({
+      userId: toUid,
+      settingName: 'friendRequestNotifications',
+      deliveryKey: `friend_request:${friendRequestId}`,
+      notificationId: `friend_request_${friendRequestId}`,
+      title: 'New friend request',
+      body: `@${senderUsername} sent you a friend request.`,
+      data: {
+        type: 'friend_request',
+        friendRequestId,
+        fromUid: userId,
+        friendUsername: senderUsername,
+      },
+    }),
+  ];
+}
+
 async function handleSpotDecision(userId, payload) {
   await requireStaff(userId);
 
@@ -510,6 +579,7 @@ export default async function handler(request, response) {
       spot_like: handleSpotLike,
       spot_comment: handleSpotComment,
       chat_message: handleChatMessage,
+      friend_request: handleFriendRequest,
       spot_decision: handleSpotDecision,
       new_spot: handleNewSpot,
     };

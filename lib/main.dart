@@ -97,6 +97,10 @@ StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>?
 currentUserDocumentSubscription;
 final notificationCenterUnreadCount = ValueNotifier<int>(0);
 final notificationCenterUnreadCountsBySource = <String, int>{};
+final chatUnreadCountsByChatId = ValueNotifier<Map<String, int>>(
+  const <String, int>{},
+);
+bool appIconBadgeSyncStarted = false;
 
 const bool firestoreDebugTrackerEnabled = true;
 
@@ -3327,6 +3331,7 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  startAppIconBadgeSync();
   await warmUpAppMapBackground();
   try {
     final packageInfo = await PackageInfo.fromPlatform();
@@ -3537,7 +3542,7 @@ class _BannedUserScreenState extends State<BannedUserScreen> {
     final cleanReason = currentUser.banReason.trim();
 
     return Scaffold(
-      backgroundColor: Colors.black,
+      backgroundColor: Colors.transparent,
       body: Stack(
         fit: StackFit.expand,
         children: [
@@ -4034,6 +4039,13 @@ class MaintenanceModeScreen extends StatelessWidget {
 }
 
 const blue = Color(0xFF1565FF);
+const ccsGradientStart = Color(0xFF0628C8);
+const ccsGradientEnd = Color(0xFF00C8FF);
+const ccsBlueCyanGradient = LinearGradient(
+  begin: Alignment.centerLeft,
+  end: Alignment.centerRight,
+  colors: [ccsGradientStart, ccsGradientEnd],
+);
 const sosAlertColor = Color(0xFFFF2D55);
 
 Color policeAlertColor(double pulse) {
@@ -4165,7 +4177,39 @@ const liveLocationBackgroundChannel = MethodChannel(
   'ccs/live_location_background',
 );
 const systemNotificationsChannel = MethodChannel('ccs/system_notifications');
+const appBadgeChannel = MethodChannel('ccs/app_badge');
 const spotCategoryFiltersKey = 'spot_category_filters';
+
+void startAppIconBadgeSync() {
+  if (appIconBadgeSyncStarted) {
+    return;
+  }
+
+  appIconBadgeSyncStarted = true;
+  notificationCenterUnreadCount.addListener(() {
+    unawaited(setAppIconBadgeCount(notificationCenterUnreadCount.value));
+  });
+  unawaited(setAppIconBadgeCount(notificationCenterUnreadCount.value));
+}
+
+Future<void> setAppIconBadgeCount(int count) async {
+  if (!Platform.isAndroid && !Platform.isIOS) {
+    return;
+  }
+
+  final safeCount = count < 0 ? 0 : count;
+
+  try {
+    await appBadgeChannel.invokeMethod<void>('setBadgeCount', {
+      'count': safeCount,
+    });
+  } on MissingPluginException {
+    // Older installed builds may not have the native badge channel yet.
+  } catch (error, stack) {
+    debugPrint('App icon badge update failed: $error');
+    debugPrint('$stack');
+  }
+}
 
 Future<void> setScreenAwakeForMap(bool enabled) async {
   if (!Platform.isAndroid) {
@@ -4249,6 +4293,7 @@ Future<void> showForegroundSystemNotification(RemoteMessage message) async {
       'id': (message.messageId ?? '$title|$body').hashCode & 0x7fffffff,
       'title': title,
       'body': body,
+      'badgeCount': math.max(1, notificationCenterUnreadCount.value + 1),
     });
   } catch (error, stack) {
     debugPrint('Foreground push display failed: $error');
@@ -4274,6 +4319,17 @@ Future<void> initializePushNotificationsForCurrentUser() async {
       badge: true,
       sound: true,
     );
+    if (Platform.isIOS) {
+      await messaging.setForegroundNotificationPresentationOptions(
+        alert: true,
+        badge: true,
+        sound: true,
+      );
+      final apnsToken = await messaging.getAPNSToken();
+      debugPrint(
+        'APNs token ${apnsToken == null || apnsToken.trim().isEmpty ? 'is empty' : 'is available'}.',
+      );
+    }
     debugPrint('Push permission status: ${settings.authorizationStatus}');
 
     final token = await messaging.getToken();
@@ -5381,6 +5437,7 @@ Future<void> stopCurrentUserAppServicesForAccessBlock() async {
   notificationCenterUnreadRefreshDebounce = null;
   notificationCenterUnreadCountsBySource.clear();
   notificationCenterUnreadCount.value = 0;
+  chatUnreadCountsByChatId.value = const <String, int>{};
   await stopCurrentUserLikedSpotsSync();
 }
 
@@ -5445,6 +5502,7 @@ Future<void> signOutCurrentAccount() async {
   notificationCenterUnreadRefreshDebounce = null;
   notificationCenterUnreadCountsBySource.clear();
   notificationCenterUnreadCount.value = 0;
+  chatUnreadCountsByChatId.value = const <String, int>{};
   await stopCurrentUserLikedSpotsSync();
   spotCommentsSessionCache.clear();
   currentUserSpotRatingCache.value = {};
@@ -7993,6 +8051,156 @@ Future<void> createChatMessageNotification({
   }
 }
 
+String compactBadgeLabel(int count) {
+  if (count > 99) {
+    return '99+';
+  }
+
+  if (count > 9) {
+    return '9+';
+  }
+
+  return '$count';
+}
+
+int totalChatUnreadCount(Map<String, int> countsByChatId) {
+  var total = 0;
+  for (final count in countsByChatId.values) {
+    if (count > 0) {
+      total += count;
+    }
+  }
+  return total;
+}
+
+String chatIdFromNotificationData(
+  Map<String, dynamic> data,
+  String notificationId,
+  String currentUid,
+) {
+  final payload = mapFromFirebase(data['data']);
+
+  String pickString(String key) {
+    final topLevel = stringFromFirebase(data[key], '');
+    if (topLevel.trim().isNotEmpty) {
+      return topLevel.trim();
+    }
+
+    return stringFromFirebase(payload[key], '').trim();
+  }
+
+  final chatId = pickString('chatId');
+  if (chatId.isNotEmpty) {
+    return chatId;
+  }
+
+  final snakeChatId = pickString('chat_id');
+  if (snakeChatId.isNotEmpty) {
+    return snakeChatId;
+  }
+
+  if (currentUid.isNotEmpty && notificationId.startsWith('chat_')) {
+    final match = RegExp(
+      '^chat_(.+)_\\d+_${RegExp.escape(currentUid)}\$',
+    ).firstMatch(notificationId);
+    final parsedChatId = match?.group(1)?.trim() ?? '';
+    if (parsedChatId.isNotEmpty) {
+      return parsedChatId;
+    }
+  }
+
+  return '';
+}
+
+void updateChatUnreadCountsFromNotificationDocs(
+  Iterable<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+  String currentUid,
+) {
+  final counts = <String, int>{};
+
+  for (final doc in docs) {
+    final data = doc.data();
+    if (data['read'] == true) {
+      continue;
+    }
+
+    final type = stringFromFirebase(
+      data['type'],
+      stringFromFirebase(mapFromFirebase(data['data'])['type'], ''),
+    );
+    if (type != 'chat_message') {
+      continue;
+    }
+
+    final notificationUserId = stringFromFirebase(data['userId'], currentUid);
+    if (notificationUserId.trim().isNotEmpty &&
+        notificationUserId.trim() != currentUid) {
+      continue;
+    }
+
+    final chatId = chatIdFromNotificationData(data, doc.id, currentUid);
+    if (chatId.isEmpty) {
+      continue;
+    }
+
+    counts[chatId] = (counts[chatId] ?? 0) + 1;
+  }
+
+  chatUnreadCountsByChatId.value = counts;
+}
+
+Future<void> markChatNotificationsRead(String chatId) async {
+  final firebaseUser = FirebaseAuth.instance.currentUser;
+  final cleanChatId = chatId.trim();
+  if (firebaseUser == null || cleanChatId.isEmpty) {
+    return;
+  }
+
+  try {
+    final snapshot = await userNotificationsCollection()
+        .where('userId', isEqualTo: firebaseUser.uid)
+        .where('read', isEqualTo: false)
+        .limit(100)
+        .debugGet(null, 'chat: mark unread notifications read');
+    final references = <DocumentReference<Map<String, dynamic>>>[];
+
+    for (final doc in snapshot.docs) {
+      final data = doc.data();
+      final type = stringFromFirebase(
+        data['type'],
+        stringFromFirebase(mapFromFirebase(data['data'])['type'], ''),
+      );
+      if (type != 'chat_message') {
+        continue;
+      }
+
+      if (chatIdFromNotificationData(data, doc.id, firebaseUser.uid) ==
+          cleanChatId) {
+        references.add(doc.reference);
+      }
+    }
+
+    if (references.isNotEmpty) {
+      final batch = FirebaseFirestore.instance.batch();
+      for (final reference in references) {
+        batch.debugSet(reference, {
+          'read': true,
+          'readAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+      }
+      await batch.commit();
+    }
+
+    final nextCounts = Map<String, int>.from(chatUnreadCountsByChatId.value)
+      ..remove(cleanChatId);
+    chatUnreadCountsByChatId.value = nextCounts;
+    scheduleNotificationCenterUnreadRefresh();
+  } catch (error, stack) {
+    debugPrint('Chat notifications could not be marked read: $error');
+    debugPrint('$stack');
+  }
+}
+
 void scheduleNotificationCenterUnreadRefresh({
   Duration delay = const Duration(milliseconds: 350),
 }) {
@@ -8011,6 +8219,7 @@ void startNotificationCenterUnreadWatcher() {
   if (firebaseUser == null) {
     notificationCenterUnreadCountsBySource.clear();
     notificationCenterUnreadCount.value = 0;
+    chatUnreadCountsByChatId.value = const <String, int>{};
     return;
   }
 
@@ -8019,6 +8228,7 @@ void startNotificationCenterUnreadWatcher() {
   friendLocationNotificationCenterUnreadSubscription?.cancel();
   notificationCenterUnreadCountsBySource.clear();
   notificationCenterUnreadCount.value = 0;
+  chatUnreadCountsByChatId.value = const <String, int>{};
 
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>> watchUnreadQuery(
     String source,
@@ -8034,10 +8244,19 @@ void startNotificationCenterUnreadWatcher() {
         // notification center filters them out. Recompute the visible unread
         // count through the same loader used by the notification screen.
         notificationCenterUnreadCountsBySource[source] = snapshot.docs.length;
+        if (source == 'user') {
+          updateChatUnreadCountsFromNotificationDocs(
+            snapshot.docs,
+            firebaseUser.uid,
+          );
+        }
         scheduleNotificationCenterUnreadRefresh();
       },
       onError: (Object error, StackTrace stack) {
         notificationCenterUnreadCountsBySource[source] = 0;
+        if (source == 'user') {
+          chatUnreadCountsByChatId.value = const <String, int>{};
+        }
         scheduleNotificationCenterUnreadRefresh();
         debugPrint('Notification unread watcher failed ($source): $error');
         debugPrint('$stack');
@@ -8391,6 +8610,14 @@ Future<void> sendFriendRequestToUser(FriendUserData user) async {
       'friendUsername': currentUser.username,
     },
   );
+
+  await sendPushNotificationEvent({
+    'type': 'friend_request',
+    'notificationId': 'friend_request_$requestId',
+    'friendRequestId': requestId,
+    'toUid': user.uid,
+    'fromUsername': currentUser.username,
+  });
 }
 
 Future<void> acceptFriendRequest(FriendRequestData request) async {
@@ -16612,19 +16839,34 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                       ),
                     ),
                     Expanded(
-                      child: _CcsBottomNavItem(
-                        icon: Icons.chat_bubble_outline,
-                        label: trText('Chat'),
-                        selected: index == 3,
-                        onTap: openChatTab,
+                      child: ValueListenableBuilder<Map<String, int>>(
+                        valueListenable: chatUnreadCountsByChatId,
+                        builder: (context, unreadCountsByChatId, _) {
+                          return _CcsBottomNavItem(
+                            icon: Icons.chat_bubble_outline,
+                            label: trText('Chat'),
+                            selected: index == 3,
+                            badgeCount: totalChatUnreadCount(
+                              unreadCountsByChatId,
+                            ),
+                            onTap: openChatTab,
+                          );
+                        },
                       ),
                     ),
                     Expanded(
-                      child: _CcsBottomNavItem(
-                        icon: Icons.person_outline,
-                        label: trText('Profile'),
-                        selected: index == 4,
-                        onTap: () => selectBottomTab(4),
+                      child: StreamBuilder<int>(
+                        stream: incomingFriendRequestCountStream(),
+                        initialData: 0,
+                        builder: (context, snapshot) {
+                          return _CcsBottomNavItem(
+                            icon: Icons.person_outline,
+                            label: trText('Profile'),
+                            selected: index == 4,
+                            badgeCount: snapshot.data ?? 0,
+                            onTap: () => selectBottomTab(4),
+                          );
+                        },
                       ),
                     ),
                   ],
@@ -16644,6 +16886,7 @@ class _CcsBottomNavItem extends StatelessWidget {
   final bool selected;
   final VoidCallback onTap;
   final bool twoLineCentered;
+  final int badgeCount;
 
   const _CcsBottomNavItem({
     required this.icon,
@@ -16651,6 +16894,7 @@ class _CcsBottomNavItem extends StatelessWidget {
     required this.selected,
     required this.onTap,
     this.twoLineCentered = false,
+    this.badgeCount = 0,
   });
 
   @override
@@ -16669,7 +16913,15 @@ class _CcsBottomNavItem extends StatelessWidget {
         child: Stack(
           alignment: Alignment.topCenter,
           children: [
-            Positioned(top: 7, child: Icon(icon, color: color, size: 22)),
+            Positioned(
+              top: 7,
+              child: Badge(
+                isLabelVisible: badgeCount > 0,
+                backgroundColor: Colors.redAccent,
+                label: Text(compactBadgeLabel(badgeCount)),
+                child: Icon(icon, color: color, size: 22),
+              ),
+            ),
             Positioned(
               top: 33,
               left: 0,
@@ -16719,7 +16971,7 @@ String exploreSortLabel(ExploreSortMode mode) {
     case ExploreSortMode.popular:
       return 'Popular';
     case ExploreSortMode.newest:
-      return 'New';
+      return 'Newest';
     case ExploreSortMode.nearest:
       return 'Nearest';
     case ExploreSortMode.meet:
@@ -16755,6 +17007,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
     spotCardScrollController = ScrollController();
     savedSpots.addListener(refreshSavedFilter);
     spotCategoryFilters.addListener(refreshSpotCategoryFilters);
+    appUiPreferences.addListener(refreshLanguageLabels);
     // Temporary spots can expire or reveal their location without a Firestore
     // update. Refresh the Spots tab so the temporary card removes expired spots
     // and updates availability labels while the user stays on this screen.
@@ -16773,6 +17026,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
     spotCardScrollController.dispose();
     savedSpots.removeListener(refreshSavedFilter);
     spotCategoryFilters.removeListener(refreshSpotCategoryFilters);
+    appUiPreferences.removeListener(refreshLanguageLabels);
     super.dispose();
   }
 
@@ -16783,6 +17037,12 @@ class _ExploreScreenState extends State<ExploreScreen> {
   }
 
   void refreshSpotCategoryFilters() {
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
+  void refreshLanguageLabels() {
     if (mounted) {
       setState(() {});
     }
@@ -17467,14 +17727,14 @@ class _ExploreScreenState extends State<ExploreScreen> {
           padding: const EdgeInsets.symmetric(vertical: 10),
           decoration: BoxDecoration(
             gradient: selected
-                ? const LinearGradient(colors: [blue, Color(0xFF7B35FF)])
+                ? ccsBlueCyanGradient
                 : null,
             color: selected ? null : Colors.transparent,
             borderRadius: BorderRadius.circular(10),
             boxShadow: selected
                 ? [
                     BoxShadow(
-                      color: blue.withValues(alpha: 0.26),
+                      color: ccsGradientEnd.withValues(alpha: 0.24),
                       blurRadius: 16,
                       offset: const Offset(0, 8),
                     ),
@@ -24779,7 +25039,62 @@ class EmptyStateCard extends StatelessWidget {
   }
 }
 
-Future<void> launchExternalUrl(BuildContext context, String rawUrl) async {
+Uri? normalizedExternalUri(String rawUrl, {String? kind}) {
+  final trimmedUrl = rawUrl.trim();
+
+  if (trimmedUrl.isEmpty) {
+    return null;
+  }
+
+  final parsed = Uri.tryParse(trimmedUrl);
+
+  if (parsed != null && parsed.hasScheme) {
+    return parsed;
+  }
+
+  final cleanKind = (kind ?? '').trim().toLowerCase();
+  final lower = trimmedUrl.toLowerCase();
+
+  if (cleanKind == 'telegram') {
+    var handle = trimmedUrl;
+    handle = handle.startsWith('@') ? handle.substring(1) : handle;
+    handle = handle.replaceFirst(RegExp(r'^(www\.)?(t\.me|telegram\.me)/?'), '');
+    handle = handle.replaceAll(RegExp(r'^/+'), '');
+    return Uri.https('t.me', handle.isEmpty ? '/' : '/$handle');
+  }
+
+  if (cleanKind == 'tiktok') {
+    var handle = trimmedUrl;
+    handle = handle.startsWith('@') ? handle.substring(1) : handle;
+    handle = handle.replaceFirst(RegExp(r'^(www\.)?tiktok\.com/?'), '');
+    handle = handle.replaceAll(RegExp(r'^/+'), '');
+    final path = handle.startsWith('@') ? handle : '@$handle';
+    return Uri.https('www.tiktok.com', handle.isEmpty ? '/' : '/$path');
+  }
+
+  if (cleanKind == 'instagram' ||
+      (cleanKind.isEmpty && lower.startsWith('@')) ||
+      lower.startsWith('instagram.com/') ||
+      lower.startsWith('www.instagram.com/')) {
+    return instagramContactUri(trimmedUrl);
+  }
+
+  if (lower.startsWith('www.') ||
+      lower.startsWith('t.me/') ||
+      lower.startsWith('telegram.me/') ||
+      lower.startsWith('tiktok.com/') ||
+      lower.startsWith('instagram.com/')) {
+    return Uri.tryParse('https://$trimmedUrl');
+  }
+
+  return null;
+}
+
+Future<void> launchExternalUrl(
+  BuildContext context,
+  String rawUrl, {
+  String? kind,
+}) async {
   final trimmedUrl = rawUrl.trim();
 
   if (trimmedUrl.isEmpty) {
@@ -24795,7 +25110,7 @@ Future<void> launchExternalUrl(BuildContext context, String rawUrl) async {
     return;
   }
 
-  final uri = Uri.tryParse(trimmedUrl);
+  final uri = normalizedExternalUri(trimmedUrl, kind: kind);
 
   if (uri == null || !uri.hasScheme) {
     ScaffoldMessenger.of(context).showSnackBar(
@@ -25091,7 +25406,7 @@ class _SpotPhotoGalleryScreenState extends State<SpotPhotoGalleryScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.transparent,
+      backgroundColor: Colors.black,
       body: Stack(
         children: [
           if (sources.isEmpty)
@@ -30327,6 +30642,7 @@ class _ChatScreenState extends State<ChatScreen> {
     required String emptyText,
     required List<ChatThreadData> chats,
     required String currentUid,
+    required Map<String, int> unreadCountsByChatId,
   }) {
     return Container(
       padding: const EdgeInsets.all(14),
@@ -30353,6 +30669,7 @@ class _ChatScreenState extends State<ChatScreen> {
                 chat: chat,
                 currentUid: currentUid,
                 pinned: pinnedChatIds.contains(chat.id),
+                unreadCount: unreadCountsByChatId[chat.id] ?? 0,
               ),
               const SizedBox(height: 10),
             ],
@@ -30403,120 +30720,146 @@ class _ChatScreenState extends State<ChatScreen> {
           chats.where((chat) => chat.isGroup).toList(),
         );
 
-        final body = ListView(
-          padding: const EdgeInsets.fromLTRB(20, 18, 20, 92),
-          children: [
-            Row(
+        return ValueListenableBuilder<Map<String, int>>(
+          valueListenable: chatUnreadCountsByChatId,
+          builder: (context, unreadCountsByChatId, _) {
+            final directUnreadCount = directChats.fold<int>(
+              0,
+              (total, chat) => total + (unreadCountsByChatId[chat.id] ?? 0),
+            );
+            final groupUnreadCount = groupChats.fold<int>(
+              0,
+              (total, chat) => total + (unreadCountsByChatId[chat.id] ?? 0),
+            );
+
+            final body = ListView(
+              padding: const EdgeInsets.fromLTRB(20, 18, 20, 92),
               children: [
-                const Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Chat',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 34,
-                          fontWeight: FontWeight.w900,
-                        ),
+                Row(
+                  children: [
+                    const Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Chat',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 34,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                          SizedBox(height: 6),
+                          Text(
+                            'Messages with friends and groups',
+                            style: TextStyle(
+                              color: Colors.white54,
+                              height: 1.35,
+                            ),
+                          ),
+                        ],
                       ),
-                      SizedBox(height: 6),
-                      Text(
-                        'Messages with friends and groups',
-                        style: TextStyle(color: Colors.white54, height: 1.35),
+                    ),
+                    IconButton.filled(
+                      onPressed: () => openNewChat(context),
+                      style: IconButton.styleFrom(
+                        backgroundColor: blue,
+                        foregroundColor: Colors.white,
+                      ),
+                      icon: const Icon(Icons.add),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 18),
+                SizedBox(
+                  width: double.infinity,
+                  child: SegmentedButton<bool>(
+                    segments: [
+                      ButtonSegment<bool>(
+                        value: false,
+                        icon: _SegmentBadgeIcon(
+                          icon: Icons.person_outline,
+                          count: directUnreadCount,
+                        ),
+                        label: const Text('Chats'),
+                      ),
+                      ButtonSegment<bool>(
+                        value: true,
+                        icon: _SegmentBadgeIcon(
+                          icon: Icons.groups,
+                          count: groupUnreadCount,
+                        ),
+                        label: const Text('Groups'),
                       ),
                     ],
+                    selected: {showGroupsTab},
+                    onSelectionChanged: (value) {
+                      setState(() => showGroupsTab = value.first);
+                    },
+                    style: ButtonStyle(
+                      foregroundColor: WidgetStateProperty.resolveWith(
+                        (states) => states.contains(WidgetState.selected)
+                            ? Colors.white
+                            : Colors.white70,
+                      ),
+                      backgroundColor: WidgetStateProperty.resolveWith(
+                        (states) => states.contains(WidgetState.selected)
+                            ? blue
+                            : panel,
+                      ),
+                    ),
                   ),
                 ),
-                IconButton.filled(
-                  onPressed: () => openNewChat(context),
-                  style: IconButton.styleFrom(
-                    backgroundColor: blue,
-                    foregroundColor: Colors.white,
+                const SizedBox(height: 18),
+                if (snapshot.connectionState == ConnectionState.waiting)
+                  const Center(
+                    child: Padding(
+                      padding: EdgeInsets.all(24),
+                      child: CircularProgressIndicator(color: blue),
+                    ),
+                  )
+                else if (chats.isEmpty)
+                  const EmptyStateCard(
+                    icon: Icons.chat_bubble_outline,
+                    title: 'No chats yet',
+                    text: 'Start a chat with a friend or create a group.',
+                  )
+                else if (!showGroupsTab)
+                  chatSection(
+                    title: 'Chats',
+                    emptyText: 'No direct chats yet.',
+                    chats: directChats,
+                    currentUid: firebaseUser.uid,
+                    unreadCountsByChatId: unreadCountsByChatId,
+                  )
+                else
+                  chatSection(
+                    title: 'Groups',
+                    emptyText: 'No groups yet.',
+                    chats: groupChats,
+                    currentUid: firebaseUser.uid,
+                    unreadCountsByChatId: unreadCountsByChatId,
                   ),
-                  icon: const Icon(Icons.add),
-                ),
               ],
-            ),
-            const SizedBox(height: 18),
-            SizedBox(
-              width: double.infinity,
-              child: SegmentedButton<bool>(
-                segments: const [
-                  ButtonSegment<bool>(
-                    value: false,
-                    icon: Icon(Icons.person_outline),
-                    label: Text('Chats'),
-                  ),
-                  ButtonSegment<bool>(
-                    value: true,
-                    icon: Icon(Icons.groups),
-                    label: Text('Groups'),
-                  ),
-                ],
-                selected: {showGroupsTab},
-                onSelectionChanged: (value) {
-                  setState(() => showGroupsTab = value.first);
-                },
-                style: ButtonStyle(
-                  foregroundColor: WidgetStateProperty.resolveWith(
-                    (states) => states.contains(WidgetState.selected)
-                        ? Colors.white
-                        : Colors.white70,
-                  ),
-                  backgroundColor: WidgetStateProperty.resolveWith(
-                    (states) =>
-                        states.contains(WidgetState.selected) ? blue : panel,
-                  ),
-                ),
-              ),
-            ),
-            const SizedBox(height: 18),
-            if (snapshot.connectionState == ConnectionState.waiting)
-              const Center(
-                child: Padding(
-                  padding: EdgeInsets.all(24),
-                  child: CircularProgressIndicator(color: blue),
-                ),
-              )
-            else if (chats.isEmpty)
-              const EmptyStateCard(
-                icon: Icons.chat_bubble_outline,
-                title: 'No chats yet',
-                text: 'Start a chat with a friend or create a group.',
-              )
-            else if (!showGroupsTab)
-              chatSection(
-                title: 'Chats',
-                emptyText: 'No direct chats yet.',
-                chats: directChats,
-                currentUid: firebaseUser.uid,
-              )
-            else
-              chatSection(
-                title: 'Groups',
-                emptyText: 'No groups yet.',
-                chats: groupChats,
-                currentUid: firebaseUser.uid,
-              ),
-          ],
-        );
+            );
 
-        return Scaffold(
-          backgroundColor: Colors.transparent,
-          appBar: AppBar(
-            title: const CcsAppBarLogo(),
-            backgroundColor: Colors.transparent,
-            foregroundColor: blue,
-            actions: ccsAppBarActions(),
-          ),
-          floatingActionButton: FloatingActionButton(
-            onPressed: () => openChatManager(context, chats),
-            backgroundColor: blue,
-            foregroundColor: Colors.white,
-            child: const Icon(Icons.tune),
-          ),
-          body: body,
+            return Scaffold(
+              backgroundColor: Colors.transparent,
+              appBar: AppBar(
+                title: const CcsAppBarLogo(),
+                backgroundColor: Colors.transparent,
+                foregroundColor: blue,
+                actions: ccsAppBarActions(),
+              ),
+              floatingActionButton: FloatingActionButton(
+                onPressed: () => openChatManager(context, chats),
+                backgroundColor: blue,
+                foregroundColor: Colors.white,
+                child: const Icon(Icons.tune),
+              ),
+              body: body,
+            );
+          },
         );
       },
     );
@@ -30665,16 +31008,35 @@ Future<bool> confirmAndRemoveChat(
   }
 }
 
+class _SegmentBadgeIcon extends StatelessWidget {
+  final IconData icon;
+  final int count;
+
+  const _SegmentBadgeIcon({required this.icon, required this.count});
+
+  @override
+  Widget build(BuildContext context) {
+    return Badge(
+      isLabelVisible: count > 0,
+      backgroundColor: Colors.redAccent,
+      label: Text(compactBadgeLabel(count)),
+      child: Icon(icon),
+    );
+  }
+}
+
 class ChatThreadTile extends StatefulWidget {
   final ChatThreadData chat;
   final String currentUid;
   final bool pinned;
+  final int unreadCount;
 
   const ChatThreadTile({
     super.key,
     required this.chat,
     required this.currentUid,
     this.pinned = false,
+    this.unreadCount = 0,
   });
 
   @override
@@ -30688,6 +31050,7 @@ class _ChatThreadTileState extends State<ChatThreadTile> {
   ChatThreadData get chat => widget.chat;
   String get currentUid => widget.currentUid;
   bool get pinned => widget.pinned;
+  int get unreadCount => widget.unreadCount;
 
   void _ensureDirectUserPresenceStream(String uid) {
     if (_directUserPresenceUid == uid && _directUserPresenceStream != null) {
@@ -30752,6 +31115,12 @@ class _ChatThreadTileState extends State<ChatThreadTile> {
   }
 
   Widget subtitleLine(String subtitle, FriendUserData? directUser) {
+    final unread = unreadCount > 0;
+    final textStyle = TextStyle(
+      color: unread ? Colors.white70 : Colors.white54,
+      fontWeight: unread ? FontWeight.w800 : FontWeight.w400,
+    );
+
     if (!chat.isGroup) {
       return Row(
         children: [
@@ -30763,7 +31132,7 @@ class _ChatThreadTileState extends State<ChatThreadTile> {
                 subtitle,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: const TextStyle(color: Colors.white54),
+                style: textStyle,
               ),
             ),
           ],
@@ -30775,7 +31144,7 @@ class _ChatThreadTileState extends State<ChatThreadTile> {
       subtitle,
       maxLines: 1,
       overflow: TextOverflow.ellipsis,
-      style: const TextStyle(color: Colors.white54),
+      style: textStyle,
     );
   }
 
@@ -30787,6 +31156,7 @@ class _ChatThreadTileState extends State<ChatThreadTile> {
 
     return InkWell(
       onTap: () {
+        unawaited(markChatNotificationsRead(chat.id));
         Navigator.push(
           context,
           appPageRoute(builder: (_) => ChatConversationScreen(chat: chat)),
@@ -30836,6 +31206,24 @@ class _ChatThreadTileState extends State<ChatThreadTile> {
                 ],
               ),
             ),
+            if (unreadCount > 0) ...[
+              const SizedBox(width: 10),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: Colors.redAccent,
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Text(
+                  compactBadgeLabel(unreadCount),
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 10.5,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+            ],
             PopupMenuButton<String>(
               color: panel,
               icon: const Icon(Icons.more_horiz, color: Colors.white54),
@@ -32448,6 +32836,7 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
   void initState() {
     super.initState();
     chatScrollController.addListener(_onScroll);
+    markCurrentChatNotificationsRead();
     unawaited(_loadInitialMessages());
   }
 
@@ -32468,6 +32857,21 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
     if (oldest != null) {
       _chatOldestMessageDocSessionCache[widget.chat.id] = oldest;
     }
+  }
+
+  void markCurrentChatNotificationsRead({Duration delay = Duration.zero}) {
+    if (delay == Duration.zero) {
+      unawaited(markChatNotificationsRead(widget.chat.id));
+      return;
+    }
+
+    Future<void>.delayed(delay, () async {
+      if (!mounted) {
+        return;
+      }
+
+      await markChatNotificationsRead(widget.chat.id);
+    });
   }
 
   void _mergeMessages(Iterable<ChatMessageData> incoming) {
@@ -32540,6 +32944,7 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
       });
       _cacheMessages();
       scheduleScrollToLatestMessage();
+      markCurrentChatNotificationsRead();
       _startNewMessagesListener();
     } catch (error, stack) {
       debugPrint('Initial chat messages could not load: $error');
@@ -32583,6 +32988,7 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
                 .toList();
 
             setState(() => _mergeMessages(incoming));
+            markCurrentChatNotificationsRead(delay: const Duration(seconds: 1));
             if (shouldFollow || scrollToLatestAfterNextMessage) {
               scheduleScrollToLatestMessage(animated: true);
             }
@@ -32724,6 +33130,7 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
         text: text,
         chat: widget.chat,
       );
+      markCurrentChatNotificationsRead(delay: const Duration(seconds: 1));
       messageController.clear();
       scrollToLatestAfterNextMessage = true;
       scheduleScrollToLatestMessage(animated: true);
@@ -34957,7 +35364,7 @@ class PublicUserProfileScreen extends StatelessWidget {
           initial,
           style: const TextStyle(
             color: blue,
-            fontSize: 30,
+            fontSize: 24,
             fontWeight: FontWeight.w900,
           ),
         ),
@@ -34965,8 +35372,8 @@ class PublicUserProfileScreen extends StatelessWidget {
     }
 
     return Container(
-      width: 86,
-      height: 86,
+      width: 68,
+      height: 68,
       decoration: BoxDecoration(
         color: blue.withValues(alpha: 0.18),
         shape: BoxShape.circle,
@@ -34991,163 +35398,149 @@ class PublicUserProfileScreen extends StatelessWidget {
       return const SizedBox.shrink();
     }
 
-    final isAdminRole = userRoleIsAdmin(role);
-    final label = isAdminRole ? 'Admin' : 'Moderator';
-    final color = isAdminRole ? Colors.redAccent : blue;
-    final icon = isAdminRole
-        ? Icons.admin_panel_settings
-        : Icons.shield_outlined;
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.14),
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: color.withValues(alpha: 0.78)),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, color: color, size: 15),
-          const SizedBox(width: 5),
-          Text(
-            label,
-            style: TextStyle(
-              color: color,
-              fontSize: 12,
-              fontWeight: FontWeight.w900,
-              letterSpacing: 0.4,
-            ),
-          ),
-        ],
-      ),
-    );
+    return _ProfileRoleBadge(role: role);
   }
 
   Widget profileHeader(PublicUserProfileData profile) {
+    final visibleGarageCount = profile.settings.showGarage
+        ? profile.garage.length
+        : 0;
+    final garageValue = visibleGarageCount == 1
+        ? '1 car'
+        : '$visibleGarageCount cars';
+    final statusValue = trText(profile.appearsOnline ? 'online' : 'offline');
+    final socialButtons = <Widget>[
+      if (profile.settings.instagram.trim().isNotEmpty)
+        _CompactSocialLinkButton(
+          icon: Icons.camera_alt,
+          label: 'Instagram',
+          value: profile.settings.instagram,
+        ),
+      if (profile.settings.tiktok.trim().isNotEmpty)
+        _CompactSocialLinkButton(
+          icon: Icons.music_note,
+          label: 'TikTok',
+          value: profile.settings.tiktok,
+        ),
+      if (profile.settings.telegram.trim().isNotEmpty)
+        _CompactSocialLinkButton(
+          icon: Icons.send,
+          label: 'Telegram',
+          value: profile.settings.telegram,
+        ),
+    ];
+    final showActions = profile.uid != currentUser.uid;
+
     return Container(
-      padding: const EdgeInsets.all(18),
+      padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: panelGlass,
-        borderRadius: BorderRadius.circular(22),
+        borderRadius: BorderRadius.circular(18),
         border: Border.all(color: Colors.white12),
       ),
-      child: Row(
+      child: Column(
         children: [
-          avatar(profile),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Flexible(
-                      child: Text(
-                        profile.username,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 25,
-                          fontWeight: FontWeight.w900,
-                        ),
-                      ),
-                    ),
-                    if (profile.verified) ...[
-                      const SizedBox(width: 8),
-                      const Icon(Icons.verified, color: blue, size: 19),
-                    ],
-                  ],
-                ),
-                if (userRoleIsStaff(profile.role)) ...[
-                  const SizedBox(height: 8),
-                  staffRoleBadge(profile.role),
-                ],
-                const SizedBox(height: 7),
-                Column(
+          Row(
+            children: [
+              avatar(profile),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Row(
-                      mainAxisSize: MainAxisSize.min,
                       children: [
-                        Container(
-                          width: 9,
-                          height: 9,
-                          decoration: BoxDecoration(
-                            color: profile.appearsOnline
-                                ? Colors.greenAccent
-                                : Colors.white38,
-                            shape: BoxShape.circle,
-                            boxShadow: profile.appearsOnline
-                                ? [
-                                    BoxShadow(
-                                      color: Colors.greenAccent.withValues(
-                                        alpha: 0.38,
-                                      ),
-                                      blurRadius: 9,
-                                      spreadRadius: 1,
-                                    ),
-                                  ]
-                                : const [],
+                        Expanded(
+                          child: Row(
+                            children: [
+                              Flexible(
+                                child: Text(
+                                  profile.username,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 22,
+                                    fontWeight: FontWeight.w900,
+                                  ),
+                                ),
+                              ),
+                              if (profile.verified) ...[
+                                const SizedBox(width: 6),
+                                const Icon(
+                                  Icons.verified,
+                                  color: blue,
+                                  size: 18,
+                                ),
+                              ],
+                            ],
                           ),
                         ),
-                        const SizedBox(width: 8),
-                        Text(
-                          trText(profile.appearsOnline ? 'online' : 'offline'),
-                          style: TextStyle(
-                            color: profile.appearsOnline
-                                ? Colors.greenAccent
-                                : Colors.white54,
-                            fontSize: 12,
-                            fontWeight: FontWeight.w900,
-                            letterSpacing: 0.4,
-                          ),
-                        ),
+                        if (userRoleIsStaff(profile.role)) ...[
+                          const SizedBox(width: 8),
+                          staffRoleBadge(profile.role),
+                        ],
                       ],
                     ),
-                    const SizedBox(height: 3),
+                    const SizedBox(height: 4),
                     Text(
-                      lastOnlineLabelFromMillis(profile.lastSeenAtMillis),
+                      profile.bio,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: Colors.white54,
-                        fontSize: 11.5,
-                        fontWeight: FontWeight.w800,
-                        letterSpacing: 0.2,
-                      ),
+                      style: const TextStyle(color: Colors.white54),
                     ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  profile.bio,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(color: Colors.white54, height: 1.3),
-                ),
-                const SizedBox(height: 10),
-                Row(
-                  children: [
-                    const Icon(Icons.location_on, color: blue, size: 16),
-                    const SizedBox(width: 4),
-                    Expanded(
-                      child: Text(
-                        profile.cityCountry,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: Colors.white70,
-                          fontWeight: FontWeight.w700,
+                    const SizedBox(height: 8),
+                    SizedBox(
+                      width: double.infinity,
+                      child: FittedBox(
+                        fit: BoxFit.scaleDown,
+                        alignment: Alignment.centerLeft,
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            _MiniProfileInfoChip(
+                              icon: Icons.location_on,
+                              label: profile.cityCountry,
+                            ),
+                            const SizedBox(width: 6),
+                            _MiniProfileInfoChip(
+                              icon: Icons.directions_car,
+                              label: garageValue,
+                            ),
+                            const SizedBox(width: 6),
+                            _MiniProfileInfoChip(
+                              icon: profile.appearsOnline
+                                  ? Icons.radio_button_checked
+                                  : Icons.radio_button_unchecked,
+                              label: statusValue,
+                            ),
+                          ],
                         ),
                       ),
                     ),
                   ],
                 ),
+              ),
+            ],
+          ),
+          if (socialButtons.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                for (var index = 0; index < socialButtons.length; index++) ...[
+                  if (index > 0) const SizedBox(width: 7),
+                  Expanded(child: socialButtons[index]),
+                ],
               ],
             ),
-          ),
+          ],
+          if (showActions) ...[
+            const SizedBox(height: 10),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: PublicProfileActions(profile: profile),
+            ),
+          ],
         ],
       ),
     );
@@ -35359,14 +35752,10 @@ class PublicUserProfileScreen extends StatelessWidget {
         : const <GarageCar>[];
 
     return ListView(
-      padding: const EdgeInsets.fromLTRB(12, 18, 12, 28),
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 24),
       children: [
         profileHeader(profile),
         const SizedBox(height: 12),
-        PublicProfileActions(profile: profile),
-        const SizedBox(height: 16),
-        socialLinks(profile),
-        const SizedBox(height: 16),
         if (visibleGarage.isEmpty)
           const EmptyStateCard(
             icon: Icons.directions_car,
@@ -35384,16 +35773,13 @@ class PublicUserProfileScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final title = fallbackUsername.trim().isEmpty
-        ? 'Profile'
-        : '@${fallbackUsername.replaceAll('@', '')}';
-
     return Scaffold(
       backgroundColor: Colors.transparent,
       appBar: AppBar(
-        title: Text(title),
+        title: const CcsAppBarLogo(),
         backgroundColor: Colors.transparent,
         foregroundColor: blue,
+        actions: ccsAppBarActions(),
       ),
       body: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
         stream: usersCollection()
@@ -37005,7 +37391,7 @@ class _CompactSocialLinkButton extends StatelessWidget {
     return Tooltip(
       message: label,
       child: InkWell(
-        onTap: () => launchExternalUrl(context, value.trim()),
+        onTap: () => launchExternalUrl(context, value.trim(), kind: label),
         borderRadius: BorderRadius.circular(9),
         child: Container(
           height: 34,
@@ -37060,7 +37446,7 @@ class _SocialLinkRow extends StatelessWidget {
     }
 
     return InkWell(
-      onTap: () => launchExternalUrl(context, cleanValue),
+      onTap: () => launchExternalUrl(context, cleanValue, kind: label),
       borderRadius: BorderRadius.circular(12),
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 5),
@@ -37990,6 +38376,18 @@ class _EditGarageScreenState extends State<EditGarageScreen> {
     setState(() => photoPaths = [...photoPaths]..removeAt(index));
   }
 
+  void makeCarPhotoCover(int index) {
+    if (index <= 0 || index >= photoPaths.length) {
+      return;
+    }
+
+    final nextPhotos = [...photoPaths];
+    final selectedPhoto = nextPhotos.removeAt(index);
+    nextPhotos.insert(0, selectedPhoto);
+
+    setState(() => photoPaths = nextPhotos.take(maxGaragePhotos).toList());
+  }
+
   void saveCar() {
     final cleanPhotos = photoPaths
         .map((source) => source.trim())
@@ -38033,6 +38431,7 @@ class _EditGarageScreenState extends State<EditGarageScreen> {
                 photoPaths: photoPaths,
                 onAddPhoto: chooseCarPhoto,
                 onRemovePhoto: removeCarPhoto,
+                onMakeCover: makeCarPhotoCover,
               ),
             ],
           ),
@@ -38081,11 +38480,13 @@ class _GaragePhotoPickerField extends StatelessWidget {
   final List<String> photoPaths;
   final VoidCallback onAddPhoto;
   final ValueChanged<int> onRemovePhoto;
+  final ValueChanged<int> onMakeCover;
 
   const _GaragePhotoPickerField({
     required this.photoPaths,
     required this.onAddPhoto,
     required this.onRemovePhoto,
+    required this.onMakeCover,
   });
 
   @override
@@ -38140,8 +38541,8 @@ class _GaragePhotoPickerField extends StatelessWidget {
                       const SizedBox(height: 4),
                       Text(
                         canAddMore
-                            ? 'Add up to 4 car photos. The first photo becomes the garage cover.'
-                            : 'Maximum 4 photos selected. First photo is the garage cover.',
+                            ? 'Add up to 4 car photos. Tap Set to choose the cover.'
+                            : 'Maximum 4 photos selected. Tap Set to choose the cover.',
                         style: const TextStyle(
                           color: Colors.white54,
                           height: 1.3,
@@ -38196,23 +38597,41 @@ class _GaragePhotoPickerField extends StatelessWidget {
                     Positioned(
                       left: 6,
                       bottom: 6,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 7,
-                          vertical: 4,
-                        ),
-                        decoration: BoxDecoration(
-                          color: index == 0
-                              ? blue.withValues(alpha: 0.9)
-                              : Colors.black.withValues(alpha: 0.65),
-                          borderRadius: BorderRadius.circular(999),
-                        ),
-                        child: Text(
-                          index == 0 ? 'Cover' : '${index + 1}',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 10.5,
-                            fontWeight: FontWeight.w900,
+                      child: InkWell(
+                        onTap: index == 0 ? null : () => onMakeCover(index),
+                        borderRadius: BorderRadius.circular(999),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 7,
+                            vertical: 4,
+                          ),
+                          decoration: BoxDecoration(
+                            color: index == 0
+                                ? blue.withValues(alpha: 0.9)
+                                : Colors.black.withValues(alpha: 0.72),
+                            borderRadius: BorderRadius.circular(999),
+                            border: index == 0
+                                ? null
+                                : Border.all(color: Colors.white24),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                index == 0 ? Icons.star : Icons.star_border,
+                                color: Colors.white,
+                                size: 11,
+                              ),
+                              const SizedBox(width: 3),
+                              Text(
+                                index == 0 ? 'Cover' : 'Set',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 10.5,
+                                  fontWeight: FontWeight.w900,
+                                ),
+                              ),
+                            ],
                           ),
                         ),
                       ),

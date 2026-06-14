@@ -23,6 +23,7 @@ class MainActivity : FlutterActivity() {
     private val screenAwakeChannelName = "ccs/screen_awake"
     private val notificationsChannelName = "ccs/system_notifications"
     private val liveLocationChannelName = "ccs/live_location_background"
+    private val appBadgeChannelName = "ccs/app_badge"
     private val notificationChannelId = "ccs_updates"
     private val pickPhotoRequestCode = 7001
     private var pendingPhotoResult: MethodChannel.Result? = null
@@ -73,7 +74,20 @@ class MainActivity : FlutterActivity() {
                         val title = call.argument<String>("title") ?: "CCS"
                         val body = call.argument<String>("body") ?: ""
                         val id = call.argument<Int>("id") ?: System.currentTimeMillis().toInt()
-                        showNotification(id, title, body)
+                        val badgeCount = call.argument<Int>("badgeCount") ?: 1
+                        showNotification(id, title, body, badgeCount)
+                        result.success(null)
+                    }
+                    else -> result.notImplemented()
+                }
+            }
+
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, appBadgeChannelName)
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "setBadgeCount" -> {
+                        val count = call.argument<Int>("count") ?: 0
+                        setAppBadgeCount(count)
                         result.success(null)
                     }
                     else -> result.notImplemented()
@@ -137,12 +151,13 @@ class MainActivity : FlutterActivity() {
             NotificationManager.IMPORTANCE_HIGH
         ).apply {
             description = "Spot, comment, like and chat notifications"
+            setShowBadge(true)
         }
 
         manager.createNotificationChannel(channel)
     }
 
-    private fun showNotification(id: Int, title: String, body: String) {
+    private fun showNotification(id: Int, title: String, body: String, badgeCount: Int = 1) {
         val launchIntent = packageManager.getLaunchIntentForPackage(packageName)
         val contentIntent = launchIntent?.let {
             PendingIntent.getActivity(
@@ -165,10 +180,22 @@ class MainActivity : FlutterActivity() {
             .setContentText(body)
             .setStyle(Notification.BigTextStyle().bigText(body))
             .setAutoCancel(true)
+            .setNumber(badgeCount.coerceAtLeast(1))
             .setContentIntent(contentIntent)
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            builder.setBadgeIconType(Notification.BADGE_ICON_SMALL)
+        }
 
         val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         manager.notify(id, builder.build())
+    }
+
+    private fun setAppBadgeCount(count: Int) {
+        if (count <= 0) {
+            val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            manager.cancelAll()
+        }
     }
 
     private fun openPhotoPicker(result: MethodChannel.Result) {
