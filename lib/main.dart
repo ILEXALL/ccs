@@ -1765,7 +1765,11 @@ const _ruText = <String, String>{
   'Instagram / TikTok video link': 'Ссылка на видео Instagram / TikTok',
   'Added by': 'Добавил',
   'Starts at': 'Начинается',
+  'Starting at': 'Начинается',
   'Ends at': 'Заканчивается',
+  'Location available': 'Локация доступна',
+  'Location will be available at': 'Локация будет доступна',
+  'Location not available yet': 'Локация пока недоступна',
   'Choose Location': 'Выбрать место',
   'Service Info': 'Данные сервиса',
   'My Submissions': 'Мои заявки',
@@ -2492,7 +2496,11 @@ const _lvText = <String, String>{
   'Instagram / TikTok video link': 'Instagram / TikTok video saite',
   'Added by': 'Pievienoja',
   'Starts at': 'Sākas',
+  'Starting at': 'Sākas',
   'Ends at': 'Beidzas',
+  'Location available': 'Atrašanās vieta ir pieejama',
+  'Location will be available at': 'Atrašanās vieta būs pieejama',
+  'Location not available yet': 'Atrašanās vieta vēl nav pieejama',
   'Choose Location': 'Izvēlēties vietu',
   'Service Info': 'Servisa informācija',
   'My Submissions': 'Mani pieteikumi',
@@ -6025,8 +6033,6 @@ Future<AppUser> saveFirebaseUser(
     'lastDeviceId': appDeviceId,
     'lastDevicePlatform': Platform.operatingSystem,
     'lastDeviceSeenAt': FieldValue.serverTimestamp(),
-    'isOnline': true,
-    'lastSeenAt': FieldValue.serverTimestamp(),
     'updatedAt': FieldValue.serverTimestamp(),
   };
 
@@ -7081,7 +7087,7 @@ class CarSpot {
       return '';
     }
 
-    return 'starts at ${formatClockTime(DateTime.fromMillisecondsSinceEpoch(startsAt))}';
+    return '${trText('Starts at')} ${formatShortDateTime(DateTime.fromMillisecondsSinceEpoch(startsAt))}';
   }
 
   String get temporaryStartingAtLabel {
@@ -7090,7 +7096,7 @@ class CarSpot {
       return '';
     }
 
-    return 'starting at ${formatClockTime(DateTime.fromMillisecondsSinceEpoch(startsAt))}';
+    return '${trText('Starting at')} ${formatShortDateTime(DateTime.fromMillisecondsSinceEpoch(startsAt))}';
   }
 
   String get temporaryLocationAvailableAtLabel {
@@ -7100,15 +7106,11 @@ class CarSpot {
     }
 
     if (isTemporaryLocationAvailableNow) {
-      return 'location available';
+      return trText('Location available');
     }
 
     final revealDate = DateTime.fromMillisecondsSinceEpoch(revealAt);
-    final now = DateTime.now();
-    final revealText = isSameLocalDate(now, revealDate)
-        ? formatClockTime(revealDate)
-        : formatShortDateTime(revealDate);
-    return 'location will be available at $revealText';
+    return '${trText('Location will be available at')} ${formatShortDateTime(revealDate)}';
   }
 
   String get temporaryEndsAtLabel {
@@ -7117,7 +7119,7 @@ class CarSpot {
       return '';
     }
 
-    return 'ends at ${formatClockTime(DateTime.fromMillisecondsSinceEpoch(expiresAt))}';
+    return '${trText('Ends at')} ${formatShortDateTime(DateTime.fromMillisecondsSinceEpoch(expiresAt))}';
   }
 
   String get temporaryTodayLabel {
@@ -7434,6 +7436,14 @@ bool localFileExists(String? path) {
 
 CollectionReference<Map<String, dynamic>> usersCollection() {
   return FirebaseFirestore.instance.collection('users');
+}
+
+CollectionReference<Map<String, dynamic>> userPresenceCollection() {
+  return FirebaseFirestore.instance.collection('user_presence');
+}
+
+DocumentReference<Map<String, dynamic>> userPresenceDocument(String uid) {
+  return userPresenceCollection().doc(uid);
 }
 
 CollectionReference<Map<String, dynamic>> deviceBansCollection() {
@@ -8389,6 +8399,36 @@ class FriendUserData {
     this.liveLocationVisibleToUserIds = const [],
   });
 
+  FriendUserData withPresenceFromMap(Map<String, dynamic>? data) {
+    if (data == null) {
+      return this;
+    }
+
+    return FriendUserData(
+      uid: uid,
+      username: username,
+      name: name,
+      email: email,
+      photoUrl: photoUrl,
+      avatarPath: avatarPath,
+      verified: verified,
+      role: role,
+      banned: banned,
+      bannedUntilMillis: bannedUntilMillis,
+      deleted: deleted,
+      isOnline: data['isOnline'] == true,
+      lastSeenAtMillis: timestampMillisFromFirebase(data['lastSeenAt']),
+      isSharingLiveLocation: data['isSharingLiveLocation'] == true,
+      liveLocationExpiresAtMillis: nullableTimestampMillisFromFirebase(
+        data['liveLocationExpiresAt'],
+      ),
+      liveLocationVisibleToUserIds: stringListFromFirebase(
+        data['liveLocationVisibleToUserIds'],
+        liveLocationVisibleToUserIds,
+      ),
+    );
+  }
+
   bool get canSeeLiveLocationPresence {
     final currentUid =
         FirebaseAuth.instance.currentUser?.uid ?? currentUser.uid;
@@ -8867,7 +8907,13 @@ Future<List<FriendUserData>> loadCurrentFriendUsers() async {
   for (final uid in friendUids) {
     final snapshot = await usersCollection().doc(uid).debugGet();
     if (snapshot.exists) {
-      final user = FriendUserData.fromFirestore(snapshot);
+      var user = FriendUserData.fromFirestore(snapshot);
+      try {
+        final presenceSnapshot = await userPresenceDocument(
+          uid,
+        ).debugGet(null, 'friends: current friend presence get');
+        user = user.withPresenceFromMap(presenceSnapshot.data());
+      } catch (_) {}
       if (user.canAppearInUserLists) {
         friends.add(user);
       }
@@ -9703,14 +9749,14 @@ Future<void> shareChatLiveLocation(
     'updatedAt': FieldValue.serverTimestamp(),
   }, SetOptions(merge: true));
 
-  await usersCollection().doc(firebaseUser.uid).debugSet({
+  await updateCurrentUserPresenceFields({
     'isSharingLiveLocation': true,
     'liveLocationExpiresAt': Timestamp.fromDate(expiresAt),
     'liveLocationShareDurationMinutes': shareDuration.inMinutes,
     'liveLocationVisibleToUserIds': visibleToUserIds,
     'lastSeenAt': FieldValue.serverTimestamp(),
     'isOnline': true,
-  }, SetOptions(merge: true));
+  }, label: 'presence: current user live location started');
 
   await sendChatMessage(
     chatId: chat.id,
@@ -10865,7 +10911,10 @@ String lastOnlineLabelFromMillis(int lastSeenAtMillis) {
   return '${trText('Last online on')} $date $time';
 }
 
-Future<void> updateCurrentUserOnlinePresence({required bool isOnline}) async {
+Future<void> updateCurrentUserPresenceFields(
+  Map<String, Object?> data, {
+  String label = 'presence: current user update',
+}) async {
   final firebaseUser = FirebaseAuth.instance.currentUser;
 
   if (firebaseUser == null) {
@@ -10873,13 +10922,23 @@ Future<void> updateCurrentUserOnlinePresence({required bool isOnline}) async {
   }
 
   try {
-    await usersCollection().doc(firebaseUser.uid).debugSet({
-      'isOnline': isOnline,
-      'lastSeenAt': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
+    await userPresenceDocument(firebaseUser.uid).debugSet(
+      {...data, 'updatedAt': FieldValue.serverTimestamp()},
+      SetOptions(merge: true),
+      label,
+    );
   } catch (_) {
     // Presence should never block the app if Firebase temporarily fails.
   }
+}
+
+Future<void> updateCurrentUserOnlinePresence({required bool isOnline}) async {
+  await updateCurrentUserPresenceFields(
+    {'isOnline': isOnline, 'lastSeenAt': FieldValue.serverTimestamp()},
+    label: isOnline
+        ? 'presence: current user heartbeat'
+        : 'presence: current user offline',
+  );
 }
 
 CollectionReference<Map<String, dynamic>> spotsCollection() {
@@ -16420,7 +16479,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     unawaited(initializePushNotificationsForCurrentUser());
     startNotificationCenterUnreadWatcher();
     updateCurrentUserOnlinePresence(isOnline: true);
-    onlinePresenceRefreshTimer = Timer.periodic(const Duration(seconds: 20), (
+    onlinePresenceRefreshTimer = Timer.periodic(const Duration(seconds: 90), (
       _,
     ) {
       updateCurrentUserOnlinePresence(isOnline: true);
@@ -18275,7 +18334,7 @@ class UpcomingTemporarySpotNewsCard extends StatelessWidget {
         : DateTime.fromMillisecondsSinceEpoch(spot.expiresAtMillis!);
     final timeWindow = startsAt == null || endsAt == null
         ? spot.temporaryTimeLabel
-        : '${formatClockTime(startsAt)} - ${formatClockTime(endsAt)}';
+        : '${formatShortDateTime(startsAt)} - ${formatShortDateTime(endsAt)}';
     final description = spot.description.trim();
 
     return InkWell(
@@ -21000,14 +21059,13 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     }, SetOptions(merge: true));
 
     try {
-      await usersCollection().doc(firebaseUser.uid).debugSet({
+      await updateCurrentUserPresenceFields({
         'isSharingLiveLocation': true,
         'liveLocationExpiresAt': Timestamp.fromDate(expiresAt),
         'liveLocationVisibleToUserIds': visibleToUserIds,
         'lastSeenAt': FieldValue.serverTimestamp(),
         'isOnline': true,
-        'updatedAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
+      }, label: 'presence: current user SOS live location started');
     } catch (error, stack) {
       debugPrint('SOS user live-location flag update failed: $error');
       debugPrint('$stack');
@@ -22779,7 +22837,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
       'updatedAt': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
 
-    await usersCollection().doc(firebaseUser.uid).debugSet({
+    await updateCurrentUserPresenceFields({
       'isSharingLiveLocation': true,
       'liveLocationExpiresAt': Timestamp.fromDate(expiresAt),
       'liveLocationShareDurationMinutes': duration.inMinutes,
@@ -22788,7 +22846,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
           : nextVisibleToUserIds,
       'lastSeenAt': FieldValue.serverTimestamp(),
       'isOnline': true,
-    }, SetOptions(merge: true));
+    }, label: 'presence: current user live location heartbeat');
 
     if (mounted) {
       scheduleLiveLocationTimers();
@@ -22810,12 +22868,12 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
 
     if (firebaseUser != null) {
       await liveLocationsCollection().doc(firebaseUser.uid).debugDelete();
-      await usersCollection().doc(firebaseUser.uid).debugSet({
+      await updateCurrentUserPresenceFields({
         'isSharingLiveLocation': false,
         'liveLocationExpiresAt': null,
         'liveLocationShareDurationMinutes': null,
         'liveLocationVisibleToUserIds': [],
-      }, SetOptions(merge: true));
+      }, label: 'presence: current user live location stopped');
     }
 
     if (!mounted) {
@@ -25536,11 +25594,14 @@ class _SpotDetailScreenState extends State<SpotDetailScreen> {
   void showSpotOnMap() {
     if (spot.isTemporary && !spot.isTemporaryLocationAvailableNow) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
+        SnackBar(
           backgroundColor: Colors.redAccent,
           content: Text(
-            'Location not available yet',
-            style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+            trText('Location not available yet'),
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w700,
+            ),
           ),
         ),
       );
@@ -26450,7 +26511,7 @@ class SpotRouteActions extends StatelessWidget {
                 const SizedBox(width: 6),
                 Expanded(
                   child: Text(
-                    'Location not available yet',
+                    trText('Location not available yet'),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
@@ -31059,9 +31120,9 @@ class _ChatThreadTileState extends State<ChatThreadTile> {
     }
 
     _directUserPresenceUid = uid;
-    _directUserPresenceStream = usersCollection()
-        .doc(uid)
-        .debugSnapshots('chat: list direct user presence listener');
+    _directUserPresenceStream = userPresenceDocument(
+      uid,
+    ).debugSnapshots('chat: list direct user presence listener');
   }
 
   @override
@@ -31281,8 +31342,9 @@ class _ChatThreadTileState extends State<ChatThreadTile> {
     return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
       stream: _directUserPresenceStream,
       builder: (context, snapshot) {
-        final directUser =
-            friendUserFromSnapshot(snapshot.data) ?? fallbackUser;
+        final directUser = fallbackUser.withPresenceFromMap(
+          snapshot.data?.data(),
+        );
         return tile(context, directUser);
       },
     );
@@ -34151,6 +34213,8 @@ class PublicUserProfileData {
   );
 
   PublicUserProfileData copyWith({
+    bool? isOnline,
+    int? lastSeenAtMillis,
     bool? isSharingLiveLocation,
     int? liveLocationExpiresAtMillis,
   }) {
@@ -34169,8 +34233,8 @@ class PublicUserProfileData {
       settings: settings,
       garage: garage,
       deleted: deleted,
-      isOnline: isOnline,
-      lastSeenAtMillis: lastSeenAtMillis,
+      isOnline: isOnline ?? this.isOnline,
+      lastSeenAtMillis: lastSeenAtMillis ?? this.lastSeenAtMillis,
       isSharingLiveLocation:
           isSharingLiveLocation ?? this.isSharingLiveLocation,
       liveLocationExpiresAtMillis:
@@ -35409,7 +35473,6 @@ class PublicUserProfileScreen extends StatelessWidget {
     final garageValue = visibleGarageCount == 1
         ? '1 car'
         : '$visibleGarageCount cars';
-    final statusValue = trText(profile.appearsOnline ? 'online' : 'offline');
     final socialButtons = <Widget>[
       if (profile.settings.instagram.trim().isNotEmpty)
         _CompactSocialLinkButton(
@@ -35484,6 +35547,64 @@ class PublicUserProfileScreen extends StatelessWidget {
                       ],
                     ),
                     const SizedBox(height: 4),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Container(
+                              width: 9,
+                              height: 9,
+                              decoration: BoxDecoration(
+                                color: profile.appearsOnline
+                                    ? Colors.greenAccent
+                                    : Colors.white38,
+                                shape: BoxShape.circle,
+                                boxShadow: profile.appearsOnline
+                                    ? [
+                                        BoxShadow(
+                                          color: Colors.greenAccent.withValues(
+                                            alpha: 0.38,
+                                          ),
+                                          blurRadius: 9,
+                                          spreadRadius: 1,
+                                        ),
+                                      ]
+                                    : const [],
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              trText(
+                                profile.appearsOnline ? 'online' : 'offline',
+                              ),
+                              style: TextStyle(
+                                color: profile.appearsOnline
+                                    ? Colors.greenAccent
+                                    : Colors.white54,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w900,
+                                letterSpacing: 0.4,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          lastOnlineLabelFromMillis(profile.lastSeenAtMillis),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Colors.white54,
+                            fontSize: 11.5,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: 0.2,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
                     Text(
                       profile.bio,
                       maxLines: 1,
@@ -35507,13 +35628,6 @@ class PublicUserProfileScreen extends StatelessWidget {
                             _MiniProfileInfoChip(
                               icon: Icons.directions_car,
                               label: garageValue,
-                            ),
-                            const SizedBox(width: 6),
-                            _MiniProfileInfoChip(
-                              icon: profile.appearsOnline
-                                  ? Icons.radio_button_checked
-                                  : Icons.radio_button_unchecked,
-                              label: statusValue,
                             ),
                           ],
                         ),
@@ -35834,34 +35948,53 @@ class PublicUserProfileScreen extends StatelessWidget {
           }
 
           return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-            stream: liveLocationsCollection()
-                .doc(userId)
-                .debugSnapshots('profile: public live location listener'),
-            builder: (context, liveSnapshot) {
-              var isSharingLiveLocation = false;
-              final liveDoc = liveSnapshot.data;
+            stream: userPresenceDocument(
+              userId,
+            ).debugSnapshots('profile: public user presence listener'),
+            builder: (context, presenceSnapshot) {
+              final presenceData = presenceSnapshot.data?.data();
+              final profileWithPresence = presenceData == null
+                  ? profile
+                  : profile.copyWith(
+                      isOnline: presenceData['isOnline'] == true,
+                      lastSeenAtMillis: timestampMillisFromFirebase(
+                        presenceData['lastSeenAt'],
+                      ),
+                    );
 
-              int? liveLocationExpiresAtMillis;
-              if (liveDoc != null && liveDoc.exists) {
-                final currentUid = FirebaseAuth.instance.currentUser?.uid;
-                final liveLocation = LiveLocationData.fromFirestore(liveDoc);
-                final currentUserCanView =
-                    currentUid != null &&
-                    (liveLocation.uid == currentUid ||
-                        liveLocation.visibleToUserIds.contains(currentUid));
-                isSharingLiveLocation =
-                    currentUserCanView && liveLocation.isActive;
-                liveLocationExpiresAtMillis = isSharingLiveLocation
-                    ? liveLocation.expiresAtMillis
-                    : null;
-              }
+              return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+                stream: liveLocationsCollection()
+                    .doc(userId)
+                    .debugSnapshots('profile: public live location listener'),
+                builder: (context, liveSnapshot) {
+                  var isSharingLiveLocation = false;
+                  final liveDoc = liveSnapshot.data;
 
-              return profileBody(
-                context,
-                profile.copyWith(
-                  isSharingLiveLocation: isSharingLiveLocation,
-                  liveLocationExpiresAtMillis: liveLocationExpiresAtMillis,
-                ),
+                  int? liveLocationExpiresAtMillis;
+                  if (liveDoc != null && liveDoc.exists) {
+                    final currentUid = FirebaseAuth.instance.currentUser?.uid;
+                    final liveLocation = LiveLocationData.fromFirestore(
+                      liveDoc,
+                    );
+                    final currentUserCanView =
+                        currentUid != null &&
+                        (liveLocation.uid == currentUid ||
+                            liveLocation.visibleToUserIds.contains(currentUid));
+                    isSharingLiveLocation =
+                        currentUserCanView && liveLocation.isActive;
+                    liveLocationExpiresAtMillis = isSharingLiveLocation
+                        ? liveLocation.expiresAtMillis
+                        : null;
+                  }
+
+                  return profileBody(
+                    context,
+                    profileWithPresence.copyWith(
+                      isSharingLiveLocation: isSharingLiveLocation,
+                      liveLocationExpiresAtMillis: liveLocationExpiresAtMillis,
+                    ),
+                  );
+                },
               );
             },
           );
