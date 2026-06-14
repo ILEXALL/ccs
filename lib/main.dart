@@ -17726,9 +17726,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
           duration: const Duration(milliseconds: 180),
           padding: const EdgeInsets.symmetric(vertical: 10),
           decoration: BoxDecoration(
-            gradient: selected
-                ? ccsBlueCyanGradient
-                : null,
+            gradient: selected ? ccsBlueCyanGradient : null,
             color: selected ? null : Colors.transparent,
             borderRadius: BorderRadius.circular(10),
             boxShadow: selected
@@ -25058,7 +25056,10 @@ Uri? normalizedExternalUri(String rawUrl, {String? kind}) {
   if (cleanKind == 'telegram') {
     var handle = trimmedUrl;
     handle = handle.startsWith('@') ? handle.substring(1) : handle;
-    handle = handle.replaceFirst(RegExp(r'^(www\.)?(t\.me|telegram\.me)/?'), '');
+    handle = handle.replaceFirst(
+      RegExp(r'^(www\.)?(t\.me|telegram\.me)/?'),
+      '',
+    );
     handle = handle.replaceAll(RegExp(r'^/+'), '');
     return Uri.https('t.me', handle.isEmpty ? '/' : '/$handle');
   }
