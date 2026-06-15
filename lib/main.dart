@@ -1670,7 +1670,9 @@ const _ruText = <String, String>{
   'Description': 'Описание',
   'Add up to 4 car photos. The first photo becomes the garage cover.':
       'Добавьте до 4 фотографий. Первая станет обложкой гаража.',
-  'Upload photos': 'Загрузить фотографии',
+  'Upload photos': 'Загрузить фотографии',  'Add up to 4 photos. First one is the cover.': 'До 4 фото. Первое — обложка.',
+  'Maximum 4 photos selected.': 'Выбрано максимум 4 фото.',
+
   'Cover': 'Обложка',
   'Save Garage': 'Сохранить гараж',
   'Photo': 'Фото',
@@ -1681,10 +1683,10 @@ const _ruText = <String, String>{
   'Wash': 'Мойка',
   'Store': 'Магазин',
   'Drag': 'Драг',
-  'Off-road': 'Бездорожье',
+  'Off-road': 'Оффроуд',
   'Food': 'Еда',
   'Track': 'Трек',
-  'Activity': 'Активности',
+  'Activity': 'Актив',
   'Today': 'Сегодня',
   'Tomorrow': 'Завтра',
   'This week': 'На этой неделе',
@@ -1725,7 +1727,11 @@ const _ruText = <String, String>{
   'Still there': 'Всё ещё там',
   'Live now': 'Сейчас онлайн',
   'Spot': 'Спот',
-  'Show on map': 'Показать на карте',
+  'Show on map': 'Показать на карте',  'Show on map at': 'Показать на карте с',  'Location visible from': 'Локация видна с',
+  'Choose time': 'Выберите время',
+
+  'Optional delayed map reveal.': 'Можно показать локацию позже.',
+
   'Edit Service Info': 'Редактировать данные сервиса',
   'Hours not added': 'Часы работы не добавлены',
   'The owner has not added opening hours yet.':
@@ -1747,7 +1753,7 @@ const _ruText = <String, String>{
   'Basic info': 'Основная информация',
   'Spot details': 'Детали спота',
   'Create a pin for review or publish instantly as staff.':
-      'Создайте метку для проверки или сразу опубликуйте с правами модератора.',
+      'Метка появится после проверки.',
   'Spot name': 'Название спота',
   'Location': 'Локация',
   'Choose by map, address, or GPS': 'Выберите на карте, по адресу или GPS',
@@ -1756,13 +1762,14 @@ const _ruText = <String, String>{
   'Pin on the map': 'Поставить метку на карте',
   'Use current location': 'Использовать текущее местоположение',
   'Visibility': 'Видимость',
-  'Verified only': 'Только проверенные пользователи',
+  'Verified only': 'Только проверенные пользователи',  'Only verified users and admins can see this spot': 'Виден только проверенным и админам',
+
   'Temporary schedule': 'Временное расписание',
   'Categories': 'Категории',
   'Contacts': 'Контакты',
   'Opening hours': 'Часы работы',
   'Media': 'Медиа',
-  'Instagram / TikTok video link': 'Ссылка на видео Instagram / TikTok',
+  'Instagram / TikTok video link': 'Ссылка на видео',
   'Added by': 'Добавил',
   'Starts at': 'Начинается',
   'Starting at': 'Начинается',
@@ -1963,7 +1970,7 @@ const _ruText = <String, String>{
   'Only the assigned owner or an admin can edit this spot.':
       'Редактировать спот может только владелец или администратор.',
   'Only verified users and admins can see this spot after approval':
-      'После одобрения спот увидят только проверенные пользователи и администраторы',
+      'После проверки виден только проверенным и админам',
   'Photo picker is not connected in Android native code.':
       'Выбор фото не подключён в Android.',
   'Pick at least one friend for a group.':
@@ -2049,7 +2056,8 @@ const _ruText = <String, String>{
   'Tap to change avatar': 'Нажмите, чтобы изменить аватар',
   'Tell people about your car, build, setup, and plans':
       'Расскажите об автомобиле, доработках и планах',
-  'Temporary spot': 'Временный спот',
+  'Temporary spot': 'Временный спот',  'For meets and events. Max active time is 12 hours.': 'Для встреч и событий. До 12 часов.',
+
   'Temporary spot can be active for 12 hours maximum.':
       'Временный спот может быть активен не более 12 часов.',
   'Temporary spot end time must be after start time.':
@@ -2074,7 +2082,7 @@ const _ruText = <String, String>{
       'Включите геопозицию, чтобы увидеть расстояние.',
   'Turn on phone location to use your current position.':
       'Включите геопозицию, чтобы использовать текущее место.',
-  'Upcoming': 'Предстоящие',
+  'Upcoming': 'Скоро',
   'Upload at least 1 photo before creating the spot.':
       'Загрузите хотя бы одну фотографию перед созданием спота.',
   'Use Find Users to send your first friend request.':
@@ -2400,7 +2408,9 @@ const _lvText = <String, String>{
   'Description': 'Apraksts',
   'Add up to 4 car photos. The first photo becomes the garage cover.':
       'Pievienojiet līdz 4 fotogrāfijām. Pirmā būs garāžas vāks.',
-  'Upload photos': 'Augšupielādēt fotogrāfijas',
+  'Upload photos': 'Augšupielādēt fotogrāfijas',  'Add up to 4 photos. First one is the cover.': 'Līdz 4 foto. Pirmais būs vāks.',
+  'Maximum 4 photos selected.': 'Izvēlēti ne vairāk kā 4 foto.',
+
   'Cover': 'Vāks',
   'Save Garage': 'Saglabāt garāžu',
   'Photo': 'Foto',
@@ -2455,7 +2465,11 @@ const _lvText = <String, String>{
   'Still there': 'Joprojām tur',
   'Live now': 'Tiešsaistē',
   'Spot': 'Vieta',
-  'Show on map': 'Rādīt kartē',
+  'Show on map': 'Rādīt kartē',  'Show on map at': 'Rādīt kartē no',  'Location visible from': 'Lokācija redzama no',
+  'Choose time': 'Izvēlieties laiku',
+
+  'Optional delayed map reveal.': 'Var parādīt lokāciju vēlāk.',
+
   'Edit Service Info': 'Rediģēt servisa informāciju',
   'Hours not added': 'Darba laiks nav pievienots',
   'The owner has not added opening hours yet.':
@@ -2478,7 +2492,7 @@ const _lvText = <String, String>{
   'Basic info': 'Pamatinformācija',
   'Spot details': 'Vietas detaļas',
   'Create a pin for review or publish instantly as staff.':
-      'Izveidojiet atzīmi pārbaudei vai publicējiet uzreiz kā staff.',
+      'Vieta parādīsies pēc pārbaudes.',
   'Spot name': 'Vietas nosaukums',
   'Location': 'Atrašanās vieta',
   'Choose by map, address, or GPS': 'Izvēlieties kartē, pēc adreses vai GPS',
@@ -2487,13 +2501,14 @@ const _lvText = <String, String>{
   'Pin on the map': 'Atzīmēt kartē',
   'Use current location': 'Izmantot pašreizējo atrašanās vietu',
   'Visibility': 'Redzamība',
-  'Verified only': 'Tikai verificētiem lietotājiem',
+  'Verified only': 'Tikai verificētiem lietotājiem',  'Only verified users and admins can see this spot': 'Redz tikai verificētie un administratori',
+
   'Temporary schedule': 'Pagaidu grafiks',
   'Categories': 'Kategorijas',
   'Contacts': 'Kontakti',
   'Opening hours': 'Darba laiks',
   'Media': 'Multivide',
-  'Instagram / TikTok video link': 'Instagram / TikTok video saite',
+  'Instagram / TikTok video link': 'Video saite',
   'Added by': 'Pievienoja',
   'Starts at': 'Sākas',
   'Starting at': 'Sākas',
@@ -2691,7 +2706,7 @@ const _lvText = <String, String>{
   'Only the assigned owner or an admin can edit this spot.':
       'Vietu var rediģēt tikai īpašnieks vai administrators.',
   'Only verified users and admins can see this spot after approval':
-      'Pēc apstiprināšanas vietu redzēs tikai verificēti lietotāji un administratori',
+      'Pēc pārbaudes redz tikai verificētie un administratori',
   'Photo picker is not connected in Android native code.':
       'Foto izvēle nav pieslēgta Android lietotnei.',
   'Pick at least one friend for a group.':
@@ -2779,7 +2794,8 @@ const _lvText = <String, String>{
   'Tap to change avatar': 'Nospiediet, lai mainītu avatāru',
   'Tell people about your car, build, setup, and plans':
       'Pastāstiet par auto, uzlabojumiem un plāniem',
-  'Temporary spot': 'Pagaidu vieta',
+  'Temporary spot': 'Pagaidu vieta',  'For meets and events. Max active time is 12 hours.': 'Tikšanās un pasākumiem. Līdz 12 stundām.',
+
   'Temporary spot can be active for 12 hours maximum.':
       'Pagaidu vieta var būt aktīva ne ilgāk par 12 stundām.',
   'Temporary spot end time must be after start time.':
@@ -5445,7 +5461,9 @@ Future<void> stopCurrentUserAppServicesForAccessBlock() async {
   notificationCenterUnreadRefreshDebounce = null;
   notificationCenterUnreadCountsBySource.clear();
   notificationCenterUnreadCount.value = 0;
-  chatUnreadCountsByChatId.value = const <String, int>{};
+  WidgetsBinding.instance.addPostFrameCallback((_) {
+      chatUnreadCountsByChatId.value = const <String, int>{};
+    });
   await stopCurrentUserLikedSpotsSync();
 }
 
@@ -5510,7 +5528,9 @@ Future<void> signOutCurrentAccount() async {
   notificationCenterUnreadRefreshDebounce = null;
   notificationCenterUnreadCountsBySource.clear();
   notificationCenterUnreadCount.value = 0;
-  chatUnreadCountsByChatId.value = const <String, int>{};
+  WidgetsBinding.instance.addPostFrameCallback((_) {
+      chatUnreadCountsByChatId.value = const <String, int>{};
+    });
   await stopCurrentUserLikedSpotsSync();
   spotCommentsSessionCache.clear();
   currentUserSpotRatingCache.value = {};
@@ -8229,7 +8249,9 @@ void startNotificationCenterUnreadWatcher() {
   if (firebaseUser == null) {
     notificationCenterUnreadCountsBySource.clear();
     notificationCenterUnreadCount.value = 0;
-    chatUnreadCountsByChatId.value = const <String, int>{};
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      chatUnreadCountsByChatId.value = const <String, int>{};
+    });
     return;
   }
 
@@ -8238,7 +8260,9 @@ void startNotificationCenterUnreadWatcher() {
   friendLocationNotificationCenterUnreadSubscription?.cancel();
   notificationCenterUnreadCountsBySource.clear();
   notificationCenterUnreadCount.value = 0;
-  chatUnreadCountsByChatId.value = const <String, int>{};
+  WidgetsBinding.instance.addPostFrameCallback((_) {
+      chatUnreadCountsByChatId.value = const <String, int>{};
+    });
 
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>> watchUnreadQuery(
     String source,
@@ -8265,7 +8289,9 @@ void startNotificationCenterUnreadWatcher() {
       onError: (Object error, StackTrace stack) {
         notificationCenterUnreadCountsBySource[source] = 0;
         if (source == 'user') {
-          chatUnreadCountsByChatId.value = const <String, int>{};
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+      chatUnreadCountsByChatId.value = const <String, int>{};
+    });
         }
         scheduleNotificationCenterUnreadRefresh();
         debugPrint('Notification unread watcher failed ($source): $error');
@@ -11611,7 +11637,7 @@ Future<void> refreshFirebaseSpotsFromServer() async {
 Query<Map<String, dynamic>> currentUserChatsQuery(String uid) {
   return chatsCollection()
       .where('memberIds', arrayContains: uid)
-      .limit(firebaseChatsListenLimit);
+      .limit(25);
 }
 
 Query<Map<String, dynamic>> latestChatMessagesQuery(String chatId) {
@@ -19961,7 +19987,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
       final isTemporaryActive = spot.isTemporaryActiveNow;
       final isTemporaryUpcoming = spot.isTemporaryUpcomingOnMap;
       final markerColor = closedNow && !isTemporaryActive
-          ? Colors.grey.shade500
+          ? Colors.grey.shade700
           : isTemporaryActive || isTemporaryUpcoming
           ? Colors.orangeAccent
           : spotColorForSpot(spot);
@@ -19991,7 +20017,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
               44.0,
               markerVisualSize + (spot.isTemporary ? compactMarkerPadding : 8),
             );
-      final markerOpacity = isTemporaryUpcoming || closedNow ? 0.58 : 1.0;
+      final markerOpacity = isTemporaryUpcoming || closedNow ? 0.80 : 1.0;
       final iconTopPadding = math.max(
         0.0,
         (markerHeight - markerVisualSize) / 2,
@@ -28388,11 +28414,12 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
                       trText(
                         'Create a pin for review or publish instantly as staff.',
                       ),
-                      maxLines: 1,
+                      maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
                         color: Colors.white54,
                         fontSize: 12,
+                        height: 1.2,
                       ),
                     ),
                   ],
@@ -28563,7 +28590,7 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
               ),
               _CcsTextField(
                 controller: reelController,
-                label: 'Instagram / TikTok video link',
+                label: 'Video link',
                 hint: 'https://instagram.com/reel/...',
                 icon: Icons.play_circle,
                 keyboardType: TextInputType.url,
@@ -30605,14 +30632,36 @@ class ChatScreen extends StatefulWidget {
   State<ChatScreen> createState() => _ChatScreenState();
 }
 
-class _ChatScreenState extends State<ChatScreen> {
+class _ChatScreenState extends State<ChatScreen>
+    with SingleTickerProviderStateMixin {
+  late final TabController tabController;
+  late final Stream<QuerySnapshot<Map<String, dynamic>>> chatsStream;
   List<String> pinnedChatIds = const [];
-  bool showGroupsTab = false;
+  int activeTabIndex = 0;
 
   @override
   void initState() {
     super.initState();
+    tabController = TabController(length: 4, vsync: this);
+    tabController.addListener(handleTabChanged);
+    final uid = FirebaseAuth.instance.currentUser?.uid ?? currentUser.uid;
+    chatsStream = currentUserChatsQuery(
+      uid,
+    ).debugSnapshots('chat: threads list listener');
     loadPins();
+  }
+
+  @override
+  void dispose() {
+    tabController.removeListener(handleTabChanged);
+    tabController.dispose();
+    super.dispose();
+  }
+
+  void handleTabChanged() {
+    if (activeTabIndex != tabController.index) {
+      setState(() => activeTabIndex = tabController.index);
+    }
   }
 
   Future<void> loadPins() async {
@@ -30622,12 +30671,19 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
-  Future<void> openNewChat(BuildContext context) async {
+  Future<void> openNewChat(BuildContext context, {bool groupMode = false}) async {
     await Navigator.push(
       context,
-      appPageRoute(builder: (_) => const NewChatScreen()),
+      appPageRoute(builder: (_) => NewChatScreen(initialGroupMode: groupMode)),
     );
     loadPins();
+  }
+
+  Future<void> openNewForumTopic(BuildContext context) async {
+    await Navigator.push(
+      context,
+      appPageRoute(builder: (_) => const NewForumTopicPage()),
+    );
   }
 
   Future<void> openChatManager(
@@ -30665,78 +30721,25 @@ class _ChatScreenState extends State<ChatScreen> {
     return chats;
   }
 
-  Widget sectionTitle(String title, int count) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 10),
-      child: Row(
-        children: [
-          Text(
-            title,
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 20,
-              fontWeight: FontWeight.w900,
-            ),
-          ),
-          const SizedBox(width: 8),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-            decoration: BoxDecoration(
-              color: blue.withValues(alpha: 0.16),
-              borderRadius: BorderRadius.circular(999),
-            ),
-            child: Text(
-              '$count',
-              style: const TextStyle(
-                color: blue,
-                fontSize: 12,
-                fontWeight: FontWeight.w900,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
+  FloatingActionButton? contextualFab() {
+    if (activeTabIndex == 2) {
+      return null;
+    }
 
-  Widget chatSection({
-    required String title,
-    required String emptyText,
-    required List<ChatThreadData> chats,
-    required String currentUid,
-    required Map<String, int> unreadCountsByChatId,
-  }) {
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: panel.withValues(alpha: 0.58),
-        borderRadius: BorderRadius.circular(22),
-        border: Border.all(color: Colors.white12),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          sectionTitle(title, chats.length),
-          if (chats.isEmpty)
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 12),
-              child: Text(
-                emptyText,
-                style: const TextStyle(color: Colors.white54, height: 1.35),
-              ),
-            )
-          else
-            for (final chat in chats) ...[
-              ChatThreadTile(
-                chat: chat,
-                currentUid: currentUid,
-                pinned: pinnedChatIds.contains(chat.id),
-                unreadCount: unreadCountsByChatId[chat.id] ?? 0,
-              ),
-              const SizedBox(height: 10),
-            ],
-        ],
-      ),
+    if (activeTabIndex == 3) {
+      return FloatingActionButton(
+        onPressed: () => openNewForumTopic(context),
+        backgroundColor: blue,
+        foregroundColor: Colors.white,
+        child: const Icon(Icons.add),
+      );
+    }
+
+    return FloatingActionButton(
+      onPressed: () => openNewChat(context, groupMode: activeTabIndex == 1),
+      backgroundColor: blue,
+      foregroundColor: Colors.white,
+      child: Icon(activeTabIndex == 1 ? Icons.group_add : Icons.add),
     );
   }
 
@@ -30765,9 +30768,7 @@ class _ChatScreenState extends State<ChatScreen> {
     }
 
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-      stream: currentUserChatsQuery(
-        firebaseUser.uid,
-      ).debugSnapshots('chat: threads list listener'),
+      stream: chatsStream,
       builder: (context, snapshot) {
         final chats =
             snapshot.data?.docs
@@ -30794,136 +30795,1650 @@ class _ChatScreenState extends State<ChatScreen> {
               (total, chat) => total + (unreadCountsByChatId[chat.id] ?? 0),
             );
 
-            final body = ListView(
-              padding: const EdgeInsets.fromLTRB(20, 18, 20, 92),
-              children: [
-                Row(
-                  children: [
-                    const Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Chat',
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 34,
-                              fontWeight: FontWeight.w900,
-                            ),
-                          ),
-                          SizedBox(height: 6),
-                          Text(
-                            'Messages with friends and groups',
-                            style: TextStyle(
-                              color: Colors.white54,
-                              height: 1.35,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    IconButton.filled(
-                      onPressed: () => openNewChat(context),
-                      style: IconButton.styleFrom(
-                        backgroundColor: blue,
-                        foregroundColor: Colors.white,
-                      ),
-                      icon: const Icon(Icons.add),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 18),
-                SizedBox(
-                  width: double.infinity,
-                  child: SegmentedButton<bool>(
-                    segments: [
-                      ButtonSegment<bool>(
-                        value: false,
-                        icon: _SegmentBadgeIcon(
-                          icon: Icons.person_outline,
-                          count: directUnreadCount,
-                        ),
-                        label: const Text('Chats'),
-                      ),
-                      ButtonSegment<bool>(
-                        value: true,
-                        icon: _SegmentBadgeIcon(
-                          icon: Icons.groups,
-                          count: groupUnreadCount,
-                        ),
-                        label: const Text('Groups'),
-                      ),
-                    ],
-                    selected: {showGroupsTab},
-                    onSelectionChanged: (value) {
-                      setState(() => showGroupsTab = value.first);
-                    },
-                    style: ButtonStyle(
-                      foregroundColor: WidgetStateProperty.resolveWith(
-                        (states) => states.contains(WidgetState.selected)
-                            ? Colors.white
-                            : Colors.white70,
-                      ),
-                      backgroundColor: WidgetStateProperty.resolveWith(
-                        (states) => states.contains(WidgetState.selected)
-                            ? blue
-                            : panel,
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 18),
-                if (snapshot.connectionState == ConnectionState.waiting)
-                  const Center(
-                    child: Padding(
-                      padding: EdgeInsets.all(24),
-                      child: CircularProgressIndicator(color: blue),
-                    ),
-                  )
-                else if (chats.isEmpty)
-                  const EmptyStateCard(
-                    icon: Icons.chat_bubble_outline,
-                    title: 'No chats yet',
-                    text: 'Start a chat with a friend or create a group.',
-                  )
-                else if (!showGroupsTab)
-                  chatSection(
-                    title: 'Chats',
-                    emptyText: 'No direct chats yet.',
-                    chats: directChats,
-                    currentUid: firebaseUser.uid,
-                    unreadCountsByChatId: unreadCountsByChatId,
-                  )
-                else
-                  chatSection(
-                    title: 'Groups',
-                    emptyText: 'No groups yet.',
-                    chats: groupChats,
-                    currentUid: firebaseUser.uid,
-                    unreadCountsByChatId: unreadCountsByChatId,
-                  ),
-              ],
-            );
-
             return Scaffold(
-              backgroundColor: Colors.transparent,
+              backgroundColor: Colors.black,
               appBar: AppBar(
                 title: const CcsAppBarLogo(),
                 backgroundColor: Colors.transparent,
                 foregroundColor: blue,
                 actions: ccsAppBarActions(),
               ),
-              floatingActionButton: FloatingActionButton(
-                onPressed: () => openChatManager(context, chats),
-                backgroundColor: blue,
-                foregroundColor: Colors.white,
-                child: const Icon(Icons.tune),
+              floatingActionButton: contextualFab(),
+              body: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 14, 20, 12),
+                    child: Row(
+                      children: [
+                        const Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Chat',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 34,
+                                  fontWeight: FontWeight.w900,
+                                ),
+                              ),
+                              SizedBox(height: 6),
+                              Text(
+                                'Общение, форумы и сообщество',
+                                style: TextStyle(
+                                  color: Colors.white54,
+                                  height: 1.35,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        IconButton(
+                          tooltip: 'Edit Chat View',
+                          onPressed: () => openChatManager(context, chats),
+                          icon: const Icon(Icons.tune, color: blue),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Center(
+                    child: TabBar(
+                      controller: tabController,
+                      isScrollable: true,
+                      tabAlignment: TabAlignment.center,
+                      padding: EdgeInsets.zero,
+                      labelPadding: const EdgeInsets.symmetric(horizontal: 13),
+                      indicatorColor: blue,
+                      labelColor: blue,
+                      unselectedLabelColor: Colors.white54,
+                      labelStyle: const TextStyle(fontWeight: FontWeight.w900),
+                      tabs: [
+                        Tab(
+                          icon: _SegmentBadgeIcon(
+                            icon: Icons.chat_bubble_outline,
+                            count: directUnreadCount,
+                          ),
+                          text: 'Чаты',
+                        ),
+                        Tab(
+                          icon: _SegmentBadgeIcon(
+                            icon: Icons.groups,
+                            count: groupUnreadCount,
+                          ),
+                          text: 'Группы',
+                        ),
+                        const Tab(icon: Icon(Icons.public), text: 'Глобальный'),
+                        const Tab(
+                          icon: Icon(Icons.forum_outlined),
+                          text: 'Форум',
+                        ),
+                      ],
+                    ),
+                  ),
+                  Expanded(
+                    child: snapshot.connectionState == ConnectionState.waiting
+                        ? const Center(
+                            child: CircularProgressIndicator(color: blue),
+                          )
+                        : TabBarView(
+                            controller: tabController,
+                            children: [
+                              ChatsTab(
+                                chats: directChats,
+                                currentUid: firebaseUser.uid,
+                                pinnedChatIds: pinnedChatIds,
+                                unreadCountsByChatId: unreadCountsByChatId,
+                              ),
+                              GroupsTab(
+                                chats: groupChats,
+                                currentUid: firebaseUser.uid,
+                                pinnedChatIds: pinnedChatIds,
+                                unreadCountsByChatId: unreadCountsByChatId,
+                              ),
+                              const GlobalChatTab(),
+                              const ForumTab(),
+                            ],
+                          ),
+                  ),
+                ],
               ),
-              body: body,
             );
           },
         );
       },
+    );
+  }
+}
+
+class ChatsTab extends StatefulWidget {
+  final List<ChatThreadData> chats;
+  final String currentUid;
+  final List<String> pinnedChatIds;
+  final Map<String, int> unreadCountsByChatId;
+
+  const ChatsTab({
+    super.key,
+    required this.chats,
+    required this.currentUid,
+    required this.pinnedChatIds,
+    required this.unreadCountsByChatId,
+  });
+
+  @override
+  State<ChatsTab> createState() => _ChatsTabState();
+}
+
+class _ChatsTabState extends State<ChatsTab>
+    with AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true;
+
+  Widget sectionTitle(String title, int count) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Row(
+        children: [
+          Text(
+            trText(title),
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 20,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          const SizedBox(width: 8),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+            decoration: BoxDecoration(
+              color: blue.withValues(alpha: 0.16),
+              borderRadius: BorderRadius.circular(999),
+            ),
+            child: Text(
+              '$count',
+              style: const TextStyle(
+                color: blue,
+                fontSize: 12,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    super.build(context);
+
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(20, 18, 20, 92),
+      children: [
+        Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: panel.withValues(alpha: 0.58),
+            borderRadius: BorderRadius.circular(22),
+            border: Border.all(color: Colors.white12),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              sectionTitle('Chats', widget.chats.length),
+              if (widget.chats.isEmpty)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  child: Text(
+                    trText('No direct chats yet.'),
+                    style: const TextStyle(color: Colors.white54, height: 1.35),
+                  ),
+                )
+              else
+                for (final chat in widget.chats) ...[
+                  ChatThreadTile(
+                    chat: chat,
+                    currentUid: widget.currentUid,
+                    pinned: widget.pinnedChatIds.contains(chat.id),
+                    unreadCount: widget.unreadCountsByChatId[chat.id] ?? 0,
+                  ),
+                  const SizedBox(height: 10),
+                ],
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class GroupsTab extends StatefulWidget {
+  final List<ChatThreadData> chats;
+  final String currentUid;
+  final List<String> pinnedChatIds;
+  final Map<String, int> unreadCountsByChatId;
+
+  const GroupsTab({
+    super.key,
+    required this.chats,
+    required this.currentUid,
+    required this.pinnedChatIds,
+    required this.unreadCountsByChatId,
+  });
+
+  @override
+  State<GroupsTab> createState() => _GroupsTabState();
+}
+
+class _GroupsTabState extends State<GroupsTab>
+    with AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true;
+
+  Widget sectionTitle(String title, int count) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Row(
+        children: [
+          Text(
+            trText(title),
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 20,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          const SizedBox(width: 8),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+            decoration: BoxDecoration(
+              color: blue.withValues(alpha: 0.16),
+              borderRadius: BorderRadius.circular(999),
+            ),
+            child: Text(
+              '$count',
+              style: const TextStyle(
+                color: blue,
+                fontSize: 12,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    super.build(context);
+
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(20, 18, 20, 92),
+      children: [
+        Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: panel.withValues(alpha: 0.58),
+            borderRadius: BorderRadius.circular(22),
+            border: Border.all(color: Colors.white12),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              sectionTitle('Groups', widget.chats.length),
+              if (widget.chats.isEmpty)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  child: Text(
+                    trText('No groups yet.'),
+                    style: const TextStyle(color: Colors.white54, height: 1.35),
+                  ),
+                )
+              else
+                for (final chat in widget.chats) ...[
+                  ChatThreadTile(
+                    chat: chat,
+                    currentUid: widget.currentUid,
+                    pinned: widget.pinnedChatIds.contains(chat.id),
+                    unreadCount: widget.unreadCountsByChatId[chat.id] ?? 0,
+                  ),
+                  const SizedBox(height: 10),
+                ],
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+
+class GlobalChatTab extends StatefulWidget {
+  const GlobalChatTab({super.key});
+
+  @override
+  State<GlobalChatTab> createState() => _GlobalChatTabState();
+}
+
+class _GlobalChatTabState extends State<GlobalChatTab>
+    with AutomaticKeepAliveClientMixin {
+  final messageController = TextEditingController();
+  late final Stream<QuerySnapshot<Map<String, dynamic>>> messagesStream;
+  late final Stream<QuerySnapshot<Map<String, dynamic>>> onlineUsersStream;
+  bool isSending = false;
+
+  @override
+  bool get wantKeepAlive => true;
+
+  @override
+  void initState() {
+    super.initState();
+    onlineUsersStream = userPresenceCollection()
+        .where('isOnline', isEqualTo: true)
+        .limit(50)
+        .debugSnapshots('global chat: online users counter');
+    messagesStream = FirebaseFirestore.instance
+        .collection('global_chat')
+        .orderBy('timestamp', descending: true)
+        .limit(30)
+        .debugSnapshots('global chat: messages listener');
+  }
+
+  @override
+  void dispose() {
+    messageController.dispose();
+    super.dispose();
+  }
+
+  CollectionReference<Map<String, dynamic>> get globalChatCollection =>
+      FirebaseFirestore.instance.collection('global_chat');
+
+  Future<void> sendMessage() async {
+    final firebaseUser = FirebaseAuth.instance.currentUser;
+    final text = messageController.text.trim();
+
+    if (firebaseUser == null || text.isEmpty || isSending) {
+      return;
+    }
+
+    setState(() => isSending = true);
+
+    try {
+      messageController.clear();
+      await globalChatCollection.debugAdd({
+        'userId': firebaseUser.uid,
+        'username': currentUser.username,
+        'avatarUrl': currentUser.photoUrl ?? '',
+        'text': text,
+        'timestamp': FieldValue.serverTimestamp(),
+        'type': 'text',
+      });
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: Colors.redAccent,
+            content: Text(
+              'Could not send message: $error',
+              style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => isSending = false);
+      }
+    }
+  }
+
+  Widget avatar(String avatarUrl, String username) {
+    return GlobalSmallAvatar(avatarUrl: avatarUrl, username: username);
+  }
+
+  Widget messageBubble(QueryDocumentSnapshot<Map<String, dynamic>> doc) {
+    final data = doc.data();
+    final firebaseUser = FirebaseAuth.instance.currentUser;
+    final mine = stringFromFirebase(data['userId'], '') == firebaseUser?.uid;
+    final username = stringFromFirebase(data['username'], 'ccs_driver');
+    final avatarUrl = stringFromFirebase(data['avatarUrl'], '');
+    final text = stringFromFirebase(data['text'], '');
+    final time = formatChatMessageTime(timestampMillisFromFirebase(data['timestamp']));
+
+    final bubble = Container(
+      constraints: const BoxConstraints(maxWidth: 285),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: mine ? blue : const Color(0xFF1E1E1E),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: mine ? blue.withValues(alpha: 0.8) : const Color(0xFF2A2A2A),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: mine
+            ? CrossAxisAlignment.end
+            : CrossAxisAlignment.start,
+        children: [
+          Text(
+            displayUsername(username),
+            style: TextStyle(
+              color: mine ? Colors.white : blue,
+              fontSize: 11,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            text,
+            style: const TextStyle(color: Colors.white, height: 1.3),
+          ),
+          if (time.isNotEmpty) ...[
+            const SizedBox(height: 4),
+            Text(
+              time,
+              style: const TextStyle(color: Colors.white54, fontSize: 10.5),
+            ),
+          ],
+        ],
+      ),
+    );
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Row(
+        mainAxisAlignment: mine ? MainAxisAlignment.end : MainAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          if (!mine) ...[
+            avatar(avatarUrl, username),
+            const SizedBox(width: 8),
+          ],
+          bubble,
+          if (mine) ...[
+            const SizedBox(width: 8),
+            avatar(avatarUrl, username),
+          ],
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    super.build(context);
+
+    return Column(
+      children: [
+        StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+          stream: onlineUsersStream,
+          builder: (context, snapshot) {
+            final count =
+                snapshot.data?.docs.where((doc) {
+                  final data = doc.data();
+                  return userAppearsOnlineFromPresence(
+                    isOnline: data['isOnline'] == true,
+                    lastSeenAtMillis: timestampMillisFromFirebase(
+                      data['lastSeenAt'],
+                    ),
+                    isSharingLiveLocation: data['isSharingLiveLocation'] == true,
+                    liveLocationExpiresAtMillis:
+                        nullableTimestampMillisFromFirebase(
+                      data['liveLocationExpiresAt'],
+                    ),
+                  );
+                }).length ??
+                0;
+            return Container(
+              margin: const EdgeInsets.fromLTRB(20, 14, 20, 8),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              decoration: BoxDecoration(
+                color: const Color(0xFF1A1A1A),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: const Color(0xFF2A2A2A)),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.public, color: blue),
+                  const SizedBox(width: 10),
+                  const Expanded(
+                    child: Text(
+                      'Глобальный чат',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ),
+                  Text(
+                    'онлайн: $count',
+                    style: const TextStyle(
+                      color: Colors.greenAccent,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        ),
+        Expanded(
+          child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+            stream: messagesStream,
+            builder: (context, snapshot) {
+              final messages =
+                  (snapshot.data?.docs ??
+                          const <QueryDocumentSnapshot<Map<String, dynamic>>>[])
+                      .toList()
+                      .reversed
+                      .toList();
+
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const Center(child: CircularProgressIndicator(color: blue));
+              }
+
+              if (messages.isEmpty) {
+                return const EmptyStateCard(
+                  icon: Icons.public,
+                  title: 'Глобальный чат пуст',
+                  text: 'Напишите первое сообщение для всего сообщества.',
+                );
+              }
+
+              return ListView(
+                padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
+                children: [for (final doc in messages) messageBubble(doc)],
+              );
+            },
+          ),
+        ),
+        SafeArea(
+          top: false,
+          child: Container(
+            padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+            decoration: const BoxDecoration(
+              color: Colors.black,
+              border: Border(top: BorderSide(color: Color(0xFF2A2A2A))),
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: messageController,
+                    minLines: 1,
+                    maxLines: 4,
+                    style: const TextStyle(color: Colors.white),
+                    decoration: InputDecoration(
+                      hintText: 'Сообщение в глобальный чат',
+                      hintStyle: const TextStyle(color: Colors.white38),
+                      filled: true,
+                      fillColor: const Color(0xFF1A1A1A),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(18),
+                        borderSide: const BorderSide(color: Color(0xFF2A2A2A)),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(18),
+                        borderSide: const BorderSide(color: Color(0xFF2A2A2A)),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(18),
+                        borderSide: const BorderSide(color: blue),
+                      ),
+                    ),
+                    onSubmitted: (_) => sendMessage(),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                IconButton.filled(
+                  onPressed: isSending ? null : sendMessage,
+                  style: IconButton.styleFrom(
+                    backgroundColor: blue,
+                    foregroundColor: Colors.white,
+                  ),
+                  icon: Icon(isSending ? Icons.hourglass_top : Icons.send),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+
+final forumTopicsRefreshTick = ValueNotifier<int>(0);
+
+Future<void> createForumTopic({
+  required String title,
+  required String category,
+  required String description,
+}) async {
+  try {
+    final user = FirebaseAuth.instance.currentUser;
+    debugPrint('Creating topic: $title');
+    debugPrint('User: ${user?.uid}');
+    debugPrint('Category: $category');
+
+    if (user == null) {
+      debugPrint('ERROR: user is null');
+      throw FirebaseException(
+        plugin: 'cloud_firestore',
+        code: 'not-logged-in',
+        message: 'Log in before creating a forum topic.',
+      );
+    }
+
+    final userDoc = await FirebaseFirestore.instance
+        .collection('users')
+        .doc(user.uid)
+        .debugGet(null, 'forum: create topic user lookup');
+
+    final userData = userDoc.data();
+    final username =
+        stringFromFirebase(userData?['username'], '').trim().isNotEmpty
+            ? stringFromFirebase(userData?['username'], '')
+            : stringFromFirebase(
+                userData?['displayName'],
+                currentUser.username.trim().isEmpty
+                    ? 'Пользователь'
+                    : currentUser.username,
+              );
+
+    final docRef = await FirebaseFirestore.instance
+        .collection('forum_topics')
+        .debugAdd({
+      'title': title,
+      'category': category,
+      'description': description,
+      'authorId': user.uid,
+      'authorName': username,
+      'repliesCount': 0,
+      'isPinned': false,
+      'status': 'pending',
+      'rejectionReason': null,
+      'reviewedBy': null,
+      'reviewedAt': null,
+      'createdAt': FieldValue.serverTimestamp(),
+      'lastReplyAt': FieldValue.serverTimestamp(),
+    });
+
+    debugPrint('SUCCESS: Topic sent for review: ${docRef.id}');
+    forumTopicsRefreshTick.value++;
+  } catch (error, stack) {
+    debugPrint('ERROR creating forum topic: $error');
+    debugPrint('$stack');
+    rethrow;
+  }
+}
+
+
+Future<void> showForumTopicSentForReviewDialog(BuildContext context) async {
+  if (!context.mounted) {
+    return;
+  }
+
+  await showDialog<void>(
+    context: context,
+    builder: (dialogContext) {
+      return AlertDialog(
+        backgroundColor: const Color(0xFF1A1A1A),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(height: 8),
+            Container(
+              width: 64,
+              height: 64,
+              decoration: BoxDecoration(
+                color: blue.withValues(alpha: 0.15),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(
+                Icons.hourglass_empty_rounded,
+                color: blue,
+                size: 32,
+              ),
+            ),
+            const SizedBox(height: 16),
+            const Text(
+              'Тема отправлена на проверку',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'Модератор проверит вашу тему, и она появится в форуме после одобрения.',
+              style: TextStyle(color: Colors.grey, fontSize: 13),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              height: 44,
+              child: ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: blue,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                ),
+                onPressed: () => Navigator.pop(dialogContext),
+                child: const Text(
+                  'Понятно',
+                  style: TextStyle(color: Colors.white),
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    },
+  );
+}
+
+Future<void> showCreateTopicDialog(BuildContext parentContext) async {
+  final titleController = TextEditingController();
+  final descriptionController = TextEditingController();
+  var selectedCategory = forumCategories.first;
+
+  Map<String, String>? result;
+
+  try {
+    result = await showDialog<Map<String, String>>(
+      context: parentContext,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (dialogBuildContext, setDialogState) {
+            return AlertDialog(
+              backgroundColor: const Color(0xFF1A1A1A),
+              title: const Text(
+                'Новая тема',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    TextField(
+                      controller: titleController,
+                      style: const TextStyle(color: Colors.white),
+                      decoration: const InputDecoration(
+                        labelText: 'Заголовок темы *',
+                        labelStyle: TextStyle(color: Colors.grey),
+                        enabledBorder: OutlineInputBorder(
+                          borderSide: BorderSide(color: Color(0xFF2A2A2A)),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderSide: BorderSide(color: blue),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    DropdownButtonFormField<String>(
+                      value: selectedCategory,
+                      dropdownColor: const Color(0xFF1A1A1A),
+                      style: const TextStyle(color: Colors.white),
+                      decoration: const InputDecoration(
+                        labelText: 'Категория',
+                        labelStyle: TextStyle(color: Colors.grey),
+                        enabledBorder: OutlineInputBorder(
+                          borderSide: BorderSide(color: Color(0xFF2A2A2A)),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderSide: BorderSide(color: blue),
+                        ),
+                      ),
+                      items: [
+                        for (final category in forumCategories)
+                          DropdownMenuItem(
+                            value: category,
+                            child: Text(category),
+                          ),
+                      ],
+                      onChanged: (value) {
+                        if (value != null) {
+                          setDialogState(() => selectedCategory = value);
+                        }
+                      },
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: descriptionController,
+                      style: const TextStyle(color: Colors.white),
+                      maxLines: 4,
+                      decoration: const InputDecoration(
+                        labelText: 'Описание',
+                        labelStyle: TextStyle(color: Colors.grey),
+                        enabledBorder: OutlineInputBorder(
+                          borderSide: BorderSide(color: Color(0xFF2A2A2A)),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderSide: BorderSide(color: blue),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogContext),
+                  child: const Text('Отмена'),
+                ),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(backgroundColor: blue),
+                  onPressed: () {
+                    final title = titleController.text.trim();
+
+                    if (title.isEmpty) {
+                      ScaffoldMessenger.of(parentContext).showSnackBar(
+                        const SnackBar(
+                          content: Text('Введите заголовок темы'),
+                          backgroundColor: Colors.redAccent,
+                        ),
+                      );
+                      return;
+                    }
+
+                    Navigator.pop(dialogContext, {
+                      'title': title,
+                      'category': selectedCategory,
+                      'description': descriptionController.text.trim(),
+                    });
+                  },
+                  child: const Text(
+                    'Создать',
+                    style: TextStyle(color: Colors.white),
+                  ),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  } finally {
+    titleController.dispose();
+    descriptionController.dispose();
+  }
+
+  if (result == null || !parentContext.mounted) {
+    return;
+  }
+
+  try {
+    await createForumTopic(
+      title: result['title'] ?? '',
+      category: result['category'] ?? forumCategories.first,
+      description: result['description'] ?? '',
+    );
+
+    if (parentContext.mounted) {
+      await showForumTopicSentForReviewDialog(parentContext);
+    }
+  } catch (error) {
+    if (parentContext.mounted) {
+      ScaffoldMessenger.of(parentContext).showSnackBar(
+        SnackBar(
+          content: Text('❌ Не удалось создать тему: $error'),
+          backgroundColor: Colors.redAccent,
+        ),
+      );
+    }
+  }
+}
+
+
+const List<String> forumCategories = [
+  'Встречи и события',
+  'Тюнинг и запчасти',
+  'Вопросы и помощь',
+  'Куплю/Продам',
+];
+
+class ForumTab extends StatefulWidget {
+  const ForumTab({super.key});
+
+  @override
+  State<ForumTab> createState() => _ForumTabState();
+}
+
+class _ForumTabState extends State<ForumTab>
+    with AutomaticKeepAliveClientMixin {
+  final scrollController = ScrollController();
+  final topics = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+  DocumentSnapshot<Map<String, dynamic>>? lastDocument;
+  bool isLoading = false;
+  bool hasMore = true;
+  bool didLoadInitially = false;
+  int handledRefreshTick = 0;
+
+  @override
+  bool get wantKeepAlive => true;
+
+  CollectionReference<Map<String, dynamic>> get forumTopicsCollection =>
+      FirebaseFirestore.instance.collection('forum_topics');
+
+  @override
+  void initState() {
+    super.initState();
+    handledRefreshTick = forumTopicsRefreshTick.value;
+    scrollController.addListener(handleScroll);
+    forumTopicsRefreshTick.addListener(handleExternalForumRefresh);
+    unawaited(refreshTopics());
+  }
+
+  void handleExternalForumRefresh() {
+    if (!mounted || handledRefreshTick == forumTopicsRefreshTick.value) {
+      return;
+    }
+
+    handledRefreshTick = forumTopicsRefreshTick.value;
+    unawaited(refreshTopics());
+  }
+
+  @override
+  void dispose() {
+    scrollController.removeListener(handleScroll);
+    forumTopicsRefreshTick.removeListener(handleExternalForumRefresh);
+    scrollController.dispose();
+    super.dispose();
+  }
+
+  void handleScroll() {
+    if (!scrollController.hasClients || isLoading || !hasMore) {
+      return;
+    }
+
+    final position = scrollController.position;
+    if (position.pixels >= position.maxScrollExtent - 260) {
+      unawaited(loadMoreTopics());
+    }
+  }
+
+  Future<void> refreshTopics() async {
+    setState(() {
+      topics.clear();
+      lastDocument = null;
+      hasMore = true;
+      didLoadInitially = false;
+    });
+    await loadMoreTopics();
+  }
+
+  Future<void> loadMoreTopics() async {
+    if (isLoading) {
+      return;
+    }
+
+    setState(() => isLoading = true);
+
+    try {
+      final snapshot = await forumTopicsCollection
+          .where('status', isEqualTo: 'approved')
+          .limit(50)
+          .debugGet(null, 'forum: approved topics get');
+
+      final docs = snapshot.docs.toList()
+        ..sort((a, b) {
+          final aPinned = a.data()['isPinned'] == true;
+          final bPinned = b.data()['isPinned'] == true;
+
+          if (aPinned != bPinned) {
+            return aPinned ? -1 : 1;
+          }
+
+          final aMillis = timestampMillisFromFirebase(a.data()['createdAt']);
+          final bMillis = timestampMillisFromFirebase(b.data()['createdAt']);
+          return bMillis.compareTo(aMillis);
+        });
+
+      setState(() {
+        topics
+          ..clear()
+          ..addAll(docs);
+        lastDocument = docs.isEmpty ? null : docs.last;
+        hasMore = false;
+        didLoadInitially = true;
+      });
+    } catch (error, stack) {
+      debugPrint('Forum topics load skipped: $error');
+      debugPrint('$stack');
+      if (mounted) {
+        setState(() {
+          didLoadInitially = true;
+          hasMore = false;
+        });
+      }
+    } finally {
+      if (mounted) {
+        setState(() => isLoading = false);
+      }
+    }
+  }
+
+  Widget topicCard(
+    BuildContext context,
+    QueryDocumentSnapshot<Map<String, dynamic>> doc,
+  ) {
+    final data = doc.data();
+    final title = stringFromFirebase(data['title'], 'Без названия');
+    final authorName = stringFromFirebase(data['authorName'], 'ccs_driver');
+    final repliesCount = intFromFirebase(data['repliesCount'], 0);
+    final isPinned = data['isPinned'] == true;
+
+    return InkWell(
+      onTap: () {
+        Navigator.push(
+          context,
+          appPageRoute(
+            builder: (_) => ForumTopicPage(topicId: doc.id, title: title),
+          ),
+        );
+      },
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 10),
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: const Color(0xFF1A1A1A),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: const Color(0xFF2A2A2A)),
+        ),
+        child: Row(
+          children: [
+            Icon(
+              isPinned ? Icons.push_pin : Icons.forum_outlined,
+              color: isPinned ? Colors.orangeAccent : blue,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Автор: ${displayUsername(authorName)}',
+                    style: const TextStyle(color: Colors.white54, fontSize: 12),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(
+                  Icons.chat_bubble_outline,
+                  color: Colors.white54,
+                  size: 16,
+                ),
+                const SizedBox(width: 4),
+                Text(
+                  '$repliesCount',
+                  style: const TextStyle(
+                    color: Colors.white70,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget categorySection(String category) {
+    final categoryTopics = topics.where((doc) {
+      final data = doc.data();
+      return stringFromFirebase(data['category'], forumCategories.first) ==
+          category;
+    }).toList()
+      ..sort((a, b) {
+        final aPinned = a.data()['isPinned'] == true;
+        final bPinned = b.data()['isPinned'] == true;
+        if (aPinned != bPinned) {
+          return aPinned ? -1 : 1;
+        }
+        return 0;
+      });
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 18),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            category,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 18,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          const SizedBox(height: 10),
+          if (categoryTopics.isEmpty)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: const Color(0xFF1A1A1A),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: const Color(0xFF2A2A2A)),
+              ),
+              child: const Text(
+                'Тем пока нет',
+                style: TextStyle(color: Colors.white54),
+              ),
+            )
+          else
+            for (final topic in categoryTopics) topicCard(context, topic),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    super.build(context);
+
+    if (!didLoadInitially && isLoading) {
+      return const Center(child: CircularProgressIndicator(color: blue));
+    }
+
+    return RefreshIndicator(
+      onRefresh: refreshTopics,
+      child: ListView(
+        controller: scrollController,
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.fromLTRB(20, 18, 20, 92),
+        children: [
+          for (final category in forumCategories) categorySection(category),
+          if (isLoading)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 18),
+              child: Center(child: CircularProgressIndicator(color: blue)),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class ForumTopicPage extends StatefulWidget {
+  final String topicId;
+  final String title;
+
+  const ForumTopicPage({
+    super.key,
+    required this.topicId,
+    required this.title,
+  });
+
+  @override
+  State<ForumTopicPage> createState() => _ForumTopicPageState();
+}
+
+class _ForumTopicPageState extends State<ForumTopicPage> {
+  final replyController = TextEditingController();
+  bool isSending = false;
+
+  CollectionReference<Map<String, dynamic>> get topicRepliesCollection =>
+      FirebaseFirestore.instance
+          .collection('forum_topics')
+          .doc(widget.topicId)
+          .collection('replies');
+
+  @override
+  void dispose() {
+    replyController.dispose();
+    super.dispose();
+  }
+
+  Future<void> sendReply() async {
+    final firebaseUser = FirebaseAuth.instance.currentUser;
+    final text = replyController.text.trim();
+
+    if (firebaseUser == null || text.isEmpty || isSending) {
+      return;
+    }
+
+    setState(() => isSending = true);
+
+    try {
+      replyController.clear();
+      await topicRepliesCollection.debugAdd({
+        'userId': firebaseUser.uid,
+        'username': currentUser.username,
+        'avatarUrl': currentUser.photoUrl ?? '',
+        'text': text,
+        'timestamp': FieldValue.serverTimestamp(),
+      });
+
+      await FirebaseFirestore.instance
+          .collection('forum_topics')
+          .doc(widget.topicId)
+          .debugSet({
+            'repliesCount': FieldValue.increment(1),
+            'lastReplyAt': FieldValue.serverTimestamp(),
+          }, SetOptions(merge: true));
+    } finally {
+      if (mounted) {
+        setState(() => isSending = false);
+      }
+    }
+  }
+
+  Widget replyTile(QueryDocumentSnapshot<Map<String, dynamic>> doc) {
+    final data = doc.data();
+    final username = stringFromFirebase(data['username'], 'ccs_driver');
+    final avatarUrl = stringFromFirebase(data['avatarUrl'], '');
+    final text = stringFromFirebase(data['text'], '');
+    final time = formatChatMessageTime(timestampMillisFromFirebase(data['timestamp']));
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: const Color(0xFF1A1A1A),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFF2A2A2A)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          GlobalSmallAvatar(avatarUrl: avatarUrl, username: username),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        displayUsername(username),
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    ),
+                    if (time.isNotEmpty)
+                      Text(
+                        time,
+                        style: const TextStyle(
+                          color: Colors.white38,
+                          fontSize: 11,
+                        ),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  text,
+                  style: const TextStyle(color: Colors.white70, height: 1.35),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        title: Text(widget.title),
+        backgroundColor: Colors.transparent,
+        foregroundColor: blue,
+      ),
+      body: Column(
+        children: [
+          Expanded(
+            child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+              stream: topicRepliesCollection
+                  .orderBy('timestamp', descending: false)
+                  .limit(50)
+                  .debugSnapshots('forum: topic replies listener'),
+              builder: (context, snapshot) {
+                final replies =
+                    snapshot.data?.docs ??
+                    const <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Center(
+                    child: CircularProgressIndicator(color: blue),
+                  );
+                }
+
+                if (replies.isEmpty) {
+                  return const EmptyStateCard(
+                    icon: Icons.forum_outlined,
+                    title: 'Ответов пока нет',
+                    text: 'Будьте первым, кто ответит в этой теме.',
+                  );
+                }
+
+                return ListView(
+                  padding: const EdgeInsets.fromLTRB(20, 18, 20, 12),
+                  children: [for (final reply in replies) replyTile(reply)],
+                );
+              },
+            ),
+          ),
+          SafeArea(
+            top: false,
+            child: Container(
+              padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+              decoration: const BoxDecoration(
+                color: Colors.black,
+                border: Border(top: BorderSide(color: Color(0xFF2A2A2A))),
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: replyController,
+                      minLines: 1,
+                      maxLines: 4,
+                      style: const TextStyle(color: Colors.white),
+                      decoration: InputDecoration(
+                        hintText: 'Ответить в теме',
+                        hintStyle: const TextStyle(color: Colors.white38),
+                        filled: true,
+                        fillColor: const Color(0xFF1A1A1A),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(18),
+                          borderSide: const BorderSide(color: Color(0xFF2A2A2A)),
+                        ),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(18),
+                          borderSide: const BorderSide(color: Color(0xFF2A2A2A)),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(18),
+                          borderSide: const BorderSide(color: blue),
+                        ),
+                      ),
+                      onSubmitted: (_) => sendReply(),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  IconButton.filled(
+                    onPressed: isSending ? null : sendReply,
+                    style: IconButton.styleFrom(
+                      backgroundColor: blue,
+                      foregroundColor: Colors.white,
+                    ),
+                    icon: Icon(isSending ? Icons.hourglass_top : Icons.send),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class NewForumTopicPage extends StatefulWidget {
+  const NewForumTopicPage({super.key});
+
+  @override
+  State<NewForumTopicPage> createState() => _NewForumTopicPageState();
+}
+
+class _NewForumTopicPageState extends State<NewForumTopicPage> {
+  final titleController = TextEditingController();
+  final firstMessageController = TextEditingController();
+  String category = forumCategories.first;
+  bool isSaving = false;
+
+  @override
+  void dispose() {
+    titleController.dispose();
+    firstMessageController.dispose();
+    super.dispose();
+  }
+
+  Future<void> createTopic() async {
+    final firebaseUser = FirebaseAuth.instance.currentUser;
+    final title = titleController.text.trim();
+    final firstMessage = firstMessageController.text.trim();
+
+    if (firebaseUser == null || title.isEmpty || isSaving) {
+      return;
+    }
+
+    setState(() => isSaving = true);
+
+    try {
+      await createForumTopic(
+        title: title,
+        category: category,
+        description: firstMessage,
+      );
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            backgroundColor: blue,
+            content: Text(
+              '⏳ Тема отправлена на проверку',
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        );
+        Navigator.pop(context);
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: Colors.redAccent,
+            content: Text(
+              'Не удалось создать тему: $error',
+              style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => isSaving = false);
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        title: const Text('Новая тема'),
+        backgroundColor: Colors.transparent,
+        foregroundColor: blue,
+      ),
+      body: ListView(
+        padding: const EdgeInsets.fromLTRB(20, 18, 20, 28),
+        children: [
+          TextField(
+            controller: titleController,
+            style: const TextStyle(color: Colors.white),
+            decoration: InputDecoration(
+              labelText: 'Название темы',
+              labelStyle: const TextStyle(color: Colors.white54),
+              filled: true,
+              fillColor: const Color(0xFF1A1A1A),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: const BorderSide(color: Color(0xFF2A2A2A)),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: const BorderSide(color: Color(0xFF2A2A2A)),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: const BorderSide(color: blue),
+              ),
+            ),
+          ),
+          const SizedBox(height: 14),
+          DropdownButtonFormField<String>(
+            value: category,
+            dropdownColor: const Color(0xFF1A1A1A),
+            style: const TextStyle(color: Colors.white),
+            decoration: InputDecoration(
+              labelText: 'Категория',
+              labelStyle: const TextStyle(color: Colors.white54),
+              filled: true,
+              fillColor: const Color(0xFF1A1A1A),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: const BorderSide(color: Color(0xFF2A2A2A)),
+              ),
+            ),
+            items: [
+              for (final item in forumCategories)
+                DropdownMenuItem(value: item, child: Text(item)),
+            ],
+            onChanged: (value) {
+              if (value != null) {
+                setState(() => category = value);
+              }
+            },
+          ),
+          const SizedBox(height: 14),
+          TextField(
+            controller: firstMessageController,
+            minLines: 3,
+            maxLines: 6,
+            style: const TextStyle(color: Colors.white),
+            decoration: InputDecoration(
+              labelText: 'Первое сообщение',
+              labelStyle: const TextStyle(color: Colors.white54),
+              filled: true,
+              fillColor: const Color(0xFF1A1A1A),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: const BorderSide(color: Color(0xFF2A2A2A)),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: const BorderSide(color: Color(0xFF2A2A2A)),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: const BorderSide(color: blue),
+              ),
+            ),
+          ),
+          const SizedBox(height: 18),
+          SizedBox(
+            height: 52,
+            child: ElevatedButton.icon(
+              onPressed: isSaving ? null : createTopic,
+              icon: Icon(isSaving ? Icons.hourglass_top : Icons.add),
+              label: const Text('Создать тему'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: blue,
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class GlobalSmallAvatar extends StatelessWidget {
+  final String avatarUrl;
+  final String username;
+  final double size;
+
+  const GlobalSmallAvatar({
+    super.key,
+    required this.avatarUrl,
+    required this.username,
+    this.size = 34,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final letter = username.trim().isEmpty
+        ? '?'
+        : username.trim().substring(0, 1).toUpperCase();
+
+    if (isNetworkUrl(avatarUrl)) {
+      return ClipOval(
+        child: Image.network(
+          avatarUrl,
+          width: size,
+          height: size,
+          fit: BoxFit.cover,
+          errorBuilder: (_, _, _) =>
+              UserAvatarFallback(size: size, icon: Icons.person),
+        ),
+      );
+    }
+
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        color: blue.withValues(alpha: 0.16),
+        shape: BoxShape.circle,
+        border: Border.all(color: blue.withValues(alpha: 0.45)),
+      ),
+      child: Center(
+        child: Text(
+          letter,
+          style: const TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.w900,
+          ),
+        ),
+      ),
     );
   }
 }
@@ -31120,9 +32635,9 @@ class _ChatThreadTileState extends State<ChatThreadTile> {
     }
 
     _directUserPresenceUid = uid;
-    _directUserPresenceStream = userPresenceDocument(
-      uid,
-    ).debugSnapshots('chat: list direct user presence listener');
+    _directUserPresenceStream = usersCollection()
+        .doc(uid)
+        .debugSnapshots('chat: list direct user profile listener');
   }
 
   @override
@@ -31342,9 +32857,8 @@ class _ChatThreadTileState extends State<ChatThreadTile> {
     return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
       stream: _directUserPresenceStream,
       builder: (context, snapshot) {
-        final directUser = fallbackUser.withPresenceFromMap(
-          snapshot.data?.data(),
-        );
+        final directUser =
+            friendUserFromSnapshot(snapshot.data) ?? fallbackUser;
         return tile(context, directUser);
       },
     );
@@ -31818,7 +33332,9 @@ class _ChatManageScreenState extends State<ChatManageScreen> {
 }
 
 class NewChatScreen extends StatefulWidget {
-  const NewChatScreen({super.key});
+  final bool initialGroupMode;
+
+  const NewChatScreen({super.key, this.initialGroupMode = false});
 
   @override
   State<NewChatScreen> createState() => _NewChatScreenState();
@@ -31835,6 +33351,7 @@ class _NewChatScreenState extends State<NewChatScreen> {
   @override
   void initState() {
     super.initState();
+    groupMode = widget.initialGroupMode;
     searchController.addListener(() {
       setState(() => searchText = searchController.text);
     });
@@ -34772,6 +36289,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
               const SizedBox(height: 16),
               _ProfileSubmissionsPreview(spots: spots),
               const SizedBox(height: 16),
+              const MyForumTopicsPreview(),
+              const SizedBox(height: 16),
               _ProfileActionTile(
                 icon: Icons.group_add,
                 title: 'Friends',
@@ -34825,6 +36344,196 @@ class _ProfileScreenState extends State<ProfileScreen> {
             ],
           );
         },
+      ),
+    );
+  }
+}
+
+
+Color forumStatusColor(String status) {
+  switch (status.trim().toLowerCase()) {
+    case 'approved':
+      return Colors.green;
+    case 'rejected':
+      return Colors.redAccent;
+    case 'pending':
+      return Colors.orangeAccent;
+    default:
+      return Colors.white54;
+  }
+}
+
+String forumStatusText(String status) {
+  switch (status.trim().toLowerCase()) {
+    case 'approved':
+      return '✅ Одобрено';
+    case 'rejected':
+      return '❌ Отклонено';
+    case 'pending':
+      return '⏳ На проверке';
+    default:
+      return '❓ Неизвестно';
+  }
+}
+
+Widget forumStatusBadge(String status) {
+  final color = forumStatusColor(status);
+
+  return Container(
+    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+    decoration: BoxDecoration(
+      color: color.withValues(alpha: 0.15),
+      borderRadius: BorderRadius.circular(20),
+      border: Border.all(color: color.withValues(alpha: 0.3)),
+    ),
+    child: Text(
+      forumStatusText(status),
+      style: TextStyle(
+        color: color,
+        fontSize: 12,
+        fontWeight: FontWeight.w700,
+      ),
+    ),
+  );
+}
+
+class MyForumTopicsPreview extends StatelessWidget {
+  const MyForumTopicsPreview({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final firebaseUser = FirebaseAuth.instance.currentUser;
+
+    if (firebaseUser == null) {
+      return const SizedBox.shrink();
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: panelGlass,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: Colors.white12),
+      ),
+      child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+        stream: FirebaseFirestore.instance
+            .collection('forum_topics')
+            .where('authorId', isEqualTo: firebaseUser.uid)
+            .limit(30)
+            .debugSnapshots('profile: my forum topics listener'),
+        builder: (context, snapshot) {
+          final topics = (snapshot.data?.docs ??
+                  const <QueryDocumentSnapshot<Map<String, dynamic>>>[])
+              .toList()
+            ..sort((a, b) {
+              final aMillis = timestampMillisFromFirebase(a.data()['createdAt']);
+              final bMillis = timestampMillisFromFirebase(b.data()['createdAt']);
+              return bMillis.compareTo(aMillis);
+            });
+
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Row(
+                children: [
+                  Icon(Icons.forum_outlined, color: blue),
+                  SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      'Мои темы форума',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 18,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              if (snapshot.connectionState == ConnectionState.waiting)
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 12),
+                  child: Center(child: CircularProgressIndicator(color: blue)),
+                )
+              else if (topics.isEmpty)
+                const Text(
+                  'Вы ещё не создавали темы форума.',
+                  style: TextStyle(color: Colors.white54),
+                )
+              else
+                for (final doc in topics.take(5)) ...[
+                  _MyForumTopicTile(doc: doc),
+                  const SizedBox(height: 8),
+                ],
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _MyForumTopicTile extends StatelessWidget {
+  final QueryDocumentSnapshot<Map<String, dynamic>> doc;
+
+  const _MyForumTopicTile({required this.doc});
+
+  @override
+  Widget build(BuildContext context) {
+    final topic = doc.data();
+    final title = stringFromFirebase(topic['title'], 'Без названия');
+    final category = stringFromFirebase(topic['category'], '');
+    final status = stringFromFirebase(topic['status'], 'pending');
+    final rejectionReason = stringFromFirebase(topic['rejectionReason'], '');
+    final color = forumStatusColor(status);
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFF1A1A1A),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withValues(alpha: 0.3)),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                if (category.trim().isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    category,
+                    style: const TextStyle(color: Colors.white54, fontSize: 12),
+                  ),
+                ],
+                if (status == 'rejected' && rejectionReason.trim().isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: Text(
+                      '❌ Причина: $rejectionReason',
+                      style: const TextStyle(
+                        color: Colors.redAccent,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 10),
+          forumStatusBadge(status),
+        ],
       ),
     );
   }
@@ -40331,6 +42040,334 @@ Future<void> deleteAdminSpot(
   }
 }
 
+
+Future<void> createForumReviewNotification({
+  required Map<String, dynamic> topic,
+  required String status,
+  String rejectionReason = '',
+}) async {
+  final authorId = stringFromFirebase(topic['authorId'], '');
+  final topicTitle = stringFromFirebase(topic['title'], 'Тема форума');
+
+  if (authorId.trim().isEmpty) {
+    return;
+  }
+
+  final title = status == 'approved'
+      ? 'Тема форума одобрена'
+      : 'Тема форума отклонена';
+  final body = status == 'approved'
+      ? 'Твоя тема "$topicTitle" одобрена и опубликована!'
+      : 'Тема "$topicTitle" отклонена. Причина: ${rejectionReason.trim()}';
+
+  try {
+    await userNotificationsCollection().debugAdd({
+      'userId': authorId,
+      'type': 'forum_reviewed',
+      'status': status,
+      'title': title,
+      'body': body,
+      'topicTitle': topicTitle,
+      'rejectionReason': status == 'rejected' ? rejectionReason.trim() : null,
+      'read': false,
+      'createdAt': FieldValue.serverTimestamp(),
+    });
+  } catch (error, stack) {
+    debugPrint('Could not create forum review notification: $error');
+    debugPrint('$stack');
+  }
+}
+
+Future<void> approveForumTopic(String topicId) async {
+  final moderator = FirebaseAuth.instance.currentUser;
+  final topicRef = FirebaseFirestore.instance.collection('forum_topics').doc(topicId);
+  final snapshot = await topicRef.debugGet(null, 'forum: approve topic lookup');
+  final topic = snapshot.data() ?? const <String, dynamic>{};
+
+  await topicRef.debugSet({
+    'status': 'approved',
+    'reviewedBy': moderator?.uid,
+    'reviewedAt': FieldValue.serverTimestamp(),
+  }, SetOptions(merge: true));
+
+  await createForumReviewNotification(topic: topic, status: 'approved');
+  forumTopicsRefreshTick.value++;
+}
+
+Future<void> rejectForumTopic(String topicId, String reason) async {
+  final moderator = FirebaseAuth.instance.currentUser;
+  final cleanReason = reason.trim().isEmpty ? 'Не указана' : reason.trim();
+  final topicRef = FirebaseFirestore.instance.collection('forum_topics').doc(topicId);
+  final snapshot = await topicRef.debugGet(null, 'forum: reject topic lookup');
+  final topic = snapshot.data() ?? const <String, dynamic>{};
+
+  await topicRef.debugSet({
+    'status': 'rejected',
+    'rejectionReason': cleanReason,
+    'reviewedBy': moderator?.uid,
+    'reviewedAt': FieldValue.serverTimestamp(),
+  }, SetOptions(merge: true));
+
+  await createForumReviewNotification(
+    topic: topic,
+    status: 'rejected',
+    rejectionReason: cleanReason,
+  );
+  forumTopicsRefreshTick.value++;
+}
+
+Future<void> showRejectForumTopicDialog(
+  BuildContext context,
+  String topicId,
+) async {
+  final controller = TextEditingController();
+
+  try {
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          backgroundColor: const Color(0xFF1A1A1A),
+          title: const Text(
+            'Причина отклонения',
+            style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900),
+          ),
+          content: TextField(
+            controller: controller,
+            autofocus: true,
+            maxLines: 3,
+            style: const TextStyle(color: Colors.white),
+            decoration: const InputDecoration(
+              hintText: 'Укажите причину отклонения',
+              hintStyle: TextStyle(color: Colors.white38),
+              enabledBorder: OutlineInputBorder(
+                borderSide: BorderSide(color: Color(0xFF2A2A2A)),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderSide: BorderSide(color: blue),
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Отмена'),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
+              onPressed: () async {
+                final reason = controller.text.trim();
+                if (reason.isEmpty) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Укажите причину отклонения'),
+                      backgroundColor: Colors.redAccent,
+                    ),
+                  );
+                  return;
+                }
+
+                Navigator.pop(dialogContext);
+                await rejectForumTopic(topicId, reason);
+              },
+              child: const Text(
+                'Отклонить',
+                style: TextStyle(color: Colors.white),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  } finally {
+    controller.dispose();
+  }
+}
+
+class ForumModerationScreen extends StatelessWidget {
+  const ForumModerationScreen({super.key});
+
+  Widget topicTile(
+    BuildContext context,
+    QueryDocumentSnapshot<Map<String, dynamic>> doc,
+  ) {
+    final topic = doc.data();
+    final title = stringFromFirebase(topic['title'], 'Без названия');
+    final category = stringFromFirebase(topic['category'], '');
+    final authorName = stringFromFirebase(topic['authorName'], 'Пользователь');
+    final description = stringFromFirebase(topic['description'], '');
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: panelGlass,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: Colors.white12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.edit_note, color: blue),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  title,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w900,
+                    fontSize: 16,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Категория: $category',
+            style: const TextStyle(color: Colors.white70),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Автор: @$authorName',
+            style: const TextStyle(color: Colors.white54, fontSize: 12),
+          ),
+          if (description.trim().isNotEmpty) ...[
+            const SizedBox(height: 10),
+            const Text(
+              'Описание:',
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              description,
+              style: const TextStyle(color: Colors.white70, height: 1.35),
+            ),
+          ],
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: () => showRejectForumTopicDialog(context, doc.id),
+                  icon: const Icon(Icons.close),
+                  label: const Text('Отклонить'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: Colors.redAccent,
+                    side: const BorderSide(color: Colors.redAccent),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: ElevatedButton.icon(
+                  onPressed: () async {
+                    await approveForumTopic(doc.id);
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          backgroundColor: Colors.green,
+                          content: Text('✅ Тема одобрена'),
+                        ),
+                      );
+                    }
+                  },
+                  icon: const Icon(Icons.check),
+                  label: const Text('Одобрить'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.green,
+                    foregroundColor: Colors.white,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!userRoleIsStaff(currentUser.role)) {
+      return const Scaffold(
+        backgroundColor: Colors.transparent,
+        body: Center(
+          child: Text(
+            'No access',
+            style: TextStyle(color: Colors.white),
+          ),
+        ),
+      );
+    }
+
+    return Scaffold(
+      backgroundColor: Colors.transparent,
+      appBar: AppBar(
+        title: const Text('Форум на проверке'),
+        backgroundColor: Colors.transparent,
+        foregroundColor: blue,
+      ),
+      body: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+        stream: FirebaseFirestore.instance
+            .collection('forum_topics')
+            .where('status', isEqualTo: 'pending')
+            .limit(50)
+            .debugSnapshots('forum: pending moderation listener'),
+        builder: (context, snapshot) {
+          final topics = (snapshot.data?.docs ??
+                  const <QueryDocumentSnapshot<Map<String, dynamic>>>[])
+              .toList()
+            ..sort((a, b) {
+              final aMillis = timestampMillisFromFirebase(a.data()['createdAt']);
+              final bMillis = timestampMillisFromFirebase(b.data()['createdAt']);
+              return aMillis.compareTo(bMillis);
+            });
+
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator(color: blue));
+          }
+
+          return ListView(
+            padding: const EdgeInsets.fromLTRB(12, 18, 12, 28),
+            children: [
+              const Text(
+                '📝 Форум',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 34,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                topics.isEmpty
+                    ? 'Нет тем на проверке.'
+                    : '${topics.length} тем на проверке.',
+                style: const TextStyle(color: Colors.white54),
+              ),
+              const SizedBox(height: 18),
+              if (topics.isEmpty)
+                const EmptyStateCard(
+                  icon: Icons.forum_outlined,
+                  title: 'Нет тем на проверке',
+                  text: 'Новые темы форума появятся здесь.',
+                )
+              else
+                for (final topic in topics) topicTile(context, topic),
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
 class AdminReviewScreen extends StatefulWidget {
   const AdminReviewScreen({super.key});
 
@@ -40493,6 +42530,20 @@ class _AdminReviewScreenState extends State<AdminReviewScreen> {
                   },
                 ),
               ],
+              const SizedBox(height: 10),
+              _ProfileActionTile(
+                icon: Icons.forum_outlined,
+                title: '📝 Форум',
+                subtitle: 'Проверить новые темы форума',
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    appPageRoute(
+                      builder: (_) => const ForumModerationScreen(),
+                    ),
+                  );
+                },
+              ),
               const SizedBox(height: 16),
               SingleChildScrollView(
                 scrollDirection: Axis.horizontal,
@@ -41417,7 +43468,7 @@ class _AdminEditSpotScreenState extends State<AdminEditSpotScreen> {
               ),
               _CcsTextField(
                 controller: reelController,
-                label: 'Instagram / TikTok video link',
+                label: 'Video link',
                 hint: 'https://instagram.com/reel/...',
                 icon: Icons.play_circle,
                 keyboardType: TextInputType.url,
