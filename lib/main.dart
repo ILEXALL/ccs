@@ -1595,6 +1595,8 @@ const _ruText = <String, String>{
   'Map': 'Карта',
   'Add Spot': 'Добавить спот',
   'Chat': 'Чат',
+  'Chat, forums and community': 'Чаты, форумы и сообщество',
+  'Global': 'Глобальный',
   'Profile': 'Профиль',
   'Settings': 'Настройки',
   'Notifications': 'Уведомления',
@@ -1670,7 +1672,8 @@ const _ruText = <String, String>{
   'Description': 'Описание',
   'Add up to 4 car photos. The first photo becomes the garage cover.':
       'Добавьте до 4 фотографий. Первая станет обложкой гаража.',
-  'Upload photos': 'Загрузить фотографии',  'Add up to 4 photos. First one is the cover.': 'До 4 фото. Первое — обложка.',
+  'Upload photos': 'Загрузить фотографии',
+  'Add up to 4 photos. First one is the cover.': 'До 4 фото. Первое — обложка.',
   'Maximum 4 photos selected.': 'Выбрано максимум 4 фото.',
 
   'Cover': 'Обложка',
@@ -1727,7 +1730,9 @@ const _ruText = <String, String>{
   'Still there': 'Всё ещё там',
   'Live now': 'Сейчас онлайн',
   'Spot': 'Спот',
-  'Show on map': 'Показать на карте',  'Show on map at': 'Показать на карте с',  'Location visible from': 'Локация видна с',
+  'Show on map': 'Показать на карте',
+  'Show on map at': 'Показать на карте с',
+  'Location visible from': 'Локация видна с',
   'Choose time': 'Выберите время',
 
   'Optional delayed map reveal.': 'Можно показать локацию позже.',
@@ -1762,7 +1767,9 @@ const _ruText = <String, String>{
   'Pin on the map': 'Поставить метку на карте',
   'Use current location': 'Использовать текущее местоположение',
   'Visibility': 'Видимость',
-  'Verified only': 'Только проверенные пользователи',  'Only verified users and admins can see this spot': 'Виден только проверенным и админам',
+  'Verified only': 'Только проверенные пользователи',
+  'Only verified users and admins can see this spot':
+      'Виден только проверенным и админам',
 
   'Temporary schedule': 'Временное расписание',
   'Categories': 'Категории',
@@ -2056,7 +2063,9 @@ const _ruText = <String, String>{
   'Tap to change avatar': 'Нажмите, чтобы изменить аватар',
   'Tell people about your car, build, setup, and plans':
       'Расскажите об автомобиле, доработках и планах',
-  'Temporary spot': 'Временный спот',  'For meets and events. Max active time is 12 hours.': 'Для встреч и событий. До 12 часов.',
+  'Temporary spot': 'Временный спот',
+  'For meets and events. Max active time is 12 hours.':
+      'Для встреч и событий. До 12 часов.',
 
   'Temporary spot can be active for 12 hours maximum.':
       'Временный спот может быть активен не более 12 часов.',
@@ -2285,6 +2294,61 @@ const _ruText = <String, String>{
       'Вы можете поставить лайк этому споту только 2 раза в день.',
   'You can remove your like from this spot 2 times per day.':
       'Вы можете снять лайк с этого спота только 2 раза в день.',
+
+  'Forum': 'Форум',
+  'Find topics by category': 'Темы по категориям',
+  'Search topics, categories, keywords...':
+      'Поиск тем, категорий, ключевых слов...',
+  'Meets & Events': 'Встречи и события',
+  'Tuning & Parts': 'Тюнинг и запчасти',
+  'Questions & Help': 'Вопросы и помощь',
+  'Car meets, track days, cruises and community events.':
+      'Встречи, трек-дни, круизы и события сообщества.',
+  'Performance upgrades, mods, reviews and builds.':
+      'Улучшения, моды, обзоры и проекты.',
+  'Ask questions, get advice and solve problems.':
+      'Задавайте вопросы, получайте советы и решайте проблемы.',
+  'Latest topics': 'Последние темы',
+  'View all': 'Смотреть все',
+  'topics': 'темы',
+  'Tap + to create': 'Нажмите + для создания',
+  'No forum topics yet': 'Тем форума пока нет',
+  'Tap + on a category to create the first topic.':
+      'Нажмите + в категории, чтобы создать первую тему.',
+  'Untitled topic': 'Тема без названия',
+  'New topic': 'Новая тема',
+  'Create forum topic': 'Создать тему форума',
+  'Add an avatar, name, and description. All fields are required.':
+      'Добавьте аватар, название и описание. Все поля обязательны.',
+  'Upload topic avatar': 'Загрузить аватар темы',
+  'Required to create a topic': 'Обязательно для создания темы',
+  'Change avatar': 'Изменить аватар',
+  'Topic name': 'Название темы',
+  'Topic avatar is required.': 'Аватар темы обязателен.',
+  'Topic name is required.': 'Название темы обязательно.',
+  'Topic description is required.': 'Описание темы обязательно.',
+  'Create topic': 'Создать тему',
+  'Creating topic...': 'Создаём тему...',
+  'Topic sent for review': 'Тема отправлена на проверку',
+  'Could not create topic': 'Не удалось создать тему',
+  'Topic created': 'Тема создана',
+  'Tap a category': 'Нажмите категорию',
+  'Open a category to create the first topic.':
+      'Откройте категорию, чтобы создать первую тему.',
+  'Search topics...': 'Поиск тем...',
+  'Topics': 'Темы',
+  'No topics in this category yet': 'В этой категории пока нет тем',
+  'Tap New topic to create the first topic.':
+      'Нажмите «Новая тема», чтобы создать первую тему.',
+  'Log in before creating a forum topic.':
+      'Войдите в аккаунт перед созданием темы форума.',
+  'Moderator will review your topic before it appears in the forum.':
+      'Модератор проверит вашу тему перед публикацией в форуме.',
+  'OK': 'Понятно',
+  'No replies yet': 'Ответов пока нет',
+  'Be the first to reply in this topic.':
+      'Будьте первым, кто ответит в этой теме.',
+  'Reply in topic': 'Ответить в теме',
   'Temporary events': 'Временные ивенты',
 };
 
@@ -2333,6 +2397,8 @@ const _lvText = <String, String>{
   'Map': 'Karte',
   'Add Spot': 'Pievienot vietu',
   'Chat': 'Čats',
+  'Chat, forums and community': 'Čati, forumi un kopiena',
+  'Global': 'Globālais',
   'Profile': 'Profils',
   'Settings': 'Iestatījumi',
   'Notifications': 'Paziņojumi',
@@ -2408,7 +2474,9 @@ const _lvText = <String, String>{
   'Description': 'Apraksts',
   'Add up to 4 car photos. The first photo becomes the garage cover.':
       'Pievienojiet līdz 4 fotogrāfijām. Pirmā būs garāžas vāks.',
-  'Upload photos': 'Augšupielādēt fotogrāfijas',  'Add up to 4 photos. First one is the cover.': 'Līdz 4 foto. Pirmais būs vāks.',
+  'Upload photos': 'Augšupielādēt fotogrāfijas',
+  'Add up to 4 photos. First one is the cover.':
+      'Līdz 4 foto. Pirmais būs vāks.',
   'Maximum 4 photos selected.': 'Izvēlēti ne vairāk kā 4 foto.',
 
   'Cover': 'Vāks',
@@ -2465,7 +2533,9 @@ const _lvText = <String, String>{
   'Still there': 'Joprojām tur',
   'Live now': 'Tiešsaistē',
   'Spot': 'Vieta',
-  'Show on map': 'Rādīt kartē',  'Show on map at': 'Rādīt kartē no',  'Location visible from': 'Lokācija redzama no',
+  'Show on map': 'Rādīt kartē',
+  'Show on map at': 'Rādīt kartē no',
+  'Location visible from': 'Lokācija redzama no',
   'Choose time': 'Izvēlieties laiku',
 
   'Optional delayed map reveal.': 'Var parādīt lokāciju vēlāk.',
@@ -2501,7 +2571,9 @@ const _lvText = <String, String>{
   'Pin on the map': 'Atzīmēt kartē',
   'Use current location': 'Izmantot pašreizējo atrašanās vietu',
   'Visibility': 'Redzamība',
-  'Verified only': 'Tikai verificētiem lietotājiem',  'Only verified users and admins can see this spot': 'Redz tikai verificētie un administratori',
+  'Verified only': 'Tikai verificētiem lietotājiem',
+  'Only verified users and admins can see this spot':
+      'Redz tikai verificētie un administratori',
 
   'Temporary schedule': 'Pagaidu grafiks',
   'Categories': 'Kategorijas',
@@ -2794,7 +2866,9 @@ const _lvText = <String, String>{
   'Tap to change avatar': 'Nospiediet, lai mainītu avatāru',
   'Tell people about your car, build, setup, and plans':
       'Pastāstiet par auto, uzlabojumiem un plāniem',
-  'Temporary spot': 'Pagaidu vieta',  'For meets and events. Max active time is 12 hours.': 'Tikšanās un pasākumiem. Līdz 12 stundām.',
+  'Temporary spot': 'Pagaidu vieta',
+  'For meets and events. Max active time is 12 hours.':
+      'Tikšanās un pasākumiem. Līdz 12 stundām.',
 
   'Temporary spot can be active for 12 hours maximum.':
       'Pagaidu vieta var būt aktīva ne ilgāk par 12 stundām.',
@@ -3018,6 +3092,61 @@ const _lvText = <String, String>{
       'Šai vietai varat nospiest Patīk tikai 2 reizes dienā.',
   'You can remove your like from this spot 2 times per day.':
       'Šai vietai varat noņemt Patīk tikai 2 reizes dienā.',
+
+  'Forum': 'Forums',
+  'Find topics by category': 'Atrodiet tēmas pēc kategorijas',
+  'Search topics, categories, keywords...':
+      'Meklēt tēmas, kategorijas, atslēgvārdus...',
+  'Meets & Events': 'Tikšanās un pasākumi',
+  'Tuning & Parts': 'Tūnings un detaļas',
+  'Questions & Help': 'Jautājumi un palīdzība',
+  'Car meets, track days, cruises and community events.':
+      'Auto tikšanās, trases dienas, kruīzi un kopienas pasākumi.',
+  'Performance upgrades, mods, reviews and builds.':
+      'Veiktspējas uzlabojumi, modi, atsauksmes un projekti.',
+  'Ask questions, get advice and solve problems.':
+      'Uzdodiet jautājumus, saņemiet padomus un risiniet problēmas.',
+  'Latest topics': 'Jaunākās tēmas',
+  'View all': 'Skatīt visu',
+  'topics': 'tēmas',
+  'Tap + to create': 'Nospiediet +, lai izveidotu',
+  'No forum topics yet': 'Forumā vēl nav tēmu',
+  'Tap + on a category to create the first topic.':
+      'Nospiediet + kategorijā, lai izveidotu pirmo tēmu.',
+  'Untitled topic': 'Tēma bez nosaukuma',
+  'New topic': 'Jauna tēma',
+  'Create forum topic': 'Izveidot foruma tēmu',
+  'Add an avatar, name, and description. All fields are required.':
+      'Pievienojiet avatāru, nosaukumu un aprakstu. Visi lauki ir obligāti.',
+  'Upload topic avatar': 'Augšupielādēt tēmas avatāru',
+  'Required to create a topic': 'Obligāti tēmas izveidei',
+  'Change avatar': 'Mainīt avatāru',
+  'Topic name': 'Tēmas nosaukums',
+  'Topic avatar is required.': 'Tēmas avatārs ir obligāts.',
+  'Topic name is required.': 'Tēmas nosaukums ir obligāts.',
+  'Topic description is required.': 'Tēmas apraksts ir obligāts.',
+  'Create topic': 'Izveidot tēmu',
+  'Creating topic...': 'Izveido tēmu...',
+  'Topic sent for review': 'Tēma nosūtīta pārbaudei',
+  'Could not create topic': 'Neizdevās izveidot tēmu',
+  'Topic created': 'Tēma izveidota',
+  'Tap a category': 'Nospiediet kategoriju',
+  'Open a category to create the first topic.':
+      'Atveriet kategoriju, lai izveidotu pirmo tēmu.',
+  'Search topics...': 'Meklēt tēmas...',
+  'Topics': 'Tēmas',
+  'No topics in this category yet': 'Šajā kategorijā vēl nav tēmu',
+  'Tap New topic to create the first topic.':
+      'Nospiediet “Jauna tēma”, lai izveidotu pirmo tēmu.',
+  'Log in before creating a forum topic.':
+      'Pirms foruma tēmas izveides piesakieties kontā.',
+  'Moderator will review your topic before it appears in the forum.':
+      'Moderators pārbaudīs tēmu pirms tās publicēšanas forumā.',
+  'OK': 'Labi',
+  'No replies yet': 'Atbilžu vēl nav',
+  'Be the first to reply in this topic.':
+      'Esiet pirmais, kas atbild šajā tēmā.',
+  'Reply in topic': 'Atbildēt tēmā',
   'Temporary events': 'Pagaidu pasākumi',
 };
 
@@ -4754,11 +4883,12 @@ Future<String?> pickPhotoFromPhone(
   BuildContext context, {
   double cropAspectRatio = 1,
   PhotoCropShape cropShape = PhotoCropShape.rectangle,
+  bool cropPhoto = true,
 }) async {
   try {
     final path = await photoPickerChannel.invokeMethod<String>('pickPhoto');
 
-    if (!context.mounted || path == null || path.trim().isEmpty) {
+    if (!context.mounted || path == null || path.trim().isEmpty || !cropPhoto) {
       return path;
     }
 
@@ -5462,8 +5592,8 @@ Future<void> stopCurrentUserAppServicesForAccessBlock() async {
   notificationCenterUnreadCountsBySource.clear();
   notificationCenterUnreadCount.value = 0;
   WidgetsBinding.instance.addPostFrameCallback((_) {
-      chatUnreadCountsByChatId.value = const <String, int>{};
-    });
+    chatUnreadCountsByChatId.value = const <String, int>{};
+  });
   await stopCurrentUserLikedSpotsSync();
 }
 
@@ -5529,8 +5659,8 @@ Future<void> signOutCurrentAccount() async {
   notificationCenterUnreadCountsBySource.clear();
   notificationCenterUnreadCount.value = 0;
   WidgetsBinding.instance.addPostFrameCallback((_) {
-      chatUnreadCountsByChatId.value = const <String, int>{};
-    });
+    chatUnreadCountsByChatId.value = const <String, int>{};
+  });
   await stopCurrentUserLikedSpotsSync();
   spotCommentsSessionCache.clear();
   currentUserSpotRatingCache.value = {};
@@ -8261,8 +8391,8 @@ void startNotificationCenterUnreadWatcher() {
   notificationCenterUnreadCountsBySource.clear();
   notificationCenterUnreadCount.value = 0;
   WidgetsBinding.instance.addPostFrameCallback((_) {
-      chatUnreadCountsByChatId.value = const <String, int>{};
-    });
+    chatUnreadCountsByChatId.value = const <String, int>{};
+  });
 
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>> watchUnreadQuery(
     String source,
@@ -8290,8 +8420,8 @@ void startNotificationCenterUnreadWatcher() {
         notificationCenterUnreadCountsBySource[source] = 0;
         if (source == 'user') {
           WidgetsBinding.instance.addPostFrameCallback((_) {
-      chatUnreadCountsByChatId.value = const <String, int>{};
-    });
+            chatUnreadCountsByChatId.value = const <String, int>{};
+          });
         }
         scheduleNotificationCenterUnreadRefresh();
         debugPrint('Notification unread watcher failed ($source): $error');
@@ -11021,6 +11151,21 @@ Future<String> uploadUserAvatarPhoto({
   );
 }
 
+Future<String> uploadForumTopicAvatarPhoto({
+  required String userId,
+  required String localPhotoPath,
+}) async {
+  final timestamp = DateTime.now().millisecondsSinceEpoch;
+  final r2Path = 'users/$userId/forum_topic_avatar_$timestamp.jpg';
+
+  return uploadImageToR2(
+    r2Path: r2Path,
+    localPhotoPath: localPhotoPath,
+    maxLongSide: r2AvatarPhotoMaxLongSide,
+    quality: r2JpegQuality,
+  );
+}
+
 Future<String> uploadGarageCarPhoto({
   required String userId,
   required int carIndex,
@@ -11635,9 +11780,7 @@ Future<void> refreshFirebaseSpotsFromServer() async {
 }
 
 Query<Map<String, dynamic>> currentUserChatsQuery(String uid) {
-  return chatsCollection()
-      .where('memberIds', arrayContains: uid)
-      .limit(25);
+  return chatsCollection().where('memberIds', arrayContains: uid).limit(25);
 }
 
 Query<Map<String, dynamic>> latestChatMessagesQuery(String chatId) {
@@ -30571,29 +30714,6 @@ class SavedScreen extends StatelessWidget {
   }
 }
 
-const pinnedChatIdsPreferenceKey = 'pinned_chat_ids_v1';
-
-Future<List<String>> loadPinnedChatIds() async {
-  final prefs = await SharedPreferences.getInstance();
-  return prefs.getStringList(pinnedChatIdsPreferenceKey) ?? <String>[];
-}
-
-Future<void> savePinnedChatIds(List<String> ids) async {
-  final prefs = await SharedPreferences.getInstance();
-  await prefs.setStringList(pinnedChatIdsPreferenceKey, ids.take(6).toList());
-}
-
-Future<void> removePinnedChatId(String chatId) async {
-  final cleanChatId = chatId.trim();
-  if (cleanChatId.isEmpty) {
-    return;
-  }
-
-  final ids = await loadPinnedChatIds();
-  ids.removeWhere((id) => id == cleanChatId);
-  await savePinnedChatIds(ids);
-}
-
 Widget chatAvatarWidget(ChatThreadData chat, String currentUid) {
   final photoUrl = chat.directPhotoUrlForCurrentUser(currentUid);
 
@@ -30636,7 +30756,6 @@ class _ChatScreenState extends State<ChatScreen>
     with SingleTickerProviderStateMixin {
   late final TabController tabController;
   late final Stream<QuerySnapshot<Map<String, dynamic>>> chatsStream;
-  List<String> pinnedChatIds = const [];
   int activeTabIndex = 0;
 
   @override
@@ -30648,7 +30767,6 @@ class _ChatScreenState extends State<ChatScreen>
     chatsStream = currentUserChatsQuery(
       uid,
     ).debugSnapshots('chat: threads list listener');
-    loadPins();
   }
 
   @override
@@ -30664,19 +30782,14 @@ class _ChatScreenState extends State<ChatScreen>
     }
   }
 
-  Future<void> loadPins() async {
-    final ids = await loadPinnedChatIds();
-    if (mounted) {
-      setState(() => pinnedChatIds = ids);
-    }
-  }
-
-  Future<void> openNewChat(BuildContext context, {bool groupMode = false}) async {
+  Future<void> openNewChat(
+    BuildContext context, {
+    bool groupMode = false,
+  }) async {
     await Navigator.push(
       context,
       appPageRoute(builder: (_) => NewChatScreen(initialGroupMode: groupMode)),
     );
-    loadPins();
   }
 
   Future<void> openNewForumTopic(BuildContext context) async {
@@ -30686,38 +30799,8 @@ class _ChatScreenState extends State<ChatScreen>
     );
   }
 
-  Future<void> openChatManager(
-    BuildContext context,
-    List<ChatThreadData> chats,
-  ) async {
-    await Navigator.push(
-      context,
-      appPageRoute(
-        builder: (_) =>
-            ChatManageScreen(chats: chats, currentPinnedIds: pinnedChatIds),
-      ),
-    );
-    loadPins();
-  }
-
   List<ChatThreadData> sortedChats(List<ChatThreadData> chats) {
-    final pinnedSet = pinnedChatIds.toSet();
-    chats.sort((a, b) {
-      final aPinned = pinnedSet.contains(a.id);
-      final bPinned = pinnedSet.contains(b.id);
-
-      if (aPinned != bPinned) {
-        return aPinned ? -1 : 1;
-      }
-
-      if (aPinned && bPinned) {
-        return pinnedChatIds
-            .indexOf(a.id)
-            .compareTo(pinnedChatIds.indexOf(b.id));
-      }
-
-      return b.updatedAtMillis.compareTo(a.updatedAtMillis);
-    });
+    chats.sort((a, b) => b.updatedAtMillis.compareTo(a.updatedAtMillis));
     return chats;
   }
 
@@ -30727,12 +30810,7 @@ class _ChatScreenState extends State<ChatScreen>
     }
 
     if (activeTabIndex == 3) {
-      return FloatingActionButton(
-        onPressed: () => openNewForumTopic(context),
-        backgroundColor: blue,
-        foregroundColor: Colors.white,
-        child: const Icon(Icons.add),
-      );
+      return null;
     }
 
     return FloatingActionButton(
@@ -30808,72 +30886,47 @@ class _ChatScreenState extends State<ChatScreen>
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 14, 20, 12),
-                    child: Row(
-                      children: [
-                        const Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'Chat',
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 34,
-                                  fontWeight: FontWeight.w900,
-                                ),
-                              ),
-                              SizedBox(height: 6),
-                              Text(
-                                'Общение, форумы и сообщество',
-                                style: TextStyle(
-                                  color: Colors.white54,
-                                  height: 1.35,
-                                ),
-                              ),
-                            ],
+                    padding: const EdgeInsets.fromLTRB(0, 0, 0, 6),
+                    child: Center(
+                      child: TabBar(
+                        controller: tabController,
+                        isScrollable: true,
+                        tabAlignment: TabAlignment.center,
+                        padding: EdgeInsets.zero,
+                        labelPadding: const EdgeInsets.symmetric(
+                          horizontal: 13,
+                        ),
+                        indicatorColor: blue,
+                        labelColor: blue,
+                        unselectedLabelColor: Colors.white54,
+                        labelStyle: const TextStyle(
+                          fontWeight: FontWeight.w900,
+                        ),
+                        tabs: [
+                          Tab(
+                            icon: _SegmentBadgeIcon(
+                              icon: Icons.chat_bubble_outline,
+                              count: directUnreadCount,
+                            ),
+                            text: trText('Chats'),
                           ),
-                        ),
-                        IconButton(
-                          tooltip: 'Edit Chat View',
-                          onPressed: () => openChatManager(context, chats),
-                          icon: const Icon(Icons.tune, color: blue),
-                        ),
-                      ],
-                    ),
-                  ),
-                  Center(
-                    child: TabBar(
-                      controller: tabController,
-                      isScrollable: true,
-                      tabAlignment: TabAlignment.center,
-                      padding: EdgeInsets.zero,
-                      labelPadding: const EdgeInsets.symmetric(horizontal: 13),
-                      indicatorColor: blue,
-                      labelColor: blue,
-                      unselectedLabelColor: Colors.white54,
-                      labelStyle: const TextStyle(fontWeight: FontWeight.w900),
-                      tabs: [
-                        Tab(
-                          icon: _SegmentBadgeIcon(
-                            icon: Icons.chat_bubble_outline,
-                            count: directUnreadCount,
+                          Tab(
+                            icon: _SegmentBadgeIcon(
+                              icon: Icons.groups,
+                              count: groupUnreadCount,
+                            ),
+                            text: trText('Groups'),
                           ),
-                          text: 'Чаты',
-                        ),
-                        Tab(
-                          icon: _SegmentBadgeIcon(
-                            icon: Icons.groups,
-                            count: groupUnreadCount,
+                          Tab(
+                            icon: const Icon(Icons.public),
+                            text: trText('Global'),
                           ),
-                          text: 'Группы',
-                        ),
-                        const Tab(icon: Icon(Icons.public), text: 'Глобальный'),
-                        const Tab(
-                          icon: Icon(Icons.forum_outlined),
-                          text: 'Форум',
-                        ),
-                      ],
+                          Tab(
+                            icon: const Icon(Icons.forum_outlined),
+                            text: trText('Forum'),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                   Expanded(
@@ -30887,13 +30940,11 @@ class _ChatScreenState extends State<ChatScreen>
                               ChatsTab(
                                 chats: directChats,
                                 currentUid: firebaseUser.uid,
-                                pinnedChatIds: pinnedChatIds,
                                 unreadCountsByChatId: unreadCountsByChatId,
                               ),
                               GroupsTab(
                                 chats: groupChats,
                                 currentUid: firebaseUser.uid,
-                                pinnedChatIds: pinnedChatIds,
                                 unreadCountsByChatId: unreadCountsByChatId,
                               ),
                               const GlobalChatTab(),
@@ -30914,14 +30965,12 @@ class _ChatScreenState extends State<ChatScreen>
 class ChatsTab extends StatefulWidget {
   final List<ChatThreadData> chats;
   final String currentUid;
-  final List<String> pinnedChatIds;
   final Map<String, int> unreadCountsByChatId;
 
   const ChatsTab({
     super.key,
     required this.chats,
     required this.currentUid,
-    required this.pinnedChatIds,
     required this.unreadCountsByChatId,
   });
 
@@ -30999,7 +31048,6 @@ class _ChatsTabState extends State<ChatsTab>
                   ChatThreadTile(
                     chat: chat,
                     currentUid: widget.currentUid,
-                    pinned: widget.pinnedChatIds.contains(chat.id),
                     unreadCount: widget.unreadCountsByChatId[chat.id] ?? 0,
                   ),
                   const SizedBox(height: 10),
@@ -31015,14 +31063,12 @@ class _ChatsTabState extends State<ChatsTab>
 class GroupsTab extends StatefulWidget {
   final List<ChatThreadData> chats;
   final String currentUid;
-  final List<String> pinnedChatIds;
   final Map<String, int> unreadCountsByChatId;
 
   const GroupsTab({
     super.key,
     required this.chats,
     required this.currentUid,
-    required this.pinnedChatIds,
     required this.unreadCountsByChatId,
   });
 
@@ -31100,7 +31146,6 @@ class _GroupsTabState extends State<GroupsTab>
                   ChatThreadTile(
                     chat: chat,
                     currentUid: widget.currentUid,
-                    pinned: widget.pinnedChatIds.contains(chat.id),
                     unreadCount: widget.unreadCountsByChatId[chat.id] ?? 0,
                   ),
                   const SizedBox(height: 10),
@@ -31112,7 +31157,6 @@ class _GroupsTabState extends State<GroupsTab>
     );
   }
 }
-
 
 class GlobalChatTab extends StatefulWidget {
   const GlobalChatTab({super.key});
@@ -31207,7 +31251,9 @@ class _GlobalChatTabState extends State<GlobalChatTab>
     final username = stringFromFirebase(data['username'], 'ccs_driver');
     final avatarUrl = stringFromFirebase(data['avatarUrl'], '');
     final text = stringFromFirebase(data['text'], '');
-    final time = formatChatMessageTime(timestampMillisFromFirebase(data['timestamp']));
+    final time = formatChatMessageTime(
+      timestampMillisFromFirebase(data['timestamp']),
+    );
 
     final bubble = Container(
       constraints: const BoxConstraints(maxWidth: 285),
@@ -31233,10 +31279,7 @@ class _GlobalChatTabState extends State<GlobalChatTab>
             ),
           ),
           const SizedBox(height: 4),
-          Text(
-            text,
-            style: const TextStyle(color: Colors.white, height: 1.3),
-          ),
+          Text(text, style: const TextStyle(color: Colors.white, height: 1.3)),
           if (time.isNotEmpty) ...[
             const SizedBox(height: 4),
             Text(
@@ -31251,18 +31294,14 @@ class _GlobalChatTabState extends State<GlobalChatTab>
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
       child: Row(
-        mainAxisAlignment: mine ? MainAxisAlignment.end : MainAxisAlignment.start,
+        mainAxisAlignment: mine
+            ? MainAxisAlignment.end
+            : MainAxisAlignment.start,
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
-          if (!mine) ...[
-            avatar(avatarUrl, username),
-            const SizedBox(width: 8),
-          ],
+          if (!mine) ...[avatar(avatarUrl, username), const SizedBox(width: 8)],
           bubble,
-          if (mine) ...[
-            const SizedBox(width: 8),
-            avatar(avatarUrl, username),
-          ],
+          if (mine) ...[const SizedBox(width: 8), avatar(avatarUrl, username)],
         ],
       ),
     );
@@ -31285,11 +31324,12 @@ class _GlobalChatTabState extends State<GlobalChatTab>
                     lastSeenAtMillis: timestampMillisFromFirebase(
                       data['lastSeenAt'],
                     ),
-                    isSharingLiveLocation: data['isSharingLiveLocation'] == true,
+                    isSharingLiveLocation:
+                        data['isSharingLiveLocation'] == true,
                     liveLocationExpiresAtMillis:
                         nullableTimestampMillisFromFirebase(
-                      data['liveLocationExpiresAt'],
-                    ),
+                          data['liveLocationExpiresAt'],
+                        ),
                   );
                 }).length ??
                 0;
@@ -31338,7 +31378,9 @@ class _GlobalChatTabState extends State<GlobalChatTab>
                       .toList();
 
               if (snapshot.connectionState == ConnectionState.waiting) {
-                return const Center(child: CircularProgressIndicator(color: blue));
+                return const Center(
+                  child: CircularProgressIndicator(color: blue),
+                );
               }
 
               if (messages.isEmpty) {
@@ -31411,13 +31453,13 @@ class _GlobalChatTabState extends State<GlobalChatTab>
   }
 }
 
-
 final forumTopicsRefreshTick = ValueNotifier<int>(0);
 
-Future<void> createForumTopic({
+Future<String> createForumTopic({
   required String title,
   required String category,
   required String description,
+  required String avatarUrl,
 }) async {
   try {
     final user = FirebaseAuth.instance.currentUser;
@@ -31442,41 +31484,51 @@ Future<void> createForumTopic({
     final userData = userDoc.data();
     final username =
         stringFromFirebase(userData?['username'], '').trim().isNotEmpty
-            ? stringFromFirebase(userData?['username'], '')
-            : stringFromFirebase(
-                userData?['displayName'],
-                currentUser.username.trim().isEmpty
-                    ? 'Пользователь'
-                    : currentUser.username,
-              );
+        ? stringFromFirebase(userData?['username'], '')
+        : stringFromFirebase(
+            userData?['displayName'],
+            currentUser.username.trim().isEmpty
+                ? 'ccs_driver'
+                : currentUser.username,
+          );
+
+    final categoryId = forumCategoryIdFromFirebase(category);
+    final categoryTitle = forumCategoryById(categoryId).titleKey;
+    final creatorRole = roleFromFirebase(userData?['role']);
+    final isStaffCreator =
+        userRoleIsStaff(creatorRole) ||
+        (currentUser.uid == user.uid && userRoleIsStaff(currentUser.role));
+    final topicStatus = isStaffCreator ? 'approved' : 'pending';
 
     final docRef = await FirebaseFirestore.instance
         .collection('forum_topics')
         .debugAdd({
-      'title': title,
-      'category': category,
-      'description': description,
-      'authorId': user.uid,
-      'authorName': username,
-      'repliesCount': 0,
-      'isPinned': false,
-      'status': 'pending',
-      'rejectionReason': null,
-      'reviewedBy': null,
-      'reviewedAt': null,
-      'createdAt': FieldValue.serverTimestamp(),
-      'lastReplyAt': FieldValue.serverTimestamp(),
-    });
+          'title': title,
+          'category': categoryTitle,
+          'description': description,
+          'avatarUrl': avatarUrl,
+          'categoryId': categoryId,
+          'authorId': user.uid,
+          'authorName': username,
+          'repliesCount': 0,
+          'isPinned': false,
+          'status': topicStatus,
+          'rejectionReason': null,
+          'reviewedBy': isStaffCreator ? user.uid : null,
+          'reviewedAt': isStaffCreator ? FieldValue.serverTimestamp() : null,
+          'createdAt': FieldValue.serverTimestamp(),
+          'lastReplyAt': FieldValue.serverTimestamp(),
+        });
 
-    debugPrint('SUCCESS: Topic sent for review: ${docRef.id}');
+    debugPrint('SUCCESS: Topic $topicStatus: ${docRef.id}');
     forumTopicsRefreshTick.value++;
+    return topicStatus;
   } catch (error, stack) {
     debugPrint('ERROR creating forum topic: $error');
     debugPrint('$stack');
     rethrow;
   }
 }
-
 
 Future<void> showForumTopicSentForReviewDialog(BuildContext context) async {
   if (!context.mounted) {
@@ -31507,9 +31559,9 @@ Future<void> showForumTopicSentForReviewDialog(BuildContext context) async {
               ),
             ),
             const SizedBox(height: 16),
-            const Text(
-              'Тема отправлена на проверку',
-              style: TextStyle(
+            Text(
+              trText('Topic sent for review'),
+              style: const TextStyle(
                 color: Colors.white,
                 fontSize: 16,
                 fontWeight: FontWeight.bold,
@@ -31517,9 +31569,11 @@ Future<void> showForumTopicSentForReviewDialog(BuildContext context) async {
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 8),
-            const Text(
-              'Модератор проверит вашу тему, и она появится в форуме после одобрения.',
-              style: TextStyle(color: Colors.grey, fontSize: 13),
+            Text(
+              trText(
+                'Moderator will review your topic before it appears in the forum.',
+              ),
+              style: const TextStyle(color: Colors.grey, fontSize: 13),
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 16),
@@ -31534,9 +31588,9 @@ Future<void> showForumTopicSentForReviewDialog(BuildContext context) async {
                   ),
                 ),
                 onPressed: () => Navigator.pop(dialogContext),
-                child: const Text(
-                  'Понятно',
-                  style: TextStyle(color: Colors.white),
+                child: Text(
+                  trText('OK'),
+                  style: const TextStyle(color: Colors.white),
                 ),
               ),
             ),
@@ -31547,168 +31601,99 @@ Future<void> showForumTopicSentForReviewDialog(BuildContext context) async {
   );
 }
 
-Future<void> showCreateTopicDialog(BuildContext parentContext) async {
-  final titleController = TextEditingController();
-  final descriptionController = TextEditingController();
-  var selectedCategory = forumCategories.first;
+Future<void> showCreateTopicDialog(
+  BuildContext parentContext, {
+  String? initialCategory,
+}) async {
+  await Navigator.push(
+    parentContext,
+    appPageRoute(
+      builder: (_) => NewForumTopicPage(initialCategory: initialCategory),
+    ),
+  );
+}
 
-  Map<String, String>? result;
+class ForumCategoryConfig {
+  final String id;
+  final String titleKey;
+  final String descriptionKey;
+  final IconData icon;
 
-  try {
-    result = await showDialog<Map<String, String>>(
-      context: parentContext,
-      builder: (dialogContext) {
-        return StatefulBuilder(
-          builder: (dialogBuildContext, setDialogState) {
-            return AlertDialog(
-              backgroundColor: const Color(0xFF1A1A1A),
-              title: const Text(
-                'Новая тема',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w900,
-                ),
-              ),
-              content: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    TextField(
-                      controller: titleController,
-                      style: const TextStyle(color: Colors.white),
-                      decoration: const InputDecoration(
-                        labelText: 'Заголовок темы *',
-                        labelStyle: TextStyle(color: Colors.grey),
-                        enabledBorder: OutlineInputBorder(
-                          borderSide: BorderSide(color: Color(0xFF2A2A2A)),
-                        ),
-                        focusedBorder: OutlineInputBorder(
-                          borderSide: BorderSide(color: blue),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    DropdownButtonFormField<String>(
-                      value: selectedCategory,
-                      dropdownColor: const Color(0xFF1A1A1A),
-                      style: const TextStyle(color: Colors.white),
-                      decoration: const InputDecoration(
-                        labelText: 'Категория',
-                        labelStyle: TextStyle(color: Colors.grey),
-                        enabledBorder: OutlineInputBorder(
-                          borderSide: BorderSide(color: Color(0xFF2A2A2A)),
-                        ),
-                        focusedBorder: OutlineInputBorder(
-                          borderSide: BorderSide(color: blue),
-                        ),
-                      ),
-                      items: [
-                        for (final category in forumCategories)
-                          DropdownMenuItem(
-                            value: category,
-                            child: Text(category),
-                          ),
-                      ],
-                      onChanged: (value) {
-                        if (value != null) {
-                          setDialogState(() => selectedCategory = value);
-                        }
-                      },
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: descriptionController,
-                      style: const TextStyle(color: Colors.white),
-                      maxLines: 4,
-                      decoration: const InputDecoration(
-                        labelText: 'Описание',
-                        labelStyle: TextStyle(color: Colors.grey),
-                        enabledBorder: OutlineInputBorder(
-                          borderSide: BorderSide(color: Color(0xFF2A2A2A)),
-                        ),
-                        focusedBorder: OutlineInputBorder(
-                          borderSide: BorderSide(color: blue),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(dialogContext),
-                  child: const Text('Отмена'),
-                ),
-                ElevatedButton(
-                  style: ElevatedButton.styleFrom(backgroundColor: blue),
-                  onPressed: () {
-                    final title = titleController.text.trim();
+  const ForumCategoryConfig({
+    required this.id,
+    required this.titleKey,
+    required this.descriptionKey,
+    required this.icon,
+  });
+}
 
-                    if (title.isEmpty) {
-                      ScaffoldMessenger.of(parentContext).showSnackBar(
-                        const SnackBar(
-                          content: Text('Введите заголовок темы'),
-                          backgroundColor: Colors.redAccent,
-                        ),
-                      );
-                      return;
-                    }
+const List<ForumCategoryConfig> forumCategoryConfigs = [
+  ForumCategoryConfig(
+    id: 'meets_events',
+    titleKey: 'Meets & Events',
+    descriptionKey: 'Car meets, track days, cruises and community events.',
+    icon: Icons.calendar_month_outlined,
+  ),
+  ForumCategoryConfig(
+    id: 'tuning_parts',
+    titleKey: 'Tuning & Parts',
+    descriptionKey: 'Performance upgrades, mods, reviews and builds.',
+    icon: Icons.handyman_outlined,
+  ),
+  ForumCategoryConfig(
+    id: 'questions_help',
+    titleKey: 'Questions & Help',
+    descriptionKey: 'Ask questions, get advice and solve problems.',
+    icon: Icons.help_outline_rounded,
+  ),
+];
 
-                    Navigator.pop(dialogContext, {
-                      'title': title,
-                      'category': selectedCategory,
-                      'description': descriptionController.text.trim(),
-                    });
-                  },
-                  child: const Text(
-                    'Создать',
-                    style: TextStyle(color: Colors.white),
-                  ),
-                ),
-              ],
-            );
-          },
-        );
-      },
-    );
-  } finally {
-    titleController.dispose();
-    descriptionController.dispose();
+List<String> get forumCategories =>
+    forumCategoryConfigs.map((category) => category.titleKey).toList();
+
+ForumCategoryConfig forumCategoryById(String id) {
+  return forumCategoryConfigs.firstWhere(
+    (category) => category.id == id,
+    orElse: () => forumCategoryConfigs.first,
+  );
+}
+
+String forumCategoryIdFromFirebase(Object? value) {
+  final raw = stringFromFirebase(value, '').trim();
+  if (raw.isEmpty) {
+    return forumCategoryConfigs.first.id;
   }
 
-  if (result == null || !parentContext.mounted) {
-    return;
-  }
-
-  try {
-    await createForumTopic(
-      title: result['title'] ?? '',
-      category: result['category'] ?? forumCategories.first,
-      description: result['description'] ?? '',
-    );
-
-    if (parentContext.mounted) {
-      await showForumTopicSentForReviewDialog(parentContext);
-    }
-  } catch (error) {
-    if (parentContext.mounted) {
-      ScaffoldMessenger.of(parentContext).showSnackBar(
-        SnackBar(
-          content: Text('❌ Не удалось создать тему: $error'),
-          backgroundColor: Colors.redAccent,
-        ),
-      );
-    }
+  final lower = raw.toLowerCase();
+  switch (lower) {
+    case 'meets_events':
+    case 'meets & events':
+    case 'встречи и события':
+    case 'tikšanās un pasākumi':
+      return 'meets_events';
+    case 'tuning_parts':
+    case 'tuning & parts':
+    case 'тюнинг и запчасти':
+    case 'tūnings un detaļas':
+      return 'tuning_parts';
+    case 'questions_help':
+    case 'questions & help':
+    case 'вопросы и помощь':
+    case 'jautājumi un palīdzība':
+      return 'questions_help';
+    default:
+      return forumCategoryConfigs
+          .firstWhere(
+            (category) => category.titleKey.toLowerCase() == lower,
+            orElse: () => forumCategoryConfigs.first,
+          )
+          .id;
   }
 }
 
-
-const List<String> forumCategories = [
-  'Встречи и события',
-  'Тюнинг и запчасти',
-  'Вопросы и помощь',
-  'Куплю/Продам',
-];
+String forumCategoryTitle(String id) => trText(forumCategoryById(id).titleKey);
+String forumCategoryDescription(String id) =>
+    trText(forumCategoryById(id).descriptionKey);
 
 class ForumTab extends StatefulWidget {
   const ForumTab({super.key});
@@ -31720,12 +31705,13 @@ class ForumTab extends StatefulWidget {
 class _ForumTabState extends State<ForumTab>
     with AutomaticKeepAliveClientMixin {
   final scrollController = ScrollController();
+  final searchController = TextEditingController();
   final topics = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
-  DocumentSnapshot<Map<String, dynamic>>? lastDocument;
   bool isLoading = false;
   bool hasMore = true;
   bool didLoadInitially = false;
   int handledRefreshTick = 0;
+  String searchQuery = '';
 
   @override
   bool get wantKeepAlive => true;
@@ -31739,6 +31725,11 @@ class _ForumTabState extends State<ForumTab>
     handledRefreshTick = forumTopicsRefreshTick.value;
     scrollController.addListener(handleScroll);
     forumTopicsRefreshTick.addListener(handleExternalForumRefresh);
+    searchController.addListener(() {
+      if (mounted) {
+        setState(() => searchQuery = searchController.text.trim());
+      }
+    });
     unawaited(refreshTopics());
   }
 
@@ -31756,6 +31747,7 @@ class _ForumTabState extends State<ForumTab>
     scrollController.removeListener(handleScroll);
     forumTopicsRefreshTick.removeListener(handleExternalForumRefresh);
     scrollController.dispose();
+    searchController.dispose();
     super.dispose();
   }
 
@@ -31773,7 +31765,6 @@ class _ForumTabState extends State<ForumTab>
   Future<void> refreshTopics() async {
     setState(() {
       topics.clear();
-      lastDocument = null;
       hasMore = true;
       didLoadInitially = false;
     });
@@ -31790,8 +31781,8 @@ class _ForumTabState extends State<ForumTab>
     try {
       final snapshot = await forumTopicsCollection
           .where('status', isEqualTo: 'approved')
-          .limit(50)
-          .debugGet(null, 'forum: approved topics get');
+          .limit(80)
+          .debugGet(null, 'forum: approved topics dashboard get');
 
       final docs = snapshot.docs.toList()
         ..sort((a, b) {
@@ -31802,8 +31793,8 @@ class _ForumTabState extends State<ForumTab>
             return aPinned ? -1 : 1;
           }
 
-          final aMillis = timestampMillisFromFirebase(a.data()['createdAt']);
-          final bMillis = timestampMillisFromFirebase(b.data()['createdAt']);
+          final aMillis = timestampMillisFromFirebase(a.data()['lastReplyAt']);
+          final bMillis = timestampMillisFromFirebase(b.data()['lastReplyAt']);
           return bMillis.compareTo(aMillis);
         });
 
@@ -31811,7 +31802,6 @@ class _ForumTabState extends State<ForumTab>
         topics
           ..clear()
           ..addAll(docs);
-        lastDocument = docs.isEmpty ? null : docs.last;
         hasMore = false;
         didLoadInitially = true;
       });
@@ -31831,15 +31821,204 @@ class _ForumTabState extends State<ForumTab>
     }
   }
 
+  List<QueryDocumentSnapshot<Map<String, dynamic>>> visibleTopics() {
+    final query = searchQuery.toLowerCase();
+    if (query.isEmpty) {
+      return topics;
+    }
+
+    return topics.where((doc) {
+      final data = doc.data();
+      final title = stringFromFirebase(data['title'], '').toLowerCase();
+      final description = stringFromFirebase(
+        data['description'],
+        '',
+      ).toLowerCase();
+      final author = stringFromFirebase(data['authorName'], '').toLowerCase();
+      final categoryId = forumCategoryIdFromFirebase(
+        data['categoryId'] ?? data['category'],
+      );
+      final category = forumCategoryTitle(categoryId).toLowerCase();
+      return title.contains(query) ||
+          description.contains(query) ||
+          author.contains(query) ||
+          category.contains(query);
+    }).toList();
+  }
+
+  Future<void> openTopicCreator(String categoryId) async {
+    await Navigator.push(
+      context,
+      appPageRoute(
+        builder: (_) => NewForumTopicPage(initialCategory: categoryId),
+      ),
+    );
+  }
+
+  Future<void> openForumCategory(String categoryId) async {
+    await Navigator.push(
+      context,
+      appPageRoute(builder: (_) => ForumCategoryPage(categoryId: categoryId)),
+    );
+  }
+
+  Widget forumSearchBar() {
+    return Row(
+      children: [
+        Expanded(
+          child: TextField(
+            controller: searchController,
+            style: const TextStyle(color: Colors.white),
+            decoration: InputDecoration(
+              hintText: trText('Search topics, categories, keywords...'),
+              hintStyle: const TextStyle(color: Colors.white38),
+              prefixIcon: const Icon(Icons.search, color: Colors.white54),
+              filled: true,
+              fillColor: const Color(0xFF101722),
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 14,
+                vertical: 15,
+              ),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(16),
+                borderSide: const BorderSide(color: Color(0xFF253246)),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(16),
+                borderSide: const BorderSide(color: Color(0xFF253246)),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(16),
+                borderSide: const BorderSide(color: blue),
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(width: 10),
+        Container(
+          width: 54,
+          height: 54,
+          decoration: BoxDecoration(
+            color: const Color(0xFF101722),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: const Color(0xFF253246)),
+          ),
+          child: const Icon(Icons.tune, color: blue),
+        ),
+      ],
+    );
+  }
+
+  Widget categoryCard(
+    ForumCategoryConfig category,
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> filteredTopics,
+  ) {
+    final categoryTopics = filteredTopics.where((doc) {
+      final data = doc.data();
+      return forumCategoryIdFromFirebase(
+            data['categoryId'] ?? data['category'],
+          ) ==
+          category.id;
+    }).toList();
+
+    return InkWell(
+      onTap: () => openForumCategory(category.id),
+      borderRadius: BorderRadius.circular(18),
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 10),
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: const Color(0xFF101722),
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: const Color(0xFF253246)),
+          boxShadow: [
+            BoxShadow(
+              color: blue.withValues(alpha: 0.05),
+              blurRadius: 18,
+              offset: const Offset(0, 8),
+            ),
+          ],
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 64,
+              height: 64,
+              decoration: BoxDecoration(
+                color: blue.withValues(alpha: 0.14),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: blue.withValues(alpha: 0.45)),
+              ),
+              child: Icon(category.icon, color: Colors.white, size: 30),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    forumCategoryTitle(category.id),
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 17,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  const SizedBox(height: 5),
+                  Text(
+                    forumCategoryDescription(category.id),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Colors.white60,
+                      height: 1.25,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 10),
+            Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text(
+                  '${categoryTopics.length}',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                Text(
+                  trText('topics'),
+                  style: const TextStyle(color: Colors.white54, fontSize: 12),
+                ),
+              ],
+            ),
+            const SizedBox(width: 8),
+            const Icon(Icons.chevron_right, color: blue),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget topicCard(
     BuildContext context,
     QueryDocumentSnapshot<Map<String, dynamic>> doc,
   ) {
     final data = doc.data();
-    final title = stringFromFirebase(data['title'], 'Без названия');
+    final title = stringFromFirebase(data['title'], trText('Untitled topic'));
+    final description = stringFromFirebase(data['description'], '');
     final authorName = stringFromFirebase(data['authorName'], 'ccs_driver');
+    final avatarUrl = stringFromFirebase(data['avatarUrl'], '');
     final repliesCount = intFromFirebase(data['repliesCount'], 0);
-    final isPinned = data['isPinned'] == true;
+    final categoryId = forumCategoryIdFromFirebase(
+      data['categoryId'] ?? data['category'],
+    );
+    final category = forumCategoryById(categoryId);
 
     return InkWell(
       onTap: () {
@@ -31850,20 +32029,31 @@ class _ForumTabState extends State<ForumTab>
           ),
         );
       },
-      borderRadius: BorderRadius.circular(12),
+      borderRadius: BorderRadius.circular(16),
       child: Container(
         margin: const EdgeInsets.only(bottom: 10),
-        padding: const EdgeInsets.all(14),
+        padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-          color: const Color(0xFF1A1A1A),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: const Color(0xFF2A2A2A)),
+          color: const Color(0xFF101722),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: const Color(0xFF253246)),
         ),
         child: Row(
           children: [
-            Icon(
-              isPinned ? Icons.push_pin : Icons.forum_outlined,
-              color: isPinned ? Colors.orangeAccent : blue,
+            ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: isNetworkUrl(avatarUrl)
+                  ? Image.network(
+                      avatarUrl,
+                      width: 64,
+                      height: 64,
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, _, _) => _ForumTopicFallbackAvatar(
+                        icon: category.icon,
+                        size: 64,
+                      ),
+                    )
+                  : _ForumTopicFallbackAvatar(icon: category.icon, size: 64),
             ),
             const SizedBox(width: 12),
             Expanded(
@@ -31872,92 +32062,91 @@ class _ForumTabState extends State<ForumTab>
                 children: [
                   Text(
                     title,
-                    maxLines: 2,
+                    maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
                       color: Colors.white,
+                      fontSize: 15.5,
                       fontWeight: FontWeight.w900,
                     ),
                   ),
-                  const SizedBox(height: 4),
-                  Text(
-                    'Автор: ${displayUsername(authorName)}',
-                    style: const TextStyle(color: Colors.white54, fontSize: 12),
+                  if (description.trim().isNotEmpty) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      description,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Colors.white60,
+                        height: 1.25,
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 7),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 4,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: [
+                      Text(
+                        displayUsername(authorName),
+                        style: const TextStyle(
+                          color: Colors.white54,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 3,
+                        ),
+                        decoration: BoxDecoration(
+                          color: blue.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(999),
+                          border: Border.all(
+                            color: blue.withValues(alpha: 0.35),
+                          ),
+                        ),
+                        child: Text(
+                          forumCategoryTitle(categoryId),
+                          style: const TextStyle(
+                            color: blue,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ],
               ),
             ),
             const SizedBox(width: 8),
-            Row(
+            Column(
               mainAxisSize: MainAxisSize.min,
               children: [
                 const Icon(
                   Icons.chat_bubble_outline,
-                  color: Colors.white54,
-                  size: 16,
+                  color: Colors.white70,
+                  size: 18,
                 ),
-                const SizedBox(width: 4),
+                const SizedBox(height: 4),
                 Text(
                   '$repliesCount',
                   style: const TextStyle(
-                    color: Colors.white70,
+                    color: Colors.white,
                     fontWeight: FontWeight.w900,
                   ),
                 ),
               ],
             ),
+            const SizedBox(width: 4),
+            const Icon(Icons.chevron_right, color: blue),
           ],
         ),
-      ),
-    );
-  }
-
-  Widget categorySection(String category) {
-    final categoryTopics = topics.where((doc) {
-      final data = doc.data();
-      return stringFromFirebase(data['category'], forumCategories.first) ==
-          category;
-    }).toList()
-      ..sort((a, b) {
-        final aPinned = a.data()['isPinned'] == true;
-        final bPinned = b.data()['isPinned'] == true;
-        if (aPinned != bPinned) {
-          return aPinned ? -1 : 1;
-        }
-        return 0;
-      });
-
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 18),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            category,
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 18,
-              fontWeight: FontWeight.w900,
-            ),
-          ),
-          const SizedBox(height: 10),
-          if (categoryTopics.isEmpty)
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                color: const Color(0xFF1A1A1A),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: const Color(0xFF2A2A2A)),
-              ),
-              child: const Text(
-                'Тем пока нет',
-                style: TextStyle(color: Colors.white54),
-              ),
-            )
-          else
-            for (final topic in categoryTopics) topicCard(context, topic),
-        ],
       ),
     );
   }
@@ -31970,6 +32159,8 @@ class _ForumTabState extends State<ForumTab>
       return const Center(child: CircularProgressIndicator(color: blue));
     }
 
+    final filteredTopics = visibleTopics();
+
     return RefreshIndicator(
       onRefresh: refreshTopics,
       child: ListView(
@@ -31977,7 +32168,54 @@ class _ForumTabState extends State<ForumTab>
         physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.fromLTRB(20, 18, 20, 92),
         children: [
-          for (final category in forumCategories) categorySection(category),
+          Text(
+            trText('Forum'),
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 34,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            trText('Find topics by category'),
+            style: const TextStyle(color: Colors.white54, height: 1.35),
+          ),
+          const SizedBox(height: 18),
+          forumSearchBar(),
+          const SizedBox(height: 24),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  trText('Categories'),
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+              Text(
+                trText('Tap a category'),
+                style: const TextStyle(
+                  color: blue,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          for (final category in forumCategoryConfigs)
+            categoryCard(category, filteredTopics),
+          const SizedBox(height: 8),
+          if (filteredTopics.isEmpty)
+            EmptyStateCard(
+              icon: Icons.forum_outlined,
+              title: trText('No forum topics yet'),
+              text: trText('Open a category to create the first topic.'),
+            ),
           if (isLoading)
             const Padding(
               padding: EdgeInsets.symmetric(vertical: 18),
@@ -31989,15 +32227,438 @@ class _ForumTabState extends State<ForumTab>
   }
 }
 
+class ForumCategoryPage extends StatefulWidget {
+  final String categoryId;
+
+  const ForumCategoryPage({super.key, required this.categoryId});
+
+  @override
+  State<ForumCategoryPage> createState() => _ForumCategoryPageState();
+}
+
+class _ForumCategoryPageState extends State<ForumCategoryPage> {
+  final searchController = TextEditingController();
+  final topics = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+  bool isLoading = false;
+  bool didLoadInitially = false;
+  String searchQuery = '';
+  int handledRefreshTick = 0;
+
+  ForumCategoryConfig get category => forumCategoryById(widget.categoryId);
+
+  CollectionReference<Map<String, dynamic>> get forumTopicsCollection =>
+      FirebaseFirestore.instance.collection('forum_topics');
+
+  @override
+  void initState() {
+    super.initState();
+    handledRefreshTick = forumTopicsRefreshTick.value;
+    forumTopicsRefreshTick.addListener(handleExternalForumRefresh);
+    searchController.addListener(() {
+      if (mounted) {
+        setState(() => searchQuery = searchController.text.trim());
+      }
+    });
+    unawaited(loadTopics());
+  }
+
+  void handleExternalForumRefresh() {
+    if (!mounted || handledRefreshTick == forumTopicsRefreshTick.value) {
+      return;
+    }
+    handledRefreshTick = forumTopicsRefreshTick.value;
+    unawaited(loadTopics());
+  }
+
+  @override
+  void dispose() {
+    forumTopicsRefreshTick.removeListener(handleExternalForumRefresh);
+    searchController.dispose();
+    super.dispose();
+  }
+
+  Future<void> loadTopics() async {
+    if (isLoading) {
+      return;
+    }
+
+    setState(() => isLoading = true);
+    try {
+      final snapshot = await forumTopicsCollection
+          .where('status', isEqualTo: 'approved')
+          .limit(120)
+          .debugGet(null, 'forum: approved category topics get');
+
+      final docs =
+          snapshot.docs.where((doc) {
+            final data = doc.data();
+            return forumCategoryIdFromFirebase(
+                  data['categoryId'] ?? data['category'],
+                ) ==
+                widget.categoryId;
+          }).toList()..sort((a, b) {
+            final aPinned = a.data()['isPinned'] == true;
+            final bPinned = b.data()['isPinned'] == true;
+            if (aPinned != bPinned) {
+              return aPinned ? -1 : 1;
+            }
+            final aMillis = timestampMillisFromFirebase(
+              a.data()['lastReplyAt'],
+            );
+            final bMillis = timestampMillisFromFirebase(
+              b.data()['lastReplyAt'],
+            );
+            return bMillis.compareTo(aMillis);
+          });
+
+      if (mounted) {
+        setState(() {
+          topics
+            ..clear()
+            ..addAll(docs);
+          didLoadInitially = true;
+        });
+      }
+    } catch (error, stack) {
+      debugPrint('Forum category load skipped: $error');
+      debugPrint('$stack');
+      if (mounted) {
+        setState(() => didLoadInitially = true);
+      }
+    } finally {
+      if (mounted) {
+        setState(() => isLoading = false);
+      }
+    }
+  }
+
+  List<QueryDocumentSnapshot<Map<String, dynamic>>> visibleTopics() {
+    final query = searchQuery.toLowerCase();
+    if (query.isEmpty) {
+      return topics;
+    }
+
+    return topics.where((doc) {
+      final data = doc.data();
+      final title = stringFromFirebase(data['title'], '').toLowerCase();
+      final description = stringFromFirebase(
+        data['description'],
+        '',
+      ).toLowerCase();
+      final author = stringFromFirebase(data['authorName'], '').toLowerCase();
+      return title.contains(query) ||
+          description.contains(query) ||
+          author.contains(query);
+    }).toList();
+  }
+
+  Future<void> openTopicCreator() async {
+    await Navigator.push(
+      context,
+      appPageRoute(
+        builder: (_) => NewForumTopicPage(initialCategory: widget.categoryId),
+      ),
+    );
+  }
+
+  Widget searchBar() {
+    return TextField(
+      controller: searchController,
+      style: const TextStyle(color: Colors.white),
+      decoration: InputDecoration(
+        hintText: trText('Search topics...'),
+        hintStyle: const TextStyle(color: Colors.white38),
+        prefixIcon: const Icon(Icons.search, color: Colors.white54),
+        filled: true,
+        fillColor: const Color(0xFF101722),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 14,
+          vertical: 15,
+        ),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(16),
+          borderSide: const BorderSide(color: Color(0xFF253246)),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(16),
+          borderSide: const BorderSide(color: Color(0xFF253246)),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(16),
+          borderSide: const BorderSide(color: blue),
+        ),
+      ),
+    );
+  }
+
+  Widget topicCard(QueryDocumentSnapshot<Map<String, dynamic>> doc) {
+    final data = doc.data();
+    final title = stringFromFirebase(data['title'], trText('Untitled topic'));
+    final description = stringFromFirebase(data['description'], '');
+    final authorName = stringFromFirebase(data['authorName'], 'ccs_driver');
+    final avatarUrl = stringFromFirebase(data['avatarUrl'], '');
+    final repliesCount = intFromFirebase(data['repliesCount'], 0);
+    final cardCategoryId = forumCategoryIdFromFirebase(
+      data['categoryId'] ?? data['category'],
+    );
+    final cardCategory = forumCategoryById(cardCategoryId);
+
+    return InkWell(
+      onTap: () {
+        Navigator.push(
+          context,
+          appPageRoute(
+            builder: (_) => ForumTopicPage(topicId: doc.id, title: title),
+          ),
+        );
+      },
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 10),
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: const Color(0xFF101722),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: const Color(0xFF253246)),
+        ),
+        child: Row(
+          children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: isNetworkUrl(avatarUrl)
+                  ? Image.network(
+                      avatarUrl,
+                      width: 64,
+                      height: 64,
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, _, _) => _ForumTopicFallbackAvatar(
+                        icon: cardCategory.icon,
+                        size: 64,
+                      ),
+                    )
+                  : _ForumTopicFallbackAvatar(
+                      icon: cardCategory.icon,
+                      size: 64,
+                    ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 15.5,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  if (description.trim().isNotEmpty) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      description,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Colors.white60,
+                        height: 1.25,
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 7),
+                  Text(
+                    displayUsername(authorName),
+                    style: const TextStyle(
+                      color: Colors.white54,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(
+                  Icons.chat_bubble_outline,
+                  color: Colors.white70,
+                  size: 18,
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  '$repliesCount',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(width: 4),
+            const Icon(Icons.chevron_right, color: blue),
+          ],
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final visible = visibleTopics();
+
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        title: Text(forumCategoryTitle(widget.categoryId)),
+        backgroundColor: Colors.transparent,
+        foregroundColor: blue,
+      ),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: openTopicCreator,
+        backgroundColor: blue,
+        foregroundColor: Colors.white,
+        icon: const Icon(Icons.add),
+        label: Text(
+          trText('New topic'),
+          style: const TextStyle(fontWeight: FontWeight.w900),
+        ),
+      ),
+      body: RefreshIndicator(
+        onRefresh: loadTopics,
+        child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.fromLTRB(20, 14, 20, 104),
+          children: [
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: const Color(0xFF101722),
+                borderRadius: BorderRadius.circular(18),
+                border: Border.all(color: const Color(0xFF253246)),
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    width: 58,
+                    height: 58,
+                    decoration: BoxDecoration(
+                      color: blue.withValues(alpha: 0.14),
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(color: blue.withValues(alpha: 0.45)),
+                    ),
+                    child: Icon(category.icon, color: Colors.white, size: 30),
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          forumCategoryTitle(widget.categoryId),
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 20,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                        const SizedBox(height: 5),
+                        Text(
+                          forumCategoryDescription(widget.categoryId),
+                          style: const TextStyle(
+                            color: Colors.white60,
+                            height: 1.3,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 14),
+            searchBar(),
+            const SizedBox(height: 18),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    trText('Topics'),
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 18,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ),
+                Text(
+                  '${visible.length} ${trText('topics')}',
+                  style: const TextStyle(
+                    color: Colors.white54,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            if (!didLoadInitially && isLoading)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 42),
+                child: Center(child: CircularProgressIndicator(color: blue)),
+              )
+            else if (visible.isEmpty)
+              EmptyStateCard(
+                icon: category.icon,
+                title: trText('No topics in this category yet'),
+                text: trText('Tap New topic to create the first topic.'),
+              )
+            else
+              for (final topic in visible) topicCard(topic),
+            if (isLoading && didLoadInitially)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 18),
+                child: Center(child: CircularProgressIndicator(color: blue)),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ForumTopicFallbackAvatar extends StatelessWidget {
+  final IconData icon;
+  final double size;
+
+  const _ForumTopicFallbackAvatar({required this.icon, required this.size});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        color: blue.withValues(alpha: 0.14),
+        border: Border.all(color: blue.withValues(alpha: 0.4)),
+      ),
+      child: Icon(icon, color: blue, size: size * 0.45),
+    );
+  }
+}
+
 class ForumTopicPage extends StatefulWidget {
   final String topicId;
   final String title;
 
-  const ForumTopicPage({
-    super.key,
-    required this.topicId,
-    required this.title,
-  });
+  const ForumTopicPage({super.key, required this.topicId, required this.title});
 
   @override
   State<ForumTopicPage> createState() => _ForumTopicPageState();
@@ -32058,7 +32719,9 @@ class _ForumTopicPageState extends State<ForumTopicPage> {
     final username = stringFromFirebase(data['username'], 'ccs_driver');
     final avatarUrl = stringFromFirebase(data['avatarUrl'], '');
     final text = stringFromFirebase(data['text'], '');
-    final time = formatChatMessageTime(timestampMillisFromFirebase(data['timestamp']));
+    final time = formatChatMessageTime(
+      timestampMillisFromFirebase(data['timestamp']),
+    );
 
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
@@ -32140,10 +32803,10 @@ class _ForumTopicPageState extends State<ForumTopicPage> {
                 }
 
                 if (replies.isEmpty) {
-                  return const EmptyStateCard(
+                  return EmptyStateCard(
                     icon: Icons.forum_outlined,
-                    title: 'Ответов пока нет',
-                    text: 'Будьте первым, кто ответит в этой теме.',
+                    title: trText('No replies yet'),
+                    text: trText('Be the first to reply in this topic.'),
                   );
                 }
 
@@ -32171,17 +32834,21 @@ class _ForumTopicPageState extends State<ForumTopicPage> {
                       maxLines: 4,
                       style: const TextStyle(color: Colors.white),
                       decoration: InputDecoration(
-                        hintText: 'Ответить в теме',
+                        hintText: trText('Reply in topic'),
                         hintStyle: const TextStyle(color: Colors.white38),
                         filled: true,
                         fillColor: const Color(0xFF1A1A1A),
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(18),
-                          borderSide: const BorderSide(color: Color(0xFF2A2A2A)),
+                          borderSide: const BorderSide(
+                            color: Color(0xFF2A2A2A),
+                          ),
                         ),
                         enabledBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(18),
-                          borderSide: const BorderSide(color: Color(0xFF2A2A2A)),
+                          borderSide: const BorderSide(
+                            color: Color(0xFF2A2A2A),
+                          ),
                         ),
                         focusedBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(18),
@@ -32211,7 +32878,9 @@ class _ForumTopicPageState extends State<ForumTopicPage> {
 }
 
 class NewForumTopicPage extends StatefulWidget {
-  const NewForumTopicPage({super.key});
+  final String? initialCategory;
+
+  const NewForumTopicPage({super.key, this.initialCategory});
 
   @override
   State<NewForumTopicPage> createState() => _NewForumTopicPageState();
@@ -32219,42 +32888,114 @@ class NewForumTopicPage extends StatefulWidget {
 
 class _NewForumTopicPageState extends State<NewForumTopicPage> {
   final titleController = TextEditingController();
-  final firstMessageController = TextEditingController();
-  String category = forumCategories.first;
+  final descriptionController = TextEditingController();
+  late String categoryId;
+  String? localAvatarPath;
   bool isSaving = false;
+  bool isPickingAvatar = false;
+
+  @override
+  void initState() {
+    super.initState();
+    categoryId = forumCategoryIdFromFirebase(
+      widget.initialCategory ?? forumCategoryConfigs.first.id,
+    );
+  }
 
   @override
   void dispose() {
     titleController.dispose();
-    firstMessageController.dispose();
+    descriptionController.dispose();
     super.dispose();
+  }
+
+  Future<void> pickTopicAvatar() async {
+    if (isPickingAvatar || isSaving) {
+      return;
+    }
+
+    setState(() => isPickingAvatar = true);
+    try {
+      final path = await pickPhotoFromPhone(context, cropPhoto: false);
+      if (mounted && path != null && path.trim().isNotEmpty) {
+        setState(() => localAvatarPath = path);
+      }
+    } finally {
+      if (mounted) {
+        setState(() => isPickingAvatar = false);
+      }
+    }
+  }
+
+  void showRequiredFieldMessage(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        backgroundColor: Colors.redAccent,
+        content: Text(
+          message,
+          style: const TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      ),
+    );
   }
 
   Future<void> createTopic() async {
     final firebaseUser = FirebaseAuth.instance.currentUser;
     final title = titleController.text.trim();
-    final firstMessage = firstMessageController.text.trim();
+    final description = descriptionController.text.trim();
+    final avatarPath = localAvatarPath;
 
-    if (firebaseUser == null || title.isEmpty || isSaving) {
+    if (firebaseUser == null) {
+      showRequiredFieldMessage(trText('Log in before creating a forum topic.'));
+      return;
+    }
+
+    if (avatarPath == null || avatarPath.trim().isEmpty) {
+      showRequiredFieldMessage(trText('Topic avatar is required.'));
+      return;
+    }
+
+    if (title.isEmpty) {
+      showRequiredFieldMessage(trText('Topic name is required.'));
+      return;
+    }
+
+    if (description.isEmpty) {
+      showRequiredFieldMessage(trText('Topic description is required.'));
+      return;
+    }
+
+    if (isSaving) {
       return;
     }
 
     setState(() => isSaving = true);
 
     try {
-      await createForumTopic(
+      final avatarUrl = await uploadForumTopicAvatarPhoto(
+        userId: firebaseUser.uid,
+        localPhotoPath: avatarPath,
+      );
+
+      final topicStatus = await createForumTopic(
         title: title,
-        category: category,
-        description: firstMessage,
+        category: categoryId,
+        description: description,
+        avatarUrl: avatarUrl,
       );
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
+          SnackBar(
             backgroundColor: blue,
             content: Text(
-              '⏳ Тема отправлена на проверку',
-              style: TextStyle(
+              topicStatus == 'approved'
+                  ? trText('Topic created')
+                  : trText('Topic sent for review'),
+              style: const TextStyle(
                 color: Colors.white,
                 fontWeight: FontWeight.w700,
               ),
@@ -32269,7 +33010,7 @@ class _NewForumTopicPageState extends State<NewForumTopicPage> {
           SnackBar(
             backgroundColor: Colors.redAccent,
             content: Text(
-              'Не удалось создать тему: $error',
+              '${trText('Could not create topic')}: $error',
               style: const TextStyle(
                 color: Colors.white,
                 fontWeight: FontWeight.w700,
@@ -32285,103 +33026,205 @@ class _NewForumTopicPageState extends State<NewForumTopicPage> {
     }
   }
 
+  InputDecoration inputDecoration(String label) {
+    return InputDecoration(
+      labelText: label,
+      labelStyle: const TextStyle(color: Colors.white54),
+      filled: true,
+      fillColor: const Color(0xFF101722),
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(14),
+        borderSide: const BorderSide(color: Color(0xFF253246)),
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(14),
+        borderSide: const BorderSide(color: Color(0xFF253246)),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(14),
+        borderSide: const BorderSide(color: blue),
+      ),
+    );
+  }
+
+  Widget avatarPicker() {
+    return InkWell(
+      onTap: pickTopicAvatar,
+      borderRadius: BorderRadius.circular(18),
+      child: Container(
+        height: 164,
+        decoration: BoxDecoration(
+          color: const Color(0xFF101722),
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(
+            color: localAvatarPath == null ? const Color(0xFF253246) : blue,
+          ),
+        ),
+        child: localAvatarPath != null
+            ? Stack(
+                children: [
+                  Positioned.fill(
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(17),
+                      child: Image.file(
+                        File(localAvatarPath!),
+                        fit: BoxFit.cover,
+                      ),
+                    ),
+                  ),
+                  Positioned(
+                    right: 10,
+                    bottom: 10,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 7,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withValues(alpha: 0.7),
+                        borderRadius: BorderRadius.circular(999),
+                        border: Border.all(color: Colors.white24),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.edit, color: Colors.white, size: 16),
+                          const SizedBox(width: 6),
+                          Text(
+                            trText('Change avatar'),
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              )
+            : Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Container(
+                    width: 58,
+                    height: 58,
+                    decoration: BoxDecoration(
+                      color: blue.withValues(alpha: 0.15),
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(
+                      isPickingAvatar
+                          ? Icons.hourglass_top
+                          : Icons.add_photo_alternate_outlined,
+                      color: blue,
+                      size: 30,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    trText('Upload topic avatar'),
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  const SizedBox(height: 5),
+                  Text(
+                    trText('Required to create a topic'),
+                    style: const TextStyle(color: Colors.white54),
+                  ),
+                ],
+              ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.black,
       appBar: AppBar(
-        title: const Text('Новая тема'),
+        title: Text(trText('New topic')),
         backgroundColor: Colors.transparent,
         foregroundColor: blue,
       ),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(20, 18, 20, 28),
         children: [
+          Text(
+            trText('Create forum topic'),
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 30,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            trText(
+              'Add an avatar, name, and description. All fields are required.',
+            ),
+            style: const TextStyle(color: Colors.white54, height: 1.35),
+          ),
+          const SizedBox(height: 18),
+          avatarPicker(),
+          const SizedBox(height: 14),
           TextField(
             controller: titleController,
             style: const TextStyle(color: Colors.white),
-            decoration: InputDecoration(
-              labelText: 'Название темы',
-              labelStyle: const TextStyle(color: Colors.white54),
-              filled: true,
-              fillColor: const Color(0xFF1A1A1A),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: const BorderSide(color: Color(0xFF2A2A2A)),
-              ),
-              enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: const BorderSide(color: Color(0xFF2A2A2A)),
-              ),
-              focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: const BorderSide(color: blue),
-              ),
-            ),
+            decoration: inputDecoration(trText('Topic name')),
           ),
           const SizedBox(height: 14),
-          DropdownButtonFormField<String>(
-            value: category,
-            dropdownColor: const Color(0xFF1A1A1A),
-            style: const TextStyle(color: Colors.white),
-            decoration: InputDecoration(
-              labelText: 'Категория',
-              labelStyle: const TextStyle(color: Colors.white54),
-              filled: true,
-              fillColor: const Color(0xFF1A1A1A),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: const BorderSide(color: Color(0xFF2A2A2A)),
-              ),
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: const Color(0xFF101722),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: const Color(0xFF253246)),
             ),
-            items: [
-              for (final item in forumCategories)
-                DropdownMenuItem(value: item, child: Text(item)),
-            ],
-            onChanged: (value) {
-              if (value != null) {
-                setState(() => category = value);
-              }
-            },
+            child: Row(
+              children: [
+                Icon(forumCategoryById(categoryId).icon, color: blue, size: 22),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    forumCategoryTitle(categoryId),
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
           const SizedBox(height: 14),
           TextField(
-            controller: firstMessageController,
-            minLines: 3,
-            maxLines: 6,
+            controller: descriptionController,
+            minLines: 4,
+            maxLines: 7,
             style: const TextStyle(color: Colors.white),
-            decoration: InputDecoration(
-              labelText: 'Первое сообщение',
-              labelStyle: const TextStyle(color: Colors.white54),
-              filled: true,
-              fillColor: const Color(0xFF1A1A1A),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: const BorderSide(color: Color(0xFF2A2A2A)),
-              ),
-              enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: const BorderSide(color: Color(0xFF2A2A2A)),
-              ),
-              focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: const BorderSide(color: blue),
-              ),
-            ),
+            decoration: inputDecoration(trText('Description')),
           ),
           const SizedBox(height: 18),
           SizedBox(
-            height: 52,
+            height: 54,
             child: ElevatedButton.icon(
               onPressed: isSaving ? null : createTopic,
               icon: Icon(isSaving ? Icons.hourglass_top : Icons.add),
-              label: const Text('Создать тему'),
+              label: Text(
+                isSaving ? trText('Creating topic...') : trText('Create topic'),
+              ),
               style: ElevatedButton.styleFrom(
                 backgroundColor: blue,
                 foregroundColor: Colors.white,
+                disabledBackgroundColor: blue.withValues(alpha: 0.45),
                 shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(14),
+                  borderRadius: BorderRadius.circular(16),
                 ),
+                textStyle: const TextStyle(fontWeight: FontWeight.w900),
               ),
             ),
           ),
@@ -32549,8 +33392,6 @@ Future<bool> confirmAndRemoveChat(
       await leaveGroupChat(chat);
     }
 
-    await removePinnedChatId(chat.id);
-
     if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -32605,14 +33446,12 @@ class _SegmentBadgeIcon extends StatelessWidget {
 class ChatThreadTile extends StatefulWidget {
   final ChatThreadData chat;
   final String currentUid;
-  final bool pinned;
   final int unreadCount;
 
   const ChatThreadTile({
     super.key,
     required this.chat,
     required this.currentUid,
-    this.pinned = false,
     this.unreadCount = 0,
   });
 
@@ -32626,7 +33465,6 @@ class _ChatThreadTileState extends State<ChatThreadTile> {
 
   ChatThreadData get chat => widget.chat;
   String get currentUid => widget.currentUid;
-  bool get pinned => widget.pinned;
   int get unreadCount => widget.unreadCount;
 
   void _ensureDirectUserPresenceStream(String uid) {
@@ -32745,10 +33583,7 @@ class _ChatThreadTileState extends State<ChatThreadTile> {
         decoration: BoxDecoration(
           color: panelGlass,
           borderRadius: BorderRadius.circular(18),
-          border: Border.all(
-            color: pinned ? blue.withValues(alpha: 0.75) : Colors.white12,
-            width: pinned ? 1.4 : 1,
-          ),
+          border: Border.all(color: Colors.white12),
         ),
         child: Row(
           children: [
@@ -32760,10 +33595,6 @@ class _ChatThreadTileState extends State<ChatThreadTile> {
                 children: [
                   Row(
                     children: [
-                      if (pinned) ...[
-                        const Icon(Icons.push_pin, color: blue, size: 14),
-                        const SizedBox(width: 4),
-                      ],
                       Expanded(
                         child: Text(
                           title,
@@ -33070,265 +33901,6 @@ FriendUserData fallbackMessageSender(ChatMessageData message) {
     banned: false,
     deleted: false,
   );
-}
-
-class ChatManageScreen extends StatefulWidget {
-  final List<ChatThreadData> chats;
-  final List<String> currentPinnedIds;
-
-  const ChatManageScreen({
-    super.key,
-    required this.chats,
-    required this.currentPinnedIds,
-  });
-
-  @override
-  State<ChatManageScreen> createState() => _ChatManageScreenState();
-}
-
-class _ChatManageScreenState extends State<ChatManageScreen> {
-  late List<String> pinnedIds;
-
-  @override
-  void initState() {
-    super.initState();
-    pinnedIds = [...widget.currentPinnedIds];
-  }
-
-  Future<void> togglePin(ChatThreadData chat) async {
-    final sameTypePinned = pinnedIds
-        .where(
-          (id) => widget.chats.any(
-            (item) => item.id == id && item.isGroup == chat.isGroup,
-          ),
-        )
-        .toList();
-
-    setState(() {
-      if (pinnedIds.contains(chat.id)) {
-        pinnedIds.remove(chat.id);
-      } else {
-        if (sameTypePinned.length >= 3) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              backgroundColor: Colors.redAccent,
-              content: Text(
-                chat.isGroup
-                    ? 'You can pin up to 3 groups.'
-                    : 'You can pin up to 3 direct chats.',
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ),
-          );
-          return;
-        }
-        pinnedIds.add(chat.id);
-      }
-    });
-
-    await savePinnedChatIds(pinnedIds);
-  }
-
-  Future<void> movePinned(String chatId, int direction) async {
-    final index = pinnedIds.indexOf(chatId);
-    if (index < 0) {
-      return;
-    }
-
-    final newIndex = (index + direction).clamp(0, pinnedIds.length - 1).toInt();
-    if (newIndex == index) {
-      return;
-    }
-
-    setState(() {
-      final id = pinnedIds.removeAt(index);
-      pinnedIds.insert(newIndex, id);
-    });
-
-    await savePinnedChatIds(pinnedIds);
-  }
-
-  Widget section(String title, List<ChatThreadData> chats) {
-    final currentUid =
-        FirebaseAuth.instance.currentUser?.uid ?? currentUser.uid;
-
-    final pinnedChats = pinnedIds
-        .map((id) {
-          try {
-            return chats.firstWhere((chat) => chat.id == id);
-          } catch (_) {
-            return null;
-          }
-        })
-        .whereType<ChatThreadData>()
-        .toList();
-    final unpinnedChats = chats
-        .where((chat) => !pinnedIds.contains(chat.id))
-        .toList();
-    final orderedChats = [...pinnedChats, ...unpinnedChats];
-
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: panelGlass,
-        borderRadius: BorderRadius.circular(22),
-        border: Border.all(color: Colors.white12),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            title,
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 20,
-              fontWeight: FontWeight.w900,
-            ),
-          ),
-          const SizedBox(height: 12),
-          if (orderedChats.isEmpty)
-            const Text(
-              'Nothing here yet.',
-              style: TextStyle(color: Colors.white54),
-            )
-          else
-            ReorderableListView.builder(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              itemCount: orderedChats.length,
-              onReorder: (oldIndex, newIndex) async {
-                final chat = orderedChats[oldIndex];
-                if (!pinnedIds.contains(chat.id)) {
-                  return;
-                }
-
-                final oldPinIndex = pinnedIds.indexOf(chat.id);
-                if (oldPinIndex < 0) {
-                  return;
-                }
-
-                final adjustedNewIndex = newIndex > oldIndex
-                    ? newIndex - 1
-                    : newIndex;
-                final maxPinnedIndex = math.max(0, pinnedIds.length - 1);
-                final newPinIndex = adjustedNewIndex
-                    .clamp(0, maxPinnedIndex)
-                    .toInt();
-
-                if (newPinIndex == oldPinIndex) {
-                  return;
-                }
-
-                setState(() {
-                  final id = pinnedIds.removeAt(oldPinIndex);
-                  pinnedIds.insert(newPinIndex, id);
-                });
-
-                await savePinnedChatIds(pinnedIds);
-              },
-              itemBuilder: (context, index) {
-                final chat = orderedChats[index];
-                final isPinned = pinnedIds.contains(chat.id);
-                final pinIndex = pinnedIds.indexOf(chat.id);
-
-                return Column(
-                  key: ValueKey(chat.id),
-                  children: [
-                    Row(
-                      children: [
-                        if (isPinned) ...[
-                          const Icon(
-                            Icons.drag_handle,
-                            color: Colors.white38,
-                            size: 20,
-                          ),
-                          const SizedBox(width: 4),
-                        ] else
-                          const SizedBox(width: 24),
-                        Expanded(
-                          child: Text(
-                            chat.titleForCurrentUser(currentUid),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              color: isPinned ? Colors.white : Colors.white54,
-                              fontWeight: FontWeight.w800,
-                            ),
-                          ),
-                        ),
-                        if (isPinned) ...[
-                          IconButton(
-                            tooltip: 'Move up',
-                            onPressed: pinIndex > 0
-                                ? () => movePinned(chat.id, -1)
-                                : null,
-                            icon: const Icon(Icons.keyboard_arrow_up),
-                            color: pinIndex > 0
-                                ? Colors.white70
-                                : Colors.white24,
-                          ),
-                          IconButton(
-                            tooltip: 'Move down',
-                            onPressed: pinIndex < pinnedIds.length - 1
-                                ? () => movePinned(chat.id, 1)
-                                : null,
-                            icon: const Icon(Icons.keyboard_arrow_down),
-                            color: pinIndex < pinnedIds.length - 1
-                                ? Colors.white70
-                                : Colors.white24,
-                          ),
-                        ],
-                        IconButton(
-                          tooltip: isPinned ? 'Unpin' : 'Pin',
-                          onPressed: () => togglePin(chat),
-                          icon: Icon(
-                            isPinned ? Icons.push_pin : Icons.push_pin_outlined,
-                            color: isPinned ? blue : Colors.white54,
-                          ),
-                        ),
-                      ],
-                    ),
-                    if (index != orderedChats.length - 1)
-                      const Divider(color: Colors.white10),
-                  ],
-                );
-              },
-            ),
-        ],
-      ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final directChats = widget.chats.where((chat) => !chat.isGroup).toList();
-    final groupChats = widget.chats.where((chat) => chat.isGroup).toList();
-
-    return Scaffold(
-      backgroundColor: Colors.transparent,
-      appBar: AppBar(
-        title: const Text('Edit Chat View'),
-        backgroundColor: Colors.transparent,
-        foregroundColor: blue,
-      ),
-      body: ListView(
-        padding: const EdgeInsets.fromLTRB(12, 18, 12, 28),
-        children: [
-          const Text(
-            'Pin up to 3 direct chats and 3 groups. Use arrows to change pinned order.',
-            style: TextStyle(color: Colors.white54, height: 1.35),
-          ),
-          const SizedBox(height: 18),
-          section('Direct chats', directChats),
-          const SizedBox(height: 16),
-          section('Groups', groupChats),
-        ],
-      ),
-    );
-  }
 }
 
 class NewChatScreen extends StatefulWidget {
@@ -36349,7 +36921,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 }
 
-
 Color forumStatusColor(String status) {
   switch (status.trim().toLowerCase()) {
     case 'approved':
@@ -36388,11 +36959,7 @@ Widget forumStatusBadge(String status) {
     ),
     child: Text(
       forumStatusText(status),
-      style: TextStyle(
-        color: color,
-        fontSize: 12,
-        fontWeight: FontWeight.w700,
-      ),
+      style: TextStyle(color: color, fontSize: 12, fontWeight: FontWeight.w700),
     ),
   );
 }
@@ -36422,14 +36989,19 @@ class MyForumTopicsPreview extends StatelessWidget {
             .limit(30)
             .debugSnapshots('profile: my forum topics listener'),
         builder: (context, snapshot) {
-          final topics = (snapshot.data?.docs ??
-                  const <QueryDocumentSnapshot<Map<String, dynamic>>>[])
-              .toList()
-            ..sort((a, b) {
-              final aMillis = timestampMillisFromFirebase(a.data()['createdAt']);
-              final bMillis = timestampMillisFromFirebase(b.data()['createdAt']);
-              return bMillis.compareTo(aMillis);
-            });
+          final topics =
+              (snapshot.data?.docs ??
+                      const <QueryDocumentSnapshot<Map<String, dynamic>>>[])
+                  .toList()
+                ..sort((a, b) {
+                  final aMillis = timestampMillisFromFirebase(
+                    a.data()['createdAt'],
+                  );
+                  final bMillis = timestampMillisFromFirebase(
+                    b.data()['createdAt'],
+                  );
+                  return bMillis.compareTo(aMillis);
+                });
 
           return Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -36482,8 +37054,10 @@ class _MyForumTopicTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final topic = doc.data();
-    final title = stringFromFirebase(topic['title'], 'Без названия');
-    final category = stringFromFirebase(topic['category'], '');
+    final title = stringFromFirebase(topic['title'], trText('Untitled topic'));
+    final category = forumCategoryTitle(
+      forumCategoryIdFromFirebase(topic['categoryId'] ?? topic['category']),
+    );
     final status = stringFromFirebase(topic['status'], 'pending');
     final rejectionReason = stringFromFirebase(topic['rejectionReason'], '');
     final color = forumStatusColor(status);
@@ -42040,7 +42614,6 @@ Future<void> deleteAdminSpot(
   }
 }
 
-
 Future<void> createForumReviewNotification({
   required Map<String, dynamic> topic,
   required String status,
@@ -42080,7 +42653,9 @@ Future<void> createForumReviewNotification({
 
 Future<void> approveForumTopic(String topicId) async {
   final moderator = FirebaseAuth.instance.currentUser;
-  final topicRef = FirebaseFirestore.instance.collection('forum_topics').doc(topicId);
+  final topicRef = FirebaseFirestore.instance
+      .collection('forum_topics')
+      .doc(topicId);
   final snapshot = await topicRef.debugGet(null, 'forum: approve topic lookup');
   final topic = snapshot.data() ?? const <String, dynamic>{};
 
@@ -42097,7 +42672,9 @@ Future<void> approveForumTopic(String topicId) async {
 Future<void> rejectForumTopic(String topicId, String reason) async {
   final moderator = FirebaseAuth.instance.currentUser;
   final cleanReason = reason.trim().isEmpty ? 'Не указана' : reason.trim();
-  final topicRef = FirebaseFirestore.instance.collection('forum_topics').doc(topicId);
+  final topicRef = FirebaseFirestore.instance
+      .collection('forum_topics')
+      .doc(topicId);
   final snapshot = await topicRef.debugGet(null, 'forum: reject topic lookup');
   final topic = snapshot.data() ?? const <String, dynamic>{};
 
@@ -42154,7 +42731,9 @@ Future<void> showRejectForumTopicDialog(
               child: const Text('Отмена'),
             ),
             ElevatedButton(
-              style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.redAccent,
+              ),
               onPressed: () async {
                 final reason = controller.text.trim();
                 if (reason.isEmpty) {
@@ -42192,9 +42771,11 @@ class ForumModerationScreen extends StatelessWidget {
     QueryDocumentSnapshot<Map<String, dynamic>> doc,
   ) {
     final topic = doc.data();
-    final title = stringFromFirebase(topic['title'], 'Без названия');
-    final category = stringFromFirebase(topic['category'], '');
-    final authorName = stringFromFirebase(topic['authorName'], 'Пользователь');
+    final title = stringFromFirebase(topic['title'], trText('Untitled topic'));
+    final category = forumCategoryTitle(
+      forumCategoryIdFromFirebase(topic['categoryId'] ?? topic['category']),
+    );
+    final authorName = stringFromFirebase(topic['authorName'], 'ccs_driver');
     final description = stringFromFirebase(topic['description'], '');
 
     return Container(
@@ -42298,10 +42879,7 @@ class ForumModerationScreen extends StatelessWidget {
       return const Scaffold(
         backgroundColor: Colors.transparent,
         body: Center(
-          child: Text(
-            'No access',
-            style: TextStyle(color: Colors.white),
-          ),
+          child: Text('No access', style: TextStyle(color: Colors.white)),
         ),
       );
     }
@@ -42320,14 +42898,19 @@ class ForumModerationScreen extends StatelessWidget {
             .limit(50)
             .debugSnapshots('forum: pending moderation listener'),
         builder: (context, snapshot) {
-          final topics = (snapshot.data?.docs ??
-                  const <QueryDocumentSnapshot<Map<String, dynamic>>>[])
-              .toList()
-            ..sort((a, b) {
-              final aMillis = timestampMillisFromFirebase(a.data()['createdAt']);
-              final bMillis = timestampMillisFromFirebase(b.data()['createdAt']);
-              return aMillis.compareTo(bMillis);
-            });
+          final topics =
+              (snapshot.data?.docs ??
+                      const <QueryDocumentSnapshot<Map<String, dynamic>>>[])
+                  .toList()
+                ..sort((a, b) {
+                  final aMillis = timestampMillisFromFirebase(
+                    a.data()['createdAt'],
+                  );
+                  final bMillis = timestampMillisFromFirebase(
+                    b.data()['createdAt'],
+                  );
+                  return aMillis.compareTo(bMillis);
+                });
 
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator(color: blue));
@@ -42538,9 +43121,7 @@ class _AdminReviewScreenState extends State<AdminReviewScreen> {
                 onTap: () {
                   Navigator.push(
                     context,
-                    appPageRoute(
-                      builder: (_) => const ForumModerationScreen(),
-                    ),
+                    appPageRoute(builder: (_) => const ForumModerationScreen()),
                   );
                 },
               ),
