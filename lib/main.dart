@@ -11166,7 +11166,7 @@ Future<void> saveCurrentUserFields(Map<String, Object?> data) async {
   }, SetOptions(merge: true));
 }
 
-const int onlinePresenceFreshMillis = 2 * 60 * 1000;
+const int onlinePresenceFreshMillis = 4 * 60 * 1000;
 
 bool isOnlinePresenceFresh(int lastSeenAtMillis) {
   if (lastSeenAtMillis <= 0) {
@@ -33622,22 +33622,28 @@ class ChatThreadTile extends StatefulWidget {
 }
 
 class _ChatThreadTileState extends State<ChatThreadTile> {
+  Stream<DocumentSnapshot<Map<String, dynamic>>>? _directUserProfileStream;
   Stream<DocumentSnapshot<Map<String, dynamic>>>? _directUserPresenceStream;
-  String? _directUserPresenceUid;
+  String? _directUserUid;
 
   ChatThreadData get chat => widget.chat;
   String get currentUid => widget.currentUid;
   int get unreadCount => widget.unreadCount;
 
-  void _ensureDirectUserPresenceStream(String uid) {
-    if (_directUserPresenceUid == uid && _directUserPresenceStream != null) {
+  void _ensureDirectUserStreams(String uid) {
+    if (_directUserUid == uid &&
+        _directUserProfileStream != null &&
+        _directUserPresenceStream != null) {
       return;
     }
 
-    _directUserPresenceUid = uid;
-    _directUserPresenceStream = usersCollection()
+    _directUserUid = uid;
+    _directUserProfileStream = usersCollection()
         .doc(uid)
         .debugSnapshots('chat: list direct user profile listener');
+    _directUserPresenceStream = userPresenceDocument(
+      uid,
+    ).debugSnapshots('chat: list direct user presence listener');
   }
 
   @override
@@ -33645,8 +33651,9 @@ class _ChatThreadTileState extends State<ChatThreadTile> {
     super.didUpdateWidget(oldWidget);
 
     final nextUid = otherUserId();
-    if (nextUid != _directUserPresenceUid) {
-      _directUserPresenceUid = null;
+    if (nextUid != _directUserUid) {
+      _directUserUid = null;
+      _directUserProfileStream = null;
       _directUserPresenceStream = null;
     }
   }
@@ -33845,14 +33852,22 @@ class _ChatThreadTileState extends State<ChatThreadTile> {
 
     final fallbackUser = fallbackChatMember(chat, uid);
 
-    _ensureDirectUserPresenceStream(uid);
+    _ensureDirectUserStreams(uid);
 
     return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-      stream: _directUserPresenceStream,
+      stream: _directUserProfileStream,
       builder: (context, snapshot) {
         final directUser =
             friendUserFromSnapshot(snapshot.data) ?? fallbackUser;
-        return tile(context, directUser);
+        return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+          stream: _directUserPresenceStream,
+          builder: (context, presenceSnapshot) {
+            return tile(
+              context,
+              directUser.withPresenceFromMap(presenceSnapshot.data?.data()),
+            );
+          },
+        );
       },
     );
   }
@@ -35169,10 +35184,10 @@ class _ChatMessageStatusGlyphState extends State<ChatMessageStatusGlyph>
     final color = widget.state == ChatMessageReceiptState.read
         ? const Color(0xFF00E0C7)
         : Colors.white.withValues(alpha: 0.68);
-    final marks = widget.state == ChatMessageReceiptState.sending ? 1 : 2;
+    final marks = widget.state == ChatMessageReceiptState.read ? 2 : 1;
     final glyph = SizedBox(
       key: ValueKey('${widget.state.name}-$marks'),
-      width: 19,
+      width: 20,
       height: 12,
       child: CustomPaint(
         painter: _ChatMessageStatusPainter(color: color, marks: marks),
@@ -35217,19 +35232,19 @@ class _ChatMessageStatusPainter extends CustomPainter {
 
     void drawMark(double left) {
       final path = ui.Path()
-        ..moveTo(left, size.height * 0.57)
-        ..lineTo(left + 3.4, size.height * 0.82)
-        ..lineTo(left + 8.8, size.height * 0.24);
+        ..moveTo(left, size.height * 0.58)
+        ..lineTo(left + 2.8, size.height * 0.82)
+        ..lineTo(left + 7.8, size.height * 0.24);
       canvas.drawPath(path, paint);
     }
 
     if (marks <= 1) {
-      drawMark(size.width * 0.32);
+      drawMark((size.width - 7.8) / 2);
       return;
     }
 
-    drawMark(1.7);
-    drawMark(7.4);
+    drawMark(1.2);
+    drawMark(10.8);
   }
 
   @override
@@ -36065,7 +36080,20 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
           .doc(uid)
           .debugSnapshots('chat: conversation title user listener'),
       builder: (context, snapshot) {
-        return titleContent(friendUserFromSnapshot(snapshot.data));
+        final user =
+            friendUserFromSnapshot(snapshot.data) ??
+            fallbackChatMember(widget.chat, uid);
+
+        return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+          stream: userPresenceDocument(
+            uid,
+          ).debugSnapshots('chat: conversation title presence listener'),
+          builder: (context, presenceSnapshot) {
+            return titleContent(
+              user.withPresenceFromMap(presenceSnapshot.data?.data()),
+            );
+          },
+        );
       },
     );
   }
