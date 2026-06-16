@@ -10353,9 +10353,16 @@ Future<void> deleteChatMessage({
     );
   }
 
-  if (firebaseUser.uid == message.senderUid) {
+  try {
+    // Owners and group moderators should be able to remove messages directly
+    // from the group chat. If older Firestore rules reject moderator deletes,
+    // fall back to the moderation endpoint used by previous builds.
     await chatMessagesCollection(chatId).doc(message.id).debugDelete();
-  } else {
+  } catch (error) {
+    if (firebaseUser.uid == message.senderUid) {
+      rethrow;
+    }
+
     await sendModerationAction({
       'action': 'delete_chat_message',
       'chatId': chatId,
@@ -10482,6 +10489,7 @@ Future<void> leaveGroupChat(ChatThreadData chat) async {
           'memberUsernames': FieldValue.arrayRemove([username]),
           'memberPhotoUrls': FieldValue.arrayRemove([photoUrl]),
           'moderatorIds': FieldValue.arrayRemove([uid]),
+          'hiddenForUserIds': FieldValue.arrayUnion([uid]),
           'updatedAt': FieldValue.serverTimestamp(),
         },
         SetOptions(merge: true),
@@ -35843,31 +35851,44 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
     if (selected.isEmpty) return;
     setState(() => isSaving = true);
     try {
-      await sendModerationAction({
-        'action': 'add_chat_members',
-        'chatId': widget.chat.id,
-        'targetUserIds': selected.map((user) => user.uid).toList(),
-      });
+      final nextMemberIds = [...memberIds];
+      final nextMemberUsernames = [...memberUsernames];
+      final nextMemberPhotoUrls = [...memberPhotoUrls];
+
+      for (final user in selected) {
+        if (nextMemberIds.contains(user.uid)) {
+          continue;
+        }
+
+        nextMemberIds.add(user.uid);
+        nextMemberUsernames.add(user.username);
+        nextMemberPhotoUrls.add(user.photoUrl ?? '');
+      }
+
+      await chatsCollection().doc(widget.chat.id).debugSet({
+        'memberIds': nextMemberIds,
+        'memberUsernames': nextMemberUsernames,
+        'memberPhotoUrls': nextMemberPhotoUrls,
+        // If a user was removed/left before and the chat was hidden for them,
+        // adding them again must make the group visible in their chat list.
+        'hiddenForUserIds': FieldValue.arrayRemove(
+          selected.map((user) => user.uid).toList(),
+        ),
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
 
       if (mounted) {
         setState(() {
-          for (final user in selected) {
-            if (memberIds.contains(user.uid)) {
-              continue;
-            }
-            memberIds.add(user.uid);
-            memberUsernames.add(user.username);
-            memberPhotoUrls.add(user.photoUrl ?? '');
-          }
+          memberIds = nextMemberIds;
+          memberUsernames = nextMemberUsernames;
+          memberPhotoUrls = nextMemberPhotoUrls;
         });
-      }
-    } catch (error) {
-      if (mounted) {
+
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            backgroundColor: Colors.redAccent,
+            backgroundColor: Colors.green,
             content: Text(
-              '${trText('Could not add members')}: $error',
+              '${trText('Add members')}: ${selected.length}',
               style: const TextStyle(
                 color: Colors.white,
                 fontWeight: FontWeight.w700,
@@ -35876,6 +35897,9 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
           ),
         );
       }
+    } catch (error, stack) {
+      debugPrint('Could not add group members: $error');
+      debugPrint('$stack');
     } finally {
       if (mounted) setState(() => isSaving = false);
     }
@@ -35889,37 +35913,25 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
     final isModerator = moderatorIds.contains(user.uid);
     setState(() => isSaving = true);
     try {
-      await sendModerationAction({
-        'action': 'set_chat_moderator',
-        'chatId': widget.chat.id,
-        'targetUserId': user.uid,
-        'makeModerator': !isModerator,
-      });
+      final nextModeratorIds = [...moderatorIds];
+
+      if (isModerator) {
+        nextModeratorIds.remove(user.uid);
+      } else if (!nextModeratorIds.contains(user.uid)) {
+        nextModeratorIds.add(user.uid);
+      }
+
+      await chatsCollection().doc(widget.chat.id).debugSet({
+        'moderatorIds': nextModeratorIds,
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
 
       if (mounted) {
-        setState(() {
-          if (isModerator) {
-            moderatorIds.remove(user.uid);
-          } else if (!moderatorIds.contains(user.uid)) {
-            moderatorIds.add(user.uid);
-          }
-        });
+        setState(() => moderatorIds = nextModeratorIds);
       }
-    } catch (error) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            backgroundColor: Colors.redAccent,
-            content: Text(
-              '${trText('Could not update role')}: $error',
-              style: const TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ),
-        );
-      }
+    } catch (error, stack) {
+      debugPrint('Could not update group moderator: $error');
+      debugPrint('$stack');
     } finally {
       if (mounted) setState(() => isSaving = false);
     }
@@ -35990,42 +36002,45 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
 
     setState(() => isSaving = true);
     try {
-      await sendModerationAction({
-        'action': 'remove_chat_member',
-        'chatId': widget.chat.id,
-        'targetUserId': user.uid,
-      });
+      final nextMemberIds = [...memberIds];
+      final nextMemberUsernames = [...memberUsernames];
+      final nextMemberPhotoUrls = [...memberPhotoUrls];
+      final nextModeratorIds = [...moderatorIds];
+
+      final index = nextMemberIds.indexOf(user.uid);
+      if (index >= 0) {
+        nextMemberIds.removeAt(index);
+        if (index < nextMemberUsernames.length) {
+          nextMemberUsernames.removeAt(index);
+        }
+        if (index < nextMemberPhotoUrls.length) {
+          nextMemberPhotoUrls.removeAt(index);
+        }
+      }
+      nextModeratorIds.remove(user.uid);
+
+      await chatsCollection().doc(widget.chat.id).debugSet({
+        'memberIds': nextMemberIds,
+        'memberUsernames': nextMemberUsernames,
+        'memberPhotoUrls': nextMemberPhotoUrls,
+        'moderatorIds': nextModeratorIds,
+        // Keep the group hidden for the removed user even if their local cache
+        // still has an older chat snapshot for a moment.
+        'hiddenForUserIds': FieldValue.arrayUnion([user.uid]),
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
 
       if (mounted) {
         setState(() {
-          final index = memberIds.indexOf(user.uid);
-          if (index >= 0) {
-            memberIds.removeAt(index);
-            if (index < memberUsernames.length) {
-              memberUsernames.removeAt(index);
-            }
-            if (index < memberPhotoUrls.length) {
-              memberPhotoUrls.removeAt(index);
-            }
-          }
-          moderatorIds.remove(user.uid);
+          memberIds = nextMemberIds;
+          memberUsernames = nextMemberUsernames;
+          memberPhotoUrls = nextMemberPhotoUrls;
+          moderatorIds = nextModeratorIds;
         });
       }
-    } catch (error) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            backgroundColor: Colors.redAccent,
-            content: Text(
-              '${trText('Could not remove member')}: $error',
-              style: const TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ),
-        );
-      }
+    } catch (error, stack) {
+      debugPrint('Could not remove group member: $error');
+      debugPrint('$stack');
     } finally {
       if (mounted) setState(() => isSaving = false);
     }
