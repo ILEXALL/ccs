@@ -46,6 +46,18 @@ service cloud.firestore {
       return isAdmin() || isModerator();
     }
 
+    function isGlobalModerator() {
+      return isStaff()
+        || (
+          isActiveUser()
+          && currentUserData().get('globalChatModerator', false) == true
+        )
+        || (
+          isActiveUser()
+          && currentUserData().get('globalModerator', false) == true
+        );
+    }
+
     function isVerifiedOrStaff() {
       return isActiveUser()
         && (
@@ -170,6 +182,8 @@ service cloud.firestore {
         'commentNotifications',
         'newSpotNotifications',
         'newMessageNotifications',
+        'friendAtSpotNotifications',
+        'friendLiveShareNotifications',
         'publicProfile',
         'showGarage',
         'fcmTokens',
@@ -525,6 +539,19 @@ service cloud.firestore {
       return isChatOwner(chatId) || isChatModerator(chatId) || isStaff();
     }
 
+    function forumTopicData(topicId) {
+      return get(/databases/$(database)/documents/forum_topics/$(topicId)).data;
+    }
+
+    function canManageForumTopic(topicId) {
+      return isStaff()
+        || isGlobalModerator()
+        || (
+          isActiveUser()
+          && forumTopicData(topicId).authorId == currentUid()
+        );
+    }
+
     function chatMembershipUnchanged() {
       return request.resource.data.memberIds is list
         && request.resource.data.memberIds.size() == resource.data.memberIds.size()
@@ -664,6 +691,42 @@ service cloud.firestore {
         ).data.status == 'pending';
     }
 
+    function validFriendLocationNotification() {
+      let data = request.resource.data;
+      return data.type in ['friend_at_spot', 'friend_live_sharing']
+        && data.userId is string
+        && data.userId != currentUid()
+        && data.actorUserId == currentUid()
+        && data.friendUid == currentUid()
+        && data.friendUsername is string
+        && data.title is string
+        && data.body is string
+        && data.read == false
+        && data.friendLat is number
+        && data.friendLng is number
+        && data.friendCoordinates is latlng
+        && data.distanceMeters is int
+        && data.lastNotifiedAtMillis is int
+        && friendshipAccepted(currentUid(), data.userId)
+        && (
+          data.type != 'friend_at_spot'
+          || (
+            data.spotId is string
+            && data.spotName is string
+            && data.spotCategory is string
+          )
+        );
+    }
+
+    function validFriendLocationNotificationRefresh() {
+      let data = request.resource.data;
+      return validFriendLocationNotification()
+        && resource.data.userId == data.userId
+        && resource.data.actorUserId == data.actorUserId
+        && resource.data.friendUid == data.friendUid
+        && resource.data.type == data.type;
+    }
+
     function validSpotPendingReviewNotification() {
       let data = request.resource.data;
       let spot = get(
@@ -694,15 +757,28 @@ service cloud.firestore {
           || validSpotPendingReviewNotification()
           || validChatMessageNotification()
           || validFriendRequestNotification()
+          || validFriendLocationNotification()
         );
     }
 
     match /app_config/{configId} {
-      allow read: if configId == 'main';
-      allow create, update: if configId == 'main'
-        && isAdmin()
-        && validMaintenanceConfig();
-      allow delete: if configId == 'main' && isAdmin();
+      allow read: if configId in ['main', 'global_chat'];
+      allow create, update: if (
+          configId == 'main'
+          && isAdmin()
+          && validMaintenanceConfig()
+        ) || (
+          configId == 'global_chat'
+          && isAdmin()
+          && request.resource.data.keys().hasOnly([
+            'moderatorIds',
+            'globalModeratorIds',
+            'updatedAt'
+          ])
+          && request.resource.data.get('moderatorIds', []) is list
+          && request.resource.data.get('globalModeratorIds', []) is list
+        );
+      allow delete: if configId in ['main', 'global_chat'] && isAdmin();
     }
 
     match /users/{userId} {
@@ -720,9 +796,30 @@ service cloud.firestore {
     }
 
     match /device_bans/{deviceId} {
+      // A signed-in app instance may directly check its own generated device-ban document.
+      // Listing is staff-only so users cannot browse banned devices.
       allow get: if isSignedIn();
-      allow list: if isAdmin();
-      allow create, update, delete: if isAdmin();
+      allow list: if isStaff();
+      allow create, update: if isStaff()
+        && request.resource.data.keys().hasOnly([
+          'deviceId',
+          'userId',
+          'username',
+          'email',
+          'reason',
+          'banned',
+          'bannedByUid',
+          'bannedBy',
+          'bannedAt',
+          'updatedAt',
+          'platform'
+        ])
+        && request.resource.data.deviceId == deviceId
+        && request.resource.data.deviceId is string
+        && request.resource.data.deviceId.size() >= 8
+        && request.resource.data.deviceId.size() <= 128
+        && request.resource.data.get('banned', true) == true;
+      allow delete: if isStaff();
     }
 
     match /usernames/{usernameKey} {
@@ -977,13 +1074,18 @@ service cloud.firestore {
       allow read: if isActiveUser()
         && resource.data.userId == currentUid();
       allow create: if validUserNotificationCreate();
-      allow update: if isActiveUser()
+      allow update: if (
+        isActiveUser()
         && resource.data.userId == currentUid()
         && request.resource.data.userId == resource.data.userId
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           'read',
           'readAt'
-        ]);
+        ])
+      ) || (
+        isActiveUser()
+        && validFriendLocationNotificationRefresh()
+      );
       allow delete: if isStaff()
         || (isActiveUser() && resource.data.userId == currentUid());
     }
@@ -1001,7 +1103,7 @@ service cloud.firestore {
         && request.resource.data.friendUid is string
         && request.resource.data.friendUid != currentUid()
         && request.resource.data.friendUsername is string
-        && request.resource.data.type in ['friend_nearby', 'friend_at_spot']
+        && request.resource.data.type in ['friend_nearby', 'friend_at_spot', 'friend_live_sharing']
         && request.resource.data.read == false;
       allow update: if isActiveUser()
         && resource.data.userId == currentUid()
@@ -1140,16 +1242,9 @@ service cloud.firestore {
               (
                 chatMembershipUnchanged()
                 && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-                  'name',
-                  'photoUrl',
-                  'avatarUrl',
-                  'description',
                   'lastMessage',
                   'lastSenderUid',
                   'lastSenderUsername',
-                  'memberIds',
-                  'memberUsernames',
-                  'memberPhotoUrls',
                   'hiddenForUserIds',
                   'updatedAt'
                 ])
@@ -1157,18 +1252,12 @@ service cloud.firestore {
               || (
                 canManageChat(chatId)
                 && request.resource.data.isGroup == resource.data.isGroup
-                && request.resource.data.memberIds is list
-                && request.resource.data.memberIds.hasAll(resource.data.memberIds)
+                && chatMembershipUnchanged()
                 && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
                   'name',
                   'photoUrl',
                   'avatarUrl',
                   'description',
-                  'memberIds',
-                  'memberUsernames',
-                  'memberPhotoUrls',
-                  'moderatorIds',
-                  'ownerUid',
                   'lastMessage',
                   'lastSenderUid',
                   'lastSenderUsername',
@@ -1203,7 +1292,6 @@ service cloud.firestore {
             (
               (
                 resource.data.senderUid == currentUid()
-                || canManageChat(chatId)
               )
               && request.resource.data.senderUid == resource.data.senderUid
               && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
@@ -1217,7 +1305,110 @@ service cloud.firestore {
         allow delete: if isChatMember(chatId)
           && (
             resource.data.senderUid == currentUid()
-            || canManageChat(chatId)
+          );
+      }
+    }
+
+    match /global_chat/{messageId} {
+      allow read: if isActiveUser();
+      allow create: if isActiveUser()
+        && request.resource.data.keys().hasOnly([
+          'userId',
+          'username',
+          'avatarUrl',
+          'text',
+          'timestamp',
+          'type'
+        ])
+        && request.resource.data.userId == currentUid()
+        && request.resource.data.username is string
+        && request.resource.data.username.size() >= 1
+        && request.resource.data.username.size() <= 40
+        && request.resource.data.avatarUrl is string
+        && request.resource.data.avatarUrl.size() <= 1000
+        && request.resource.data.text is string
+        && request.resource.data.text.size() >= 1
+        && request.resource.data.text.size() <= 1000
+        && request.resource.data.type == 'text'
+        && request.resource.data.timestamp == request.time;
+      allow update: if false;
+      allow delete: if isGlobalModerator()
+        || (
+          isActiveUser()
+          && resource.data.userId == currentUid()
+        );
+    }
+
+    match /moderation_logs/{logId} {
+      allow read: if isStaff();
+      allow create, update, delete: if false;
+    }
+
+    match /forum_topics/{topicId} {
+      allow read: if isActiveUser();
+
+      allow create: if isActiveUser()
+        && request.resource.data.authorId == currentUid()
+        && request.resource.data.title is string
+        && request.resource.data.category is string
+        && request.resource.data.description is string
+        && request.resource.data.authorName is string
+        && request.resource.data.repliesCount == 0
+        && request.resource.data.isPinned == false
+        && request.resource.data.status == 'pending'
+        && request.resource.data.rejectionReason == null
+        && request.resource.data.reviewedBy == null
+        && request.resource.data.reviewedAt == null
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.lastReplyAt == request.time;
+
+      allow update: if isStaff()
+        || isGlobalModerator()
+        || (
+          isActiveUser()
+          && resource.data.authorId == currentUid()
+          && request.resource.data.authorId == resource.data.authorId
+          && request.resource.data.status == resource.data.status
+          && request.resource.data.isPinned == resource.data.isPinned
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'title',
+            'description',
+            'avatarUrl',
+            'updatedAt'
+          ])
+        );
+
+      allow delete: if isStaff()
+        || isGlobalModerator()
+        || (
+          isActiveUser()
+          && resource.data.authorId == currentUid()
+        );
+
+      match /replies/{replyId} {
+        allow read: if isActiveUser();
+
+        allow create: if isActiveUser()
+          && request.resource.data.userId == currentUid()
+          && request.resource.data.username is string
+          && request.resource.data.avatarUrl is string
+          && request.resource.data.text is string
+          && request.resource.data.timestamp == request.time;
+
+        allow update: if isStaff()
+          || isGlobalModerator()
+          || forumTopicData(topicId).authorId == currentUid()
+          || (
+            isActiveUser()
+            && resource.data.userId == currentUid()
+          );
+
+        allow delete: if isStaff()
+          || isGlobalModerator()
+          || forumTopicData(topicId).authorId == currentUid()
+          || (
+            isActiveUser()
+            && resource.data.userId == currentUid()
           );
       }
     }
@@ -1227,3 +1418,4 @@ service cloud.firestore {
     }
   }
 }
+й
