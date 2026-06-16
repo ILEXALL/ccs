@@ -35216,7 +35216,7 @@ class _ChatMessageStatusPainter extends CustomPainter {
       ..strokeJoin = StrokeJoin.round;
 
     void drawMark(double left) {
-      final path = Path()
+      final path = ui.Path()
         ..moveTo(left, size.height * 0.57)
         ..lineTo(left + 3.4, size.height * 0.82)
         ..lineTo(left + 8.8, size.height * 0.24);
