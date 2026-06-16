@@ -370,6 +370,11 @@ service cloud.firestore {
         && before.toSet().difference(after.toSet()).hasOnly([currentUid()]);
     }
 
+    function listAddedOnlyByCurrentUser(before, after) {
+      return after.toSet().difference(before.toSet()).hasOnly([currentUid()])
+        && before.toSet().difference(after.toSet()).hasOnly([]);
+    }
+
     function policeReportIdentityUnchanged() {
       return request.resource.data.uid == resource.data.uid
         && request.resource.data.username == resource.data.username
@@ -582,6 +587,20 @@ service cloud.firestore {
       let data = chatData(chatId);
       return data.get('isGroup', false) != true
         && directMemberIdsBlocked(data.memberIds);
+    }
+
+    function chatMessageReadReceiptUpdateOnly() {
+      return resource.data.senderUid != currentUid()
+        && request.resource.data.senderUid == resource.data.senderUid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'readByUserIds'
+        ])
+        && resource.data.get('readByUserIds', []) is list
+        && request.resource.data.get('readByUserIds', []) is list
+        && listAddedOnlyByCurrentUser(
+          resource.data.get('readByUserIds', []),
+          request.resource.data.get('readByUserIds', [])
+        );
     }
 
     function notificationTargetsSpotOwner() {
@@ -1181,15 +1200,20 @@ service cloud.firestore {
           && request.resource.data.text is string;
         allow update: if isChatMember(chatId)
           && (
-            resource.data.senderUid == currentUid()
-            || canManageChat(chatId)
-          )
-          && request.resource.data.senderUid == resource.data.senderUid
-          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-            'text',
-            'edited',
-            'updatedAt'
-          ]);
+            (
+              (
+                resource.data.senderUid == currentUid()
+                || canManageChat(chatId)
+              )
+              && request.resource.data.senderUid == resource.data.senderUid
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+                'text',
+                'edited',
+                'updatedAt'
+              ])
+            )
+            || chatMessageReadReceiptUpdateOnly()
+          );
         allow delete: if isChatMember(chatId)
           && (
             resource.data.senderUid == currentUid()

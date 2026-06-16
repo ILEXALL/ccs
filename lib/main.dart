@@ -9332,6 +9332,8 @@ class ChatThreadData {
   }
 }
 
+enum ChatMessageReceiptState { sending, delivered, read, failed }
+
 class ChatMessageData {
   final String id;
   final String senderUid;
@@ -9340,6 +9342,10 @@ class ChatMessageData {
   final int createdAtMillis;
   final bool edited;
   final int updatedAtMillis;
+  final int clientCreatedAtMillis;
+  final List<String> readByUserIds;
+  final bool isLocalPending;
+  final bool sendFailed;
 
   const ChatMessageData({
     required this.id,
@@ -9349,22 +9355,109 @@ class ChatMessageData {
     required this.createdAtMillis,
     this.edited = false,
     this.updatedAtMillis = 0,
+    this.clientCreatedAtMillis = 0,
+    this.readByUserIds = const [],
+    this.isLocalPending = false,
+    this.sendFailed = false,
   });
 
   factory ChatMessageData.fromFirestore(
     DocumentSnapshot<Map<String, dynamic>> doc,
   ) {
     final data = doc.data() ?? {};
+    final clientCreatedAtMillis = intFromFirebase(
+      data['clientCreatedAtMillis'],
+      0,
+    );
+    final createdAtMillis = timestampMillisFromFirebase(data['createdAt']);
 
     return ChatMessageData(
       id: doc.id,
       senderUid: stringFromFirebase(data['senderUid'], ''),
       senderUsername: stringFromFirebase(data['senderUsername'], 'ccs_driver'),
       text: stringFromFirebase(data['text'], ''),
-      createdAtMillis: timestampMillisFromFirebase(data['createdAt']),
+      createdAtMillis: createdAtMillis > 0
+          ? createdAtMillis
+          : clientCreatedAtMillis,
       edited: data['edited'] == true,
       updatedAtMillis: timestampMillisFromFirebase(data['updatedAt']),
+      clientCreatedAtMillis: clientCreatedAtMillis,
+      readByUserIds: stringListFromFirebase(data['readByUserIds'], const []),
+      isLocalPending: doc.metadata.hasPendingWrites,
     );
+  }
+
+  factory ChatMessageData.pending({
+    required String id,
+    required String senderUid,
+    required String senderUsername,
+    required String text,
+    required int createdAtMillis,
+  }) {
+    return ChatMessageData(
+      id: id,
+      senderUid: senderUid,
+      senderUsername: senderUsername,
+      text: text,
+      createdAtMillis: createdAtMillis,
+      clientCreatedAtMillis: createdAtMillis,
+      readByUserIds: [senderUid],
+      isLocalPending: true,
+    );
+  }
+
+  ChatMessageData copyWith({
+    String? id,
+    String? senderUid,
+    String? senderUsername,
+    String? text,
+    int? createdAtMillis,
+    bool? edited,
+    int? updatedAtMillis,
+    int? clientCreatedAtMillis,
+    List<String>? readByUserIds,
+    bool? isLocalPending,
+    bool? sendFailed,
+  }) {
+    return ChatMessageData(
+      id: id ?? this.id,
+      senderUid: senderUid ?? this.senderUid,
+      senderUsername: senderUsername ?? this.senderUsername,
+      text: text ?? this.text,
+      createdAtMillis: createdAtMillis ?? this.createdAtMillis,
+      edited: edited ?? this.edited,
+      updatedAtMillis: updatedAtMillis ?? this.updatedAtMillis,
+      clientCreatedAtMillis:
+          clientCreatedAtMillis ?? this.clientCreatedAtMillis,
+      readByUserIds: readByUserIds ?? this.readByUserIds,
+      isLocalPending: isLocalPending ?? this.isLocalPending,
+      sendFailed: sendFailed ?? this.sendFailed,
+    );
+  }
+
+  ChatMessageReceiptState receiptStateFor(
+    ChatThreadData chat,
+    String currentUid,
+  ) {
+    if (sendFailed) {
+      return ChatMessageReceiptState.failed;
+    }
+    if (isLocalPending) {
+      return ChatMessageReceiptState.sending;
+    }
+
+    final readBy = readByUserIds.map((uid) => uid.trim()).toSet();
+    final recipients = chat.memberIds
+        .map((uid) => uid.trim())
+        .where((uid) => uid.isNotEmpty && uid != currentUid)
+        .toSet();
+
+    if (recipients.isNotEmpty &&
+        recipients.every((uid) => readBy.contains(uid))) {
+      return ChatMessageReceiptState.read;
+    }
+
+    return ChatMessageReceiptState.delivered;
   }
 }
 
@@ -9512,6 +9605,8 @@ Future<void> sendChatMessage({
   required String chatId,
   required String text,
   ChatThreadData? chat,
+  String? messageId,
+  int? clientCreatedAtMillis,
 }) async {
   final firebaseUser = FirebaseAuth.instance.currentUser;
 
@@ -9529,46 +9624,113 @@ Future<void> sendChatMessage({
     return;
   }
 
+  final cleanMessageId = messageId?.trim() ?? '';
+  final messageRef = cleanMessageId.isEmpty
+      ? chatMessagesCollection(chatId).doc()
+      : chatMessagesCollection(chatId).doc(cleanMessageId);
+  final clientMillis =
+      clientCreatedAtMillis ?? DateTime.now().millisecondsSinceEpoch;
+
   // This is the only write that must succeed for the user-facing send action.
   // Other writes below are best-effort because some Firestore rules allow a
   // member to create messages but do not allow updating the parent chat summary
   // or creating notification documents. Those failures should not show "Could
   // not send message" after the message itself was accepted.
-  final messageRef = await chatMessagesCollection(chatId).debugAdd({
+  await messageRef.debugSet({
     'senderUid': firebaseUser.uid,
     'senderUsername': currentUser.username,
     'text': cleanText,
+    'clientCreatedAtMillis': clientMillis,
+    'readByUserIds': [firebaseUser.uid],
     'createdAt': FieldValue.serverTimestamp(),
-  });
+  }, null, 'chat: send message');
 
-  try {
-    final chatMemberIds = chat?.memberIds
-        .map((uid) => uid.trim())
-        .where((uid) => uid.isNotEmpty)
-        .toList();
-    await chatsCollection().doc(chatId).debugSet({
-      'lastMessage': cleanText,
-      'lastSenderUid': firebaseUser.uid,
-      'lastSenderUsername': currentUser.username,
-      if (chatMemberIds != null && chatMemberIds.isNotEmpty)
-        'hiddenForUserIds': FieldValue.arrayRemove(chatMemberIds),
-      'updatedAt': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
-  } catch (error, stack) {
-    debugPrint('Chat summary update skipped after message send: $error');
-    debugPrint('$stack');
-  }
+  unawaited(
+    () async {
+      try {
+        final chatMemberIds = chat?.memberIds
+            .map((uid) => uid.trim())
+            .where((uid) => uid.isNotEmpty)
+            .toList();
+        await chatsCollection().doc(chatId).debugSet({
+          'lastMessage': cleanText,
+          'lastSenderUid': firebaseUser.uid,
+          'lastSenderUsername': currentUser.username,
+          if (chatMemberIds != null && chatMemberIds.isNotEmpty)
+            'hiddenForUserIds': FieldValue.arrayRemove(chatMemberIds),
+          'updatedAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+      } catch (error, stack) {
+        debugPrint('Chat summary update skipped after message send: $error');
+        debugPrint('$stack');
+      }
+    }(),
+  );
 
   // Do not create a local user_notifications chat row here. The push backend
   // creates the notification-center item for chat messages. Creating a local
   // row plus calling the backend caused duplicated direct-chat notifications.
-  await sendPushNotificationEvent({
-    'type': 'chat_message',
-    'notificationId': 'chat_${chatId}_${messageRef.id}',
-    'chatId': chatId,
-    'messageId': messageRef.id,
-    'senderUsername': currentUser.username,
-  });
+  unawaited(
+    () async {
+      try {
+        await sendPushNotificationEvent({
+          'type': 'chat_message',
+          'notificationId': 'chat_${chatId}_${messageRef.id}',
+          'chatId': chatId,
+          'messageId': messageRef.id,
+          'senderUsername': currentUser.username,
+        });
+      } catch (error, stack) {
+        debugPrint('Chat push notification skipped after message send: $error');
+        debugPrint('$stack');
+      }
+    }(),
+  );
+}
+
+Future<void> markChatMessagesReadByCurrentUser({
+  required String chatId,
+  required Iterable<ChatMessageData> messages,
+}) async {
+  final firebaseUser = FirebaseAuth.instance.currentUser;
+
+  if (firebaseUser == null) {
+    return;
+  }
+
+  final currentUid = firebaseUser.uid;
+  final ids = <String>{};
+  final batch = FirebaseFirestore.instance.batch();
+  var writeCount = 0;
+
+  for (final message in messages) {
+    final messageId = message.id.trim();
+    if (messageId.isEmpty ||
+        ids.contains(messageId) ||
+        message.isLocalPending ||
+        message.sendFailed ||
+        message.senderUid == currentUid ||
+        message.readByUserIds.contains(currentUid)) {
+      continue;
+    }
+
+    ids.add(messageId);
+    batch.debugSet(
+      chatMessagesCollection(chatId).doc(messageId),
+      {
+        'readByUserIds': FieldValue.arrayUnion([currentUid]),
+      },
+      SetOptions(merge: true),
+      'chat: mark message read',
+    );
+    writeCount++;
+  }
+
+  if (writeCount == 0) {
+    return;
+  }
+
+  await batch.commit();
 }
 
 Future<Position?> getChatSharePosition(BuildContext context) async {
@@ -34950,6 +35112,132 @@ Widget chatDateDivider(String label) {
   );
 }
 
+class ChatMessageStatusGlyph extends StatefulWidget {
+  final ChatMessageReceiptState state;
+
+  const ChatMessageStatusGlyph({super.key, required this.state});
+
+  @override
+  State<ChatMessageStatusGlyph> createState() => _ChatMessageStatusGlyphState();
+}
+
+class _ChatMessageStatusGlyphState extends State<ChatMessageStatusGlyph>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController pulseController;
+
+  bool get isSending => widget.state == ChatMessageReceiptState.sending;
+
+  @override
+  void initState() {
+    super.initState();
+    pulseController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 820),
+    );
+    if (isSending) {
+      pulseController.repeat(reverse: true);
+    }
+  }
+
+  @override
+  void didUpdateWidget(ChatMessageStatusGlyph oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (isSending && !pulseController.isAnimating) {
+      pulseController.repeat(reverse: true);
+    } else if (!isSending && pulseController.isAnimating) {
+      pulseController.stop();
+      pulseController.value = 1;
+    }
+  }
+
+  @override
+  void dispose() {
+    pulseController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (widget.state == ChatMessageReceiptState.failed) {
+      return const Icon(
+        Icons.error_outline_rounded,
+        color: Colors.white,
+        size: 13,
+      );
+    }
+
+    final color = widget.state == ChatMessageReceiptState.read
+        ? const Color(0xFF00E0C7)
+        : Colors.white.withValues(alpha: 0.68);
+    final marks = widget.state == ChatMessageReceiptState.sending ? 1 : 2;
+    final glyph = SizedBox(
+      key: ValueKey('${widget.state.name}-$marks'),
+      width: 19,
+      height: 12,
+      child: CustomPaint(
+        painter: _ChatMessageStatusPainter(color: color, marks: marks),
+      ),
+    );
+
+    if (isSending) {
+      return FadeTransition(
+        opacity: Tween<double>(begin: 0.38, end: 0.92).animate(
+          CurvedAnimation(parent: pulseController, curve: Curves.easeInOut),
+        ),
+        child: glyph,
+      );
+    }
+
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 180),
+      switchInCurve: Curves.easeOutCubic,
+      switchOutCurve: Curves.easeInCubic,
+      child: glyph,
+    );
+  }
+}
+
+class _ChatMessageStatusPainter extends CustomPainter {
+  final Color color;
+  final int marks;
+
+  const _ChatMessageStatusPainter({
+    required this.color,
+    required this.marks,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = color
+      ..strokeWidth = 1.85
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round;
+
+    void drawMark(double left) {
+      final path = Path()
+        ..moveTo(left, size.height * 0.57)
+        ..lineTo(left + 3.4, size.height * 0.82)
+        ..lineTo(left + 8.8, size.height * 0.24);
+      canvas.drawPath(path, paint);
+    }
+
+    if (marks <= 1) {
+      drawMark(size.width * 0.32);
+      return;
+    }
+
+    drawMark(1.7);
+    drawMark(7.4);
+  }
+
+  @override
+  bool shouldRepaint(covariant _ChatMessageStatusPainter oldDelegate) {
+    return oldDelegate.color != color || oldDelegate.marks != marks;
+  }
+}
+
 const int chatMessagePageSize = 10;
 final Map<String, List<ChatMessageData>> _chatMessageSessionCache = {};
 final Map<String, DocumentSnapshot<Map<String, dynamic>>>
@@ -34969,11 +35257,12 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
   final chatScrollController = ScrollController();
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>?
   _newMessagesSubscription;
-  bool isSending = false;
+  Timer? _markMessagesReadDebounce;
   bool isSharingChatLocation = false;
   bool hasScrolledToLatestMessage = false;
   bool scrollToLatestAfterNextMessage = false;
   int renderedMessageCount = 0;
+  final Set<String> _locallyReadMessageIds = {};
 
   // Messages are loaded in pages. The initial page is only the latest 10.
   final List<ChatMessageData> _messages = [];
@@ -34994,6 +35283,7 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
 
   @override
   void dispose() {
+    _markMessagesReadDebounce?.cancel();
     _newMessagesSubscription?.cancel();
     chatScrollController.removeListener(_onScroll);
     messageController.dispose();
@@ -35026,6 +35316,73 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
     });
   }
 
+  void scheduleMarkVisibleMessagesRead({
+    Duration delay = const Duration(milliseconds: 650),
+  }) {
+    _markMessagesReadDebounce?.cancel();
+    _markMessagesReadDebounce = Timer(delay, () {
+      unawaited(markVisibleMessagesRead());
+    });
+  }
+
+  Future<void> markVisibleMessagesRead() async {
+    final currentUid = FirebaseAuth.instance.currentUser?.uid ?? currentUser.uid;
+    if (currentUid.trim().isEmpty) {
+      return;
+    }
+
+    final unreadMessages = _messages
+        .where(
+          (message) =>
+              message.senderUid != currentUid &&
+              !message.isLocalPending &&
+              !message.sendFailed &&
+              !message.readByUserIds.contains(currentUid) &&
+              !_locallyReadMessageIds.contains(message.id),
+        )
+        .take(25)
+        .toList();
+
+    if (unreadMessages.isEmpty) {
+      return;
+    }
+
+    final unreadIds = unreadMessages.map((message) => message.id).toSet();
+    _locallyReadMessageIds.addAll(unreadIds);
+
+    try {
+      await markChatMessagesReadByCurrentUser(
+        chatId: widget.chat.id,
+        messages: unreadMessages,
+      );
+
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        for (var index = 0; index < _messages.length; index++) {
+          final message = _messages[index];
+          if (!unreadIds.contains(message.id)) {
+            continue;
+          }
+
+          _messages[index] = message.copyWith(
+            readByUserIds: uniqueNonEmptyStrings([
+              ...message.readByUserIds,
+              currentUid,
+            ]),
+          );
+        }
+        _cacheMessages();
+      });
+    } catch (error, stack) {
+      _locallyReadMessageIds.removeAll(unreadIds);
+      debugPrint('Chat messages could not be marked read: $error');
+      debugPrint('$stack');
+    }
+  }
+
   void _mergeMessages(Iterable<ChatMessageData> incoming) {
     final byId = <String, ChatMessageData>{
       for (final message in _messages) message.id: message,
@@ -35043,14 +35400,17 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
     _cacheMessages();
   }
 
-  int get _latestLoadedMessageMillis {
-    var latest = 0;
-    for (final message in _messages) {
-      if (message.createdAtMillis > latest) {
-        latest = message.createdAtMillis;
-      }
+  void _updateMessage(
+    String messageId,
+    ChatMessageData Function(ChatMessageData message) update,
+  ) {
+    final index = _messages.indexWhere((message) => message.id == messageId);
+    if (index < 0) {
+      return;
     }
-    return latest;
+
+    _messages[index] = update(_messages[index]);
+    _cacheMessages();
   }
 
   Future<void> _loadInitialMessages() async {
@@ -35066,6 +35426,7 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
         setState(() => _isInitialLoadingMessages = false);
         scheduleScrollToLatestMessage();
       }
+      scheduleMarkVisibleMessagesRead();
       _startNewMessagesListener();
       return;
     }
@@ -35097,6 +35458,7 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
       _cacheMessages();
       scheduleScrollToLatestMessage();
       markCurrentChatNotificationsRead();
+      scheduleMarkVisibleMessagesRead();
       _startNewMessagesListener();
     } catch (error, stack) {
       debugPrint('Initial chat messages could not load: $error');
@@ -35111,19 +35473,7 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
   void _startNewMessagesListener() {
     _newMessagesSubscription?.cancel();
 
-    final latestMillis = _latestLoadedMessageMillis;
-    Query<Map<String, dynamic>> query;
-    if (latestMillis > 0) {
-      query = chatMessagesCollection(widget.chat.id)
-          .where(
-            'createdAt',
-            isGreaterThan: Timestamp.fromMillisecondsSinceEpoch(latestMillis),
-          )
-          .orderBy('createdAt')
-          .limit(chatMessagePageSize);
-    } else {
-      query = latestChatMessagesQuery(widget.chat.id);
-    }
+    final query = latestChatMessagesQuery(widget.chat.id);
 
     _newMessagesSubscription = query
         .debugSnapshots('chat: new messages listener')
@@ -35141,6 +35491,7 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
 
             setState(() => _mergeMessages(incoming));
             markCurrentChatNotificationsRead(delay: const Duration(seconds: 1));
+            scheduleMarkVisibleMessagesRead();
             if (shouldFollow || scrollToLatestAfterNextMessage) {
               scheduleScrollToLatestMessage(animated: true);
             }
@@ -35202,6 +35553,7 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
         _hasMoreOlderMessages = snapshot.docs.length >= chatMessagePageSize;
         _isLoadingOlderMessages = false;
       });
+      scheduleMarkVisibleMessagesRead();
 
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted || !chatScrollController.hasClients) {
@@ -35270,26 +35622,76 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
   Future<void> sendMessage() async {
     final text = messageController.text.trim();
 
-    if (text.isEmpty || isSending) {
+    if (text.isEmpty) {
       return;
     }
 
-    setState(() => isSending = true);
+    final firebaseUser = FirebaseAuth.instance.currentUser;
+    if (firebaseUser == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          backgroundColor: Colors.redAccent,
+          content: Text(
+            'Log in before sending messages.',
+            style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+          ),
+        ),
+      );
+      return;
+    }
+
+    final createdAtMillis = DateTime.now().millisecondsSinceEpoch;
+    final messageId = chatMessagesCollection(widget.chat.id).doc().id;
+    final pendingMessage = ChatMessageData.pending(
+      id: messageId,
+      senderUid: firebaseUser.uid,
+      senderUsername: currentUser.username,
+      text: text,
+      createdAtMillis: createdAtMillis,
+    );
+
+    messageController.clear();
+    setState(() {
+      _mergeMessages([pendingMessage]);
+      scrollToLatestAfterNextMessage = true;
+    });
+    scheduleScrollToLatestMessage(animated: true);
 
     try {
       await sendChatMessage(
         chatId: widget.chat.id,
         text: text,
         chat: widget.chat,
+        messageId: messageId,
+        clientCreatedAtMillis: createdAtMillis,
       );
+
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _updateMessage(
+          messageId,
+          (message) => message.copyWith(isLocalPending: false),
+        );
+      });
       markCurrentChatNotificationsRead(delay: const Duration(seconds: 1));
-      messageController.clear();
-      scrollToLatestAfterNextMessage = true;
       scheduleScrollToLatestMessage(animated: true);
     } catch (error) {
       if (!mounted) {
         return;
       }
+
+      setState(() {
+        _updateMessage(
+          messageId,
+          (message) => message.copyWith(
+            isLocalPending: false,
+            sendFailed: true,
+          ),
+        );
+      });
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -35303,10 +35705,6 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
           ),
         ),
       );
-    } finally {
-      if (mounted) {
-        setState(() => isSending = false);
-      }
     }
   }
 
@@ -35704,12 +36102,19 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
     final showSender = !mine && widget.chat.isGroup;
     final sender =
         usersById[message.senderUid] ?? fallbackMessageSender(message);
+    final receiptState = mine
+        ? message.receiptStateFor(widget.chat, currentUid)
+        : null;
     final bubble = Container(
       constraints: BoxConstraints(maxWidth: showSender ? 248 : 280),
       margin: const EdgeInsets.only(bottom: 10),
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       decoration: BoxDecoration(
-        color: mine ? blue : panel,
+        color: mine
+            ? (message.sendFailed
+                  ? Colors.redAccent.withValues(alpha: 0.82)
+                  : blue)
+            : panel,
         borderRadius: BorderRadius.only(
           topLeft: const Radius.circular(16),
           topRight: const Radius.circular(16),
@@ -35738,10 +36143,19 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
           ],
           Text(
             message.text,
-            style: const TextStyle(
+            style: TextStyle(
               color: Colors.white,
               fontWeight: FontWeight.w600,
               height: 1.25,
+              shadows: message.isLocalPending
+                  ? [
+                      Shadow(
+                        color: Colors.black.withValues(alpha: 0.16),
+                        offset: const Offset(0, 1),
+                        blurRadius: 6,
+                      ),
+                    ]
+                  : null,
             ),
           ),
           const SizedBox(height: 5),
@@ -35767,6 +36181,10 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
                   fontWeight: FontWeight.w800,
                 ),
               ),
+              if (receiptState != null) ...[
+                const SizedBox(width: 6),
+                ChatMessageStatusGlyph(state: receiptState),
+              ],
             ],
           ),
         ],
@@ -35798,7 +36216,7 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
         : bubble;
 
     return GestureDetector(
-      onLongPress: (mine || canModerateMessage)
+      onLongPress: ((mine && !message.isLocalPending) || canModerateMessage)
           ? () => showOwnMessageActions(message)
           : null,
       child: Align(
@@ -36046,12 +36464,12 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
                   ),
                   const SizedBox(width: 8),
                   IconButton.filled(
-                    onPressed: isSending ? null : sendMessage,
+                    onPressed: sendMessage,
                     style: IconButton.styleFrom(
                       backgroundColor: blue,
                       foregroundColor: Colors.white,
                     ),
-                    icon: Icon(isSending ? Icons.hourglass_top : Icons.send),
+                    icon: const Icon(Icons.send_rounded),
                   ),
                 ],
               ),
