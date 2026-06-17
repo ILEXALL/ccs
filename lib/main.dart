@@ -1,4 +1,4 @@
-﻿import 'dart:async';
+﻿  import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
@@ -11678,12 +11678,38 @@ Future<void> updateCurrentUserPresenceFields(
 }
 
 Future<void> updateCurrentUserOnlinePresence({required bool isOnline}) async {
+  final firebaseUser = FirebaseAuth.instance.currentUser;
+  final serverNow = FieldValue.serverTimestamp();
+  final presenceData = <String, Object?>{
+    'isOnline': isOnline,
+    'lastSeenAt': serverNow,
+    'updatedAt': serverNow,
+  };
+
   await updateCurrentUserPresenceFields(
-    {'isOnline': isOnline, 'lastSeenAt': FieldValue.serverTimestamp()},
+    presenceData,
     label: isOnline
         ? 'presence: current user heartbeat'
         : 'presence: current user offline',
   );
+
+  if (firebaseUser == null) {
+    return;
+  }
+
+  try {
+    await usersCollection()
+        .doc(firebaseUser.uid)
+        .debugSet(
+          presenceData,
+          SetOptions(merge: true),
+          isOnline
+              ? 'users: current user online heartbeat'
+              : 'users: current user offline',
+        );
+  } catch (_) {
+    // Presence should never block the app if Firebase temporarily fails.
+  }
 }
 
 CollectionReference<Map<String, dynamic>> spotsCollection() {
@@ -26699,11 +26725,6 @@ class _SpotDetailScreenState extends State<SpotDetailScreen> {
         backgroundColor: Colors.transparent,
         foregroundColor: blue,
         actions: [
-          IconButton(
-            tooltip: trText('Share'),
-            onPressed: shareSpotLink,
-            icon: const Icon(Icons.ios_share_outlined),
-          ),
           Padding(
             padding: const EdgeInsets.only(right: 6),
             child: Center(child: SaveSpotButton(spot: spot, compact: true)),
@@ -32188,9 +32209,9 @@ class _GlobalChatTabState extends State<GlobalChatTab>
   void initState() {
     super.initState();
     appUiPreferences.addListener(_handleLanguageChanged);
-    onlineUsersStream = userPresenceCollection()
+    onlineUsersStream = usersCollection()
         .where('isOnline', isEqualTo: true)
-        .limit(50)
+        .limit(200)
         .debugSnapshots('global chat: online users counter');
     messagesStream = FirebaseFirestore.instance
         .collection('global_chat')
@@ -40888,13 +40909,26 @@ class PublicUserProfileScreen extends StatelessWidget {
             ).debugSnapshots('profile: public user presence listener'),
             builder: (context, presenceSnapshot) {
               final presenceData = presenceSnapshot.data?.data();
+              final presenceLastSeenAtMillis = presenceData == null
+                  ? 0
+                  : timestampMillisFromFirebase(presenceData['lastSeenAt']);
+              final profileLastSeenAtMillis = profile.lastSeenAtMillis;
+              final mergedLastSeenAtMillis = presenceLastSeenAtMillis >
+                      profileLastSeenAtMillis
+                  ? presenceLastSeenAtMillis
+                  : profileLastSeenAtMillis;
+              final presenceAppearsOnline = presenceData != null &&
+                  userAppearsOnlineFromPresence(
+                    isOnline: presenceData['isOnline'] == true,
+                    lastSeenAtMillis: presenceLastSeenAtMillis,
+                    isSharingLiveLocation: false,
+                    liveLocationExpiresAtMillis: null,
+                  );
               final profileWithPresence = presenceData == null
                   ? profile
                   : profile.copyWith(
-                      isOnline: presenceData['isOnline'] == true,
-                      lastSeenAtMillis: timestampMillisFromFirebase(
-                        presenceData['lastSeenAt'],
-                      ),
+                      isOnline: presenceAppearsOnline || profile.appearsOnline,
+                      lastSeenAtMillis: mergedLastSeenAtMillis,
                     );
 
               return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
