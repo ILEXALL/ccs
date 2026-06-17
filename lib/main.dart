@@ -2836,8 +2836,7 @@ const _lvText = <String, String>{
   'Delete comment': 'Dzēst komentāru',
   'Delete message': 'Dzēst ziņu',
   'Delete message?': 'Dzēst ziņu?',
-  'This message will be deleted from the chat.':
-      'Ziņa tiks dzēsta no čata.',
+  'This message will be deleted from the chat.': 'Ziņa tiks dzēsta no čata.',
   'Could not edit message': 'Neizdevās rediģēt ziņu',
   'Delete spot': 'Dzēst vietu',
   'Delete spot?': 'Dzēst vietu?',
@@ -5019,8 +5018,7 @@ class MapFocusRequest {
     required this.coordinates,
     this.spot,
     this.routePreview = false,
-  })
-    : token = DateTime.now().microsecondsSinceEpoch;
+  }) : token = DateTime.now().microsecondsSinceEpoch;
 }
 
 enum PhotoCropShape { rectangle, circle }
@@ -5681,7 +5679,8 @@ bool userRoleIsStaff(UserRole role) {
 }
 
 bool userDataHasCommunityModerationAccess(Map<String, dynamic>? data) {
-  return data?['globalChatModerator'] == true || data?['globalModerator'] == true;
+  return data?['globalChatModerator'] == true ||
+      data?['globalModerator'] == true;
 }
 
 enum UserPrimaryBadgeKind { admin, moderator, communityModerator, verified }
@@ -10047,56 +10046,56 @@ Future<void> sendChatMessage({
   // member to create messages but do not allow updating the parent chat summary
   // or creating notification documents. Those failures should not show "Could
   // not send message" after the message itself was accepted.
-  await messageRef.debugSet({
-    'senderUid': firebaseUser.uid,
-    'senderUsername': currentUser.username,
-    'text': cleanText,
-    'clientCreatedAtMillis': clientMillis,
-    'readByUserIds': [firebaseUser.uid],
-    'createdAt': FieldValue.serverTimestamp(),
-  }, null, 'chat: send message');
-
-  unawaited(
-    () async {
-      try {
-        final chatMemberIds = chat?.memberIds
-            .map((uid) => uid.trim())
-            .where((uid) => uid.isNotEmpty)
-            .toList();
-        await chatsCollection().doc(chatId).debugSet({
-          'lastMessage': cleanText,
-          'lastSenderUid': firebaseUser.uid,
-          'lastSenderUsername': currentUser.username,
-          if (chatMemberIds != null && chatMemberIds.isNotEmpty)
-            'hiddenForUserIds': FieldValue.arrayRemove(chatMemberIds),
-          'updatedAt': FieldValue.serverTimestamp(),
-        }, SetOptions(merge: true));
-      } catch (error, stack) {
-        debugPrint('Chat summary update skipped after message send: $error');
-        debugPrint('$stack');
-      }
-    }(),
+  await messageRef.debugSet(
+    {
+      'senderUid': firebaseUser.uid,
+      'senderUsername': currentUser.username,
+      'text': cleanText,
+      'clientCreatedAtMillis': clientMillis,
+      'readByUserIds': [firebaseUser.uid],
+      'createdAt': FieldValue.serverTimestamp(),
+    },
+    null,
+    'chat: send message',
   );
+
+  unawaited(() async {
+    try {
+      final chatMemberIds = chat?.memberIds
+          .map((uid) => uid.trim())
+          .where((uid) => uid.isNotEmpty)
+          .toList();
+      await chatsCollection().doc(chatId).debugSet({
+        'lastMessage': cleanText,
+        'lastSenderUid': firebaseUser.uid,
+        'lastSenderUsername': currentUser.username,
+        if (chatMemberIds != null && chatMemberIds.isNotEmpty)
+          'hiddenForUserIds': FieldValue.arrayRemove(chatMemberIds),
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    } catch (error, stack) {
+      debugPrint('Chat summary update skipped after message send: $error');
+      debugPrint('$stack');
+    }
+  }());
 
   // Do not create a local user_notifications chat row here. The push backend
   // creates the notification-center item for chat messages. Creating a local
   // row plus calling the backend caused duplicated direct-chat notifications.
-  unawaited(
-    () async {
-      try {
-        await sendPushNotificationEvent({
-          'type': 'chat_message',
-          'notificationId': 'chat_${chatId}_${messageRef.id}',
-          'chatId': chatId,
-          'messageId': messageRef.id,
-          'senderUsername': currentUser.username,
-        });
-      } catch (error, stack) {
-        debugPrint('Chat push notification skipped after message send: $error');
-        debugPrint('$stack');
-      }
-    }(),
-  );
+  unawaited(() async {
+    try {
+      await sendPushNotificationEvent({
+        'type': 'chat_message',
+        'notificationId': 'chat_${chatId}_${messageRef.id}',
+        'chatId': chatId,
+        'messageId': messageRef.id,
+        'senderUsername': currentUser.username,
+      });
+    } catch (error, stack) {
+      debugPrint('Chat push notification skipped after message send: $error');
+      debugPrint('$stack');
+    }
+  }());
 }
 
 Future<void> markChatMessagesReadByCurrentUser({
@@ -21548,7 +21547,10 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
       return null;
     }
 
-    final distance = distanceBetweenLatLngMeters(userLocation, spot.coordinates);
+    final distance = distanceBetweenLatLngMeters(
+      userLocation,
+      spot.coordinates,
+    );
     return distance.isFinite ? distance : null;
   }
 
@@ -24941,10 +24943,7 @@ class SpotRouteDistanceBadge extends StatelessWidget {
               ? const SizedBox(
                   width: 18,
                   height: 18,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    color: blue,
-                  ),
+                  child: CircularProgressIndicator(strokeWidth: 2, color: blue),
                 )
               : const Icon(Icons.route, color: blue, size: 20),
           const SizedBox(width: 10),
@@ -26420,7 +26419,10 @@ class _SpotPhotoCarouselState extends State<SpotPhotoCarousel> {
               top: 14,
               right: 14,
               child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 6,
+                ),
                 decoration: BoxDecoration(
                   color: Colors.black.withValues(alpha: 0.62),
                   borderRadius: BorderRadius.circular(999),
@@ -26684,7 +26686,10 @@ class _SpotDetailScreenState extends State<SpotDetailScreen> {
         backgroundColor: blue,
         content: Text(
           trText('Spot link copied.'),
-          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+          style: const TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.w700,
+          ),
         ),
       ),
     );
@@ -26901,7 +26906,9 @@ class SpotDetailMetaRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final addedBy = displayUsername(spot.addedBy);
     final dateText = spot.createdAtMillis > 0
-        ? formatShortDate(DateTime.fromMillisecondsSinceEpoch(spot.createdAtMillis))
+        ? formatShortDate(
+            DateTime.fromMillisecondsSinceEpoch(spot.createdAtMillis),
+          )
         : '';
 
     return Wrap(
@@ -26910,19 +26917,16 @@ class SpotDetailMetaRow extends StatelessWidget {
       crossAxisAlignment: WrapCrossAlignment.center,
       children: [
         if (dateText.isNotEmpty)
-          _SpotMiniMetaChip(
-            icon: Icons.schedule,
-            label: dateText,
-          ),
+          _SpotMiniMetaChip(icon: Icons.schedule, label: dateText),
         if (addedBy.trim().isNotEmpty)
           InkWell(
             onTap: spot.addedByUid.trim().isEmpty
                 ? null
                 : () => openUserProfile(
-                      context,
-                      uid: spot.addedByUid,
-                      fallbackUsername: spot.addedBy,
-                    ),
+                    context,
+                    uid: spot.addedByUid,
+                    fallbackUsername: spot.addedBy,
+                  ),
             borderRadius: BorderRadius.circular(999),
             child: _SpotMiniMetaChip(
               icon: Icons.person_outline,
@@ -26980,7 +26984,6 @@ class _SpotMiniMetaChip extends StatelessWidget {
     );
   }
 }
-
 
 class SpotOwnerBadge extends StatelessWidget {
   final CarSpot spot;
@@ -27580,21 +27583,33 @@ class SpotRouteActions extends StatelessWidget {
             ? ElevatedButton.icon(
                 onPressed: onTap,
                 icon: Icon(icon, size: 16),
-                label: Text(trText(label), maxLines: 1, overflow: TextOverflow.ellipsis),
+                label: Text(
+                  trText(label),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: enabled ? blue : Colors.white10,
                   foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
                 ),
               )
             : OutlinedButton.icon(
                 onPressed: onTap,
                 icon: Icon(icon, size: 16),
-                label: Text(trText(label), maxLines: 1, overflow: TextOverflow.ellipsis),
+                label: Text(
+                  trText(label),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
                 style: OutlinedButton.styleFrom(
                   foregroundColor: enabled ? blue : Colors.white38,
                   side: BorderSide(color: enabled ? blue : Colors.white12),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
                 ),
               ),
       ),
@@ -27629,13 +27644,17 @@ class SpotRouteActions extends StatelessWidget {
                 icon: Icons.navigation,
                 label: 'Waze',
                 filled: true,
-                onTap: locationAvailable ? () => openWazeRoute(context, spot) : null,
+                onTap: locationAvailable
+                    ? () => openWazeRoute(context, spot)
+                    : null,
               ),
               const SizedBox(width: 8),
               actionButton(
                 icon: Icons.play_circle_outline,
                 label: 'Video',
-                onTap: hasVideo ? () => launchExternalUrl(context, spot.reelLink) : null,
+                onTap: hasVideo
+                    ? () => launchExternalUrl(context, spot.reelLink)
+                    : null,
               ),
             ],
           ),
@@ -28174,7 +28193,7 @@ class SpotReviewCard extends StatelessWidget {
           actions: [
             TextButton(
               onPressed: () => Navigator.of(context).pop(false),
-                child: Text(trText('Cancel')),
+              child: Text(trText('Cancel')),
             ),
             ElevatedButton(
               onPressed: () {
@@ -29497,270 +29516,275 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
             actions: ccsAppBarActions(),
           ),
           body: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 22),
-        children: [
-          Row(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 22),
             children: [
-              Container(
-                width: 38,
-                height: 38,
-                decoration: BoxDecoration(
-                  color: blue.withValues(alpha: 0.16),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: blue.withValues(alpha: 0.24)),
-                ),
-                child: const Icon(
-                  Icons.add_location_alt,
-                  color: blue,
-                  size: 21,
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      trText('Add Spot'),
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 22,
-                        fontWeight: FontWeight.w900,
-                      ),
-                    ),
-                    const SizedBox(height: 0),
-                    Text(
-                      trText(
-                        'Create a pin for review or publish instantly as staff.',
-                      ),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: Colors.white54,
-                        fontSize: 12,
-                        height: 1.2,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 8),
-              _PendingBadge(
-                status: userRoleIsStaff(currentUser.role)
-                    ? SpotStatus.approved
-                    : SpotStatus.pending,
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          _AddSpotSection(
-            title: 'Spot details',
-            children: [
-              _CcsTextField(
-                controller: nameController,
-                label: 'Spot name',
-                hint: 'Andrejsala Harbor',
-                icon: Icons.place,
-              ),
-              _SpotCategoryDropdown(
-                value: selectedCategory,
-                categories: categoryOptions,
-                onChanged: (category) {
-                  if (category == null) {
-                    return;
-                  }
-
-                  setState(() => selectedCategory = category);
-                },
-              ),
-              _SpotLocationPicker(
-                hasLocation: selectedLocation != null,
-                isBusy: isDetectingCityCountry || isUsingCurrentLocation,
-                statusText: isUsingCurrentLocation
-                    ? 'Getting your GPS position...'
-                    : isDetectingCityCountry
-                    ? 'Detecting city/country...'
-                    : selectedLocation == null
-                    ? 'Choose by map, address, or GPS'
-                    : detectedCityCountry,
-                onMapTap: chooseLocation,
-                onAddressTap: findExactAddress,
-                onCurrentTap: useCurrentLocation,
-              ),
-              _CcsTextField(
-                controller: descriptionController,
-                label: 'Description',
-                hint: '',
-                icon: Icons.notes,
-                maxLines: 3,
-              ),
-              if (currentUserCanUseVerifiedOnlySpots)
-                _SettingsSwitchTile(
-                  icon: Icons.verified_user,
-                  title: 'Verified only',
-                  subtitle: 'Only verified users and admins can see this spot',
-                  value: verifiedOnlySpot,
-                  onChanged: (value) =>
-                      setState(() => verifiedOnlySpot = value),
-                ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          _AddSpotSection(
-            title: 'Temporary schedule',
-            children: [
-              _TemporarySpotScheduleCard(
-                enabled: isTemporarySpot,
-                startsAt: temporaryStartsAt,
-                expiresAt: temporaryExpiresAt,
-                showOnMapAtEnabled: temporaryShowOnMapAtEnabled,
-                showOnMapAt: temporaryShowOnMapAt,
-                onEnabledChanged: (value) {
-                  setState(() {
-                    isTemporarySpot = value;
-                    if (value && temporaryStartsAt == null) {
-                      final start = DateTime.now().add(
-                        const Duration(hours: 1),
-                      );
-                      temporaryStartsAt = start;
-                      temporaryExpiresAt = start.add(const Duration(hours: 3));
-                    }
-                    if (!value) {
-                      temporaryShowOnMapAtEnabled = false;
-                      temporaryShowOnMapAt = null;
-                    }
-                  });
-                },
-                onShowOnMapAtEnabledChanged: (value) {
-                  setState(() {
-                    temporaryShowOnMapAtEnabled = value;
-                    if (value &&
-                        temporaryShowOnMapAt == null &&
-                        temporaryStartsAt != null) {
-                      temporaryShowOnMapAt = DateTime(
-                        temporaryStartsAt!.year,
-                        temporaryStartsAt!.month,
-                        temporaryStartsAt!.day,
-                      );
-                    }
-                    if (!value) {
-                      temporaryShowOnMapAt = null;
-                    }
-                  });
-                },
-                onPickStart: chooseTemporaryStart,
-                onPickEnd: chooseTemporaryEnd,
-                onPickShowOnMapAt: chooseTemporaryShowOnMapAt,
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          if (spotCategorySupportsContacts(selectedCategory)) ...[
-            _AddSpotSection(
-              title: 'Contacts',
-              children: [
-                _CcsTextField(
-                  controller: phoneController,
-                  label: 'Phone',
-                  hint: '+371 20 000 000',
-                  icon: Icons.phone,
-                  keyboardType: TextInputType.phone,
-                ),
-                _CcsTextField(
-                  controller: instagramController,
-                  label: 'Instagram',
-                  hint: '@ccs.lv or https://instagram.com/ccs.lv',
-                  icon: Icons.alternate_email,
-                  keyboardType: TextInputType.url,
-                ),
-                _CcsTextField(
-                  controller: emailController,
-                  label: 'Email',
-                  hint: 'hello@ccs.lv',
-                  icon: Icons.email_outlined,
-                  keyboardType: TextInputType.emailAddress,
-                ),
-                if (userRoleIsStaff(currentUser.role))
-                  SpotOwnerSelector(
-                    selectedOwner: selectedOwner,
-                    onChanged: (owner) => setState(() => selectedOwner = owner),
-                  ),
-              ],
-            ),
-            const SizedBox(height: 10),
-            _AddSpotSection(
-              title: 'Opening hours',
-              children: [
-                OpeningHoursEditor(
-                  openingHours: openingHours,
-                  onChanged: (value) => setState(() => openingHours = value),
-                ),
-              ],
-            ),
-            const SizedBox(height: 10),
-          ],
-          _AddSpotSection(
-            title: 'Media',
-            children: [
-              _SpotPhotoPickerField(
-                photoPaths: selectedPhotoPaths,
-                onAddPhoto: choosePhoto,
-                onRemovePhoto: removePhotoAt,
-              ),
-              _CcsTextField(
-                controller: reelController,
-                label: 'Video link',
-                hint: 'https://instagram.com/reel/...',
-                icon: Icons.play_circle,
-                keyboardType: TextInputType.url,
-              ),
-              _CcsTextField(
-                controller: addedByController,
-                label: 'Added by',
-                hint: 'Your profile nickname',
-                icon: Icons.person,
-                readOnly: true,
-              ),
-            ],
-          ),
-          const SizedBox(height: 14),
-          SizedBox(
-            height: 50,
-            child: ElevatedButton(
-              onPressed: isSubmitting ? null : submitSpot,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: blue,
-                foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-              ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
+              Row(
                 children: [
-                  Icon(isSubmitting ? Icons.hourglass_top : Icons.send),
+                  Container(
+                    width: 38,
+                    height: 38,
+                    decoration: BoxDecoration(
+                      color: blue.withValues(alpha: 0.16),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: blue.withValues(alpha: 0.24)),
+                    ),
+                    child: const Icon(
+                      Icons.add_location_alt,
+                      color: blue,
+                      size: 21,
+                    ),
+                  ),
                   const SizedBox(width: 10),
-                  Text(
-                    trText(
-                      isSubmitting
-                          ? (userRoleIsStaff(currentUser.role)
-                                ? 'Creating spot...'
-                                : 'Submitting for review...')
-                          : (userRoleIsStaff(currentUser.role)
-                                ? 'Create Spot'
-                                : 'Submit for Review'),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          trText('Add Spot'),
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 22,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                        const SizedBox(height: 0),
+                        Text(
+                          trText(
+                            'Create a pin for review or publish instantly as staff.',
+                          ),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Colors.white54,
+                            fontSize: 12,
+                            height: 1.2,
+                          ),
+                        ),
+                      ],
                     ),
-                    style: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w800,
-                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  _PendingBadge(
+                    status: userRoleIsStaff(currentUser.role)
+                        ? SpotStatus.approved
+                        : SpotStatus.pending,
                   ),
                 ],
               ),
-            ),
+              const SizedBox(height: 12),
+              _AddSpotSection(
+                title: 'Spot details',
+                children: [
+                  _CcsTextField(
+                    controller: nameController,
+                    label: 'Spot name',
+                    hint: 'Andrejsala Harbor',
+                    icon: Icons.place,
+                  ),
+                  _SpotCategoryDropdown(
+                    value: selectedCategory,
+                    categories: categoryOptions,
+                    onChanged: (category) {
+                      if (category == null) {
+                        return;
+                      }
+
+                      setState(() => selectedCategory = category);
+                    },
+                  ),
+                  _SpotLocationPicker(
+                    hasLocation: selectedLocation != null,
+                    isBusy: isDetectingCityCountry || isUsingCurrentLocation,
+                    statusText: isUsingCurrentLocation
+                        ? 'Getting your GPS position...'
+                        : isDetectingCityCountry
+                        ? 'Detecting city/country...'
+                        : selectedLocation == null
+                        ? 'Choose by map, address, or GPS'
+                        : detectedCityCountry,
+                    onMapTap: chooseLocation,
+                    onAddressTap: findExactAddress,
+                    onCurrentTap: useCurrentLocation,
+                  ),
+                  _CcsTextField(
+                    controller: descriptionController,
+                    label: 'Description',
+                    hint: '',
+                    icon: Icons.notes,
+                    maxLines: 3,
+                  ),
+                  if (currentUserCanUseVerifiedOnlySpots)
+                    _SettingsSwitchTile(
+                      icon: Icons.verified_user,
+                      title: 'Verified only',
+                      subtitle:
+                          'Only verified users and admins can see this spot',
+                      value: verifiedOnlySpot,
+                      onChanged: (value) =>
+                          setState(() => verifiedOnlySpot = value),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              _AddSpotSection(
+                title: 'Temporary schedule',
+                children: [
+                  _TemporarySpotScheduleCard(
+                    enabled: isTemporarySpot,
+                    startsAt: temporaryStartsAt,
+                    expiresAt: temporaryExpiresAt,
+                    showOnMapAtEnabled: temporaryShowOnMapAtEnabled,
+                    showOnMapAt: temporaryShowOnMapAt,
+                    onEnabledChanged: (value) {
+                      setState(() {
+                        isTemporarySpot = value;
+                        if (value && temporaryStartsAt == null) {
+                          final start = DateTime.now().add(
+                            const Duration(hours: 1),
+                          );
+                          temporaryStartsAt = start;
+                          temporaryExpiresAt = start.add(
+                            const Duration(hours: 3),
+                          );
+                        }
+                        if (!value) {
+                          temporaryShowOnMapAtEnabled = false;
+                          temporaryShowOnMapAt = null;
+                        }
+                      });
+                    },
+                    onShowOnMapAtEnabledChanged: (value) {
+                      setState(() {
+                        temporaryShowOnMapAtEnabled = value;
+                        if (value &&
+                            temporaryShowOnMapAt == null &&
+                            temporaryStartsAt != null) {
+                          temporaryShowOnMapAt = DateTime(
+                            temporaryStartsAt!.year,
+                            temporaryStartsAt!.month,
+                            temporaryStartsAt!.day,
+                          );
+                        }
+                        if (!value) {
+                          temporaryShowOnMapAt = null;
+                        }
+                      });
+                    },
+                    onPickStart: chooseTemporaryStart,
+                    onPickEnd: chooseTemporaryEnd,
+                    onPickShowOnMapAt: chooseTemporaryShowOnMapAt,
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              if (spotCategorySupportsContacts(selectedCategory)) ...[
+                _AddSpotSection(
+                  title: 'Contacts',
+                  children: [
+                    _CcsTextField(
+                      controller: phoneController,
+                      label: 'Phone',
+                      hint: '+371 20 000 000',
+                      icon: Icons.phone,
+                      keyboardType: TextInputType.phone,
+                    ),
+                    _CcsTextField(
+                      controller: instagramController,
+                      label: 'Instagram',
+                      hint: '@ccs.lv or https://instagram.com/ccs.lv',
+                      icon: Icons.alternate_email,
+                      keyboardType: TextInputType.url,
+                    ),
+                    _CcsTextField(
+                      controller: emailController,
+                      label: 'Email',
+                      hint: 'hello@ccs.lv',
+                      icon: Icons.email_outlined,
+                      keyboardType: TextInputType.emailAddress,
+                    ),
+                    if (userRoleIsStaff(currentUser.role))
+                      SpotOwnerSelector(
+                        selectedOwner: selectedOwner,
+                        onChanged: (owner) =>
+                            setState(() => selectedOwner = owner),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                _AddSpotSection(
+                  title: 'Opening hours',
+                  children: [
+                    OpeningHoursEditor(
+                      openingHours: openingHours,
+                      onChanged: (value) =>
+                          setState(() => openingHours = value),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+              ],
+              _AddSpotSection(
+                title: 'Media',
+                children: [
+                  _SpotPhotoPickerField(
+                    photoPaths: selectedPhotoPaths,
+                    onAddPhoto: choosePhoto,
+                    onRemovePhoto: removePhotoAt,
+                  ),
+                  _CcsTextField(
+                    controller: reelController,
+                    label: 'Video link',
+                    hint: 'https://instagram.com/reel/...',
+                    icon: Icons.play_circle,
+                    keyboardType: TextInputType.url,
+                  ),
+                  _CcsTextField(
+                    controller: addedByController,
+                    label: 'Added by',
+                    hint: 'Your profile nickname',
+                    icon: Icons.person,
+                    readOnly: true,
+                  ),
+                ],
+              ),
+              const SizedBox(height: 14),
+              SizedBox(
+                height: 50,
+                child: ElevatedButton(
+                  onPressed: isSubmitting ? null : submitSpot,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: blue,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(isSubmitting ? Icons.hourglass_top : Icons.send),
+                      const SizedBox(width: 10),
+                      Text(
+                        trText(
+                          isSubmitting
+                              ? (userRoleIsStaff(currentUser.role)
+                                    ? 'Creating spot...'
+                                    : 'Submitting for review...')
+                              : (userRoleIsStaff(currentUser.role)
+                                    ? 'Create Spot'
+                                    : 'Submit for Review'),
+                        ),
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
           ),
-        ],
-      ),
         );
       },
     );
@@ -32386,11 +32410,7 @@ class _GlobalChatTabState extends State<GlobalChatTab>
         return;
       }
 
-      openUserProfile(
-        context,
-        uid: userId,
-        fallbackUsername: username,
-      );
+      openUserProfile(context, uid: userId, fallbackUsername: username);
     }
 
     final header = GestureDetector(
@@ -32501,7 +32521,10 @@ class _GlobalChatTabState extends State<GlobalChatTab>
                   alignment: Alignment.centerRight,
                   child: Text(
                     time,
-                    style: const TextStyle(color: Colors.white54, fontSize: 9.5),
+                    style: const TextStyle(
+                      color: Colors.white54,
+                      fontSize: 9.5,
+                    ),
                   ),
                 ),
               ],
@@ -32539,9 +32562,7 @@ class _GlobalChatTabState extends State<GlobalChatTab>
 
     for (final doc in messages) {
       final data = doc.data();
-      final createdAtMillis = timestampMillisFromFirebase(
-        data['timestamp'],
-      );
+      final createdAtMillis = timestampMillisFromFirebase(data['timestamp']);
       final label = chatDateDividerLabel(createdAtMillis);
 
       if (label.isNotEmpty && label != previousLabel) {
@@ -32551,7 +32572,8 @@ class _GlobalChatTabState extends State<GlobalChatTab>
       }
 
       final senderUid = stringFromFirebase(data['userId'], '');
-      final showAuthorHeader = senderUid.isEmpty || senderUid != previousSenderUid;
+      final showAuthorHeader =
+          senderUid.isEmpty || senderUid != previousSenderUid;
       widgets.add(messageBubble(doc, showAuthorHeader: showAuthorHeader));
       previousSenderUid = senderUid;
     }
@@ -32650,7 +32672,9 @@ class _GlobalChatTabState extends State<GlobalChatTab>
                 return EmptyStateCard(
                   icon: Icons.public,
                   title: trText('Global chat empty'),
-                  text: trText('Write the first message for the whole community.'),
+                  text: trText(
+                    'Write the first message for the whole community.',
+                  ),
                 );
               }
 
@@ -32777,8 +32801,8 @@ Future<String> createForumTopic({
           'authorId': user.uid,
           'authorName': username,
           'authorRole': roleName(creatorRole),
-          'authorVerified': userRoleIsStaff(creatorRole) ||
-              userData?['verified'] == true,
+          'authorVerified':
+              userRoleIsStaff(creatorRole) || userData?['verified'] == true,
           'authorGlobalChatModerator': creatorGlobalModerator,
           'authorGlobalModerator': creatorGlobalModerator,
           'repliesCount': 0,
@@ -33054,22 +33078,26 @@ class _ForumTabState extends State<ForumTab>
           .limit(120)
           .debugGet(null, 'forum: topics dashboard get');
 
-      final docs = snapshot.docs.where((doc) {
-        final status = stringFromFirebase(doc.data()['status'], 'approved');
-        return status == 'approved';
-      }).toList()
-        ..sort((a, b) {
-          final aPinned = a.data()['isPinned'] == true;
-          final bPinned = b.data()['isPinned'] == true;
+      final docs =
+          snapshot.docs.where((doc) {
+            final status = stringFromFirebase(doc.data()['status'], 'approved');
+            return status == 'approved';
+          }).toList()..sort((a, b) {
+            final aPinned = a.data()['isPinned'] == true;
+            final bPinned = b.data()['isPinned'] == true;
 
-          if (aPinned != bPinned) {
-            return aPinned ? -1 : 1;
-          }
+            if (aPinned != bPinned) {
+              return aPinned ? -1 : 1;
+            }
 
-          final aMillis = timestampMillisFromFirebase(a.data()['lastReplyAt']);
-          final bMillis = timestampMillisFromFirebase(b.data()['lastReplyAt']);
-          return bMillis.compareTo(aMillis);
-        });
+            final aMillis = timestampMillisFromFirebase(
+              a.data()['lastReplyAt'],
+            );
+            final bMillis = timestampMillisFromFirebase(
+              b.data()['lastReplyAt'],
+            );
+            return bMillis.compareTo(aMillis);
+          });
 
       setState(() {
         topics
@@ -33577,9 +33605,9 @@ class _ForumCategoryPageState extends State<ForumCategoryPage> {
             final status = stringFromFirebase(data['status'], 'approved');
             return status == 'approved' &&
                 forumCategoryIdFromFirebase(
-                  data['categoryId'] ?? data['category'],
-                ) ==
-                widget.categoryId;
+                      data['categoryId'] ?? data['category'],
+                    ) ==
+                    widget.categoryId;
           }).toList()..sort((a, b) {
             final aPinned = a.data()['isPinned'] == true;
             final bPinned = b.data()['isPinned'] == true;
@@ -33963,7 +33991,6 @@ class _ForumTopicFallbackAvatar extends StatelessWidget {
     );
   }
 }
-
 
 class EditForumTopicPage extends StatefulWidget {
   final String topicId;
@@ -34413,7 +34440,8 @@ class _ForumTopicPageState extends State<ForumTopicPage> {
   }
 
   Widget topicHeader(Map<String, dynamic> topic) {
-    final currentUid = FirebaseAuth.instance.currentUser?.uid ?? currentUser.uid;
+    final currentUid =
+        FirebaseAuth.instance.currentUser?.uid ?? currentUser.uid;
     final authorId = stringFromFirebase(topic['authorId'], '');
     final authorName = stringFromFirebase(topic['authorName'], 'ccs_driver');
     final avatarUrl = stringFromFirebase(topic['avatarUrl'], '');
@@ -34430,7 +34458,8 @@ class _ForumTopicPageState extends State<ForumTopicPage> {
     );
     final isPinned = topic['isPinned'] == true;
     final canEditHeader =
-        canModerateForumTopic || (authorId.isNotEmpty && authorId == currentUid);
+        canModerateForumTopic ||
+        (authorId.isNotEmpty && authorId == currentUid);
     final canDeleteHeader = canEditHeader;
 
     void openTopicAuthorProfile() {
@@ -34438,11 +34467,7 @@ class _ForumTopicPageState extends State<ForumTopicPage> {
         return;
       }
 
-      openUserProfile(
-        context,
-        uid: authorId,
-        fallbackUsername: authorName,
-      );
+      openUserProfile(context, uid: authorId, fallbackUsername: authorName);
     }
 
     return Container(
@@ -34459,7 +34484,10 @@ class _ForumTopicPageState extends State<ForumTopicPage> {
           GestureDetector(
             onTap: openTopicAuthorProfile,
             behavior: HitTestBehavior.opaque,
-            child: GlobalSmallAvatar(avatarUrl: avatarUrl, username: authorName),
+            child: GlobalSmallAvatar(
+              avatarUrl: avatarUrl,
+              username: authorName,
+            ),
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -34584,11 +34612,7 @@ class _ForumTopicPageState extends State<ForumTopicPage> {
         return;
       }
 
-      openUserProfile(
-        context,
-        uid: userId,
-        fallbackUsername: username,
-      );
+      openUserProfile(context, uid: userId, fallbackUsername: username);
     }
 
     final header = GestureDetector(
@@ -34763,13 +34787,16 @@ class _ForumTopicPageState extends State<ForumTopicPage> {
                           EmptyStateCard(
                             icon: Icons.forum_outlined,
                             title: trText('No replies yet'),
-                            text: trText('Be the first to reply in this topic.'),
+                            text: trText(
+                              'Be the first to reply in this topic.',
+                            ),
                           )
                         else
                           for (var index = 0; index < replies.length; index++)
                             replyTile(
                               replies[index],
-                              showAuthorHeader: index == 0 ||
+                              showAuthorHeader:
+                                  index == 0 ||
                                   stringFromFirebase(
                                         replies[index].data()['userId'],
                                         '',
@@ -35588,8 +35615,7 @@ class _ChatThreadTileState extends State<ChatThreadTile> {
                         UserPrimaryBadge(
                           role: directUser.role,
                           verified: directUser.verified,
-                          globalChatModerator:
-                              directUser.globalChatModerator,
+                          globalChatModerator: directUser.globalChatModerator,
                           compact: true,
                         ),
                       ],
@@ -36923,14 +36949,10 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
         final chatData = localChatData;
         final members =
             snapshot.data ??
-            [
-              for (final uid in memberIds) fallbackChatMember(chatData, uid),
-            ];
+            [for (final uid in memberIds) fallbackChatMember(chatData, uid)];
         final visibleMembers = canManageGroupMembers
             ? members
-            : members
-                  .where((member) => member.uid == currentUser.uid)
-                  .toList();
+            : members.where((member) => member.uid == currentUser.uid).toList();
 
         return Container(
           padding: const EdgeInsets.all(14),
@@ -37286,10 +37308,7 @@ class _ChatMessageStatusPainter extends CustomPainter {
   final Color color;
   final int marks;
 
-  const _ChatMessageStatusPainter({
-    required this.color,
-    required this.marks,
-  });
+  const _ChatMessageStatusPainter({required this.color, required this.marks});
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -37411,7 +37430,8 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
   }
 
   Future<void> markVisibleMessagesRead() async {
-    final currentUid = FirebaseAuth.instance.currentUser?.uid ?? currentUser.uid;
+    final currentUid =
+        FirebaseAuth.instance.currentUser?.uid ?? currentUser.uid;
     if (currentUid.trim().isEmpty) {
       return;
     }
@@ -37771,10 +37791,8 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
       setState(() {
         _updateMessage(
           messageId,
-          (message) => message.copyWith(
-            isLocalPending: false,
-            sendFailed: true,
-          ),
+          (message) =>
+              message.copyWith(isLocalPending: false, sendFailed: true),
         );
       });
 
@@ -37887,7 +37905,8 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
   }
 
   Future<void> showOwnMessageActions(ChatMessageData message) async {
-    final currentUid = FirebaseAuth.instance.currentUser?.uid ?? currentUser.uid;
+    final currentUid =
+        FirebaseAuth.instance.currentUser?.uid ?? currentUser.uid;
     final mine = message.senderUid == currentUid;
 
     final action = await showModalBottomSheet<String>(
@@ -44974,15 +44993,14 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
             iconColor: Colors.white70,
             onSelected: (action) => handleUserAction(context, user, action),
             itemBuilder: (context) => [
-              PopupMenuItem(
-                value: 'open',
-                child: Text(trText('Open profile')),
-              ),
+              PopupMenuItem(value: 'open', child: Text(trText('Open profile'))),
               const PopupMenuDivider(),
               if (canManage) ...[
                 PopupMenuItem(
                   value: 'ban',
-                  child: Text(trText(user.banActive ? 'Update ban' : 'Ban user')),
+                  child: Text(
+                    trText(user.banActive ? 'Update ban' : 'Ban user'),
+                  ),
                 ),
                 if (user.banned)
                   PopupMenuItem(value: 'unban', child: Text(trText('Unban'))),
@@ -46320,8 +46338,12 @@ class _AdminEditSpotScreenState extends State<AdminEditSpotScreen> {
   Future<void> chooseEditedLocationOnMap() async {
     FocusScope.of(context).unfocus();
 
-    final currentLat = double.tryParse(latController.text.trim().replaceAll(',', '.'));
-    final currentLng = double.tryParse(lngController.text.trim().replaceAll(',', '.'));
+    final currentLat = double.tryParse(
+      latController.text.trim().replaceAll(',', '.'),
+    );
+    final currentLng = double.tryParse(
+      lngController.text.trim().replaceAll(',', '.'),
+    );
     final initialLocation = currentLat == null || currentLng == null
         ? widget.spot.coordinates
         : safeLatLng(currentLat, currentLng);
@@ -46343,7 +46365,9 @@ class _AdminEditSpotScreenState extends State<AdminEditSpotScreen> {
   Future<void> chooseEditedLocationByAddress() async {
     FocusScope.of(context).unfocus();
 
-    final addressController = TextEditingController(text: cityController.text.trim());
+    final addressController = TextEditingController(
+      text: cityController.text.trim(),
+    );
 
     final address = await showDialog<String>(
       context: context,
@@ -46384,7 +46408,8 @@ class _AdminEditSpotScreenState extends State<AdminEditSpotScreen> {
               child: Text(trText('Cancel')),
             ),
             TextButton(
-              onPressed: () => Navigator.pop(dialogContext, addressController.text.trim()),
+              onPressed: () =>
+                  Navigator.pop(dialogContext, addressController.text.trim()),
               child: Text(trText('Find')),
             ),
           ],
@@ -46413,7 +46438,10 @@ class _AdminEditSpotScreenState extends State<AdminEditSpotScreen> {
             backgroundColor: Colors.redAccent,
             content: Text(
               'Address not found. Try adding city and country.',
-              style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w700,
+              ),
             ),
           ),
         );
@@ -46433,7 +46461,10 @@ class _AdminEditSpotScreenState extends State<AdminEditSpotScreen> {
           backgroundColor: Colors.redAccent,
           content: Text(
             'Could not find that address. $error',
-            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w700,
+            ),
           ),
         ),
       );
@@ -46462,7 +46493,10 @@ class _AdminEditSpotScreenState extends State<AdminEditSpotScreen> {
             backgroundColor: Colors.redAccent,
             content: Text(
               'Turn on phone location to use your current position.',
-              style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w700,
+              ),
             ),
           ),
         );
@@ -46486,7 +46520,10 @@ class _AdminEditSpotScreenState extends State<AdminEditSpotScreen> {
             backgroundColor: Colors.redAccent,
             content: Text(
               'Location permission is needed to use your current position.',
-              style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w700,
+              ),
             ),
           ),
         );
@@ -46522,7 +46559,10 @@ class _AdminEditSpotScreenState extends State<AdminEditSpotScreen> {
           backgroundColor: Colors.redAccent,
           content: Text(
             'Could not get current location. $error',
-            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w700,
+            ),
           ),
         ),
       );
@@ -47897,4 +47937,4 @@ class AppPage extends StatelessWidget {
       ),
     );
   }
-} 
+}
