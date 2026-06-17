@@ -1316,6 +1316,10 @@ service cloud.firestore {
           'userId',
           'username',
           'avatarUrl',
+          'role',
+          'verified',
+          'globalChatModerator',
+          'globalModerator',
           'text',
           'timestamp',
           'type'

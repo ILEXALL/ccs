@@ -969,7 +969,7 @@ class _FirestoreDebugScreenState extends State<FirestoreDebugScreen> {
                       'This launch • since $sessionStartedLabel',
                       style: const TextStyle(
                         color: Colors.white,
-                        fontSize: 14,
+                        fontSize: 13,
                         fontWeight: FontWeight.w900,
                       ),
                     ),
@@ -1105,7 +1105,7 @@ class _FirestoreDebugScreenState extends State<FirestoreDebugScreen> {
                     padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
                       color: panelGlass,
-                      borderRadius: BorderRadius.circular(10),
+                      borderRadius: BorderRadius.circular(12),
                       border: Border.all(color: Colors.white10),
                     ),
                     child: Column(
@@ -1598,6 +1598,13 @@ const _ruText = <String, String>{
   'Chat': 'Чат',
   'Chat, forums and community': 'Чаты, форумы и сообщество',
   'Global': 'Глобальный',
+  'Global chat': 'Глобальный чат',
+  'Online': 'онлайн',
+  'Message in global chat': 'Сообщение в глобальный чат',
+  'Global chat empty': 'Глобальный чат пуст',
+  'Write the first message for the whole community.':
+      'Напишите первое сообщение для всего сообщества.',
+  'Topic creator': 'Автор темы',
   'Profile': 'Профиль',
   'Settings': 'Настройки',
   'Notifications': 'Уведомления',
@@ -1762,7 +1769,13 @@ const _ruText = <String, String>{
       'Метка появится после проверки.',
   'Spot name': 'Название спота',
   'Location': 'Локация',
+  'Choose location to detect city/country':
+      'Выберите локацию, чтобы определить город/страну',
   'Choose by map, address, or GPS': 'Выберите на карте, по адресу или GPS',
+  'Location selected': 'Локация выбрана',
+  'No location selected yet': 'Локация ещё не выбрана',
+  'Tap the map where this car spot should be placed.':
+      'Нажмите на карту в месте, где должен быть этот спот.',
   'Address': 'Адрес',
   'GPS': 'GPS',
   'Pin on the map': 'Поставить метку на карте',
@@ -1816,6 +1829,9 @@ const _ruText = <String, String>{
   'Cars': 'Автомобили',
   'Base': 'Город',
   'Verified': 'Проверен',
+  'Admin': 'Админ',
+  'Moderator': 'Модератор',
+  'Community moderator': 'Комьюнити-модератор',
   'No garage shared': 'Гараж не опубликован',
   'Profile not found': 'Профиль не найден',
   'Profile deleted': 'Профиль удалён',
@@ -2107,8 +2123,6 @@ const _ruText = <String, String>{
   'Start a chat with a friend or create a group.':
       'Начните чат с другом или создайте группу.',
   'Submissions': 'Заявки',
-  'Tap the map where this car spot should be placed.':
-      'Нажмите на карту в месте расположения спота.',
   'Tap to change avatar': 'Нажмите, чтобы изменить аватар',
   'Tell people about your car, build, setup, and plans':
       'Расскажите об автомобиле, доработках и планах',
@@ -2120,6 +2134,15 @@ const _ruText = <String, String>{
       'Временный спот может быть активен не более 12 часов.',
   'Temporary spot end time must be after start time.':
       'Временный спот должен закончиться после начала.',
+  'Choose when the temporary spot location should appear on the map.':
+      'Выберите, когда локация временного спота появится на карте.',
+  'Show on map time must be before the end time.':
+      'Время показа на карте должно быть раньше окончания.',
+  'Admin spot added. It is live now.': 'Спот добавлен и уже опубликован.',
+  'Spot submitted for review. Admins have been notified.':
+      'Спот отправлен на проверку. Админы получили уведомление.',
+  'Firebase did not save the spot/photo':
+      'Firebase не сохранил спот или фотографию',
   'Temporary spots and events': 'Временные споты и события',
   'Temporary spots can be active for maximum 12 hours.':
       'Временные споты могут быть активны не более 12 часов.',
@@ -2446,6 +2469,13 @@ const _lvText = <String, String>{
   'Chat': 'Čats',
   'Chat, forums and community': 'Čati, forumi un kopiena',
   'Global': 'Globālais',
+  'Global chat': 'Globālais čats',
+  'Online': 'tiešsaistē',
+  'Message in global chat': 'Ziņa globālajā čatā',
+  'Global chat empty': 'Globālais čats ir tukšs',
+  'Write the first message for the whole community.':
+      'Uzrakstiet pirmo ziņu visai kopienai.',
+  'Topic creator': 'Tēmas autors',
   'Profile': 'Profils',
   'Settings': 'Iestatījumi',
   'Notifications': 'Paziņojumi',
@@ -2612,7 +2642,13 @@ const _lvText = <String, String>{
       'Vieta parādīsies pēc pārbaudes.',
   'Spot name': 'Vietas nosaukums',
   'Location': 'Atrašanās vieta',
+  'Choose location to detect city/country':
+      'Izvēlieties atrašanās vietu, lai noteiktu pilsētu/valsti',
   'Choose by map, address, or GPS': 'Izvēlieties kartē, pēc adreses vai GPS',
+  'Location selected': 'Atrašanās vieta izvēlēta',
+  'No location selected yet': 'Atrašanās vieta vēl nav izvēlēta',
+  'Tap the map where this car spot should be placed.':
+      'Nospiediet kartē vietu, kur jāatrodas šai vietai.',
   'Address': 'Adrese',
   'GPS': 'GPS',
   'Pin on the map': 'Atzīmēt kartē',
@@ -2666,6 +2702,9 @@ const _lvText = <String, String>{
   'Cars': 'Auto',
   'Base': 'Pilsēta',
   'Verified': 'Verificēts',
+  'Admin': 'Admins',
+  'Moderator': 'Moderators',
+  'Community moderator': 'Kopienas moderators',
   'No garage shared': 'Garāža nav publicēta',
   'Profile not found': 'Profils nav atrasts',
   'Profile deleted': 'Profils ir dzēsts',
@@ -2956,8 +2995,6 @@ const _lvText = <String, String>{
   'Start a chat with a friend or create a group.':
       'Sāciet čatu ar draugu vai izveidojiet grupu.',
   'Submissions': 'Pieteikumi',
-  'Tap the map where this car spot should be placed.':
-      'Nospiediet kartē vietā, kur jāatrodas auto vietai.',
   'Tap to change avatar': 'Nospiediet, lai mainītu avatāru',
   'Tell people about your car, build, setup, and plans':
       'Pastāstiet par auto, uzlabojumiem un plāniem',
@@ -2969,6 +3006,15 @@ const _lvText = <String, String>{
       'Pagaidu vieta var būt aktīva ne ilgāk par 12 stundām.',
   'Temporary spot end time must be after start time.':
       'Pagaidu vietas beigu laikam jābūt pēc sākuma laika.',
+  'Choose when the temporary spot location should appear on the map.':
+      'Izvēlieties, kad pagaidu vietas lokācija parādīsies kartē.',
+  'Show on map time must be before the end time.':
+      'Rādīšanas laikam kartē jābūt pirms beigu laika.',
+  'Admin spot added. It is live now.': 'Vieta pievienota un jau publicēta.',
+  'Spot submitted for review. Admins have been notified.':
+      'Vieta iesniegta pārbaudei. Administratori ir paziņoti.',
+  'Firebase did not save the spot/photo':
+      'Firebase nesaglabāja vietu vai fotoattēlu',
   'Temporary spots and events': 'Pagaidu vietas un pasākumi',
   'Temporary spots can be active for maximum 12 hours.':
       'Pagaidu vietas var būt aktīvas ne ilgāk par 12 stundām.',
@@ -3916,7 +3962,7 @@ class _BanInfoBox extends StatelessWidget {
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: Colors.black.withValues(alpha: 0.24),
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: BorderRadius.circular(12),
         border: Border.all(color: Colors.white10),
       ),
       child: Column(
@@ -4171,7 +4217,7 @@ class _VersionInfoRow extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       decoration: BoxDecoration(
         color: Colors.black.withValues(alpha: 0.24),
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: BorderRadius.circular(12),
         border: Border.all(color: Colors.white10),
       ),
       child: Row(
@@ -4190,7 +4236,7 @@ class _VersionInfoRow extends StatelessWidget {
             value,
             style: const TextStyle(
               color: Colors.white,
-              fontSize: 14,
+              fontSize: 13,
               fontWeight: FontWeight.w900,
             ),
           ),
@@ -5550,6 +5596,7 @@ class AppUser {
   final String? avatarPath;
   final UserRole role;
   final bool verified;
+  final bool globalChatModerator;
   final String city;
   final String country;
   final bool banned;
@@ -5566,6 +5613,7 @@ class AppUser {
     this.avatarPath,
     required this.role,
     this.verified = false,
+    this.globalChatModerator = false,
     required this.city,
     required this.country,
     this.banned = false,
@@ -5588,6 +5636,7 @@ AppUser currentUser = const AppUser(
   email: '',
   role: UserRole.user,
   verified: false,
+  globalChatModerator: false,
   city: '',
   country: '',
 );
@@ -5631,6 +5680,180 @@ bool userRoleIsStaff(UserRole role) {
   return role == UserRole.admin || role == UserRole.moderator;
 }
 
+bool userDataHasCommunityModerationAccess(Map<String, dynamic>? data) {
+  return data?['globalChatModerator'] == true || data?['globalModerator'] == true;
+}
+
+enum UserPrimaryBadgeKind { admin, moderator, communityModerator, verified }
+
+UserPrimaryBadgeKind? primaryUserBadgeKind({
+  required UserRole role,
+  required bool verified,
+  bool globalChatModerator = false,
+}) {
+  if (role == UserRole.admin) {
+    return UserPrimaryBadgeKind.admin;
+  }
+  if (role == UserRole.moderator) {
+    return UserPrimaryBadgeKind.moderator;
+  }
+  if (globalChatModerator) {
+    return UserPrimaryBadgeKind.communityModerator;
+  }
+  if (verified) {
+    return UserPrimaryBadgeKind.verified;
+  }
+  return null;
+}
+
+class UserPrimaryBadge extends StatelessWidget {
+  final UserRole role;
+  final bool verified;
+  final bool globalChatModerator;
+  final bool compact;
+  final bool showLabel;
+
+  const UserPrimaryBadge({
+    super.key,
+    required this.role,
+    required this.verified,
+    this.globalChatModerator = false,
+    this.compact = false,
+    this.showLabel = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final kind = primaryUserBadgeKind(
+      role: role,
+      verified: verified,
+      globalChatModerator: globalChatModerator,
+    );
+    if (kind == null) {
+      return const SizedBox.shrink();
+    }
+
+    final color = switch (kind) {
+      UserPrimaryBadgeKind.admin => Colors.redAccent,
+      UserPrimaryBadgeKind.moderator => blue,
+      UserPrimaryBadgeKind.communityModerator => Colors.greenAccent,
+      UserPrimaryBadgeKind.verified => blue,
+    };
+    final icon = switch (kind) {
+      UserPrimaryBadgeKind.admin => Icons.workspace_premium_rounded,
+      UserPrimaryBadgeKind.moderator => Icons.admin_panel_settings_rounded,
+      UserPrimaryBadgeKind.communityModerator => Icons.forum_rounded,
+      UserPrimaryBadgeKind.verified => Icons.verified_rounded,
+    };
+    final label = switch (kind) {
+      UserPrimaryBadgeKind.admin => 'Admin',
+      UserPrimaryBadgeKind.moderator => 'Moderator',
+      UserPrimaryBadgeKind.communityModerator => 'Community moderator',
+      UserPrimaryBadgeKind.verified => 'Verified',
+    };
+
+    if (!showLabel) {
+      return Icon(icon, color: color, size: compact ? 15 : 18);
+    }
+
+    return Container(
+      padding: EdgeInsets.symmetric(
+        horizontal: compact ? 7 : 9,
+        vertical: compact ? 4 : 5,
+      ),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.14),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: color.withValues(alpha: 0.5)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, color: color, size: compact ? 12 : 14),
+          const SizedBox(width: 5),
+          ConstrainedBox(
+            constraints: BoxConstraints(maxWidth: compact ? 110 : 160),
+            child: Text(
+              trText(label),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: color,
+                fontSize: compact ? 10 : 11,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class UserPrimaryBadgeForUid extends StatelessWidget {
+  final String uid;
+  final UserRole fallbackRole;
+  final bool fallbackVerified;
+  final bool fallbackGlobalChatModerator;
+  final bool compact;
+
+  const UserPrimaryBadgeForUid({
+    super.key,
+    required this.uid,
+    this.fallbackRole = UserRole.user,
+    this.fallbackVerified = false,
+    this.fallbackGlobalChatModerator = false,
+    this.compact = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final cleanUid = uid.trim();
+    if (cleanUid.isEmpty) {
+      return UserPrimaryBadge(
+        role: fallbackRole,
+        verified: fallbackVerified,
+        globalChatModerator: fallbackGlobalChatModerator,
+        compact: compact,
+      );
+    }
+
+    if (cleanUid == currentUser.uid) {
+      return UserPrimaryBadge(
+        role: currentUser.role,
+        verified: currentUser.verified,
+        globalChatModerator: currentUser.globalChatModerator,
+        compact: compact,
+      );
+    }
+
+    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      stream: usersCollection()
+          .doc(cleanUid)
+          .debugSnapshots('user: primary badge listener'),
+      builder: (context, snapshot) {
+        final data = snapshot.data?.data();
+        if (data == null) {
+          return UserPrimaryBadge(
+            role: fallbackRole,
+            verified: fallbackVerified,
+            globalChatModerator: fallbackGlobalChatModerator,
+            compact: compact,
+          );
+        }
+
+        final role = roleFromFirebase(data['role']);
+        return UserPrimaryBadge(
+          role: role,
+          verified: userRoleIsStaff(role) || data['verified'] == true,
+          globalChatModerator: userDataHasCommunityModerationAccess(data),
+          compact: compact,
+        );
+      },
+    );
+  }
+}
+
 Future<bool> loadRememberMePreference() async {
   final prefs = await SharedPreferences.getInstance();
   return prefs.getBool(rememberMeKey) ?? true;
@@ -5665,6 +5888,7 @@ AppUser appUserFromCurrentUserDocument(
         : currentUser.avatarPath,
     role: role,
     verified: userRoleIsStaff(role) || data['verified'] == true,
+    globalChatModerator: userDataHasCommunityModerationAccess(data),
     city: stringFromFirebase(data['city'], currentUser.city),
     country: stringFromFirebase(data['country'], currentUser.country),
     banned: data['banned'] == true,
@@ -5786,6 +6010,7 @@ Future<void> signOutCurrentAccount() async {
       email: '',
       role: UserRole.user,
       verified: false,
+      globalChatModerator: false,
       city: '',
       country: '',
     ),
@@ -6218,6 +6443,7 @@ Future<AppUser> saveFirebaseUser(
       ? data!['avatarPath'] as String
       : null;
   final verified = data?['verified'] == true;
+  final globalChatModerator = userDataHasCommunityModerationAccess(data);
   final settings = UserSettingsData.fromFirebase(data?['settings']);
   final garage = garageCarsFromFirebase(data?['garage']);
   final effectiveProvider = !isNewUser && provider == 'firebase'
@@ -6238,6 +6464,7 @@ Future<AppUser> saveFirebaseUser(
       avatarPath: avatarPath,
       role: role,
       verified: verified,
+      globalChatModerator: globalChatModerator,
       city: city,
       country: country,
       banned: true,
@@ -6306,6 +6533,7 @@ Future<AppUser> saveFirebaseUser(
     avatarPath: avatarPath,
     role: role,
     verified: verified,
+    globalChatModerator: globalChatModerator,
     city: city,
     country: country,
     banned: data?['banned'] == true,
@@ -8018,7 +8246,11 @@ class LiveLocationData {
       data['lng'],
     );
 
-    final role = roleFromFirebase(data['role']);
+    final isCurrentProfile =
+        doc.id == currentUser.uid || data['uid'] == currentUser.uid;
+    final role = isCurrentProfile
+        ? currentUser.role
+        : roleFromFirebase(data['role']);
 
     return LiveLocationData(
       uid: stringFromFirebase(data['uid'], doc.id),
@@ -8694,6 +8926,7 @@ class FriendUserData {
   final String? avatarPath;
   final bool verified;
   final UserRole role;
+  final bool globalChatModerator;
   final bool banned;
   final int? bannedUntilMillis;
   final bool deleted;
@@ -8712,6 +8945,7 @@ class FriendUserData {
     this.avatarPath,
     required this.verified,
     required this.role,
+    this.globalChatModerator = false,
     required this.banned,
     this.bannedUntilMillis,
     required this.deleted,
@@ -8736,6 +8970,7 @@ class FriendUserData {
       avatarPath: avatarPath,
       verified: verified,
       role: role,
+      globalChatModerator: globalChatModerator,
       banned: banned,
       bannedUntilMillis: bannedUntilMillis,
       deleted: deleted,
@@ -8780,7 +9015,11 @@ class FriendUserData {
     DocumentSnapshot<Map<String, dynamic>> doc,
   ) {
     final data = doc.data() ?? {};
-    final role = roleFromFirebase(data['role']);
+    final isCurrentProfile =
+        doc.id == currentUser.uid || data['uid'] == currentUser.uid;
+    final role = isCurrentProfile
+        ? currentUser.role
+        : roleFromFirebase(data['role']);
     final bannedUntilMillis = nullableTimestampMillisFromFirebase(
       data['bannedUntil'],
     );
@@ -8795,7 +9034,12 @@ class FriendUserData {
           ? data['avatarPath'] as String
           : null,
       role: role,
-      verified: userRoleIsStaff(role) || data['verified'] == true,
+      verified: isCurrentProfile
+          ? currentUser.verified
+          : userRoleIsStaff(role) || data['verified'] == true,
+      globalChatModerator: isCurrentProfile
+          ? currentUser.globalChatModerator
+          : userDataHasCommunityModerationAccess(data),
       banned: data['banned'] == true,
       bannedUntilMillis: bannedUntilMillis,
       deleted: data['deleted'] == true,
@@ -10121,7 +10365,7 @@ Future<Duration?> showLiveLocationDurationDialog(BuildContext context) async {
                     side: const BorderSide(color: Colors.white12),
                     padding: const EdgeInsets.symmetric(vertical: 14),
                     shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10),
+                      borderRadius: BorderRadius.circular(12),
                     ),
                   ),
                   child: Text(
@@ -15608,7 +15852,7 @@ class CcsLanguageSelector extends StatelessWidget {
             alignment: Alignment.center,
             decoration: BoxDecoration(
               color: blue.withValues(alpha: 0.12),
-              borderRadius: BorderRadius.circular(10),
+              borderRadius: BorderRadius.circular(12),
               border: Border.all(color: blue.withValues(alpha: 0.52)),
             ),
             child: Text(
@@ -16274,11 +16518,11 @@ class _NotificationCenterScreenState extends State<NotificationCenterScreen> {
                         ),
                       ),
                       if (item.canOpen) ...[
-                        const SizedBox(width: 8),
+                        const SizedBox(width: 6),
                         const Icon(
                           Icons.chevron_right,
                           color: Colors.white38,
-                          size: 22,
+                          size: 20,
                         ),
                       ],
                     ],
@@ -16401,11 +16645,11 @@ class _AllNotificationsScreenState extends State<_AllNotificationsScreen> {
                           ),
                         ),
                         if (item.canOpen) ...[
-                          const SizedBox(width: 8),
+                          const SizedBox(width: 6),
                           const Icon(
                             Icons.chevron_right,
                             color: Colors.white38,
-                            size: 22,
+                            size: 20,
                           ),
                         ],
                       ],
@@ -17365,7 +17609,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                             child: Icon(
                               Icons.bug_report_outlined,
                               color: Colors.white,
-                              size: 22,
+                              size: 20,
                             ),
                           ),
                         ),
@@ -18301,7 +18545,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
           decoration: BoxDecoration(
             gradient: selected ? ccsBlueCyanGradient : null,
             color: selected ? null : Colors.transparent,
-            borderRadius: BorderRadius.circular(10),
+            borderRadius: BorderRadius.circular(12),
             boxShadow: selected
                 ? [
                     BoxShadow(
@@ -18346,7 +18590,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
       padding: const EdgeInsets.all(4),
       decoration: BoxDecoration(
         color: Colors.white.withValues(alpha: 0.055),
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: BorderRadius.circular(12),
         border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
       ),
       child: Row(
@@ -18892,8 +19136,8 @@ class UpcomingTemporarySpotNewsCard extends StatelessWidget {
                 SpotPhoto(
                   spot: spot,
                   width: 52,
-                  height: 52,
-                  borderRadius: BorderRadius.circular(10),
+                  height: 44,
+                  borderRadius: BorderRadius.circular(12),
                 ),
               ],
             ),
@@ -19081,7 +19325,7 @@ class ExploreSpotCard extends StatelessWidget {
               width: 103,
               height: double.infinity,
               fit: BoxFit.cover,
-              borderRadius: BorderRadius.circular(10),
+              borderRadius: BorderRadius.circular(12),
             ),
             const SizedBox(width: 13),
             Expanded(
@@ -19102,7 +19346,7 @@ class ExploreSpotCard extends StatelessWidget {
                                 overflow: TextOverflow.ellipsis,
                                 style: const TextStyle(
                                   color: Colors.white,
-                                  fontSize: 14,
+                                  fontSize: 13,
                                   fontWeight: FontWeight.w900,
                                   letterSpacing: -0.25,
                                 ),
@@ -21589,7 +21833,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                         return Padding(
                           padding: const EdgeInsets.only(bottom: 8),
                           child: InkWell(
-                            borderRadius: BorderRadius.circular(10),
+                            borderRadius: BorderRadius.circular(12),
                             onTap: () {
                               setDialogState(() {
                                 selectedReason = entry.key;
@@ -21608,7 +21852,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                                 color: selected
                                     ? blue
                                     : Colors.white.withValues(alpha: 0.06),
-                                borderRadius: BorderRadius.circular(10),
+                                borderRadius: BorderRadius.circular(12),
                                 border: Border.all(
                                   color: selected ? blue : Colors.white12,
                                 ),
@@ -22175,7 +22419,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                         height: 44,
                         decoration: BoxDecoration(
                           color: color.withValues(alpha: 0.18),
-                          borderRadius: BorderRadius.circular(10),
+                          borderRadius: BorderRadius.circular(12),
                           border: Border.all(
                             color: color.withValues(alpha: 0.72),
                             width: 1.5,
@@ -22220,7 +22464,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                           color: sosAlertColor.withValues(
                             alpha: 0.18 + pulse * 0.12,
                           ),
-                          borderRadius: BorderRadius.circular(10),
+                          borderRadius: BorderRadius.circular(12),
                           border: Border.all(
                             color: sosAlertColor.withValues(
                               alpha: 0.82 + pulse * 0.18,
@@ -25049,7 +25293,7 @@ class SosReportMapCard extends StatelessWidget {
                 height: 44,
                 decoration: BoxDecoration(
                   color: blue.withValues(alpha: 0.18),
-                  borderRadius: BorderRadius.circular(10),
+                  borderRadius: BorderRadius.circular(12),
                 ),
                 child: const Center(
                   child: Text(
@@ -25137,7 +25381,7 @@ class SosReportMapCard extends StatelessWidget {
                       foregroundColor: Colors.white70,
                       side: const BorderSide(color: Colors.white24),
                       shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(10),
+                        borderRadius: BorderRadius.circular(12),
                       ),
                     ),
                   ),
@@ -25152,7 +25396,7 @@ class SosReportMapCard extends StatelessWidget {
                       foregroundColor: Colors.white70,
                       side: const BorderSide(color: Colors.white24),
                       shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(10),
+                        borderRadius: BorderRadius.circular(12),
                       ),
                     ),
                   ),
@@ -25170,7 +25414,7 @@ class SosReportMapCard extends StatelessWidget {
                   backgroundColor: blue,
                   foregroundColor: Colors.white,
                   shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(10),
+                    borderRadius: BorderRadius.circular(12),
                   ),
                 ),
               ),
@@ -25188,7 +25432,7 @@ class SosReportMapCard extends StatelessWidget {
                     foregroundColor: blue,
                     side: const BorderSide(color: blue),
                     shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10),
+                      borderRadius: BorderRadius.circular(12),
                     ),
                   ),
                 ),
@@ -25270,7 +25514,7 @@ class PoliceReportMapCard extends StatelessWidget {
                 height: 44,
                 decoration: BoxDecoration(
                   color: Colors.redAccent.withValues(alpha: 0.18),
-                  borderRadius: BorderRadius.circular(10),
+                  borderRadius: BorderRadius.circular(12),
                 ),
                 child: const Icon(Icons.local_police, color: Colors.redAccent),
               ),
@@ -25339,7 +25583,7 @@ class PoliceReportMapCard extends StatelessWidget {
                   foregroundColor: Colors.redAccent,
                   side: const BorderSide(color: Colors.redAccent),
                   shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(10),
+                    borderRadius: BorderRadius.circular(12),
                   ),
                 ),
               ),
@@ -25352,7 +25596,7 @@ class PoliceReportMapCard extends StatelessWidget {
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
                 color: Colors.white.withValues(alpha: 0.06),
-                borderRadius: BorderRadius.circular(10),
+                borderRadius: BorderRadius.circular(12),
                 border: Border.all(color: Colors.white12),
               ),
               child: Text(
@@ -25378,7 +25622,7 @@ class PoliceReportMapCard extends StatelessWidget {
                       foregroundColor: Colors.white70,
                       side: const BorderSide(color: Colors.white24),
                       shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(10),
+                        borderRadius: BorderRadius.circular(12),
                       ),
                     ),
                   ),
@@ -25393,7 +25637,7 @@ class PoliceReportMapCard extends StatelessWidget {
                       backgroundColor: blue,
                       foregroundColor: Colors.white,
                       shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(10),
+                        borderRadius: BorderRadius.circular(12),
                       ),
                     ),
                   ),
@@ -25519,7 +25763,7 @@ class SpotMapCard extends StatelessWidget {
                             backgroundColor: blue,
                             foregroundColor: Colors.white,
                             shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(10),
+                              borderRadius: BorderRadius.circular(12),
                             ),
                           ),
                           child: const Row(
@@ -25567,6 +25811,7 @@ class LiveLocationMapCard extends StatelessWidget {
       photoUrl: location.photoUrl,
       verified: location.verified,
       role: location.role,
+      globalChatModerator: false,
       banned: false,
       deleted: false,
       isOnline: true,
@@ -25609,7 +25854,7 @@ class LiveLocationMapCard extends StatelessWidget {
               children: [
                 Row(
                   children: [
-                    Expanded(
+                    Flexible(
                       child: Text(
                         displayUsername(location.username),
                         maxLines: 1,
@@ -25621,10 +25866,12 @@ class LiveLocationMapCard extends StatelessWidget {
                         ),
                       ),
                     ),
-                    if (location.verified) ...[
-                      const SizedBox(width: 8),
-                      const Icon(Icons.verified, color: blue, size: 17),
-                    ],
+                    const SizedBox(width: 4),
+                    UserPrimaryBadge(
+                      role: location.role,
+                      verified: location.verified,
+                      compact: true,
+                    ),
                   ],
                 ),
                 const SizedBox(height: 4),
@@ -25659,7 +25906,7 @@ class LiveLocationMapCard extends StatelessWidget {
                       backgroundColor: blue,
                       foregroundColor: Colors.white,
                       shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(10),
+                        borderRadius: BorderRadius.circular(12),
                       ),
                     ),
                     child: const Row(
@@ -25799,7 +26046,7 @@ class SavedSpotTile extends StatelessWidget {
               spot: spot,
               width: 84,
               height: 84,
-              borderRadius: BorderRadius.circular(10),
+              borderRadius: BorderRadius.circular(12),
             ),
             const SizedBox(width: 12),
             Expanded(
@@ -26109,7 +26356,20 @@ class SpotPhotoCarousel extends StatefulWidget {
 }
 
 class _SpotPhotoCarouselState extends State<SpotPhotoCarousel> {
+  late final PageController controller;
   int currentIndex = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    controller = PageController();
+  }
+
+  @override
+  void dispose() {
+    controller.dispose();
+    super.dispose();
+  }
 
   void openGallery(int index) {
     Navigator.push(
@@ -26133,109 +26393,77 @@ class _SpotPhotoCarouselState extends State<SpotPhotoCarousel> {
       currentIndex = sources.length - 1;
     }
 
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        SizedBox(
-          height: widget.height,
-          width: double.infinity,
-          child: Stack(
-            fit: StackFit.expand,
-            children: [
-              GestureDetector(
-                onTap: () => openGallery(currentIndex),
+    return SizedBox(
+      height: widget.height,
+      width: double.infinity,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          PageView.builder(
+            controller: controller,
+            itemCount: sources.length,
+            onPageChanged: (index) => setState(() => currentIndex = index),
+            itemBuilder: (context, index) {
+              return GestureDetector(
+                onTap: () => openGallery(index),
                 child: spotPhotoImage(
-                  sources[currentIndex],
+                  sources[index],
                   width: double.infinity,
                   height: widget.height,
                   fit: BoxFit.cover,
                 ),
-              ),
-              if (sources.length > 1)
-                Positioned(
-                  top: 14,
-                  right: 14,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 10,
-                      vertical: 6,
-                    ),
-                    decoration: BoxDecoration(
-                      color: Colors.black.withValues(alpha: 0.62),
-                      borderRadius: BorderRadius.circular(999),
-                      border: Border.all(color: Colors.white24),
-                    ),
-                    child: Text(
-                      '${currentIndex + 1}/${sources.length}',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w900,
-                      ),
-                    ),
+              );
+            },
+          ),
+          if (sources.length > 1)
+            Positioned(
+              top: 14,
+              right: 14,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.62),
+                  borderRadius: BorderRadius.circular(999),
+                  border: Border.all(color: Colors.white24),
+                ),
+                child: Text(
+                  '${currentIndex + 1}/${sources.length}',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w900,
                   ),
                 ),
-            ],
-          ),
-        ),
-        if (sources.length > 1)
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.fromLTRB(12, 7, 12, 8),
-            color: Colors.black,
-            child: Row(
-              children: [
-                for (var index = 0; index < sources.length; index++) ...[
-                  Expanded(
-                    child: GestureDetector(
-                      onTap: () => setState(() => currentIndex = index),
-                      onLongPress: () => openGallery(index),
-                      child: AnimatedContainer(
-                        duration: const Duration(milliseconds: 160),
-                        height: 46,
+              ),
+            ),
+          if (sources.length > 1)
+            Positioned(
+              bottom: 10,
+              left: 0,
+              right: 0,
+              child: Center(
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    for (var index = 0; index < sources.length; index++)
+                      AnimatedContainer(
+                        duration: const Duration(milliseconds: 180),
+                        width: currentIndex == index ? 18 : 6,
+                        height: 6,
+                        margin: const EdgeInsets.symmetric(horizontal: 3),
                         decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(9),
-                          boxShadow: currentIndex == index
-                              ? [
-                                  BoxShadow(
-                                    color: blue.withValues(alpha: 0.36),
-                                    blurRadius: 14,
-                                    spreadRadius: 1,
-                                  ),
-                                ]
-                              : null,
-                        ),
-                        foregroundDecoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(9),
-                          border: Border.all(
-                            color: currentIndex == index
-                                ? blue
-                                : Colors.white24,
-                            width: currentIndex == index ? 2.2 : 1,
-                          ),
-                        ),
-                        clipBehavior: Clip.antiAlias,
-                        child: Stack(
-                          fit: StackFit.expand,
-                          children: [
-                            spotPhotoImage(sources[index], fit: BoxFit.cover),
-                            if (currentIndex == index)
-                              Container(
-                                decoration: BoxDecoration(
-                                  color: blue.withValues(alpha: 0.16),
-                                ),
-                              ),
-                          ],
+                          color: currentIndex == index
+                              ? blue
+                              : Colors.white.withValues(alpha: 0.42),
+                          borderRadius: BorderRadius.circular(999),
                         ),
                       ),
-                    ),
-                  ),
-                  if (index != sources.length - 1) const SizedBox(width: 6),
-                ],
-              ],
+                  ],
+                ),
+              ),
             ),
-          ),
-      ],
+        ],
+      ),
     );
   }
 }
@@ -26433,6 +26661,35 @@ class _SpotDetailScreenState extends State<SpotDetailScreen> {
     Navigator.of(context).maybePop();
   }
 
+  Future<void> shareSpotLink() async {
+    final cleanSpotId = spot.id.trim();
+    final link = cleanSpotId.isEmpty
+        ? 'CCS spot: ${spot.name}'
+        : 'ccs://spot/$cleanSpotId';
+    final publicLink = cleanSpotId.isEmpty
+        ? ''
+        : 'https://ccs.app/spot/$cleanSpotId';
+    final shareText = publicLink.isEmpty
+        ? link
+        : 'CCS spot: ${spot.name}\n$link\n$publicLink';
+
+    await Clipboard.setData(ClipboardData(text: shareText));
+
+    if (!mounted) {
+      return;
+    }
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        backgroundColor: blue,
+        content: Text(
+          trText('Spot link copied.'),
+          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -26442,10 +26699,19 @@ class _SpotDetailScreenState extends State<SpotDetailScreen> {
         backgroundColor: Colors.transparent,
         foregroundColor: blue,
         actions: [
+          IconButton(
+            tooltip: trText('Share'),
+            onPressed: shareSpotLink,
+            icon: const Icon(Icons.ios_share_outlined),
+          ),
+          Padding(
+            padding: const EdgeInsets.only(right: 6),
+            child: Center(child: SaveSpotButton(spot: spot, compact: true)),
+          ),
           if (userRoleIsStaff(currentUser.role) ||
               spot.addedByUid == currentUser.uid)
             IconButton(
-              tooltip: 'Edit spot',
+              tooltip: trText('Edit spot'),
               onPressed: () async {
                 final saved = await Navigator.push<bool>(
                   context,
@@ -26464,106 +26730,39 @@ class _SpotDetailScreenState extends State<SpotDetailScreen> {
       ),
       body: ListView(
         children: [
-          SpotPhotoCarousel(spot: spot, height: 224),
+          SpotPhotoCarousel(
+            spot: spot,
+            height: math.min(MediaQuery.of(context).size.width * 0.82, 340),
+          ),
           Padding(
-            padding: const EdgeInsets.fromLTRB(14, 14, 14, 20),
+            padding: const EdgeInsets.fromLTRB(14, 10, 14, 20),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.center,
-                  children: [
-                    Expanded(
-                      child: Text(
-                        spot.name,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 27,
-                          fontWeight: FontWeight.w900,
-                        ),
-                      ),
-                    ),
-                    if (spot.hasOwner) ...[
-                      const SizedBox(width: 10),
-                      SpotOwnerBadge(spot: spot),
-                    ],
-                  ],
-                ),
-                const SizedBox(height: 5),
-                Text(
-                  spot.cityCountry,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(color: Colors.white70, fontSize: 15),
-                ),
-                const SizedBox(height: 11),
+                SpotDetailCompactHeader(spot: spot),
+                const SizedBox(height: 8),
                 SpotDetailEngagementPanel(
                   spot: spot,
                   onRatingChanged: updateVisibleRating,
                 ),
-                const SizedBox(height: 9),
-                Row(
-                  children: [
-                    if (spot.createdAtMillis > 0) ...[
-                      Icon(
-                        Icons.schedule,
-                        color: Colors.white.withValues(alpha: 0.45),
-                        size: 16,
-                      ),
-                      const SizedBox(width: 6),
-                      Text(
-                        'Added ${formatShortDate(DateTime.fromMillisecondsSinceEpoch(spot.createdAtMillis))}',
-                        style: const TextStyle(color: Colors.white54),
-                      ),
-                      const SizedBox(width: 14),
-                    ],
-                    Expanded(
-                      child: spot.addedByUid.trim().isEmpty
-                          ? Text(
-                              'Added by ${spot.addedBy}',
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(color: Colors.white54),
-                            )
-                          : InkWell(
-                              onTap: () => openUserProfile(
-                                context,
-                                uid: spot.addedByUid,
-                                fallbackUsername: spot.addedBy,
-                              ),
-                              borderRadius: BorderRadius.circular(999),
-                              child: Padding(
-                                padding: const EdgeInsets.symmetric(
-                                  vertical: 4,
-                                ),
-                                child: Text(
-                                  'Added by ${displayUsername(spot.addedBy)}',
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(
-                                    color: blue,
-                                    fontWeight: FontWeight.w800,
-                                  ),
-                                ),
-                              ),
-                            ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 11),
+                const SizedBox(height: 8),
+                SpotDetailMetaRow(spot: spot),
+                const SizedBox(height: 8),
                 SpotRouteActions(spot: spot, onShowMap: showSpotOnMap),
-                const SizedBox(height: 13),
-                Text(
-                  spot.description,
-                  style: const TextStyle(
-                    color: Colors.white70,
-                    fontSize: 15,
-                    height: 1.35,
+                if (spot.description.trim().isNotEmpty) ...[
+                  const SizedBox(height: 10),
+                  Text(
+                    spot.description,
+                    maxLines: 3,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Colors.white70,
+                      fontSize: 13,
+                      height: 1.28,
+                    ),
                   ),
-                ),
-                const SizedBox(height: 12),
+                ],
+                const SizedBox(height: 10),
                 Wrap(
                   spacing: 8,
                   runSpacing: 8,
@@ -26622,45 +26821,6 @@ class _SpotDetailScreenState extends State<SpotDetailScreen> {
                   const SizedBox(height: 16),
                   SpotContactSection(spot: spot),
                 ],
-                if (spot.reelLink.trim().isNotEmpty) ...[
-                  const SizedBox(height: 16),
-                  const Text(
-                    'Video link',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 16,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  InkWell(
-                    onTap: () => launchExternalUrl(context, spot.reelLink),
-                    borderRadius: BorderRadius.circular(10),
-                    child: Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.all(11),
-                      decoration: BoxDecoration(
-                        color: panelGlass,
-                        borderRadius: BorderRadius.circular(10),
-                        border: Border.all(color: Colors.white12),
-                      ),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              spot.reelLink,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(color: Colors.white70),
-                            ),
-                          ),
-                          const SizedBox(width: 10),
-                          const Icon(Icons.open_in_new, color: blue, size: 18),
-                        ],
-                      ),
-                    ),
-                  ),
-                ],
                 const SizedBox(height: 18),
                 SpotReviewsSection(spot: spot),
               ],
@@ -26671,6 +26831,156 @@ class _SpotDetailScreenState extends State<SpotDetailScreen> {
     );
   }
 }
+
+class SpotDetailCompactHeader extends StatelessWidget {
+  final CarSpot spot;
+
+  const SpotDetailCompactHeader({super.key, required this.spot});
+
+  @override
+  Widget build(BuildContext context) {
+    final hasLocation = spot.cityCountry.trim().isNotEmpty;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: Text(
+                spot.name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 23,
+                  fontWeight: FontWeight.w900,
+                  height: 1.08,
+                ),
+              ),
+            ),
+            if (spot.hasOwner) ...[
+              const SizedBox(width: 8),
+              SpotOwnerBadge(spot: spot),
+            ],
+          ],
+        ),
+        if (hasLocation) ...[
+          const SizedBox(height: 4),
+          Row(
+            children: [
+              Icon(
+                Icons.place_outlined,
+                color: Colors.white.withValues(alpha: 0.55),
+                size: 15,
+              ),
+              const SizedBox(width: 4),
+              Expanded(
+                child: Text(
+                  spot.cityCountry,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(color: Colors.white60, fontSize: 13),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+class SpotDetailMetaRow extends StatelessWidget {
+  final CarSpot spot;
+
+  const SpotDetailMetaRow({super.key, required this.spot});
+
+  @override
+  Widget build(BuildContext context) {
+    final addedBy = displayUsername(spot.addedBy);
+    final dateText = spot.createdAtMillis > 0
+        ? formatShortDate(DateTime.fromMillisecondsSinceEpoch(spot.createdAtMillis))
+        : '';
+
+    return Wrap(
+      spacing: 8,
+      runSpacing: 6,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      children: [
+        if (dateText.isNotEmpty)
+          _SpotMiniMetaChip(
+            icon: Icons.schedule,
+            label: dateText,
+          ),
+        if (addedBy.trim().isNotEmpty)
+          InkWell(
+            onTap: spot.addedByUid.trim().isEmpty
+                ? null
+                : () => openUserProfile(
+                      context,
+                      uid: spot.addedByUid,
+                      fallbackUsername: spot.addedBy,
+                    ),
+            borderRadius: BorderRadius.circular(999),
+            child: _SpotMiniMetaChip(
+              icon: Icons.person_outline,
+              label: '${trText('Added by')} $addedBy',
+              accent: blue,
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _SpotMiniMetaChip extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final Color? accent;
+
+  const _SpotMiniMetaChip({
+    required this.icon,
+    required this.label,
+    this.accent,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final color = accent ?? Colors.white54;
+
+    return Container(
+      constraints: const BoxConstraints(maxWidth: 210),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.045),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: Colors.white10),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, color: color, size: 13),
+          const SizedBox(width: 4),
+          Flexible(
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: color,
+                fontSize: 12,
+                fontWeight: accent == null ? FontWeight.w700 : FontWeight.w900,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 
 class SpotOwnerBadge extends StatelessWidget {
   final CarSpot spot;
@@ -27016,7 +27326,7 @@ class _SpotContactTile extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    label,
+                    trText(label),
                     style: const TextStyle(
                       color: Colors.white54,
                       fontSize: 12,
@@ -27120,18 +27430,18 @@ class _SpotDetailEngagementPanelState extends State<SpotDetailEngagementPanel> {
     final selected = value <= currentRating;
 
     return SizedBox(
-      width: 27,
-      height: 30,
+      width: 30,
+      height: 32,
       child: IconButton(
         padding: EdgeInsets.zero,
-        constraints: const BoxConstraints.tightFor(width: 27, height: 30),
+        constraints: const BoxConstraints.tightFor(width: 30, height: 32),
         visualDensity: VisualDensity.compact,
         tooltip: '$value',
         onPressed: isSavingRating ? null : () => submitRating(value),
         icon: Icon(
           selected ? Icons.star : Icons.star_border,
           color: selected ? blue : Colors.white38,
-          size: 21,
+          size: 24,
         ),
       ),
     );
@@ -27144,24 +27454,24 @@ class _SpotDetailEngagementPanelState extends State<SpotDetailEngagementPanel> {
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       decoration: BoxDecoration(
         color: panelGlass,
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: BorderRadius.circular(12),
         border: Border.all(color: Colors.white12),
       ),
       child: Row(
         children: [
-          const Icon(Icons.star, color: blue, size: 18),
+          const Icon(Icons.star, color: blue, size: 16),
           const SizedBox(width: 4),
           Text(
             widget.spot.rating.toStringAsFixed(1),
             style: const TextStyle(
               color: Colors.white,
-              fontSize: 14,
+              fontSize: 13,
               fontWeight: FontWeight.w900,
             ),
           ),
-          const SizedBox(width: 8),
-          Container(width: 1, height: 22, color: Colors.white12),
-          const SizedBox(width: 6),
+          const SizedBox(width: 7),
+          Container(width: 1, height: 19, color: Colors.white12),
+          const SizedBox(width: 5),
           Expanded(
             child: Tooltip(
               message: trText('Your rating'),
@@ -27203,7 +27513,7 @@ class _SpotDetailEngagementPanelState extends State<SpotDetailEngagementPanel> {
                   borderRadius: BorderRadius.circular(999),
                   child: Container(
                     padding: const EdgeInsets.symmetric(
-                      horizontal: 9,
+                      horizontal: 10,
                       vertical: 7,
                     ),
                     decoration: BoxDecoration(
@@ -27221,14 +27531,15 @@ class _SpotDetailEngagementPanelState extends State<SpotDetailEngagementPanel> {
                         Icon(
                           liked ? Icons.favorite : Icons.favorite_border,
                           color: liked ? Colors.redAccent : Colors.white70,
-                          size: 18,
+                          size: 20,
                         ),
-                        const SizedBox(width: 5),
+                        const SizedBox(width: 6),
                         Text(
                           '$likeCount',
                           style: const TextStyle(
-                            color: Colors.white70,
-                            fontWeight: FontWeight.w800,
+                            color: Colors.white,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w900,
                           ),
                         ),
                       ],
@@ -27254,63 +27565,77 @@ class SpotRouteActions extends StatelessWidget {
     required this.onShowMap,
   });
 
+  Widget actionButton({
+    required IconData icon,
+    required String label,
+    required VoidCallback? onTap,
+    bool filled = false,
+  }) {
+    final enabled = onTap != null;
+
+    return Expanded(
+      child: SizedBox(
+        height: 52,
+        child: filled
+            ? ElevatedButton.icon(
+                onPressed: onTap,
+                icon: Icon(icon, size: 16),
+                label: Text(trText(label), maxLines: 1, overflow: TextOverflow.ellipsis),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: enabled ? blue : Colors.white10,
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+              )
+            : OutlinedButton.icon(
+                onPressed: onTap,
+                icon: Icon(icon, size: 16),
+                label: Text(trText(label), maxLines: 1, overflow: TextOverflow.ellipsis),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: enabled ? blue : Colors.white38,
+                  side: BorderSide(color: enabled ? blue : Colors.white12),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+              ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final locationAvailable =
         !spot.isTemporary || spot.isTemporaryLocationAvailableNow;
+    final hasVideo = spot.reelLink.trim().isNotEmpty;
 
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(10),
+      padding: const EdgeInsets.all(8),
       decoration: BoxDecoration(
         color: panelGlass,
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: BorderRadius.circular(12),
         border: Border.all(color: Colors.white12),
       ),
       child: Column(
         children: [
           Row(
             children: [
-              SaveSpotButton(spot: spot, compact: true),
-              const SizedBox(width: 8),
-              Expanded(
-                child: SizedBox(
-                  height: 42,
-                  child: OutlinedButton.icon(
-                    onPressed: locationAvailable ? onShowMap : null,
-                    icon: const Icon(Icons.map_outlined, size: 17),
-                    label: const Text('Map'),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: blue,
-                      side: BorderSide(
-                        color: locationAvailable ? blue : Colors.white12,
-                      ),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                    ),
-                  ),
-                ),
+              actionButton(
+                icon: Icons.map_outlined,
+                label: 'Map',
+                onTap: locationAvailable ? onShowMap : null,
               ),
               const SizedBox(width: 8),
-              Expanded(
-                child: SizedBox(
-                  height: 42,
-                  child: ElevatedButton.icon(
-                    onPressed: locationAvailable
-                        ? () => openWazeRoute(context, spot)
-                        : null,
-                    icon: const Icon(Icons.navigation, size: 17),
-                    label: const Text('Waze'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: blue,
-                      foregroundColor: Colors.white,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                    ),
-                  ),
-                ),
+              actionButton(
+                icon: Icons.navigation,
+                label: 'Waze',
+                filled: true,
+                onTap: locationAvailable ? () => openWazeRoute(context, spot) : null,
+              ),
+              const SizedBox(width: 8),
+              actionButton(
+                icon: Icons.play_circle_outline,
+                label: 'Video',
+                onTap: hasVideo ? () => launchExternalUrl(context, spot.reelLink) : null,
               ),
             ],
           ),
@@ -27659,15 +27984,15 @@ class _SpotReviewsSectionState extends State<SpotReviewsSection> {
                   filled: true,
                   fillColor: Colors.white.withValues(alpha: 0.06),
                   border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(10),
+                    borderRadius: BorderRadius.circular(12),
                     borderSide: const BorderSide(color: Colors.white12),
                   ),
                   enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(10),
+                    borderRadius: BorderRadius.circular(12),
                     borderSide: const BorderSide(color: Colors.white12),
                   ),
                   focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(10),
+                    borderRadius: BorderRadius.circular(12),
                     borderSide: const BorderSide(color: blue),
                   ),
                 ),
@@ -27837,7 +28162,7 @@ class SpotReviewCard extends StatelessWidget {
                       filled: true,
                       fillColor: Colors.white.withValues(alpha: 0.06),
                       border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(10),
+                        borderRadius: BorderRadius.circular(12),
                         borderSide: const BorderSide(color: Colors.white12),
                       ),
                     ),
@@ -27849,7 +28174,7 @@ class SpotReviewCard extends StatelessWidget {
           actions: [
             TextButton(
               onPressed: () => Navigator.of(context).pop(false),
-              child: const Text('Cancel'),
+                child: Text(trText('Cancel')),
             ),
             ElevatedButton(
               onPressed: () {
@@ -28204,11 +28529,11 @@ class _SpotCategoryDropdown extends StatelessWidget {
         filled: true,
         fillColor: Colors.white.withValues(alpha: 0.06),
         enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(10),
+          borderRadius: BorderRadius.circular(12),
           borderSide: const BorderSide(color: Colors.white12),
         ),
         focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(10),
+          borderRadius: BorderRadius.circular(12),
           borderSide: const BorderSide(color: blue, width: 1.4),
         ),
       ),
@@ -28337,7 +28662,7 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
       builder: (dialogContext) {
         return AlertDialog(
           backgroundColor: panelGlass,
-          title: const Text('Find exact address'),
+          title: Text(trText('Find exact address')),
           content: TextField(
             controller: addressController,
             autofocus: true,
@@ -28351,15 +28676,15 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
               filled: true,
               fillColor: Colors.white.withValues(alpha: 0.06),
               border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(10),
+                borderRadius: BorderRadius.circular(12),
                 borderSide: const BorderSide(color: Colors.white12),
               ),
               enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(10),
+                borderRadius: BorderRadius.circular(12),
                 borderSide: const BorderSide(color: Colors.white12),
               ),
               focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(10),
+                borderRadius: BorderRadius.circular(12),
                 borderSide: const BorderSide(color: blue),
               ),
             ),
@@ -28368,12 +28693,12 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(dialogContext),
-              child: const Text('Cancel'),
+              child: Text(trText('Cancel')),
             ),
             TextButton(
               onPressed: () =>
                   Navigator.pop(dialogContext, addressController.text.trim()),
-              child: const Text('Find'),
+              child: Text(trText('Find')),
             ),
           ],
         );
@@ -28904,11 +29229,11 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
 
       if (!expiresAt.isAfter(DateTime.now())) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
+          SnackBar(
             backgroundColor: Colors.redAccent,
             content: Text(
-              'End time must be in the future.',
-              style: TextStyle(
+              trText('End time must be in the future.'),
+              style: const TextStyle(
                 color: Colors.white,
                 fontWeight: FontWeight.w700,
               ),
@@ -28922,11 +29247,13 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
         final showOnMapAt = temporaryShowOnMapAt;
         if (showOnMapAt == null) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
+            SnackBar(
               backgroundColor: Colors.redAccent,
               content: Text(
-                'Choose when the temporary spot location should appear on the map.',
-                style: TextStyle(
+                trText(
+                  'Choose when the temporary spot location should appear on the map.',
+                ),
+                style: const TextStyle(
                   color: Colors.white,
                   fontWeight: FontWeight.w700,
                 ),
@@ -28938,11 +29265,11 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
 
         if (!showOnMapAt.isBefore(expiresAt)) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
+            SnackBar(
               backgroundColor: Colors.redAccent,
               content: Text(
-                'Show on map time must be before the end time.',
-                style: TextStyle(
+                trText('Show on map time must be before the end time.'),
+                style: const TextStyle(
                   color: Colors.white,
                   fontWeight: FontWeight.w700,
                 ),
@@ -29124,7 +29451,7 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
         SnackBar(
           backgroundColor: blue,
           content: Text(
-            message,
+            trText(message),
             style: const TextStyle(
               color: Colors.white,
               fontWeight: FontWeight.w700,
@@ -29141,7 +29468,7 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
         SnackBar(
           backgroundColor: Colors.redAccent,
           content: Text(
-            'Firebase did not save the spot/photo: ${error.code}',
+            '${trText('Firebase did not save the spot/photo')}: ${error.code}',
             style: const TextStyle(
               color: Colors.white,
               fontWeight: FontWeight.w700,
@@ -29158,15 +29485,18 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.transparent,
-      appBar: AppBar(
-        title: const CcsAppBarLogo(),
-        backgroundColor: Colors.transparent,
-        foregroundColor: blue,
-        actions: ccsAppBarActions(),
-      ),
-      body: ListView(
+    return AnimatedBuilder(
+      animation: appUiPreferences,
+      builder: (context, _) {
+        return Scaffold(
+          backgroundColor: Colors.transparent,
+          appBar: AppBar(
+            title: const CcsAppBarLogo(),
+            backgroundColor: Colors.transparent,
+            foregroundColor: blue,
+            actions: ccsAppBarActions(),
+          ),
+          body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 22),
         children: [
           Row(
@@ -29402,7 +29732,7 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
                 backgroundColor: blue,
                 foregroundColor: Colors.white,
                 shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(10),
+                  borderRadius: BorderRadius.circular(12),
                 ),
               ),
               child: Row(
@@ -29411,13 +29741,15 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
                   Icon(isSubmitting ? Icons.hourglass_top : Icons.send),
                   const SizedBox(width: 10),
                   Text(
-                    isSubmitting
-                        ? (userRoleIsStaff(currentUser.role)
-                              ? 'Creating spot...'
-                              : 'Submitting for review...')
-                        : (userRoleIsStaff(currentUser.role)
-                              ? 'Create Spot'
-                              : 'Submit for Review'),
+                    trText(
+                      isSubmitting
+                          ? (userRoleIsStaff(currentUser.role)
+                                ? 'Creating spot...'
+                                : 'Submitting for review...')
+                          : (userRoleIsStaff(currentUser.role)
+                                ? 'Create Spot'
+                                : 'Submit for Review'),
+                    ),
                     style: const TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.w800,
@@ -29429,6 +29761,8 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
           ),
         ],
       ),
+        );
+      },
     );
   }
 }
@@ -29535,7 +29869,7 @@ class _TemporarySpotScheduleCard extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    label,
+                    trText(label),
                     style: const TextStyle(
                       color: Colors.white,
                       fontSize: 12,
@@ -29544,7 +29878,9 @@ class _TemporarySpotScheduleCard extends StatelessWidget {
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    value == null ? 'Choose time' : formatShortDateTime(value),
+                    value == null
+                        ? trText('Choose time')
+                        : formatShortDateTime(value),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(color: Colors.white54, fontSize: 12),
@@ -29565,7 +29901,7 @@ class _TemporarySpotScheduleCard extends StatelessWidget {
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: Colors.white.withValues(alpha: 0.06),
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: BorderRadius.circular(12),
         border: Border.all(
           color: enabled ? blue.withValues(alpha: 0.7) : Colors.white12,
         ),
@@ -29580,16 +29916,16 @@ class _TemporarySpotScheduleCard extends StatelessWidget {
             visualDensity: VisualDensity.compact,
             contentPadding: EdgeInsets.zero,
             secondary: const Icon(Icons.timer, color: blue),
-            title: const Text(
-              'Temporary spot',
-              style: TextStyle(
+            title: Text(
+              trText('Temporary spot'),
+              style: const TextStyle(
                 color: Colors.white,
                 fontWeight: FontWeight.w900,
               ),
             ),
-            subtitle: const Text(
-              'For meets and events. Max active time is 12 hours.',
-              style: TextStyle(color: Colors.white54, fontSize: 12),
+            subtitle: Text(
+              trText('For meets and events. Max active time is 12 hours.'),
+              style: const TextStyle(color: Colors.white54, fontSize: 12),
             ),
           ),
           if (enabled) ...[
@@ -29616,16 +29952,16 @@ class _TemporarySpotScheduleCard extends StatelessWidget {
               visualDensity: VisualDensity.compact,
               contentPadding: EdgeInsets.zero,
               secondary: const Icon(Icons.visibility_outlined, color: blue),
-              title: const Text(
-                'Show on map at',
-                style: TextStyle(
+              title: Text(
+                trText('Show on map at'),
+                style: const TextStyle(
                   color: Colors.white,
                   fontWeight: FontWeight.w900,
                 ),
               ),
-              subtitle: const Text(
-                'Optional delayed map reveal.',
-                style: TextStyle(color: Colors.white54, fontSize: 12),
+              subtitle: Text(
+                trText('Optional delayed map reveal.'),
+                style: const TextStyle(color: Colors.white54, fontSize: 12),
               ),
             ),
             if (showOnMapAtEnabled) ...[
@@ -29716,7 +30052,7 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
     return Scaffold(
       backgroundColor: Colors.transparent,
       appBar: AppBar(
-        title: const Text('Choose Location'),
+        title: Text(trText('Choose Location')),
         backgroundColor: Colors.transparent,
         foregroundColor: blue,
       ),
@@ -29749,14 +30085,16 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
                 borderRadius: BorderRadius.circular(18),
                 border: Border.all(color: Colors.white12),
               ),
-              child: const Row(
+              child: Row(
                 children: [
-                  Icon(Icons.touch_app, color: blue),
-                  SizedBox(width: 10),
+                  const Icon(Icons.touch_app, color: blue),
+                  const SizedBox(width: 10),
                   Expanded(
                     child: Text(
-                      'Tap the map where this car spot should be placed.',
-                      style: TextStyle(
+                      trText(
+                        'Tap the map where this car spot should be placed.',
+                      ),
+                      style: const TextStyle(
                         color: Colors.white,
                         fontWeight: FontWeight.w700,
                         height: 1.25,
@@ -29798,9 +30136,11 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
                       const SizedBox(width: 10),
                       Expanded(
                         child: Text(
-                          hasLocation
-                              ? 'Location selected'
-                              : 'No location selected yet',
+                          trText(
+                            hasLocation
+                                ? 'Location selected'
+                                : 'No location selected yet',
+                          ),
                           style: const TextStyle(
                             color: Colors.white,
                             fontSize: 17,
@@ -29827,9 +30167,9 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
                           borderRadius: BorderRadius.circular(16),
                         ),
                       ),
-                      child: const Text(
-                        'Use this Location',
-                        style: TextStyle(fontWeight: FontWeight.w800),
+                      child: Text(
+                        trText('Use this Location'),
+                        style: const TextStyle(fontWeight: FontWeight.w800),
                       ),
                     ),
                   ),
@@ -29866,7 +30206,7 @@ class _SpotLocationPicker extends StatelessWidget {
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: Colors.white.withValues(alpha: 0.06),
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: BorderRadius.circular(12),
         border: Border.all(
           color: hasLocation ? blue.withValues(alpha: 0.7) : Colors.white12,
         ),
@@ -30023,12 +30363,12 @@ class _SpotPhotoPickerField extends StatelessWidget {
       children: [
         InkWell(
           onTap: canAddMore ? onAddPhoto : null,
-          borderRadius: BorderRadius.circular(10),
+          borderRadius: BorderRadius.circular(12),
           child: Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
               color: Colors.white.withValues(alpha: 0.06),
-              borderRadius: BorderRadius.circular(10),
+              borderRadius: BorderRadius.circular(12),
               border: Border.all(
                 color: photoPaths.isNotEmpty
                     ? blue.withValues(alpha: 0.7)
@@ -30055,9 +30395,11 @@ class _SpotPhotoPickerField extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        photoPaths.isEmpty
-                            ? 'Upload photos'
-                            : '${photoPaths.length}/$maxSpotGalleryPhotos photos selected',
+                        trText(
+                          photoPaths.isEmpty
+                              ? 'Upload photos'
+                              : '${photoPaths.length}/$maxSpotGalleryPhotos photos selected',
+                        ),
                         style: const TextStyle(
                           color: Colors.white,
                           fontSize: 13,
@@ -30066,9 +30408,11 @@ class _SpotPhotoPickerField extends StatelessWidget {
                       ),
                       const SizedBox(height: 2),
                       Text(
-                        canAddMore
-                            ? 'Add up to 4 photos. First one is the cover.'
-                            : 'Maximum 4 photos selected.',
+                        trText(
+                          canAddMore
+                              ? 'Add up to 4 photos. First one is the cover.'
+                              : 'Maximum 4 photos selected.',
+                        ),
                         style: const TextStyle(
                           color: Colors.white54,
                           fontSize: 12,
@@ -30096,7 +30440,7 @@ class _SpotPhotoPickerField extends StatelessWidget {
                 Stack(
                   children: [
                     ClipRRect(
-                      borderRadius: BorderRadius.circular(10),
+                      borderRadius: BorderRadius.circular(12),
                       child: Image.file(
                         File(photoPaths[index]),
                         width: 72,
@@ -30130,7 +30474,7 @@ class _SpotPhotoPickerField extends StatelessWidget {
                           borderRadius: BorderRadius.circular(999),
                         ),
                         child: Text(
-                          index == 0 ? 'Cover' : '${index + 1}',
+                          index == 0 ? trText('Cover') : '${index + 1}',
                           style: const TextStyle(
                             color: Colors.white,
                             fontSize: 10,
@@ -30183,7 +30527,7 @@ class _AddSpotSection extends StatelessWidget {
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: panelGlass,
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: BorderRadius.circular(12),
         border: Border.all(color: Colors.white12),
       ),
       child: Column(
@@ -30259,11 +30603,11 @@ class _CcsTextField extends StatelessWidget {
         filled: true,
         fillColor: appSurfaceOverlay,
         enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(10),
+          borderRadius: BorderRadius.circular(12),
           borderSide: BorderSide(color: appOutline),
         ),
         focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(10),
+          borderRadius: BorderRadius.circular(12),
           borderSide: const BorderSide(color: blue, width: 1.4),
         ),
       ),
@@ -30530,10 +30874,13 @@ class _SpotOwnerSelectorState extends State<SpotOwnerSelector> {
                           ),
                         ),
                       ),
-                      if (user.verified) ...[
-                        const SizedBox(width: 5),
-                        const Icon(Icons.verified, color: blue, size: 15),
-                      ],
+                      const SizedBox(width: 4),
+                      UserPrimaryBadge(
+                        role: user.role,
+                        verified: user.verified,
+                        globalChatModerator: user.globalChatModerator,
+                        compact: true,
+                      ),
                     ],
                   ),
                   const SizedBox(height: 3),
@@ -31407,6 +31754,7 @@ class _ChatScreenState extends State<ChatScreen>
   @override
   void initState() {
     super.initState();
+    appUiPreferences.addListener(_handleLanguageChanged);
     tabController = TabController(length: 4, vsync: this);
     tabController.addListener(handleTabChanged);
     final uid = FirebaseAuth.instance.currentUser?.uid ?? currentUser.uid;
@@ -31417,9 +31765,18 @@ class _ChatScreenState extends State<ChatScreen>
 
   @override
   void dispose() {
+    appUiPreferences.removeListener(_handleLanguageChanged);
     tabController.removeListener(handleTabChanged);
     tabController.dispose();
     super.dispose();
+  }
+
+  void _handleLanguageChanged() {
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {});
   }
 
   void handleTabChanged() {
@@ -31534,44 +31891,49 @@ class _ChatScreenState extends State<ChatScreen>
                   Padding(
                     padding: const EdgeInsets.fromLTRB(0, 0, 0, 6),
                     child: Center(
-                      child: TabBar(
-                        controller: tabController,
-                        isScrollable: true,
-                        tabAlignment: TabAlignment.center,
-                        padding: EdgeInsets.zero,
-                        labelPadding: const EdgeInsets.symmetric(
-                          horizontal: 13,
-                        ),
-                        indicatorColor: blue,
-                        labelColor: blue,
-                        unselectedLabelColor: Colors.white54,
-                        labelStyle: const TextStyle(
-                          fontWeight: FontWeight.w900,
-                        ),
-                        tabs: [
-                          Tab(
-                            icon: _SegmentBadgeIcon(
-                              icon: Icons.chat_bubble_outline,
-                              count: directUnreadCount,
+                      child: AnimatedBuilder(
+                        animation: appUiPreferences,
+                        builder: (context, _) {
+                          return TabBar(
+                            controller: tabController,
+                            isScrollable: true,
+                            tabAlignment: TabAlignment.center,
+                            padding: EdgeInsets.zero,
+                            labelPadding: const EdgeInsets.symmetric(
+                              horizontal: 13,
                             ),
-                            text: trText('Chats'),
-                          ),
-                          Tab(
-                            icon: _SegmentBadgeIcon(
-                              icon: Icons.groups,
-                              count: groupUnreadCount,
+                            indicatorColor: blue,
+                            labelColor: blue,
+                            unselectedLabelColor: Colors.white54,
+                            labelStyle: const TextStyle(
+                              fontWeight: FontWeight.w900,
                             ),
-                            text: trText('Groups'),
-                          ),
-                          Tab(
-                            icon: const Icon(Icons.public),
-                            text: trText('Global'),
-                          ),
-                          Tab(
-                            icon: const Icon(Icons.forum_outlined),
-                            text: trText('Forum'),
-                          ),
-                        ],
+                            tabs: [
+                              Tab(
+                                icon: _SegmentBadgeIcon(
+                                  icon: Icons.chat_bubble_outline,
+                                  count: directUnreadCount,
+                                ),
+                                text: trText('Chats'),
+                              ),
+                              Tab(
+                                icon: _SegmentBadgeIcon(
+                                  icon: Icons.groups,
+                                  count: groupUnreadCount,
+                                ),
+                                text: trText('Groups'),
+                              ),
+                              Tab(
+                                icon: const Icon(Icons.public),
+                                text: trText('Global'),
+                              ),
+                              Tab(
+                                icon: const Icon(Icons.forum_outlined),
+                                text: trText('Forum'),
+                              ),
+                            ],
+                          );
+                        },
                       ),
                     ),
                   ),
@@ -31825,6 +32187,7 @@ class _GlobalChatTabState extends State<GlobalChatTab>
   @override
   void initState() {
     super.initState();
+    appUiPreferences.addListener(_handleLanguageChanged);
     onlineUsersStream = userPresenceCollection()
         .where('isOnline', isEqualTo: true)
         .limit(50)
@@ -31837,8 +32200,17 @@ class _GlobalChatTabState extends State<GlobalChatTab>
     unawaited(loadGlobalChatModeratorAccess());
   }
 
+  void _handleLanguageChanged() {
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {});
+  }
+
   @override
   void dispose() {
+    appUiPreferences.removeListener(_handleLanguageChanged);
     messageController.dispose();
     super.dispose();
   }
@@ -31950,6 +32322,10 @@ class _GlobalChatTabState extends State<GlobalChatTab>
             ? 'ccs_driver'
             : currentUser.username.trim(),
         'avatarUrl': currentUser.photoUrl ?? '',
+        'role': roleName(currentUser.role),
+        'verified': currentUser.verified,
+        'globalChatModerator': currentUser.globalChatModerator,
+        'globalModerator': currentUser.globalChatModerator,
         'text': text,
         'timestamp': FieldValue.serverTimestamp(),
         'type': 'text',
@@ -31986,65 +32362,161 @@ class _GlobalChatTabState extends State<GlobalChatTab>
     return GlobalSmallAvatar(avatarUrl: avatarUrl, username: username);
   }
 
-  Widget messageBubble(QueryDocumentSnapshot<Map<String, dynamic>> doc) {
+  Widget messageBubble(
+    QueryDocumentSnapshot<Map<String, dynamic>> doc, {
+    required bool showAuthorHeader,
+  }) {
     final data = doc.data();
     final firebaseUser = FirebaseAuth.instance.currentUser;
     final mine = stringFromFirebase(data['userId'], '') == firebaseUser?.uid;
+    final userId = stringFromFirebase(data['userId'], '');
     final username = stringFromFirebase(data['username'], 'ccs_driver');
     final avatarUrl = stringFromFirebase(data['avatarUrl'], '');
+    final fallbackRole = roleFromFirebase(data['role']);
+    final fallbackGlobalModerator = userDataHasCommunityModerationAccess(data);
+    final fallbackVerified =
+        userRoleIsStaff(fallbackRole) || data['verified'] == true;
     final text = stringFromFirebase(data['text'], '');
     final time = formatChatMessageTime(
       timestampMillisFromFirebase(data['timestamp']),
     );
 
-    final bubble = Container(
-      constraints: const BoxConstraints(maxWidth: 285),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      decoration: BoxDecoration(
-        color: mine ? blue : const Color(0xFF1E1E1E),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: mine ? blue.withValues(alpha: 0.8) : const Color(0xFF2A2A2A),
-        ),
-      ),
-      child: Column(
-        crossAxisAlignment: mine
-            ? CrossAxisAlignment.end
-            : CrossAxisAlignment.start,
+    void openAuthorProfile() {
+      if (userId.trim().isEmpty) {
+        return;
+      }
+
+      openUserProfile(
+        context,
+        uid: userId,
+        fallbackUsername: username,
+      );
+    }
+
+    final header = GestureDetector(
+      onTap: openAuthorProfile,
+      behavior: HitTestBehavior.opaque,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          Text(
-            displayUsername(username),
-            style: TextStyle(
-              color: mine ? Colors.white : blue,
-              fontSize: 11,
-              fontWeight: FontWeight.w900,
+          avatar(avatarUrl, username),
+          const SizedBox(width: 8),
+          Flexible(
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Flexible(
+                  child: Text(
+                    displayUsername(username),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: 0.1,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 4),
+                UserPrimaryBadgeForUid(
+                  uid: userId,
+                  fallbackRole: fallbackRole,
+                  fallbackVerified: fallbackVerified,
+                  fallbackGlobalChatModerator: fallbackGlobalModerator,
+                  compact: true,
+                ),
+              ],
             ),
           ),
-          const SizedBox(height: 4),
-          Text(text, style: const TextStyle(color: Colors.white, height: 1.3)),
           if (time.isNotEmpty) ...[
-            const SizedBox(height: 4),
+            const SizedBox(width: 10),
             Text(
               time,
-              style: const TextStyle(color: Colors.white54, fontSize: 10.5),
+              style: const TextStyle(
+                color: Colors.white38,
+                fontSize: 10,
+                fontWeight: FontWeight.w700,
+              ),
             ),
           ],
         ],
       ),
     );
 
-    final message = Padding(
-      padding: const EdgeInsets.only(bottom: 10),
-      child: Row(
-        mainAxisAlignment: mine
-            ? MainAxisAlignment.end
-            : MainAxisAlignment.start,
-        crossAxisAlignment: CrossAxisAlignment.end,
-        children: [
-          if (!mine) ...[avatar(avatarUrl, username), const SizedBox(width: 8)],
-          bubble,
-          if (mine) ...[const SizedBox(width: 8), avatar(avatarUrl, username)],
-        ],
+    final card = IntrinsicWidth(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(minWidth: 54, maxWidth: 292),
+        child: Container(
+          margin: EdgeInsets.only(
+            left: mine ? 46 : 0,
+            right: mine ? 0 : 46,
+            bottom: showAuthorHeader ? 8 : 4,
+          ),
+          padding: EdgeInsets.fromLTRB(11, showAuthorHeader ? 10 : 8, 11, 8),
+          decoration: BoxDecoration(
+            color: mine ? blue : const Color(0xFF171717),
+            borderRadius: BorderRadius.only(
+              topLeft: Radius.circular(showAuthorHeader || mine ? 16 : 6),
+              topRight: Radius.circular(showAuthorHeader || !mine ? 16 : 6),
+              bottomLeft: const Radius.circular(16),
+              bottomRight: const Radius.circular(16),
+            ),
+            border: Border.all(
+              color: mine
+                  ? blue.withValues(alpha: 0.9)
+                  : const Color(0xFF2A2A2A),
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.18),
+                blurRadius: 10,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (showAuthorHeader) ...[
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 260),
+                  child: header,
+                ),
+                const SizedBox(height: 7),
+              ],
+              Text(
+                text,
+                style: const TextStyle(
+                  color: Colors.white,
+                  height: 1.25,
+                  fontSize: 13.5,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+              if (!showAuthorHeader && time.isNotEmpty) ...[
+                const SizedBox(height: 2),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: Text(
+                    time,
+                    style: const TextStyle(color: Colors.white54, fontSize: 9.5),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+
+    final message = Align(
+      alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
+      child: GestureDetector(
+        onTap: openAuthorProfile,
+        behavior: HitTestBehavior.opaque,
+        child: card,
       ),
     );
 
@@ -32056,6 +32528,35 @@ class _GlobalChatTabState extends State<GlobalChatTab>
       onLongPress: () => confirmDeleteGlobalMessage(doc),
       child: message,
     );
+  }
+
+  List<Widget> globalChatMessageList(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> messages,
+  ) {
+    final widgets = <Widget>[];
+    String previousLabel = '';
+    String previousSenderUid = '';
+
+    for (final doc in messages) {
+      final data = doc.data();
+      final createdAtMillis = timestampMillisFromFirebase(
+        data['timestamp'],
+      );
+      final label = chatDateDividerLabel(createdAtMillis);
+
+      if (label.isNotEmpty && label != previousLabel) {
+        widgets.add(chatDateDivider(label));
+        previousLabel = label;
+        previousSenderUid = '';
+      }
+
+      final senderUid = stringFromFirebase(data['userId'], '');
+      final showAuthorHeader = senderUid.isEmpty || senderUid != previousSenderUid;
+      widgets.add(messageBubble(doc, showAuthorHeader: showAuthorHeader));
+      previousSenderUid = senderUid;
+    }
+
+    return widgets;
   }
 
   @override
@@ -32096,17 +32597,17 @@ class _GlobalChatTabState extends State<GlobalChatTab>
                 children: [
                   const Icon(Icons.public, color: blue),
                   const SizedBox(width: 10),
-                  const Expanded(
+                  Expanded(
                     child: Text(
-                      'Глобальный чат',
-                      style: TextStyle(
+                      trText('Global chat'),
+                      style: const TextStyle(
                         color: Colors.white,
                         fontWeight: FontWeight.w900,
                       ),
                     ),
                   ),
                   Text(
-                    'онлайн: $count',
+                    '${trText('Online')}: $count',
                     style: const TextStyle(
                       color: Colors.greenAccent,
                       fontWeight: FontWeight.w800,
@@ -32122,12 +32623,12 @@ class _GlobalChatTabState extends State<GlobalChatTab>
             stream: messagesStream,
             builder: (context, snapshot) {
               if (snapshot.hasError) {
-                return const Padding(
-                  padding: EdgeInsets.all(20),
+                return Padding(
+                  padding: const EdgeInsets.all(20),
                   child: EmptyStateCard(
                     icon: Icons.public_off,
-                    title: 'Global chat unavailable',
-                    text: 'Could not load global chat right now.',
+                    title: trText('Global chat unavailable'),
+                    text: trText('Could not load global chat right now.'),
                   ),
                 );
               }
@@ -32146,16 +32647,16 @@ class _GlobalChatTabState extends State<GlobalChatTab>
               }
 
               if (messages.isEmpty) {
-                return const EmptyStateCard(
+                return EmptyStateCard(
                   icon: Icons.public,
-                  title: 'Глобальный чат пуст',
-                  text: 'Напишите первое сообщение для всего сообщества.',
+                  title: trText('Global chat empty'),
+                  text: trText('Write the first message for the whole community.'),
                 );
               }
 
               return ListView(
                 padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
-                children: [for (final doc in messages) messageBubble(doc)],
+                children: globalChatMessageList(messages),
               );
             },
           ),
@@ -32177,7 +32678,7 @@ class _GlobalChatTabState extends State<GlobalChatTab>
                     maxLines: 4,
                     style: const TextStyle(color: Colors.white),
                     decoration: InputDecoration(
-                      hintText: 'Сообщение в глобальный чат',
+                      hintText: trText('Message in global chat'),
                       hintStyle: const TextStyle(color: Colors.white38),
                       filled: true,
                       fillColor: const Color(0xFF1A1A1A),
@@ -32257,6 +32758,9 @@ Future<String> createForumTopic({
     final categoryId = forumCategoryIdFromFirebase(category);
     final categoryTitle = forumCategoryById(categoryId).titleKey;
     final creatorRole = roleFromFirebase(userData?['role']);
+    final creatorGlobalModerator = userDataHasCommunityModerationAccess(
+      userData,
+    );
     final isStaffCreator =
         userRoleIsStaff(creatorRole) ||
         (currentUser.uid == user.uid && userRoleIsStaff(currentUser.role));
@@ -32272,6 +32776,11 @@ Future<String> createForumTopic({
           'categoryId': categoryId,
           'authorId': user.uid,
           'authorName': username,
+          'authorRole': roleName(creatorRole),
+          'authorVerified': userRoleIsStaff(creatorRole) ||
+              userData?['verified'] == true,
+          'authorGlobalChatModerator': creatorGlobalModerator,
+          'authorGlobalModerator': creatorGlobalModerator,
           'repliesCount': 0,
           'isPinned': false,
           'status': topicStatus,
@@ -32346,7 +32855,7 @@ Future<void> showForumTopicSentForReviewDialog(BuildContext context) async {
                 style: ElevatedButton.styleFrom(
                   backgroundColor: blue,
                   shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(10),
+                    borderRadius: BorderRadius.circular(12),
                   ),
                 ),
                 onPressed: () => Navigator.pop(dialogContext),
@@ -32759,8 +33268,16 @@ class _ForumTabState extends State<ForumTab>
     final data = doc.data();
     final title = stringFromFirebase(data['title'], trText('Untitled topic'));
     final description = stringFromFirebase(data['description'], '');
+    final authorId = stringFromFirebase(data['authorId'], '');
     final authorName = stringFromFirebase(data['authorName'], 'ccs_driver');
     final avatarUrl = stringFromFirebase(data['avatarUrl'], '');
+    final fallbackRole = roleFromFirebase(data['authorRole'] ?? data['role']);
+    final fallbackGlobalModerator =
+        data['authorGlobalChatModerator'] == true ||
+        data['authorGlobalModerator'] == true ||
+        userDataHasCommunityModerationAccess(data);
+    final fallbackVerified =
+        userRoleIsStaff(fallbackRole) || data['authorVerified'] == true;
     final repliesCount = intFromFirebase(data['repliesCount'], 0);
     final categoryId = forumCategoryIdFromFirebase(
       data['categoryId'] ?? data['category'],
@@ -32837,13 +33354,32 @@ class _ForumTabState extends State<ForumTab>
                     runSpacing: 4,
                     crossAxisAlignment: WrapCrossAlignment.center,
                     children: [
-                      Text(
-                        displayUsername(authorName),
-                        style: const TextStyle(
-                          color: Colors.white54,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w700,
-                        ),
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          ConstrainedBox(
+                            constraints: const BoxConstraints(maxWidth: 130),
+                            child: Text(
+                              displayUsername(authorName),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: Colors.white54,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 4),
+                          UserPrimaryBadgeForUid(
+                            uid: authorId,
+                            fallbackRole: fallbackRole,
+                            fallbackVerified: fallbackVerified,
+                            fallbackGlobalChatModerator:
+                                fallbackGlobalModerator,
+                            compact: true,
+                          ),
+                        ],
                       ),
                       Container(
                         padding: const EdgeInsets.symmetric(
@@ -33143,8 +33679,16 @@ class _ForumCategoryPageState extends State<ForumCategoryPage> {
     final data = doc.data();
     final title = stringFromFirebase(data['title'], trText('Untitled topic'));
     final description = stringFromFirebase(data['description'], '');
+    final authorId = stringFromFirebase(data['authorId'], '');
     final authorName = stringFromFirebase(data['authorName'], 'ccs_driver');
     final avatarUrl = stringFromFirebase(data['avatarUrl'], '');
+    final fallbackRole = roleFromFirebase(data['authorRole'] ?? data['role']);
+    final fallbackGlobalModerator =
+        data['authorGlobalChatModerator'] == true ||
+        data['authorGlobalModerator'] == true ||
+        userDataHasCommunityModerationAccess(data);
+    final fallbackVerified =
+        userRoleIsStaff(fallbackRole) || data['authorVerified'] == true;
     final repliesCount = intFromFirebase(data['repliesCount'], 0);
     final cardCategoryId = forumCategoryIdFromFirebase(
       data['categoryId'] ?? data['category'],
@@ -33219,13 +33763,31 @@ class _ForumCategoryPageState extends State<ForumCategoryPage> {
                     ),
                   ],
                   const SizedBox(height: 7),
-                  Text(
-                    displayUsername(authorName),
-                    style: const TextStyle(
-                      color: Colors.white54,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w700,
-                    ),
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 150),
+                        child: Text(
+                          displayUsername(authorName),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Colors.white54,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 4),
+                      UserPrimaryBadgeForUid(
+                        uid: authorId,
+                        fallbackRole: fallbackRole,
+                        fallbackVerified: fallbackVerified,
+                        fallbackGlobalChatModerator: fallbackGlobalModerator,
+                        compact: true,
+                      ),
+                    ],
                   ),
                 ],
               ),
@@ -33646,6 +34208,10 @@ class _ForumTopicPageState extends State<ForumTopicPage> {
         'userId': firebaseUser.uid,
         'username': currentUser.username,
         'avatarUrl': currentUser.photoUrl ?? '',
+        'role': roleName(currentUser.role),
+        'verified': currentUser.verified,
+        'globalChatModerator': currentUser.globalChatModerator,
+        'globalModerator': currentUser.globalChatModerator,
         'text': text,
         'timestamp': FieldValue.serverTimestamp(),
       });
@@ -33852,6 +34418,13 @@ class _ForumTopicPageState extends State<ForumTopicPage> {
     final authorName = stringFromFirebase(topic['authorName'], 'ccs_driver');
     final avatarUrl = stringFromFirebase(topic['avatarUrl'], '');
     final description = stringFromFirebase(topic['description'], '');
+    final fallbackRole = roleFromFirebase(topic['authorRole'] ?? topic['role']);
+    final fallbackGlobalModerator =
+        topic['authorGlobalChatModerator'] == true ||
+        topic['authorGlobalModerator'] == true ||
+        userDataHasCommunityModerationAccess(topic);
+    final fallbackVerified =
+        userRoleIsStaff(fallbackRole) || topic['authorVerified'] == true;
     final createdAt = formatChatMessageTime(
       timestampMillisFromFirebase(topic['createdAt']),
     );
@@ -33859,6 +34432,18 @@ class _ForumTopicPageState extends State<ForumTopicPage> {
     final canEditHeader =
         canModerateForumTopic || (authorId.isNotEmpty && authorId == currentUid);
     final canDeleteHeader = canEditHeader;
+
+    void openTopicAuthorProfile() {
+      if (authorId.trim().isEmpty) {
+        return;
+      }
+
+      openUserProfile(
+        context,
+        uid: authorId,
+        fallbackUsername: authorName,
+      );
+    }
 
     return Container(
       margin: const EdgeInsets.only(bottom: 14),
@@ -33871,7 +34456,11 @@ class _ForumTopicPageState extends State<ForumTopicPage> {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          GlobalSmallAvatar(avatarUrl: avatarUrl, username: authorName),
+          GestureDetector(
+            onTap: openTopicAuthorProfile,
+            behavior: HitTestBehavior.opaque,
+            child: GlobalSmallAvatar(avatarUrl: avatarUrl, username: authorName),
+          ),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
@@ -33879,18 +34468,31 @@ class _ForumTopicPageState extends State<ForumTopicPage> {
               children: [
                 Row(
                   children: [
-                    Expanded(
-                      child: Text(
-                        displayUsername(authorName),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.w900,
+                    Flexible(
+                      child: GestureDetector(
+                        onTap: openTopicAuthorProfile,
+                        behavior: HitTestBehavior.opaque,
+                        child: Text(
+                          displayUsername(authorName),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w900,
+                          ),
                         ),
                       ),
                     ),
-                    if (createdAt.isNotEmpty)
+                    const SizedBox(width: 4),
+                    UserPrimaryBadgeForUid(
+                      uid: authorId,
+                      fallbackRole: fallbackRole,
+                      fallbackVerified: fallbackVerified,
+                      fallbackGlobalChatModerator: fallbackGlobalModerator,
+                      compact: true,
+                    ),
+                    if (createdAt.isNotEmpty) ...[
+                      const Spacer(),
                       Text(
                         createdAt,
                         style: const TextStyle(
@@ -33898,6 +34500,7 @@ class _ForumTopicPageState extends State<ForumTopicPage> {
                           fontSize: 11,
                         ),
                       ),
+                    ],
                   ],
                 ),
                 const SizedBox(height: 7),
@@ -33906,15 +34509,9 @@ class _ForumTopicPageState extends State<ForumTopicPage> {
                   runSpacing: 6,
                   children: [
                     _SmallTag(
-                      label: trText('Topic author'),
-                      icon: Icons.workspace_premium,
+                      label: trText('Topic creator'),
+                      icon: Icons.edit_note_rounded,
                     ),
-                    if (isPinned)
-                      _SmallTag(
-                        label: trText('Pinned'),
-                        icon: Icons.push_pin,
-                        color: Colors.amber,
-                      ),
                   ],
                 ),
                 if (description.trim().isNotEmpty) ...[
@@ -33934,23 +34531,6 @@ class _ForumTopicPageState extends State<ForumTopicPage> {
                     spacing: 8,
                     runSpacing: 8,
                     children: [
-                      if (canModerateForumTopic)
-                        OutlinedButton.icon(
-                          onPressed: () => toggleTopicPinned(isPinned),
-                          icon: Icon(
-                            isPinned
-                                ? Icons.push_pin_outlined
-                                : Icons.push_pin,
-                            size: 18,
-                          ),
-                          label: Text(
-                            trText(isPinned ? 'Unpin' : 'Pin'),
-                          ),
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: Colors.white,
-                            side: const BorderSide(color: Colors.white24),
-                          ),
-                        ),
                       if (canEditHeader)
                         OutlinedButton.icon(
                           onPressed: () => editTopicHeader(topic),
@@ -33982,72 +34562,148 @@ class _ForumTopicPageState extends State<ForumTopicPage> {
     );
   }
 
-  Widget replyTile(QueryDocumentSnapshot<Map<String, dynamic>> doc) {
+  Widget replyTile(
+    QueryDocumentSnapshot<Map<String, dynamic>> doc, {
+    required bool showAuthorHeader,
+  }) {
     final data = doc.data();
+    final userId = stringFromFirebase(data['userId'], '');
     final username = stringFromFirebase(data['username'], 'ccs_driver');
     final avatarUrl = stringFromFirebase(data['avatarUrl'], '');
+    final fallbackRole = roleFromFirebase(data['role']);
+    final fallbackGlobalModerator = userDataHasCommunityModerationAccess(data);
+    final fallbackVerified =
+        userRoleIsStaff(fallbackRole) || data['verified'] == true;
     final text = stringFromFirebase(data['text'], '');
     final time = formatChatMessageTime(
       timestampMillisFromFirebase(data['timestamp']),
     );
 
-    final tile = Container(
-      margin: const EdgeInsets.only(bottom: 10),
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: const Color(0xFF1A1A1A),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFF2A2A2A)),
-      ),
+    void openReplyAuthorProfile() {
+      if (userId.trim().isEmpty) {
+        return;
+      }
+
+      openUserProfile(
+        context,
+        uid: userId,
+        fallbackUsername: username,
+      );
+    }
+
+    final header = GestureDetector(
+      onTap: openReplyAuthorProfile,
+      behavior: HitTestBehavior.opaque,
       child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
         children: [
           GlobalSmallAvatar(avatarUrl: avatarUrl, username: username),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+          const SizedBox(width: 8),
+          Flexible(
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
               children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        displayUsername(username),
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.w900,
-                        ),
-                      ),
+                Flexible(
+                  child: Text(
+                    displayUsername(username),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w900,
                     ),
-                    if (time.isNotEmpty)
-                      Text(
-                        time,
-                        style: const TextStyle(
-                          color: Colors.white38,
-                          fontSize: 11,
-                        ),
-                      ),
-                  ],
+                  ),
                 ),
-                const SizedBox(height: 6),
-                Text(
-                  text,
-                  style: const TextStyle(color: Colors.white70, height: 1.35),
+                const SizedBox(width: 4),
+                UserPrimaryBadgeForUid(
+                  uid: userId,
+                  fallbackRole: fallbackRole,
+                  fallbackVerified: fallbackVerified,
+                  fallbackGlobalChatModerator: fallbackGlobalModerator,
+                  compact: true,
                 ),
               ],
             ),
           ),
+          if (time.isNotEmpty) ...[
+            const SizedBox(width: 10),
+            Text(
+              time,
+              style: const TextStyle(color: Colors.white38, fontSize: 10),
+            ),
+          ],
         ],
       ),
     );
 
+    final tile = Container(
+      margin: EdgeInsets.only(bottom: showAuthorHeader ? 8 : 4),
+      padding: EdgeInsets.fromLTRB(12, showAuthorHeader ? 10 : 8, 12, 9),
+      decoration: BoxDecoration(
+        color: const Color(0xFF1A1A1A),
+        borderRadius: BorderRadius.only(
+          topLeft: Radius.circular(showAuthorHeader ? 15 : 6),
+          topRight: const Radius.circular(15),
+          bottomLeft: const Radius.circular(15),
+          bottomRight: const Radius.circular(15),
+        ),
+        border: Border.all(color: const Color(0xFF2A2A2A)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.14),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (showAuthorHeader) ...[
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 260),
+              child: header,
+            ),
+            const SizedBox(height: 8),
+          ],
+          Text(
+            text,
+            style: const TextStyle(
+              color: Colors.white,
+              height: 1.32,
+              fontSize: 13.5,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+          if (!showAuthorHeader && time.isNotEmpty) ...[
+            const SizedBox(height: 4),
+            Align(
+              alignment: Alignment.centerRight,
+              child: Text(
+                time,
+                style: const TextStyle(color: Colors.white38, fontSize: 10),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+
+    final reply = GestureDetector(
+      onTap: openReplyAuthorProfile,
+      behavior: HitTestBehavior.opaque,
+      child: tile,
+    );
+
     if (!canModerateForumTopic) {
-      return tile;
+      return reply;
     }
 
     return GestureDetector(
       onLongPress: () => confirmDeleteForumReply(doc),
-      child: tile,
+      child: reply,
     );
   }
 
@@ -34110,7 +34766,19 @@ class _ForumTopicPageState extends State<ForumTopicPage> {
                             text: trText('Be the first to reply in this topic.'),
                           )
                         else
-                          for (final reply in replies) replyTile(reply),
+                          for (var index = 0; index < replies.length; index++)
+                            replyTile(
+                              replies[index],
+                              showAuthorHeader: index == 0 ||
+                                  stringFromFirebase(
+                                        replies[index].data()['userId'],
+                                        '',
+                                      ) !=
+                                      stringFromFirebase(
+                                        replies[index - 1].data()['userId'],
+                                        '',
+                                      ),
+                            ),
                       ],
                     );
                   },
@@ -34903,7 +35571,7 @@ class _ChatThreadTileState extends State<ChatThreadTile> {
                 children: [
                   Row(
                     children: [
-                      Expanded(
+                      Flexible(
                         child: Text(
                           title,
                           maxLines: 1,
@@ -34915,6 +35583,16 @@ class _ChatThreadTileState extends State<ChatThreadTile> {
                           ),
                         ),
                       ),
+                      if (!chat.isGroup && directUser != null) ...[
+                        const SizedBox(width: 4),
+                        UserPrimaryBadge(
+                          role: directUser.role,
+                          verified: directUser.verified,
+                          globalChatModerator:
+                              directUser.globalChatModerator,
+                          compact: true,
+                        ),
+                      ],
                     ],
                   ),
                   const SizedBox(height: 4),
@@ -35147,6 +35825,7 @@ FriendUserData fallbackChatMember(ChatThreadData chat, String uid) {
     photoUrl: photoUrl.trim().isEmpty ? null : photoUrl,
     verified: false,
     role: UserRole.user,
+    globalChatModerator: false,
     banned: false,
     deleted: false,
   );
@@ -35214,6 +35893,7 @@ FriendUserData fallbackMessageSender(ChatMessageData message) {
     email: '',
     verified: false,
     role: UserRole.user,
+    globalChatModerator: false,
     banned: false,
     deleted: false,
   );
@@ -36164,6 +36844,13 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
                           ),
                         ),
                       ],
+                      const SizedBox(width: 4),
+                      UserPrimaryBadge(
+                        role: user.role,
+                        verified: user.verified,
+                        globalChatModerator: user.globalChatModerator,
+                        compact: true,
+                      ),
                     ],
                   ),
                   const SizedBox(height: 4),
@@ -37427,7 +38114,7 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
 
       return InkWell(
         onTap: () => openChatUserProfile(currentUid),
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: BorderRadius.circular(12),
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 5),
           child: Row(
@@ -37442,15 +38129,31 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 16,
-                        fontWeight: FontWeight.w900,
-                      ),
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Flexible(
+                          child: Text(
+                            title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 16,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                        ),
+                        if (user != null) ...[
+                          const SizedBox(width: 4),
+                          UserPrimaryBadge(
+                            role: user.role,
+                            verified: user.verified,
+                            globalChatModerator: user.globalChatModerator,
+                            compact: true,
+                          ),
+                        ],
+                      ],
                     ),
                     const SizedBox(height: 2),
                     OnlineStatusBadge(
@@ -37515,137 +38218,182 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
   Widget messageBubble(
     ChatMessageData message,
     String currentUid,
-    Map<String, FriendUserData> usersById,
-  ) {
+    Map<String, FriendUserData> usersById, {
+    required bool showAuthorHeader,
+  }) {
     final mine = message.senderUid == currentUid;
     final canModerateMessage =
         widget.chat.isGroup &&
         (userRoleIsStaff(currentUser.role) ||
             widget.chat.ownerUid == currentUid ||
             widget.chat.moderatorIds.contains(currentUid));
-    final showSender = !mine && widget.chat.isGroup;
     final sender =
         usersById[message.senderUid] ?? fallbackMessageSender(message);
     final receiptState = mine
         ? message.receiptStateFor(widget.chat, currentUid)
         : null;
-    final bubble = Container(
-      constraints: BoxConstraints(maxWidth: showSender ? 248 : 280),
-      margin: const EdgeInsets.only(bottom: 10),
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-      decoration: BoxDecoration(
-        color: mine
-            ? (message.sendFailed
-                  ? Colors.redAccent.withValues(alpha: 0.82)
-                  : blue)
-            : panel,
-        borderRadius: BorderRadius.only(
-          topLeft: const Radius.circular(16),
-          topRight: const Radius.circular(16),
-          bottomLeft: Radius.circular(mine ? 16 : 5),
-          bottomRight: Radius.circular(mine ? 5 : 16),
-        ),
-        border: mine ? null : Border.all(color: Colors.white12),
-      ),
-      child: Column(
-        crossAxisAlignment: mine
-            ? CrossAxisAlignment.end
-            : CrossAxisAlignment.start,
-        children: [
-          if (showSender) ...[
-            Text(
-              displayUsername(sender.username),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                color: blue,
-                fontSize: 12,
-                fontWeight: FontWeight.w900,
-              ),
-            ),
-            const SizedBox(height: 4),
-          ],
-          Text(
-            message.text,
-            style: TextStyle(
-              color: Colors.white,
-              fontWeight: FontWeight.w600,
-              height: 1.25,
-              shadows: message.isLocalPending
-                  ? [
-                      Shadow(
-                        color: Colors.black.withValues(alpha: 0.16),
-                        offset: const Offset(0, 1),
-                        blurRadius: 6,
+
+    void openSenderProfile() {
+      openUserProfile(
+        context,
+        uid: sender.uid,
+        fallbackUsername: sender.username,
+      );
+    }
+
+    Widget senderIdentity() {
+      return GestureDetector(
+        onTap: openSenderProfile,
+        behavior: HitTestBehavior.opaque,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            UserAvatarCircle(user: sender, size: 30),
+            const SizedBox(width: 8),
+            Flexible(
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Flexible(
+                    child: Text(
+                      displayUsername(sender.username),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w900,
                       ),
-                    ]
-                  : null,
-            ),
-          ),
-          const SizedBox(height: 5),
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (message.edited) ...[
-                Text(
-                  'edited',
-                  style: TextStyle(
-                    color: Colors.white.withValues(alpha: 0.58),
-                    fontSize: 10,
-                    fontWeight: FontWeight.w700,
+                    ),
                   ),
-                ),
-                const SizedBox(width: 6),
-              ],
-              Text(
-                formatChatMessageTime(message.createdAtMillis),
-                style: TextStyle(
-                  color: Colors.white.withValues(alpha: 0.62),
-                  fontSize: 10,
-                  fontWeight: FontWeight.w800,
-                ),
+                  const SizedBox(width: 4),
+                  UserPrimaryBadge(
+                    role: sender.role,
+                    verified: sender.verified,
+                    globalChatModerator: sender.globalChatModerator,
+                    compact: true,
+                  ),
+                ],
               ),
-              if (receiptState != null) ...[
-                const SizedBox(width: 6),
-                ChatMessageStatusGlyph(state: receiptState),
-              ],
+            ),
+            const SizedBox(width: 10),
+            Text(
+              formatChatMessageTime(message.createdAtMillis),
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: 0.58),
+                fontSize: 10,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    final card = IntrinsicWidth(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(minWidth: 58, maxWidth: 292),
+        child: Container(
+          margin: EdgeInsets.only(
+            left: mine ? 44 : 0,
+            right: mine ? 0 : 44,
+            bottom: showAuthorHeader ? 8 : 4,
+          ),
+          padding: EdgeInsets.fromLTRB(11, showAuthorHeader ? 10 : 8, 11, 8),
+          decoration: BoxDecoration(
+            color: mine
+                ? (message.sendFailed
+                      ? Colors.redAccent.withValues(alpha: 0.82)
+                      : blue)
+                : panel,
+            borderRadius: BorderRadius.only(
+              topLeft: Radius.circular(showAuthorHeader || mine ? 16 : 6),
+              topRight: Radius.circular(showAuthorHeader || !mine ? 16 : 6),
+              bottomLeft: const Radius.circular(16),
+              bottomRight: const Radius.circular(16),
+            ),
+            border: mine ? null : Border.all(color: Colors.white12),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.16),
+                blurRadius: 10,
+                offset: const Offset(0, 4),
+              ),
             ],
           ),
-        ],
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (showAuthorHeader) ...[
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 260),
+                  child: senderIdentity(),
+                ),
+                const SizedBox(height: 7),
+              ],
+              Text(
+                message.text,
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 13.5,
+                  fontWeight: FontWeight.w600,
+                  height: 1.25,
+                  shadows: message.isLocalPending
+                      ? [
+                          Shadow(
+                            color: Colors.black.withValues(alpha: 0.16),
+                            offset: const Offset(0, 1),
+                            blurRadius: 6,
+                          ),
+                        ]
+                      : null,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (message.edited) ...[
+                    Text(
+                      trText('edited'),
+                      style: TextStyle(
+                        color: Colors.white.withValues(alpha: 0.58),
+                        fontSize: 10,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                  ],
+                  if (!showAuthorHeader)
+                    Text(
+                      formatChatMessageTime(message.createdAtMillis),
+                      style: TextStyle(
+                        color: Colors.white.withValues(alpha: 0.62),
+                        fontSize: 10,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  if (receiptState != null) ...[
+                    if (!showAuthorHeader) const SizedBox(width: 6),
+                    ChatMessageStatusGlyph(state: receiptState),
+                  ],
+                ],
+              ),
+            ],
+          ),
+        ),
       ),
     );
-    final content = showSender
-        ? ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 320),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 10),
-                  child: GestureDetector(
-                    onTap: () => openUserProfile(
-                      context,
-                      uid: sender.uid,
-                      fallbackUsername: sender.username,
-                    ),
-                    child: UserAvatarCircle(user: sender, size: 30),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Flexible(child: bubble),
-              ],
-            ),
-          )
-        : bubble;
 
     return GestureDetector(
+      onTap: openSenderProfile,
       onLongPress: ((mine && !message.isLocalPending) || canModerateMessage)
           ? () => showOwnMessageActions(message)
           : null,
       child: Align(
         alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
-        child: content,
+        child: card,
       ),
     );
   }
@@ -37786,6 +38534,7 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
 
                 Widget listWithUsers(Map<String, FriendUserData> usersById) {
                   String previousDateLabel = '';
+                  String previousSenderUid = '';
                   final children = <Widget>[];
                   for (final message in messages) {
                     final dateLabel = chatDateDividerLabel(
@@ -37795,8 +38544,20 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
                         dateLabel != previousDateLabel) {
                       children.add(chatDateDivider(dateLabel));
                       previousDateLabel = dateLabel;
+                      previousSenderUid = '';
                     }
-                    children.add(messageBubble(message, currentUid, usersById));
+                    final showAuthorHeader =
+                        message.senderUid.isEmpty ||
+                        message.senderUid != previousSenderUid;
+                    children.add(
+                      messageBubble(
+                        message,
+                        currentUid,
+                        usersById,
+                        showAuthorHeader: showAuthorHeader,
+                      ),
+                    );
+                    previousSenderUid = message.senderUid;
                   }
 
                   return ListView(
@@ -38115,6 +38876,7 @@ class PublicUserProfileData {
   final String country;
   final UserRole role;
   final bool verified;
+  final bool globalChatModerator;
   final UserSettingsData settings;
   final List<GarageCar> garage;
   final bool deleted;
@@ -38136,6 +38898,7 @@ class PublicUserProfileData {
     required this.country,
     required this.role,
     required this.verified,
+    this.globalChatModerator = false,
     required this.settings,
     required this.garage,
     required this.deleted,
@@ -38187,6 +38950,7 @@ class PublicUserProfileData {
       country: country,
       role: role,
       verified: verified,
+      globalChatModerator: globalChatModerator,
       settings: settings,
       garage: garage,
       deleted: deleted,
@@ -38210,7 +38974,11 @@ class PublicUserProfileData {
     DocumentSnapshot<Map<String, dynamic>> doc,
   ) {
     final data = doc.data() ?? {};
-    final role = roleFromFirebase(data['role']);
+    final isCurrentProfile =
+        doc.id == currentUser.uid || data['uid'] == currentUser.uid;
+    final role = isCurrentProfile
+        ? currentUser.role
+        : roleFromFirebase(data['role']);
 
     return PublicUserProfileData(
       uid: stringFromFirebase(data['uid'], doc.id),
@@ -38225,7 +38993,12 @@ class PublicUserProfileData {
       city: stringFromFirebase(data['city'], 'Riga'),
       country: stringFromFirebase(data['country'], 'Latvia'),
       role: role,
-      verified: userRoleIsStaff(role) || data['verified'] == true,
+      verified: isCurrentProfile
+          ? currentUser.verified
+          : userRoleIsStaff(role) || data['verified'] == true,
+      globalChatModerator: isCurrentProfile
+          ? currentUser.globalChatModerator
+          : userDataHasCommunityModerationAccess(data),
       settings: UserSettingsData.fromFirebase(data['settings']),
       garage: garageCarsFromFirebase(data['garage']),
       deleted: data['deleted'] == true,
@@ -38306,6 +39079,7 @@ Future<void> saveProfileToFirebase(UserProfileData profile) async {
       avatarPath: nextAvatarPath,
       role: currentUser.role,
       verified: currentUser.verified,
+      globalChatModerator: currentUser.globalChatModerator,
       city: cityCountry[0],
       country: cityCountry[1],
     ),
@@ -39164,10 +39938,13 @@ class _BlockedUsersScreenState extends State<BlockedUsersScreen> {
                           ),
                         ),
                       ),
-                      if (user.verified) ...[
-                        const SizedBox(width: 6),
-                        const Icon(Icons.verified, color: blue, size: 16),
-                      ],
+                      const SizedBox(width: 4),
+                      UserPrimaryBadge(
+                        role: user.role,
+                        verified: user.verified,
+                        globalChatModerator: user.globalChatModerator,
+                        compact: true,
+                      ),
                     ],
                   ),
                   const SizedBox(height: 3),
@@ -39339,6 +40116,7 @@ class _PublicProfileActionsState extends State<PublicProfileActions> {
       avatarPath: widget.profile.avatarPath,
       verified: widget.profile.verified,
       role: widget.profile.role,
+      globalChatModerator: widget.profile.globalChatModerator,
       banned: false,
       deleted: false,
     );
@@ -39634,14 +40412,6 @@ class PublicUserProfileScreen extends StatelessWidget {
     );
   }
 
-  Widget staffRoleBadge(UserRole role) {
-    if (!userRoleIsStaff(role)) {
-      return const SizedBox.shrink();
-    }
-
-    return _ProfileRoleBadge(role: role);
-  }
-
   Widget profileHeader(PublicUserProfileData profile) {
     final visibleGarageCount = profile.settings.showGarage
         ? profile.garage.length
@@ -39688,39 +40458,26 @@ class PublicUserProfileScreen extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Row(
-                            children: [
-                              Flexible(
-                                child: Text(
-                                  profile.username,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 22,
-                                    fontWeight: FontWeight.w900,
-                                  ),
-                                ),
-                              ),
-                              if (profile.verified) ...[
-                                const SizedBox(width: 6),
-                                const Icon(
-                                  Icons.verified,
-                                  color: blue,
-                                  size: 18,
-                                ),
-                              ],
-                            ],
-                          ),
-                        ),
-                        if (userRoleIsStaff(profile.role)) ...[
-                          const SizedBox(width: 8),
-                          staffRoleBadge(profile.role),
-                        ],
-                      ],
+                    Text(
+                      profile.username,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 22,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    const SizedBox(height: 5),
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: UserPrimaryBadge(
+                        role: profile.role,
+                        verified: profile.verified,
+                        globalChatModerator: profile.globalChatModerator,
+                        showLabel: true,
+                        compact: true,
+                      ),
                     ),
                     const SizedBox(height: 4),
                     Column(
@@ -39851,6 +40608,7 @@ class PublicUserProfileScreen extends StatelessWidget {
       avatarPath: profile.avatarPath,
       verified: profile.verified,
       role: profile.role,
+      globalChatModerator: profile.globalChatModerator,
       banned: false,
       deleted: false,
     );
@@ -39994,25 +40752,26 @@ class PublicUserProfileScreen extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Row(
-                      children: [
-                        Flexible(
-                          child: Text(
-                            profile.username,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 22,
-                              fontWeight: FontWeight.w900,
-                            ),
-                          ),
-                        ),
-                        if (profile.verified) ...[
-                          const SizedBox(width: 8),
-                          const Icon(Icons.verified, color: blue, size: 19),
-                        ],
-                      ],
+                    Text(
+                      profile.username,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 22,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    const SizedBox(height: 5),
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: UserPrimaryBadge(
+                        role: profile.role,
+                        verified: profile.verified,
+                        globalChatModerator: profile.globalChatModerator,
+                        showLabel: true,
+                        compact: true,
+                      ),
                     ),
                     const SizedBox(height: 8),
                     Text(
@@ -40435,7 +41194,7 @@ class _FriendsScreenState extends State<FriendsScreen> {
               username: user.username,
               photoUrl: user.photoUrl,
               avatarPath: user.avatarPath,
-              verified: user.verified,
+              verified: false,
             ),
             const SizedBox(width: 12),
             Expanded(
@@ -40456,14 +41215,13 @@ class _FriendsScreenState extends State<FriendsScreen> {
                           ),
                         ),
                       ),
-                      if (user.role == UserRole.admin) ...[
-                        const SizedBox(width: 6),
-                        const Icon(
-                          Icons.admin_panel_settings,
-                          color: blue,
-                          size: 15,
-                        ),
-                      ],
+                      const SizedBox(width: 4),
+                      UserPrimaryBadge(
+                        role: user.role,
+                        verified: user.verified,
+                        globalChatModerator: user.globalChatModerator,
+                        compact: true,
+                      ),
                     ],
                   ),
                   const SizedBox(height: 3),
@@ -41092,25 +41850,26 @@ class _ProfileHeader extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            profile.username,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 22,
-                              fontWeight: FontWeight.w900,
-                            ),
-                          ),
-                        ),
-                        if (userRoleIsStaff(currentUser.role)) ...[
-                          const SizedBox(width: 8),
-                          _ProfileRoleBadge(role: currentUser.role),
-                        ],
-                      ],
+                    Text(
+                      profile.username,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 22,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    const SizedBox(height: 5),
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: UserPrimaryBadge(
+                        role: currentUser.role,
+                        verified: currentUser.verified,
+                        globalChatModerator: currentUser.globalChatModerator,
+                        showLabel: true,
+                        compact: true,
+                      ),
                     ),
                     const SizedBox(height: 4),
                     Text(
@@ -41168,44 +41927,6 @@ class _ProfileHeader extends StatelessWidget {
                   borderRadius: BorderRadius.circular(9),
                 ),
               ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _ProfileRoleBadge extends StatelessWidget {
-  final UserRole role;
-
-  const _ProfileRoleBadge({required this.role});
-
-  @override
-  Widget build(BuildContext context) {
-    final isAdmin = role == UserRole.admin;
-    final color = isAdmin ? Colors.redAccent : blue;
-    final label = isAdmin ? 'Admin' : 'Moderator';
-    final icon = isAdmin ? Icons.shield : Icons.shield_outlined;
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.14),
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: color.withValues(alpha: 0.55)),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, color: color, size: 13),
-          const SizedBox(width: 4),
-          Text(
-            label,
-            style: TextStyle(
-              color: color,
-              fontSize: 10.5,
-              fontWeight: FontWeight.w900,
             ),
           ),
         ],
@@ -41390,7 +42111,7 @@ class _GarageGalleryHeaderState extends State<_GarageGalleryHeader> {
                           duration: const Duration(milliseconds: 160),
                           height: 70,
                           decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(10),
+                            borderRadius: BorderRadius.circular(12),
                             boxShadow: currentIndex == index
                                 ? [
                                     BoxShadow(
@@ -41402,7 +42123,7 @@ class _GarageGalleryHeaderState extends State<_GarageGalleryHeader> {
                                 : null,
                           ),
                           foregroundDecoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(10),
+                            borderRadius: BorderRadius.circular(12),
                             border: Border.all(
                               color: currentIndex == index
                                   ? blue
@@ -42042,7 +42763,7 @@ class _ProfileSubmissionsPreview extends StatelessWidget {
                     spot: latest,
                     width: 64,
                     height: 64,
-                    borderRadius: BorderRadius.circular(10),
+                    borderRadius: BorderRadius.circular(12),
                   ),
                   const SizedBox(width: 12),
                   Expanded(
@@ -42152,7 +42873,7 @@ class _ProfileSavedSpotsPreview extends StatelessWidget {
                       ),
                     );
                   },
-                  borderRadius: BorderRadius.circular(10),
+                  borderRadius: BorderRadius.circular(12),
                   child: Padding(
                     padding: const EdgeInsets.symmetric(vertical: 8),
                     child: Row(
@@ -42250,7 +42971,7 @@ class _ProfileActionTile extends StatelessWidget {
               height: 42,
               decoration: BoxDecoration(
                 color: color.withValues(alpha: 0.16),
-                borderRadius: BorderRadius.circular(10),
+                borderRadius: BorderRadius.circular(12),
               ),
               child: Icon(icon, color: color),
             ),
@@ -42827,7 +43548,7 @@ class _GaragePhotoPickerField extends StatelessWidget {
                   height: 72,
                   decoration: BoxDecoration(
                     color: blue.withValues(alpha: 0.15),
-                    borderRadius: BorderRadius.circular(10),
+                    borderRadius: BorderRadius.circular(12),
                   ),
                   child: Icon(
                     canAddMore ? Icons.add_photo_alternate : Icons.check,
@@ -42895,7 +43616,7 @@ class _GaragePhotoPickerField extends StatelessWidget {
                         );
                       },
                       child: ClipRRect(
-                        borderRadius: BorderRadius.circular(10),
+                        borderRadius: BorderRadius.circular(12),
                         child: garagePhotoImage(
                           photoPaths[index],
                           width: 88,
@@ -43388,6 +44109,7 @@ class AdminVerifiedUsersScreen extends StatelessWidget {
             avatarPath: currentUser.avatarPath,
             role: currentUser.role,
             verified: verified || userRoleIsStaff(currentUser.role),
+            globalChatModerator: currentUser.globalChatModerator,
             city: currentUser.city,
             country: currentUser.country,
           ),
@@ -43492,9 +44214,21 @@ class AdminVerifiedUsersScreen extends StatelessWidget {
                                       ),
                                     ),
                                   ),
-                                  if (userRoleIsStaff(user.role)) ...[
-                                    const SizedBox(width: 6),
-                                    _ProfileRoleBadge(role: user.role),
+                                  if (primaryUserBadgeKind(
+                                        role: user.role,
+                                        verified: user.verified,
+                                        globalChatModerator:
+                                            user.globalChatModerator,
+                                      ) !=
+                                      null) ...[
+                                    const SizedBox(width: 4),
+                                    UserPrimaryBadge(
+                                      role: user.role,
+                                      verified: user.verified,
+                                      globalChatModerator:
+                                          user.globalChatModerator,
+                                      compact: true,
+                                    ),
                                   ],
                                 ],
                               ),
@@ -44190,18 +44924,13 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
                             ),
                           ),
                         ),
-                        if (userRoleIsStaff(user.role)) ...[
-                          const SizedBox(width: 6),
-                          _ProfileRoleBadge(role: user.role),
-                        ],
-                        if (user.globalChatModerator) ...[
-                          const SizedBox(width: 6),
-                          _SmallTag(
-                            label: trText('community'),
-                            icon: Icons.forum_outlined,
-                            color: const Color(0xFF00E0C7),
-                          ),
-                        ],
+                        const SizedBox(width: 4),
+                        UserPrimaryBadge(
+                          role: user.role,
+                          verified: user.verified,
+                          globalChatModerator: user.globalChatModerator,
+                          compact: true,
+                        ),
                       ],
                     ),
                     const SizedBox(height: 3),
@@ -45190,7 +45919,7 @@ class AdminSpotTile extends StatelessWidget {
               spot: spot,
               width: 82,
               height: 82,
-              borderRadius: BorderRadius.circular(10),
+              borderRadius: BorderRadius.circular(12),
             ),
             const SizedBox(width: 12),
             Expanded(
@@ -45364,6 +46093,7 @@ class _AdminEditSpotScreenState extends State<AdminEditSpotScreen> {
   late Map<int, OpeningHoursData> openingHours;
   SpotOwnerAssignment? selectedOwner;
   bool isSaving = false;
+  bool isUpdatingEditLocation = false;
 
   int get totalPhotoCount => existingPhotoUrls.length + newPhotoPaths.length;
 
@@ -45561,6 +46291,242 @@ class _AdminEditSpotScreenState extends State<AdminEditSpotScreen> {
     }
 
     setState(() => temporaryShowOnMapAt = value);
+  }
+
+  Future<void> applyEditedLocation(LatLng location) async {
+    setState(() => isUpdatingEditLocation = true);
+
+    try {
+      final cityCountry = await detectCityCountryForCoordinates(location);
+
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        latController.text = location.latitude.toStringAsFixed(6);
+        lngController.text = location.longitude.toStringAsFixed(6);
+        cityController.text = cityCountry.trim().isEmpty
+            ? cityController.text
+            : cityCountry.trim();
+      });
+    } finally {
+      if (mounted) {
+        setState(() => isUpdatingEditLocation = false);
+      }
+    }
+  }
+
+  Future<void> chooseEditedLocationOnMap() async {
+    FocusScope.of(context).unfocus();
+
+    final currentLat = double.tryParse(latController.text.trim().replaceAll(',', '.'));
+    final currentLng = double.tryParse(lngController.text.trim().replaceAll(',', '.'));
+    final initialLocation = currentLat == null || currentLng == null
+        ? widget.spot.coordinates
+        : safeLatLng(currentLat, currentLng);
+
+    final location = await Navigator.push<LatLng>(
+      context,
+      appPageRoute(
+        builder: (_) => LocationPickerScreen(initialLocation: initialLocation),
+      ),
+    );
+
+    if (!mounted || location == null) {
+      return;
+    }
+
+    await applyEditedLocation(location);
+  }
+
+  Future<void> chooseEditedLocationByAddress() async {
+    FocusScope.of(context).unfocus();
+
+    final addressController = TextEditingController(text: cityController.text.trim());
+
+    final address = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          backgroundColor: panelGlass,
+          title: Text(trText('Find exact address')),
+          content: TextField(
+            controller: addressController,
+            autofocus: true,
+            keyboardType: TextInputType.streetAddress,
+            textInputAction: TextInputAction.search,
+            style: const TextStyle(color: Colors.white),
+            decoration: InputDecoration(
+              hintText: trText('Street, city, country'),
+              hintStyle: const TextStyle(color: Colors.white38),
+              prefixIcon: const Icon(Icons.search, color: blue),
+              filled: true,
+              fillColor: Colors.white.withValues(alpha: 0.06),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: const BorderSide(color: Colors.white12),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: const BorderSide(color: Colors.white12),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: const BorderSide(color: blue),
+              ),
+            ),
+            onSubmitted: (value) => Navigator.pop(dialogContext, value.trim()),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: Text(trText('Cancel')),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, addressController.text.trim()),
+              child: Text(trText('Find')),
+            ),
+          ],
+        );
+      },
+    );
+
+    addressController.dispose();
+
+    if (!mounted || address == null || address.trim().isEmpty) {
+      return;
+    }
+
+    try {
+      setState(() => isUpdatingEditLocation = true);
+      final locations = await locationFromAddress(address.trim());
+
+      if (!mounted) {
+        return;
+      }
+
+      if (locations.isEmpty) {
+        setState(() => isUpdatingEditLocation = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            backgroundColor: Colors.redAccent,
+            content: Text(
+              'Address not found. Try adding city and country.',
+              style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+            ),
+          ),
+        );
+        return;
+      }
+
+      final first = locations.first;
+      await applyEditedLocation(safeLatLng(first.latitude, first.longitude));
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() => isUpdatingEditLocation = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: Colors.redAccent,
+          content: Text(
+            'Could not find that address. $error',
+            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+          ),
+        ),
+      );
+    }
+  }
+
+  Future<void> chooseEditedCurrentLocation() async {
+    FocusScope.of(context).unfocus();
+
+    if (isUpdatingEditLocation) {
+      return;
+    }
+
+    try {
+      setState(() => isUpdatingEditLocation = true);
+
+      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!mounted) {
+        return;
+      }
+
+      if (!serviceEnabled) {
+        setState(() => isUpdatingEditLocation = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            backgroundColor: Colors.redAccent,
+            content: Text(
+              'Turn on phone location to use your current position.',
+              style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+            ),
+          ),
+        );
+        return;
+      }
+
+      var permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+
+      if (!mounted) {
+        return;
+      }
+
+      if (permission == LocationPermission.denied ||
+          permission == LocationPermission.deniedForever) {
+        setState(() => isUpdatingEditLocation = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            backgroundColor: Colors.redAccent,
+            content: Text(
+              'Location permission is needed to use your current position.',
+              style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+            ),
+          ),
+        );
+        return;
+      }
+
+      final position = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+          timeLimit: userLocationLookupTimeout,
+        ),
+      );
+
+      if (!mounted) {
+        return;
+      }
+
+      final location = safeLatLngFromPosition(position);
+      if (location == null) {
+        setState(() => isUpdatingEditLocation = false);
+        return;
+      }
+
+      await applyEditedLocation(location);
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() => isUpdatingEditLocation = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: Colors.redAccent,
+          content: Text(
+            'Could not get current location. $error',
+            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+          ),
+        ),
+      );
+    }
   }
 
   Future<void> saveSpot() async {
@@ -46015,34 +46981,15 @@ class _AdminEditSpotScreenState extends State<AdminEditSpotScreen> {
                 hint: 'Riga, Latvia',
                 icon: Icons.location_city,
               ),
-              Row(
-                children: [
-                  Expanded(
-                    child: _CcsTextField(
-                      controller: latController,
-                      label: 'Latitude',
-                      hint: '56.949600',
-                      icon: Icons.my_location,
-                      keyboardType: const TextInputType.numberWithOptions(
-                        decimal: true,
-                        signed: true,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 9),
-                  Expanded(
-                    child: _CcsTextField(
-                      controller: lngController,
-                      label: 'Longitude',
-                      hint: '24.105200',
-                      icon: Icons.explore,
-                      keyboardType: const TextInputType.numberWithOptions(
-                        decimal: true,
-                        signed: true,
-                      ),
-                    ),
-                  ),
-                ],
+              _SpotLocationPicker(
+                hasLocation: true,
+                isBusy: isUpdatingEditLocation,
+                statusText: isUpdatingEditLocation
+                    ? 'Detecting city/country...'
+                    : '${cityController.text.trim().isEmpty ? 'Unknown location' : cityController.text.trim()} • ${latController.text.trim()}, ${lngController.text.trim()}',
+                onMapTap: chooseEditedLocationOnMap,
+                onAddressTap: chooseEditedLocationByAddress,
+                onCurrentTap: chooseEditedCurrentLocation,
               ),
               _CcsTextField(
                 controller: descriptionController,
@@ -46210,7 +47157,7 @@ class _AdminEditSpotScreenState extends State<AdminEditSpotScreen> {
                         height: 72,
                         decoration: BoxDecoration(
                           color: blue.withValues(alpha: 0.15),
-                          borderRadius: BorderRadius.circular(10),
+                          borderRadius: BorderRadius.circular(12),
                         ),
                         child: Icon(
                           canAddMore ? Icons.add_photo_alternate : Icons.check,
@@ -46950,4 +47897,4 @@ class AppPage extends StatelessWidget {
       ),
     );
   }
-}
+} 
