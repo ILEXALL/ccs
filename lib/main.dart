@@ -1,4 +1,4 @@
-﻿  import 'dart:async';
+﻿import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
@@ -40932,11 +40932,12 @@ class PublicUserProfileScreen extends StatelessWidget {
                   ? 0
                   : timestampMillisFromFirebase(presenceData['lastSeenAt']);
               final profileLastSeenAtMillis = profile.lastSeenAtMillis;
-              final mergedLastSeenAtMillis = presenceLastSeenAtMillis >
-                      profileLastSeenAtMillis
+              final mergedLastSeenAtMillis =
+                  presenceLastSeenAtMillis > profileLastSeenAtMillis
                   ? presenceLastSeenAtMillis
                   : profileLastSeenAtMillis;
-              final presenceAppearsOnline = presenceData != null &&
+              final presenceAppearsOnline =
+                  presenceData != null &&
                   userAppearsOnlineFromPresence(
                     isOnline: presenceData['isOnline'] == true,
                     lastSeenAtMillis: presenceLastSeenAtMillis,
