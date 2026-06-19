@@ -959,7 +959,7 @@ class _FirestoreDebugScreenState extends State<FirestoreDebugScreen> {
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
                   color: panelGlass,
-                  borderRadius: BorderRadius.circular(18),
+                  borderRadius: BorderRadius.circular(14),
                   border: Border.all(color: Colors.white12),
                 ),
                 child: Column(
@@ -1569,6 +1569,36 @@ const _ruText = <String, String>{
   'Permanent ban': 'Бессрочная блокировка',
   'Reason': 'Причина',
   'No reason provided.': 'Причина не указана.',
+  'Report': 'Пожаловаться',
+  'Action': 'Действия',
+  'New user report': 'Новая жалоба на пользователя',
+  'Report user': 'Пожаловаться на пользователя',
+  'Report reason': 'Причина жалобы',
+  'Write the reason for reporting': 'Напишите причину жалобы',
+  'Tell moderators why you are reporting':
+      'Расскажите модераторам, почему вы жалуетесь на',
+  'Submit report': 'Отправить жалобу',
+  'Sending report...': 'Отправляем жалобу...',
+  'Report sent to moderators.': 'Жалоба отправлена модераторам.',
+  'Could not send report.': 'Не удалось отправить жалобу.',
+  'User reports': 'Жалобы на пользователей',
+  'Review profile reports from users':
+      'Проверка жалоб на профили от пользователей',
+  'No user reports yet.': 'Жалоб на пользователей пока нет.',
+  'No user reports yet': 'Жалоб на пользователей пока нет',
+  'Reports submitted from public profiles will appear here.':
+      'Жалобы из публичных профилей появятся здесь.',
+  'Reported by': 'Отправил(а)',
+  'Open reported profile': 'Открыть профиль нарушителя',
+  'Open reporter': 'Открыть автора жалобы',
+  'Mark reviewed': 'Отметить проверенной',
+  'Resolve': 'Решить',
+  'Report reviewed.': 'Жалоба отмечена проверенной.',
+  'Report resolved.': 'Жалоба закрыта.',
+  'Could not update report': 'Не удалось обновить жалобу',
+  'open': 'открыта',
+  'reviewed': 'проверена',
+  'resolved': 'решена',
   'Contact an administrator if this looks wrong.':
       'Свяжитесь с администратором, если это ошибка.',
   'Ban user': 'Забанить пользователя',
@@ -2440,6 +2470,35 @@ const _lvText = <String, String>{
   'Permanent ban': 'Beztermiņa bloķēšana',
   'Reason': 'Iemesls',
   'No reason provided.': 'Iemesls nav norādīts.',
+  'Report': 'Ziņot',
+  'Action': 'Darbības',
+  'New user report': 'Jauns lietotāja ziņojums',
+  'Report user': 'Ziņot par lietotāju',
+  'Report reason': 'Ziņojuma iemesls',
+  'Write the reason for reporting': 'Uzrakstiet ziņošanas iemeslu',
+  'Tell moderators why you are reporting':
+      'Pastāstiet moderatoriem, kāpēc ziņojat par',
+  'Submit report': 'Nosūtīt ziņojumu',
+  'Sending report...': 'Sūtām ziņojumu...',
+  'Report sent to moderators.': 'Ziņojums nosūtīts moderatoriem.',
+  'Could not send report.': 'Neizdevās nosūtīt ziņojumu.',
+  'User reports': 'Lietotāju ziņojumi',
+  'Review profile reports from users': 'Pārskatīt lietotāju profilu ziņojumus',
+  'No user reports yet.': 'Lietotāju ziņojumu vēl nav.',
+  'No user reports yet': 'Lietotāju ziņojumu vēl nav',
+  'Reports submitted from public profiles will appear here.':
+      'Ziņojumi no publiskajiem profiliem parādīsies šeit.',
+  'Reported by': 'Ziņoja',
+  'Open reported profile': 'Atvērt ziņoto profilu',
+  'Open reporter': 'Atvērt ziņotāju',
+  'Mark reviewed': 'Atzīmēt kā pārskatītu',
+  'Resolve': 'Atrisināt',
+  'Report reviewed.': 'Ziņojums atzīmēts kā pārskatīts.',
+  'Report resolved.': 'Ziņojums atrisināts.',
+  'Could not update report': 'Neizdevās atjaunināt ziņojumu',
+  'open': 'atvērts',
+  'reviewed': 'pārskatīts',
+  'resolved': 'atrisināts',
   'Contact an administrator if this looks wrong.':
       'Sazinieties ar administratoru, ja tā ir kļūda.',
   'Ban user': 'Bloķēt lietotāju',
@@ -7982,6 +8041,10 @@ CollectionReference<Map<String, dynamic>> usersCollection() {
   return FirebaseFirestore.instance.collection('users');
 }
 
+CollectionReference<Map<String, dynamic>> userReportsCollection() {
+  return FirebaseFirestore.instance.collection('user_reports');
+}
+
 CollectionReference<Map<String, dynamic>> userPresenceCollection() {
   return FirebaseFirestore.instance.collection('user_presence');
 }
@@ -9601,6 +9664,7 @@ class ChatThreadData {
   final String avatarUrl;
   final String ownerUid;
   final List<String> moderatorIds;
+  final bool isPrivate;
   final List<String> hiddenForUserIds;
   final int updatedAtMillis;
 
@@ -9619,6 +9683,7 @@ class ChatThreadData {
     this.avatarUrl = '',
     this.ownerUid = '',
     this.moderatorIds = const [],
+    this.isPrivate = false,
     this.hiddenForUserIds = const [],
     required this.updatedAtMillis,
   });
@@ -9649,6 +9714,7 @@ class ChatThreadData {
       avatarUrl: stringFromFirebase(data['avatarUrl'], ''),
       ownerUid: stringFromFirebase(data['ownerUid'], ''),
       moderatorIds: stringListFromFirebase(data['moderatorIds'], const []),
+      isPrivate: data['isPrivate'] == true,
       hiddenForUserIds: stringListFromFirebase(
         data['hiddenForUserIds'],
         const [],
@@ -9725,7 +9791,7 @@ class ChatThreadData {
 
   String directPhotoUrlForCurrentUser(String currentUid) {
     if (isGroup) {
-      return avatarUrl;
+      return photoUrl.trim().isNotEmpty ? photoUrl : avatarUrl;
     }
 
     for (var index = 0; index < memberIds.length; index++) {
@@ -9961,6 +10027,8 @@ Future<String> createOrOpenDirectChat(FriendUserData user) async {
 Future<String> createGroupChat({
   required String name,
   required List<FriendUserData> users,
+  String? avatarLocalPath,
+  bool isPrivate = false,
 }) async {
   final firebaseUser = FirebaseAuth.instance.currentUser;
 
@@ -9986,6 +10054,13 @@ Future<String> createGroupChat({
       .take(3)
       .join(', ');
   final doc = chatsCollection().doc();
+  final cleanAvatarLocalPath = avatarLocalPath?.trim() ?? '';
+  final groupAvatarUrl = cleanAvatarLocalPath.isEmpty
+      ? ''
+      : await uploadGroupAvatarPhoto(
+          groupId: doc.id,
+          localPhotoPath: cleanAvatarLocalPath,
+        );
 
   await doc.debugSet({
     'isGroup': true,
@@ -9998,7 +10073,9 @@ Future<String> createGroupChat({
     ],
     'ownerUid': firebaseUser.uid,
     'moderatorIds': [],
-    'photoUrl': '',
+    'isPrivate': isPrivate,
+    'photoUrl': groupAvatarUrl,
+    'avatarUrl': groupAvatarUrl,
     'description': '',
     'lastMessage': '',
     'lastSenderUid': '',
@@ -10515,7 +10592,9 @@ Future<void> shareChatLiveLocation(
 Future<bool> currentUserCanModerateChat(String chatId) async {
   final firebaseUser = FirebaseAuth.instance.currentUser;
   if (firebaseUser == null) return false;
-  if (userRoleIsStaff(currentUser.role)) return true;
+  if (userRoleIsStaff(currentUser.role) || currentUser.globalChatModerator) {
+    return true;
+  }
 
   final snapshot = await chatsCollection().doc(chatId).debugGet();
   final data = snapshot.data();
@@ -10540,10 +10619,8 @@ Future<void> editChatMessage({
   required String text,
 }) async {
   final firebaseUser = FirebaseAuth.instance.currentUser;
-  final canModerate = await currentUserCanModerateChat(chatId);
 
-  if (firebaseUser == null ||
-      (firebaseUser.uid != message.senderUid && !canModerate)) {
+  if (firebaseUser == null || firebaseUser.uid != message.senderUid) {
     throw FirebaseException(
       plugin: 'cloud_firestore',
       code: 'permission-denied',
@@ -10600,7 +10677,9 @@ Future<void> deleteChatMessage({
     // Owners and group moderators should be able to remove messages directly
     // from the group chat. If older Firestore rules reject moderator deletes,
     // fall back to the moderation endpoint used by previous builds.
-    await chatMessagesCollection(chatId).doc(message.id).debugDelete();
+    await chatMessagesCollection(
+      chatId,
+    ).doc(message.id).debugDelete('chat: delete message');
   } catch (error) {
     if (firebaseUser.uid == message.senderUid) {
       rethrow;
@@ -11294,15 +11373,75 @@ Future<void> createMeetSpotNotificationsForNearbyUsers(CarSpot spot) async {
   }
 }
 
-Future<List<String>> adminUserIdsExcept({String? excludedUid}) async {
-  final snapshot = await usersCollection()
+Future<List<String>> staffUserIdsExcept({String? excludedUid}) async {
+  final adminSnapshot = await usersCollection()
       .where('role', isEqualTo: 'admin')
       .debugGet(null, 'users: admin user ids query');
+  final moderatorSnapshot = await usersCollection()
+      .where('role', isEqualTo: 'moderator')
+      .debugGet(null, 'users: moderator user ids query');
 
-  return snapshot.docs
-      .map((doc) => stringFromFirebase(doc.data()['uid'], doc.id))
-      .where((uid) => uid.isNotEmpty && uid != excludedUid)
-      .toList();
+  final ids = <String>{};
+  for (final doc in [...adminSnapshot.docs, ...moderatorSnapshot.docs]) {
+    final data = doc.data();
+    final uid = stringFromFirebase(data['uid'], doc.id).trim();
+    final deleted = data['deleted'] == true;
+    final banned = data['banned'] == true;
+    if (uid.isNotEmpty && uid != excludedUid && !deleted && !banned) {
+      ids.add(uid);
+    }
+  }
+
+  return ids.toList();
+}
+
+Future<List<String>> adminUserIdsExcept({String? excludedUid}) {
+  return staffUserIdsExcept(excludedUid: excludedUid);
+}
+
+Future<void> createAdminUserReportNotifications({
+  required String reportId,
+  required PublicUserProfileData reportedUser,
+  required String reporterUid,
+  required String reporterUsername,
+  required String reason,
+  required int createdAtMillis,
+}) async {
+  if (reportId.trim().isEmpty || reportedUser.uid.trim().isEmpty) {
+    return;
+  }
+
+  final staffUids = await staffUserIdsExcept(excludedUid: reporterUid);
+  if (staffUids.isEmpty) {
+    return;
+  }
+
+  final batch = FirebaseFirestore.instance.batch();
+  final cleanReporter = displayUsername(reporterUsername);
+  final cleanReported = displayUsername(reportedUser.username);
+  final cleanReason = reason.trim();
+
+  for (final staffUid in staffUids) {
+    final notificationId = 'user_report_${reportId}_$staffUid';
+    batch.debugSet(adminNotificationsCollection().doc(notificationId), {
+      'userId': staffUid,
+      'type': 'user_report_new',
+      'title': 'New user report',
+      'body':
+          '$cleanReporter reported $cleanReported${cleanReason.isEmpty ? '.' : ': $cleanReason'}',
+      'actorUserId': reporterUid,
+      'actorUsername': reporterUsername,
+      'reportedUid': reportedUser.uid,
+      'reportedUsername': reportedUser.username,
+      'reportId': reportId,
+      'reason': cleanReason,
+      'read': false,
+      'createdAt': FieldValue.serverTimestamp(),
+      'createdAtMillis': createdAtMillis,
+    }, SetOptions(merge: true));
+  }
+
+  await batch.commit();
 }
 
 Future<void> createAdminSpotReviewNotification(CarSpot spot) async {
@@ -11756,6 +11895,21 @@ Future<String> uploadUserAvatarPhoto({
   required String localPhotoPath,
 }) async {
   final r2Path = 'users/$userId/avatar.jpg';
+
+  return uploadImageToR2(
+    r2Path: r2Path,
+    localPhotoPath: localPhotoPath,
+    maxLongSide: r2AvatarPhotoMaxLongSide,
+    quality: r2JpegQuality,
+  );
+}
+
+Future<String> uploadGroupAvatarPhoto({
+  required String groupId,
+  required String localPhotoPath,
+}) async {
+  final timestamp = DateTime.now().millisecondsSinceEpoch;
+  final r2Path = 'groups/${safeR2Path(groupId)}/avatar_$timestamp.jpg';
 
   return uploadImageToR2(
     r2Path: r2Path,
@@ -14548,6 +14702,7 @@ class NotificationCenterItem {
               spotName.trim().isNotEmpty) ||
           type == 'friend_request' ||
           type == 'spot_pending_review' ||
+          type == 'user_report_new' ||
           type == 'friend_nearby' ||
           type == 'friend_at_spot' ||
           type == 'friend_live_sharing');
@@ -14606,6 +14761,7 @@ IconData notificationCenterIcon(NotificationCenterItem item) {
           ? Icons.cancel
           : Icons.check_circle,
     'spot_pending_review' => Icons.fact_check,
+    'user_report_new' => Icons.report_outlined,
     'spot_approved_by_admin' => Icons.check_circle,
     'spot_rejected_by_admin' => Icons.cancel,
     'new_spot' => Icons.add_location_alt,
@@ -14636,6 +14792,7 @@ Color notificationCenterColor(NotificationCenterItem item) {
     'spot_rejected_by_admin' => Colors.redAccent,
     'spot_approved_by_admin' => Colors.green,
     'spot_pending_review' => blue,
+    'user_report_new' => Colors.orangeAccent,
     'new_spot' => const Color(0xFF9B35FF),
     'temporary_event' => const Color(0xFFFF7A00),
     'friend_request' => blue,
@@ -14948,6 +15105,7 @@ NotificationCenterItem notificationCenterItemFromDocument(
     'new_spot' => 'New spots',
     'temporary_event' => 'Temporary events',
     'spot_pending_review' => 'Spot review updates',
+    'user_report_new' => 'New user report',
     'spot_approved_by_admin' ||
     'spot_rejected_by_admin' => 'Spot review updates',
     'friend_request' => 'New friend request',
@@ -14996,6 +15154,8 @@ NotificationCenterItem notificationCenterItemFromDocument(
         spotName.trim().isEmpty
             ? 'New spot is waiting for review.'
             : '$spotName is waiting for review.',
+      'user_report_new' =>
+        body.trim().isNotEmpty ? body : 'A user report is waiting for review.',
       'spot_approved_by_admin' =>
         spotName.trim().isEmpty
             ? 'Spot approved.'
@@ -16191,6 +16351,14 @@ Future<void> openNotificationCenterItem(
         ),
       );
     }
+    return;
+  }
+
+  if (item.type == 'user_report_new' && userRoleIsStaff(currentUser.role)) {
+    Navigator.push(
+      context,
+      appPageRoute(builder: (_) => const AdminUserReportsScreen()),
+    );
     return;
   }
 
@@ -26152,7 +26320,7 @@ class EmptyStateCard extends StatelessWidget {
         children: [
           Container(
             width: 52,
-            height: 52,
+            height: 42,
             decoration: BoxDecoration(
               color: blue.withValues(alpha: 0.16),
               shape: BoxShape.circle,
@@ -31768,10 +31936,10 @@ Widget chatAvatarWidget(ChatThreadData chat, String currentUid) {
     );
   }
 
-  if (chat.isGroup && isNetworkUrl(chat.avatarUrl)) {
+  if (chat.isGroup && isNetworkUrl(photoUrl)) {
     return ClipOval(
       child: Image.network(
-        chat.avatarUrl,
+        photoUrl,
         width: 46,
         height: 46,
         fit: BoxFit.cover,
@@ -35962,6 +36130,8 @@ class _NewChatScreenState extends State<NewChatScreen> {
   bool groupMode = false;
   String searchText = '';
   bool isCreating = false;
+  bool groupIsPrivate = false;
+  String? groupAvatarLocalPath;
 
   @override
   void initState() {
@@ -36003,6 +36173,7 @@ class _NewChatScreenState extends State<NewChatScreen> {
         memberIds: [currentUser.uid, user.uid],
         memberUsernames: [currentUser.username, user.username],
         lastMessage: '',
+        isPrivate: false,
         updatedAtMillis: DateTime.now().millisecondsSinceEpoch,
       );
 
@@ -36038,6 +36209,26 @@ class _NewChatScreenState extends State<NewChatScreen> {
     }
   }
 
+  Future<void> pickGroupAvatarForNewChat() async {
+    if (isCreating) {
+      return;
+    }
+
+    final path = await pickPhotoFromPhone(
+      context,
+      cropAspectRatio: 1,
+      cropShape: PhotoCropShape.circle,
+    );
+
+    if (path == null || path.trim().isEmpty) {
+      return;
+    }
+
+    if (mounted) {
+      setState(() => groupAvatarLocalPath = path);
+    }
+  }
+
   Future<void> createGroup(List<FriendUserData> friends) async {
     final selected = friends
         .where((user) => selectedUserIds.contains(user.uid))
@@ -36062,6 +36253,8 @@ class _NewChatScreenState extends State<NewChatScreen> {
       final chatId = await createGroupChat(
         name: groupNameController.text,
         users: selected,
+        avatarLocalPath: groupAvatarLocalPath,
+        isPrivate: groupIsPrivate,
       );
       final groupName = groupNameController.text.trim().isEmpty
           ? selected.map((user) => user.username).take(3).join(', ')
@@ -36070,12 +36263,14 @@ class _NewChatScreenState extends State<NewChatScreen> {
         id: chatId,
         isGroup: true,
         name: groupName,
+        photoUrl: '',
         memberIds: [currentUser.uid, ...selected.map((user) => user.uid)],
         memberUsernames: [
           currentUser.username,
           ...selected.map((user) => user.username),
         ],
         lastMessage: '',
+        isPrivate: groupIsPrivate,
         updatedAtMillis: DateTime.now().millisecondsSinceEpoch,
       );
 
@@ -36236,9 +36431,10 @@ class _NewChatScreenState extends State<NewChatScreen> {
       body: FutureBuilder<List<FriendUserData>>(
         future: loadCurrentFriendUsers(),
         builder: (context, snapshot) {
-          final friends =
-              snapshot.data?.where(matchesSearch).toList() ??
-              const <FriendUserData>[];
+          final allFriends = snapshot.data ?? const <FriendUserData>[];
+          final friends = groupMode
+              ? [...allFriends]
+              : allFriends.where(matchesSearch).toList();
 
           return ListView(
             padding: const EdgeInsets.fromLTRB(12, 18, 12, 28),
@@ -36282,14 +36478,125 @@ class _NewChatScreenState extends State<NewChatScreen> {
                   ),
                 ],
               ),
-              const SizedBox(height: 14),
-              _CcsTextField(
-                controller: searchController,
-                label: 'Find friend',
-                hint: '@username',
-                icon: Icons.search,
-              ),
+              if (!groupMode) ...[
+                const SizedBox(height: 14),
+                _CcsTextField(
+                  controller: searchController,
+                  label: 'Find friend',
+                  hint: '@username',
+                  icon: Icons.search,
+                ),
+              ],
               if (groupMode) ...[
+                const SizedBox(height: 12),
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: panelGlass,
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(color: Colors.white12),
+                  ),
+                  child: Row(
+                    children: [
+                      InkWell(
+                        onTap: isCreating ? null : pickGroupAvatarForNewChat,
+                        borderRadius: BorderRadius.circular(999),
+                        child: Stack(
+                          alignment: Alignment.bottomRight,
+                          children: [
+                            ClipOval(
+                              child: groupAvatarLocalPath == null
+                                  ? Container(
+                                      width: 58,
+                                      height: 58,
+                                      color: blue.withValues(alpha: 0.16),
+                                      child: const Icon(
+                                        Icons.groups,
+                                        color: blue,
+                                      ),
+                                    )
+                                  : Image.file(
+                                      File(groupAvatarLocalPath!),
+                                      width: 58,
+                                      height: 58,
+                                      fit: BoxFit.cover,
+                                    ),
+                            ),
+                            Container(
+                              padding: const EdgeInsets.all(5),
+                              decoration: const BoxDecoration(
+                                color: blue,
+                                shape: BoxShape.circle,
+                              ),
+                              child: const Icon(
+                                Icons.camera_alt,
+                                color: Colors.white,
+                                size: 14,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      const Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Group avatar',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
+                            SizedBox(height: 3),
+                            Text(
+                              'Optional. Tap to upload a photo.',
+                              style: TextStyle(color: Colors.white54),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 8,
+                  ),
+                  decoration: BoxDecoration(
+                    color: panelGlass,
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(color: Colors.white12),
+                  ),
+                  child: SwitchListTile.adaptive(
+                    contentPadding: EdgeInsets.zero,
+                    value: groupIsPrivate,
+                    onChanged: isCreating
+                        ? null
+                        : (value) => setState(() => groupIsPrivate = value),
+                    activeColor: blue,
+                    title: const Text(
+                      'Private group',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    subtitle: const Text(
+                      'Private: only owner/staff can add members. Public: group moderators can add members too.',
+                      style: TextStyle(color: Colors.white54),
+                    ),
+                    secondary: Icon(
+                      groupIsPrivate
+                          ? Icons.lock_outline
+                          : Icons.public_outlined,
+                      color: blue,
+                    ),
+                  ),
+                ),
                 const SizedBox(height: 12),
                 _CcsTextField(
                   controller: groupNameController,
@@ -36359,6 +36666,7 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
   late List<String> memberPhotoUrls;
   late List<String> moderatorIds;
   late String ownerUid;
+  late bool isPrivate;
   bool isSaving = false;
   String photoUrl = '';
 
@@ -36375,6 +36683,7 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
     memberPhotoUrls = [...widget.chat.memberPhotoUrls];
     moderatorIds = [...widget.chat.moderatorIds];
     ownerUid = widget.chat.effectiveOwnerUid();
+    isPrivate = widget.chat.isPrivate;
   }
 
   @override
@@ -36402,15 +36711,14 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
     setState(() => isSaving = true);
 
     try {
-      final uploadedUrl = await uploadImageToR2(
-        r2Path:
-            'users/${currentUser.uid}/group_${safeR2Path(widget.chat.id)}_avatar_${DateTime.now().millisecondsSinceEpoch}.jpg',
+      final uploadedUrl = await uploadGroupAvatarPhoto(
+        groupId: widget.chat.id,
         localPhotoPath: path,
-        maxLongSide: r2AvatarPhotoMaxLongSide,
       );
 
       await chatsCollection().doc(widget.chat.id).debugSet({
         'photoUrl': uploadedUrl,
+        'avatarUrl': uploadedUrl,
         'updatedAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
 
@@ -36443,10 +36751,19 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
     return ownerUid == currentUser.uid;
   }
 
-  bool get canManageGroupMembers {
+  bool get currentUserCanOverridePrivateGroup {
     return isCurrentUserGroupOwner ||
-        moderatorIds.contains(currentUser.uid) ||
-        userRoleIsStaff(currentUser.role);
+        userRoleIsStaff(currentUser.role) ||
+        currentUser.globalChatModerator;
+  }
+
+  bool get canManageGroupMembers {
+    if (isPrivate) {
+      return currentUserCanOverridePrivateGroup;
+    }
+
+    return currentUserCanOverridePrivateGroup ||
+        moderatorIds.contains(currentUser.uid);
   }
 
   bool get canEditGroupDetails => canManageGroupMembers;
@@ -36466,6 +36783,7 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
     avatarUrl: widget.chat.avatarUrl,
     ownerUid: ownerUid,
     moderatorIds: moderatorIds,
+    isPrivate: isPrivate,
     hiddenForUserIds: widget.chat.hiddenForUserIds,
     updatedAtMillis: widget.chat.updatedAtMillis,
   );
@@ -36787,6 +37105,7 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
       await chatsCollection().doc(widget.chat.id).debugSet({
         'name': name.isEmpty ? widget.chat.name : name,
         'description': description,
+        'isPrivate': isPrivate,
         'updatedAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
 
@@ -37084,6 +37403,41 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
                 label: trText('Group description'),
                 hint: 'What is this group about?',
                 icon: Icons.info_outline,
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Opacity(
+            opacity: canEditGroupDetails ? 1 : 0.62,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: panelGlass,
+                borderRadius: BorderRadius.circular(18),
+                border: Border.all(color: Colors.white12),
+              ),
+              child: SwitchListTile.adaptive(
+                contentPadding: EdgeInsets.zero,
+                value: isPrivate,
+                onChanged: canEditGroupDetails && !isSaving
+                    ? (value) => setState(() => isPrivate = value)
+                    : null,
+                activeColor: blue,
+                title: const Text(
+                  'Private group',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                subtitle: const Text(
+                  'Private groups let only the owner or staff add members.',
+                  style: TextStyle(color: Colors.white54),
+                ),
+                secondary: Icon(
+                  isPrivate ? Icons.lock_outline : Icons.public_outlined,
+                  color: blue,
+                ),
               ),
             ),
           ),
@@ -37929,6 +38283,12 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
     final currentUid =
         FirebaseAuth.instance.currentUser?.uid ?? currentUser.uid;
     final mine = message.senderUid == currentUid;
+    final canModerate = await currentUserCanModerateChat(widget.chat.id);
+    final canDelete = mine || canModerate;
+
+    if (!mine && !canDelete) {
+      return;
+    }
 
     final action = await showModalBottomSheet<String>(
       context: context,
@@ -37955,20 +38315,21 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
                     ),
                     onTap: () => Navigator.pop(context, 'edit'),
                   ),
-                ListTile(
-                  leading: const Icon(
-                    Icons.delete_outline,
-                    color: Colors.redAccent,
-                  ),
-                  title: const Text(
-                    'Delete message',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w800,
+                if (canDelete)
+                  ListTile(
+                    leading: const Icon(
+                      Icons.delete_outline,
+                      color: Colors.redAccent,
                     ),
+                    title: const Text(
+                      'Delete message',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    onTap: () => Navigator.pop(context, 'delete'),
                   ),
-                  onTap: () => Navigator.pop(context, 'delete'),
-                ),
               ],
             ),
           ),
@@ -37983,7 +38344,51 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
     if (action == 'edit') {
       await showEditMessageDialog(message);
     } else if (action == 'delete') {
-      await confirmDeleteMessage(message);
+      await deleteMessageImmediately(message);
+    }
+  }
+
+  Future<void> deleteMessageImmediately(ChatMessageData message) async {
+    if (!mounted || message.isLocalPending) {
+      return;
+    }
+
+    final index = _messages.indexWhere((item) => item.id == message.id);
+    final removedMessage = index >= 0 ? _messages[index] : message;
+
+    if (index >= 0) {
+      setState(() {
+        _messages.removeAt(index);
+      });
+    }
+
+    try {
+      await deleteChatMessage(chatId: widget.chat.id, message: message);
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      if (index >= 0 &&
+          !_messages.any((item) => item.id == removedMessage.id)) {
+        setState(() {
+          final restoreIndex = index.clamp(0, _messages.length).toInt();
+          _messages.insert(restoreIndex, removedMessage);
+        });
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: Colors.redAccent,
+          content: Text(
+            '${trText('Could not delete message')}: $error',
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+      );
     }
   }
 
@@ -38118,26 +38523,7 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
       return;
     }
 
-    try {
-      await deleteChatMessage(chatId: widget.chat.id, message: message);
-    } catch (error) {
-      if (!mounted) {
-        return;
-      }
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          backgroundColor: Colors.redAccent,
-          content: Text(
-            '${trText('Could not delete message')}: $error',
-            style: const TextStyle(
-              color: Colors.white,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-        ),
-      );
-    }
+    await deleteMessageImmediately(message);
   }
 
   Widget directChatTitle(
@@ -38262,11 +38648,14 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
     required bool showAuthorHeader,
   }) {
     final mine = message.senderUid == currentUid;
-    final canModerateMessage =
+    final canDeleteMessage =
         widget.chat.isGroup &&
         (userRoleIsStaff(currentUser.role) ||
+            currentUser.globalChatModerator ||
             widget.chat.ownerUid == currentUid ||
             widget.chat.moderatorIds.contains(currentUid));
+    final canActOnMessage =
+        !message.isLocalPending && (mine || canDeleteMessage);
     final sender =
         usersById[message.senderUid] ?? fallbackMessageSender(message);
     final receiptState = mine
@@ -38418,6 +38807,24 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
                     if (!showAuthorHeader) const SizedBox(width: 6),
                     ChatMessageStatusGlyph(state: receiptState),
                   ],
+                  if (canActOnMessage) ...[
+                    const SizedBox(width: 4),
+                    InkWell(
+                      onTap: () => showOwnMessageActions(message),
+                      borderRadius: BorderRadius.circular(10),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 3,
+                          vertical: 1,
+                        ),
+                        child: Icon(
+                          Icons.more_horiz,
+                          size: 16,
+                          color: Colors.white.withValues(alpha: 0.72),
+                        ),
+                      ),
+                    ),
+                  ],
                 ],
               ),
             ],
@@ -38428,7 +38835,7 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
 
     return GestureDetector(
       onTap: openSenderProfile,
-      onLongPress: ((mine && !message.isLocalPending) || canModerateMessage)
+      onLongPress: canActOnMessage
           ? () => showOwnMessageActions(message)
           : null,
       child: Align(
@@ -38448,7 +38855,8 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
         widget.chat.isGroup &&
         (widget.chat.isOwner(currentUid) ||
             widget.chat.moderatorIds.contains(currentUid) ||
-            userRoleIsStaff(currentUser.role));
+            userRoleIsStaff(currentUser.role) ||
+            currentUser.globalChatModerator);
 
     return Scaffold(
       backgroundColor: Colors.transparent,
@@ -40117,6 +40525,82 @@ Future<PublicProfileRelationshipState> loadPublicProfileRelationshipState(
   );
 }
 
+Future<void> submitUserReport({
+  required PublicUserProfileData reportedUser,
+  required String reason,
+}) async {
+  final firebaseUser = FirebaseAuth.instance.currentUser;
+  if (firebaseUser == null) {
+    throw StateError('Log in required');
+  }
+
+  final reporterUid = firebaseUser.uid.trim();
+  if (reporterUid.isEmpty) {
+    throw StateError('Log in required');
+  }
+
+  final cleanReason = reason.trim();
+  if (cleanReason.isEmpty) {
+    throw StateError('Reason is required.');
+  }
+
+  if (reportedUser.uid == reporterUid) {
+    throw StateError('You cannot report your own profile.');
+  }
+
+  final reporterUsername = currentUser.uid.trim().isEmpty
+      ? (firebaseUser.displayName?.trim().isNotEmpty == true
+            ? firebaseUser.displayName!.trim()
+            : 'ccs_driver')
+      : currentUser.username;
+  final reporterName = currentUser.uid.trim().isEmpty
+      ? (firebaseUser.displayName ?? '')
+      : currentUser.name;
+  final reporterEmail = currentUser.uid.trim().isEmpty
+      ? (firebaseUser.email ?? '')
+      : currentUser.email;
+
+  final nowMillis = DateTime.now().millisecondsSinceEpoch;
+  final reportId = '${reportedUser.uid}_${reporterUid}_$nowMillis';
+
+  await userReportsCollection()
+      .doc(reportId)
+      .debugSet(
+        {
+          'reportedUid': reportedUser.uid,
+          'reportedUsername': reportedUser.username,
+          'reportedName': reportedUser.name,
+          'reportedEmail': reportedUser.email,
+          'reportedRole': roleName(reportedUser.role),
+          'reporterUid': reporterUid,
+          'reporterUsername': reporterUsername,
+          'reporterName': reporterName,
+          'reporterEmail': reporterEmail,
+          'reason': cleanReason,
+          'status': 'open',
+          'createdAt': FieldValue.serverTimestamp(),
+          'createdAtMillis': nowMillis,
+          'updatedAt': FieldValue.serverTimestamp(),
+        },
+        SetOptions(merge: true),
+        'profile: submit user report',
+      );
+
+  try {
+    await createAdminUserReportNotifications(
+      reportId: reportId,
+      reportedUser: reportedUser,
+      reporterUid: reporterUid,
+      reporterUsername: reporterUsername,
+      reason: cleanReason,
+      createdAtMillis: nowMillis,
+    );
+  } catch (error, stack) {
+    debugPrint('Could not create user report notifications: $error');
+    debugPrint('$stack');
+  }
+}
+
 class PublicProfileActions extends StatefulWidget {
   final PublicUserProfileData profile;
 
@@ -40232,6 +40716,120 @@ class _PublicProfileActionsState extends State<PublicProfileActions> {
     await openMessageToUserFromContext(context, user);
   }
 
+  Future<String?> requestReportReason() async {
+    final reasonController = TextEditingController();
+    String? errorText;
+    var isSubmitting = false;
+
+    final reason = await showDialog<String>(
+      context: context,
+      barrierDismissible: !isSubmitting,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            Future<void> submit() async {
+              final cleanReason = reasonController.text.trim();
+              if (cleanReason.isEmpty) {
+                setDialogState(() => errorText = 'Reason is required.');
+                return;
+              }
+
+              setDialogState(() {
+                isSubmitting = true;
+                errorText = null;
+              });
+              FocusManager.instance.primaryFocus?.unfocus();
+              await Future<void>.delayed(const Duration(milliseconds: 120));
+
+              if (!dialogContext.mounted) {
+                return;
+              }
+
+              Navigator.pop(dialogContext, cleanReason);
+            }
+
+            return AlertDialog(
+              backgroundColor: panelGlass,
+              title: Text(trText('Report user')),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '${trText('Tell moderators why you are reporting')} ${displayUsername(widget.profile.username)}.',
+                    style: const TextStyle(color: Colors.white70),
+                  ),
+                  const SizedBox(height: 14),
+                  TextField(
+                    controller: reasonController,
+                    enabled: !isSubmitting,
+                    minLines: 3,
+                    maxLines: 6,
+                    maxLength: 800,
+                    style: const TextStyle(color: Colors.white),
+                    decoration: InputDecoration(
+                      labelText: trText('Report reason'),
+                      hintText: trText('Write the reason for reporting'),
+                      prefixIcon: const Icon(Icons.report, color: blue),
+                      errorText: errorText == null ? null : trText(errorText!),
+                    ),
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: isSubmitting
+                      ? null
+                      : () => Navigator.pop(dialogContext),
+                  child: Text(trText('Cancel')),
+                ),
+                TextButton(
+                  onPressed: isSubmitting ? null : () => unawaited(submit()),
+                  child: Text(
+                    trText(
+                      isSubmitting ? 'Sending report...' : 'Submit report',
+                    ),
+                    style: const TextStyle(color: Colors.redAccent),
+                  ),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    reasonController.dispose();
+    return reason;
+  }
+
+  Future<void> reportProfile() async {
+    if (busy) {
+      return;
+    }
+
+    final reason = await requestReportReason();
+    if (reason == null) {
+      return;
+    }
+
+    setState(() => busy = true);
+    try {
+      await submitUserReport(reportedUser: widget.profile, reason: reason);
+      showActionMessage(trText('Report sent to moderators.'));
+    } catch (error) {
+      debugPrint('Could not send user report: $error');
+      final message = error is FirebaseException
+          ? '${trText('Could not send report.')} (${error.code})'
+          : localizedFriendActionError(error, 'Could not send report.');
+      showActionMessage(message, color: Colors.redAccent);
+    } finally {
+      if (mounted) {
+        setState(() => busy = false);
+      }
+    }
+  }
+
   Future<void> acceptIncomingRequest() async {
     final firebaseUser = FirebaseAuth.instance.currentUser;
     if (firebaseUser == null) {
@@ -40289,6 +40887,89 @@ class _PublicProfileActionsState extends State<PublicProfileActions> {
     );
   }
 
+  PopupMenuItem<String> popupActionItem({
+    required IconData icon,
+    required String label,
+    required String value,
+    Color color = Colors.white70,
+    bool enabled = true,
+  }) {
+    return PopupMenuItem<String>(
+      value: value,
+      enabled: enabled,
+      child: Row(
+        children: [
+          Icon(icon, color: enabled ? color : Colors.white24, size: 18),
+          const SizedBox(width: 10),
+          Text(
+            trText(label),
+            style: TextStyle(
+              color: enabled ? color : Colors.white38,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void handleMenuAction(
+    String value,
+    PublicProfileRelationshipState relationship,
+  ) {
+    switch (value) {
+      case 'report':
+        unawaited(reportProfile());
+        break;
+      case 'accept':
+        unawaited(
+          runAction(
+            acceptIncomingRequest,
+            successKey: 'Friend request accepted.',
+            errorKey: 'Could not send request.',
+          ),
+        );
+        break;
+      case 'remove_friend':
+        unawaited(
+          runAction(
+            () => removeFriendship(widget.profile.uid),
+            successKey: 'Friend removed.',
+            errorKey: 'Could not remove friend.',
+            successColor: Colors.orangeAccent,
+          ),
+        );
+        break;
+      case 'add_friend':
+        unawaited(
+          runAction(
+            () => sendFriendRequestToUser(user),
+            successKey: 'Friend request sent.',
+            errorKey: 'Could not send request.',
+          ),
+        );
+        break;
+      case 'block':
+        unawaited(
+          runAction(
+            relationship.blockedByCurrentUser
+                ? () => unblockUserById(widget.profile.uid)
+                : () => blockUserById(user),
+            successKey: relationship.blockedByCurrentUser
+                ? 'User unblocked.'
+                : 'User blocked.',
+            errorKey: relationship.blockedByCurrentUser
+                ? 'Could not unblock user.'
+                : 'Could not block user.',
+            successColor: relationship.blockedByCurrentUser
+                ? blue
+                : Colors.redAccent,
+          ),
+        );
+        break;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return FutureBuilder<PublicProfileRelationshipState>(
@@ -40306,96 +40987,124 @@ class _PublicProfileActionsState extends State<PublicProfileActions> {
 
         final isLoading =
             snapshot.connectionState == ConnectionState.waiting || busy;
-        final canMessage = !widget.profile.currentViewerIsBlocked;
 
-        return Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: [
-            actionChipButton(
-              icon: Icons.chat_bubble_outline,
-              label: 'Message',
-              filled: true,
-              onPressed: isLoading || !canMessage
-                  ? null
-                  : () => openMessage(relationship),
+        final items = <PopupMenuEntry<String>>[
+          popupActionItem(
+            icon: Icons.report_outlined,
+            label: 'Report',
+            value: 'report',
+            color: Colors.orangeAccent,
+            enabled: !isLoading,
+          ),
+          const PopupMenuDivider(height: 8),
+        ];
+
+        if (relationship.blockedByCurrentUser) {
+          items.add(
+            popupActionItem(
+              icon: Icons.lock_open,
+              label: 'Unblock user',
+              value: 'block',
+              color: blue,
+              enabled: !isLoading,
             ),
-            if (relationship.blockedByCurrentUser)
-              const SizedBox.shrink()
-            else if (relationship.incomingRequest)
-              actionChipButton(
-                icon: Icons.person_add_alt_1,
-                label: 'Accept',
-                filled: true,
-                onPressed: isLoading
-                    ? null
-                    : () => runAction(
-                        acceptIncomingRequest,
-                        successKey: 'Friend request accepted.',
-                        errorKey: 'Could not send request.',
-                      ),
-              )
-            else if (relationship.isFriend)
-              actionChipButton(
-                icon: Icons.person_remove_outlined,
-                label: 'Remove friend',
-                color: Colors.orangeAccent,
-                onPressed: isLoading
-                    ? null
-                    : () => runAction(
-                        () => removeFriendship(widget.profile.uid),
-                        successKey: 'Friend removed.',
-                        errorKey: 'Could not remove friend.',
-                        successColor: Colors.orangeAccent,
-                      ),
-              )
-            else if (relationship.outgoingRequest)
-              actionChipButton(
-                icon: Icons.mark_email_read_outlined,
-                label: 'Sent',
-                onPressed: null,
-              )
-            else
-              actionChipButton(
-                icon: Icons.person_add_alt_1,
-                label: 'Add friend',
-                filled: true,
-                onPressed: isLoading
-                    ? null
-                    : () => runAction(
-                        () => sendFriendRequestToUser(user),
-                        successKey: 'Friend request sent.',
-                        errorKey: 'Could not send request.',
-                      ),
-              ),
-            actionChipButton(
-              icon: relationship.blockedByCurrentUser
-                  ? Icons.lock_open
-                  : Icons.block,
-              label: relationship.blockedByCurrentUser
-                  ? 'Unblock user'
-                  : 'Block user',
-              color: relationship.blockedByCurrentUser
-                  ? blue
-                  : Colors.redAccent,
-              onPressed: isLoading
-                  ? null
-                  : () => runAction(
-                      relationship.blockedByCurrentUser
-                          ? () => unblockUserById(widget.profile.uid)
-                          : () => blockUserById(user),
-                      successKey: relationship.blockedByCurrentUser
-                          ? 'User unblocked.'
-                          : 'User blocked.',
-                      errorKey: relationship.blockedByCurrentUser
-                          ? 'Could not unblock user.'
-                          : 'Could not block user.',
-                      successColor: relationship.blockedByCurrentUser
-                          ? blue
-                          : Colors.redAccent,
+          );
+        } else if (relationship.incomingRequest) {
+          items.add(
+            popupActionItem(
+              icon: Icons.person_add_alt_1,
+              label: 'Accept',
+              value: 'accept',
+              color: blue,
+              enabled: !isLoading,
+            ),
+          );
+        } else if (relationship.isFriend) {
+          items.add(
+            popupActionItem(
+              icon: Icons.person_remove_outlined,
+              label: 'Remove friend',
+              value: 'remove_friend',
+              color: Colors.orangeAccent,
+              enabled: !isLoading,
+            ),
+          );
+        } else if (relationship.outgoingRequest) {
+          items.add(
+            popupActionItem(
+              icon: Icons.mark_email_read_outlined,
+              label: 'Sent',
+              value: 'sent',
+              enabled: false,
+            ),
+          );
+        } else {
+          items.add(
+            popupActionItem(
+              icon: Icons.person_add_alt_1,
+              label: 'Add friend',
+              value: 'add_friend',
+              color: blue,
+              enabled: !isLoading,
+            ),
+          );
+        }
+
+        if (!relationship.blockedByCurrentUser) {
+          items.add(
+            popupActionItem(
+              icon: Icons.block,
+              label: 'Block user',
+              value: 'block',
+              color: Colors.redAccent,
+              enabled: !isLoading,
+            ),
+          );
+        }
+
+        return PopupMenuButton<String>(
+          enabled: !isLoading,
+          tooltip: trText('Action'),
+          color: const Color(0xFF10131C),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+            side: const BorderSide(color: Colors.white12),
+          ),
+          onSelected: (value) => handleMenuAction(value, relationship),
+          itemBuilder: (_) => items,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.06),
+              borderRadius: BorderRadius.circular(999),
+              border: Border.all(color: Colors.white24),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (isLoading)
+                  const SizedBox(
+                    width: 14,
+                    height: 14,
+                    child: CircularProgressIndicator(
+                      color: blue,
+                      strokeWidth: 2,
                     ),
+                  )
+                else
+                  const Icon(Icons.more_horiz, color: blue, size: 18),
+                const SizedBox(width: 5),
+                Text(
+                  trText('Action'),
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ],
             ),
-          ],
+          ),
         );
       },
     );
@@ -40452,7 +41161,7 @@ class PublicUserProfileScreen extends StatelessWidget {
     );
   }
 
-  Widget profileHeader(PublicUserProfileData profile) {
+  Widget profileHeader(BuildContext context, PublicUserProfileData profile) {
     final visibleGarageCount = profile.settings.showGarage
         ? profile.garage.length
         : 0;
@@ -40482,72 +41191,76 @@ class PublicUserProfileScreen extends StatelessWidget {
     final showActions = profile.uid != currentUser.uid;
 
     return Container(
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: panelGlass,
         borderRadius: BorderRadius.circular(18),
         border: Border.all(color: Colors.white12),
       ),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              avatar(profile),
-              const SizedBox(width: 12),
+              SizedBox(
+                width: 58,
+                height: 58,
+                child: FittedBox(child: avatar(profile)),
+              ),
+              const SizedBox(width: 10),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      profile.username,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 22,
-                        fontWeight: FontWeight.w900,
-                      ),
-                    ),
-                    const SizedBox(height: 5),
-                    Align(
-                      alignment: Alignment.centerLeft,
-                      child: UserPrimaryBadge(
-                        role: profile.role,
-                        verified: profile.verified,
-                        globalChatModerator: profile.globalChatModerator,
-                        showLabel: true,
-                        compact: true,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Column(
+                    Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
+                        Expanded(
+                          child: Text(
+                            profile.username,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 20,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                        ),
+                        if (showActions) ...[
+                          const SizedBox(width: 8),
+                          PublicProfileActions(profile: profile),
+                        ],
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Wrap(
+                      spacing: 6,
+                      runSpacing: 4,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      children: [
+                        UserPrimaryBadge(
+                          role: profile.role,
+                          verified: profile.verified,
+                          globalChatModerator: profile.globalChatModerator,
+                          showLabel: true,
+                          compact: true,
+                        ),
                         Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             Container(
-                              width: 9,
-                              height: 9,
+                              width: 8,
+                              height: 8,
                               decoration: BoxDecoration(
                                 color: profile.appearsOnline
                                     ? Colors.greenAccent
                                     : Colors.white38,
                                 shape: BoxShape.circle,
-                                boxShadow: profile.appearsOnline
-                                    ? [
-                                        BoxShadow(
-                                          color: Colors.greenAccent.withValues(
-                                            alpha: 0.38,
-                                          ),
-                                          blurRadius: 9,
-                                          spreadRadius: 1,
-                                        ),
-                                      ]
-                                    : const [],
                               ),
                             ),
-                            const SizedBox(width: 8),
+                            const SizedBox(width: 5),
                             Text(
                               trText(
                                 profile.appearsOnline ? 'online' : 'offline',
@@ -40556,54 +41269,23 @@ class PublicUserProfileScreen extends StatelessWidget {
                                 color: profile.appearsOnline
                                     ? Colors.greenAccent
                                     : Colors.white54,
-                                fontSize: 12,
+                                fontSize: 11.5,
                                 fontWeight: FontWeight.w900,
-                                letterSpacing: 0.4,
                               ),
                             ),
                           ],
                         ),
-                        const SizedBox(height: 2),
-                        Text(
-                          lastOnlineLabelFromMillis(profile.lastSeenAtMillis),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            color: Colors.white54,
-                            fontSize: 11.5,
-                            fontWeight: FontWeight.w800,
-                            letterSpacing: 0.2,
-                          ),
-                        ),
                       ],
                     ),
-                    const SizedBox(height: 6),
+                    const SizedBox(height: 3),
                     Text(
-                      profile.bio,
+                      lastOnlineLabelFromMillis(profile.lastSeenAtMillis),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(color: Colors.white54),
-                    ),
-                    const SizedBox(height: 8),
-                    SizedBox(
-                      width: double.infinity,
-                      child: FittedBox(
-                        fit: BoxFit.scaleDown,
-                        alignment: Alignment.centerLeft,
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            _MiniProfileInfoChip(
-                              icon: Icons.location_on,
-                              label: profile.cityCountry,
-                            ),
-                            const SizedBox(width: 6),
-                            _MiniProfileInfoChip(
-                              icon: Icons.directions_car,
-                              label: garageValue,
-                            ),
-                          ],
-                        ),
+                      style: const TextStyle(
+                        color: Colors.white54,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
                       ),
                     ),
                   ],
@@ -40611,8 +41293,32 @@ class PublicUserProfileScreen extends StatelessWidget {
               ),
             ],
           ),
+          if (profile.bio.trim().isNotEmpty) ...[
+            const SizedBox(height: 9),
+            Text(
+              profile.bio,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(color: Colors.white60, height: 1.25),
+            ),
+          ],
+          const SizedBox(height: 9),
+          Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            children: [
+              _MiniProfileInfoChip(
+                icon: Icons.location_on,
+                label: profile.cityCountry,
+              ),
+              _MiniProfileInfoChip(
+                icon: Icons.directions_car,
+                label: garageValue,
+              ),
+            ],
+          ),
           if (socialButtons.isNotEmpty) ...[
-            const SizedBox(height: 10),
+            const SizedBox(height: 9),
             Row(
               children: [
                 for (var index = 0; index < socialButtons.length; index++) ...[
@@ -40624,10 +41330,7 @@ class PublicUserProfileScreen extends StatelessWidget {
           ],
           if (showActions) ...[
             const SizedBox(height: 10),
-            Align(
-              alignment: Alignment.centerLeft,
-              child: PublicProfileActions(profile: profile),
-            ),
+            messageButton(context, profile),
           ],
         ],
       ),
@@ -40655,7 +41358,7 @@ class PublicUserProfileScreen extends StatelessWidget {
 
     return SizedBox(
       width: double.infinity,
-      height: 52,
+      height: 42,
       child: ElevatedButton.icon(
         onPressed: () async {
           try {
@@ -40708,7 +41411,7 @@ class PublicUserProfileScreen extends StatelessWidget {
           backgroundColor: blue,
           foregroundColor: Colors.white,
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(18),
+            borderRadius: BorderRadius.circular(14),
           ),
         ),
       ),
@@ -40844,7 +41547,7 @@ class PublicUserProfileScreen extends StatelessWidget {
     return ListView(
       padding: const EdgeInsets.fromLTRB(14, 12, 14, 24),
       children: [
-        profileHeader(profile),
+        profileHeader(context, profile),
         const SizedBox(height: 12),
         if (visibleGarage.isEmpty)
           const EmptyStateCard(
@@ -42036,9 +42739,22 @@ class _GarageGalleryHeader extends StatefulWidget {
 }
 
 class _GarageGalleryHeaderState extends State<_GarageGalleryHeader> {
+  late final PageController controller;
   int currentIndex = 0;
 
   List<String> get photos => widget.car.galleryPhotos;
+
+  @override
+  void initState() {
+    super.initState();
+    controller = PageController();
+  }
+
+  @override
+  void dispose() {
+    controller.dispose();
+    super.dispose();
+  }
 
   void openGallery(int index) {
     if (photos.isEmpty) {
@@ -42062,154 +42778,114 @@ class _GarageGalleryHeaderState extends State<_GarageGalleryHeader> {
 
     return ClipRRect(
       borderRadius: const BorderRadius.vertical(top: Radius.circular(22)),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          AspectRatio(
-            aspectRatio: garagePhotoAspectRatio,
-            child: Stack(
-              fit: StackFit.expand,
-              children: [
-                GestureDetector(
-                  onTap: () => openGallery(currentIndex),
-                  child: photos.isEmpty
-                      ? const _GaragePhotoFallback()
-                      : garagePhotoImage(
-                          photos[currentIndex],
-                          fit: BoxFit.cover,
-                        ),
-                ),
-                Container(
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                      colors: [
-                        Colors.transparent,
-                        Colors.black.withValues(alpha: 0.72),
-                      ],
+      child: AspectRatio(
+        aspectRatio: garagePhotoAspectRatio,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            if (photos.isEmpty)
+              const _GaragePhotoFallback()
+            else
+              PageView.builder(
+                controller: controller,
+                itemCount: photos.length,
+                onPageChanged: (index) => setState(() => currentIndex = index),
+                itemBuilder: (context, index) {
+                  return GestureDetector(
+                    onTap: () => openGallery(index),
+                    child: garagePhotoImage(
+                      photos[index],
+                      width: double.infinity,
+                      fit: BoxFit.cover,
                     ),
-                  ),
-                ),
-                if (photos.length > 1)
-                  Positioned(
-                    top: 12,
-                    right: 12,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 9,
-                        vertical: 5,
-                      ),
-                      decoration: BoxDecoration(
-                        color: Colors.black.withValues(alpha: 0.65),
-                        borderRadius: BorderRadius.circular(999),
-                        border: Border.all(color: Colors.white24),
-                      ),
-                      child: Text(
-                        '${currentIndex + 1}/${photos.length}',
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w900,
-                        ),
-                      ),
-                    ),
-                  ),
-                Positioned(
-                  left: 16,
-                  right: 16,
-                  bottom: 14,
-                  child: Align(
-                    alignment: Alignment.bottomLeft,
-                    child: ConstrainedBox(
-                      constraints: const BoxConstraints(maxWidth: 270),
-                      child: Text(
-                        widget.car.name,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 18,
-                          fontWeight: FontWeight.w900,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-                Positioned.fill(
-                  child: Material(
-                    color: Colors.transparent,
-                    child: InkWell(
-                      onTap: () => openGallery(currentIndex),
-                      splashColor: Colors.white10,
-                      highlightColor: Colors.white.withValues(alpha: 0.04),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          if (photos.length > 1)
+                  );
+                },
+              ),
             Container(
-              width: double.infinity,
-              padding: const EdgeInsets.fromLTRB(14, 10, 14, 12),
-              color: Colors.black,
-              child: Row(
-                children: [
-                  for (var index = 0; index < photos.length; index++) ...[
-                    Expanded(
-                      child: GestureDetector(
-                        onTap: () => setState(() => currentIndex = index),
-                        onLongPress: () => openGallery(index),
-                        child: AnimatedContainer(
-                          duration: const Duration(milliseconds: 160),
-                          height: 70,
-                          decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(12),
-                            boxShadow: currentIndex == index
-                                ? [
-                                    BoxShadow(
-                                      color: blue.withValues(alpha: 0.36),
-                                      blurRadius: 14,
-                                      spreadRadius: 1,
-                                    ),
-                                  ]
-                                : null,
-                          ),
-                          foregroundDecoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(
-                              color: currentIndex == index
-                                  ? blue
-                                  : Colors.white24,
-                              width: currentIndex == index ? 2.2 : 1,
-                            ),
-                          ),
-                          clipBehavior: Clip.antiAlias,
-                          child: Stack(
-                            fit: StackFit.expand,
-                            children: [
-                              garagePhotoImage(
-                                photos[index],
-                                fit: BoxFit.cover,
-                              ),
-                              if (currentIndex == index)
-                                Container(
-                                  decoration: BoxDecoration(
-                                    color: blue.withValues(alpha: 0.16),
-                                  ),
-                                ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                    if (index != photos.length - 1) const SizedBox(width: 8),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    Colors.transparent,
+                    Colors.black.withValues(alpha: 0.72),
                   ],
-                ],
+                ),
               ),
             ),
-        ],
+            if (photos.length > 1)
+              Positioned(
+                top: 14,
+                right: 14,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 6,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.62),
+                    borderRadius: BorderRadius.circular(999),
+                    border: Border.all(color: Colors.white24),
+                  ),
+                  child: Text(
+                    '${currentIndex + 1}/${photos.length}',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ),
+              ),
+            Positioned(
+              left: 16,
+              right: 16,
+              bottom: 26,
+              child: Align(
+                alignment: Alignment.bottomLeft,
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 270),
+                  child: Text(
+                    widget.car.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 18,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            if (photos.length > 1)
+              Positioned(
+                bottom: 10,
+                left: 0,
+                right: 0,
+                child: Center(
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      for (var index = 0; index < photos.length; index++)
+                        AnimatedContainer(
+                          duration: const Duration(milliseconds: 180),
+                          width: currentIndex == index ? 18 : 6,
+                          height: 6,
+                          margin: const EdgeInsets.symmetric(horizontal: 3),
+                          decoration: BoxDecoration(
+                            color: currentIndex == index
+                                ? blue
+                                : Colors.white.withValues(alpha: 0.42),
+                            borderRadius: BorderRadius.circular(999),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+          ],
+        ),
       ),
     );
   }
@@ -44054,6 +44730,8 @@ class AdminUserData {
   final List<String> deviceIds;
   final bool globalChatModerator;
   final bool deleted;
+  final bool isOnline;
+  final int lastSeenAtMillis;
 
   const AdminUserData({
     required this.uid,
@@ -44068,6 +44746,8 @@ class AdminUserData {
     this.deviceIds = const [],
     this.globalChatModerator = false,
     required this.deleted,
+    this.isOnline = false,
+    this.lastSeenAtMillis = 0,
   });
 
   bool get banActive {
@@ -44076,9 +44756,24 @@ class AdminUserData {
             bannedUntilMillis! > DateTime.now().millisecondsSinceEpoch);
   }
 
+  bool get appearsOnline => userAppearsOnlineFromPresence(
+    isOnline: isOnline,
+    lastSeenAtMillis: lastSeenAtMillis,
+    isSharingLiveLocation: false,
+    liveLocationExpiresAtMillis: null,
+  );
+
   String get statusLabel {
     if (deleted) {
       return 'Deleted';
+    }
+
+    if (appearsOnline) {
+      return trText('Online');
+    }
+
+    if (lastSeenAtMillis > 0) {
+      return lastOnlineLabelFromMillis(lastSeenAtMillis);
     }
 
     return userBanLabel(banned: banned, bannedUntilMillis: bannedUntilMillis);
@@ -44114,6 +44809,8 @@ class AdminUserData {
           data['globalChatModerator'] == true ||
           data['globalModerator'] == true,
       deleted: data['deleted'] == true,
+      isOnline: data['isOnline'] == true,
+      lastSeenAtMillis: timestampMillisFromFirebase(data['lastSeenAt']),
     );
   }
 }
@@ -44921,6 +45618,8 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
   Widget userTile(BuildContext context, AdminUserData user) {
     final statusColor = user.banActive
         ? Colors.redAccent
+        : user.appearsOnline
+        ? Colors.greenAccent
         : user.verified
         ? blue
         : Colors.white54;
@@ -44945,6 +45644,8 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
             child: Icon(
               user.banActive
                   ? Icons.block
+                  : user.appearsOnline
+                  ? Icons.circle
                   : user.verified
                   ? Icons.verified
                   : Icons.person_outline,
@@ -45102,11 +45803,28 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
                   .map((doc) => AdminUserData.fromFirestore(doc))
                   .where((user) => !user.deleted)
                   .toList() ??
-              const <AdminUserData>[];
+              <AdminUserData>[];
           final canUseBannedList = currentUser.role == UserRole.admin;
           final users = bannedOnly
               ? allUsers.where((user) => user.banned).toList()
               : allUsers;
+          users.sort((a, b) {
+            final onlineCompare = b.appearsOnline.toString().compareTo(
+              a.appearsOnline.toString(),
+            );
+            if (onlineCompare != 0) {
+              return onlineCompare;
+            }
+
+            final recentCompare = b.lastSeenAtMillis.compareTo(
+              a.lastSeenAtMillis,
+            );
+            if (recentCompare != 0) {
+              return recentCompare;
+            }
+
+            return a.username.toLowerCase().compareTo(b.username.toLowerCase());
+          });
 
           return ListView(
             padding: const EdgeInsets.fromLTRB(12, 18, 12, 28),
@@ -45182,6 +45900,341 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
               else
                 for (final user in users) ...[
                   userTile(context, user),
+                  const SizedBox(height: 10),
+                ],
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
+class UserReportData {
+  final String id;
+  final String reportedUid;
+  final String reportedUsername;
+  final String reportedName;
+  final String reportedEmail;
+  final UserRole reportedRole;
+  final String reporterUid;
+  final String reporterUsername;
+  final String reporterEmail;
+  final String reason;
+  final String status;
+  final int createdAtMillis;
+  final String reviewedBy;
+
+  const UserReportData({
+    required this.id,
+    required this.reportedUid,
+    required this.reportedUsername,
+    required this.reportedName,
+    required this.reportedEmail,
+    required this.reportedRole,
+    required this.reporterUid,
+    required this.reporterUsername,
+    required this.reporterEmail,
+    required this.reason,
+    required this.status,
+    required this.createdAtMillis,
+    this.reviewedBy = '',
+  });
+
+  bool get isOpen => status == 'open';
+
+  factory UserReportData.fromFirestore(
+    DocumentSnapshot<Map<String, dynamic>> doc,
+  ) {
+    final data = doc.data() ?? const <String, dynamic>{};
+    final createdAtMillis =
+        nullableTimestampMillisFromFirebase(data['createdAt']) ??
+        intFromFirebase(data['createdAtMillis'], 0);
+
+    return UserReportData(
+      id: doc.id,
+      reportedUid: stringFromFirebase(data['reportedUid'], ''),
+      reportedUsername: stringFromFirebase(
+        data['reportedUsername'],
+        'ccs_driver',
+      ),
+      reportedName: stringFromFirebase(data['reportedName'], 'CCS Driver'),
+      reportedEmail: stringFromFirebase(data['reportedEmail'], ''),
+      reportedRole: roleFromFirebase(data['reportedRole']),
+      reporterUid: stringFromFirebase(data['reporterUid'], ''),
+      reporterUsername: stringFromFirebase(data['reporterUsername'], 'unknown'),
+      reporterEmail: stringFromFirebase(data['reporterEmail'], ''),
+      reason: stringFromFirebase(data['reason'], ''),
+      status: stringFromFirebase(data['status'], 'open'),
+      createdAtMillis: createdAtMillis,
+      reviewedBy: stringFromFirebase(data['reviewedBy'], ''),
+    );
+  }
+}
+
+class AdminUserReportsScreen extends StatelessWidget {
+  const AdminUserReportsScreen({super.key});
+
+  String reportTimeLabel(int millis) {
+    if (millis <= 0) {
+      return trText('Just now');
+    }
+
+    final date = DateTime.fromMillisecondsSinceEpoch(millis);
+    return '${date.year}-${twoDigits(date.month)}-${twoDigits(date.day)} ${twoDigits(date.hour)}:${twoDigits(date.minute)}';
+  }
+
+  Future<void> updateReportStatus(
+    BuildContext context,
+    UserReportData report,
+    String status,
+  ) async {
+    try {
+      await userReportsCollection()
+          .doc(report.id)
+          .debugSet(
+            {
+              'status': status,
+              'reviewedByUid': currentUser.uid,
+              'reviewedBy': currentUser.username,
+              'reviewedAt': FieldValue.serverTimestamp(),
+              'updatedAt': FieldValue.serverTimestamp(),
+            },
+            SetOptions(merge: true),
+            'admin: update user report status',
+          );
+
+      if (!context.mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: blue,
+          content: Text(
+            trText(
+              status == 'resolved' ? 'Report resolved.' : 'Report reviewed.',
+            ),
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+      );
+    } catch (error) {
+      showAdminActionError(
+        context,
+        message: trText('Could not update report'),
+        error: error,
+      );
+    }
+  }
+
+  Widget reportTile(BuildContext context, UserReportData report) {
+    final statusColor = report.isOpen ? Colors.orangeAccent : blue;
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: panelGlass,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: Colors.white12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  color: statusColor.withValues(alpha: 0.16),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(Icons.report_outlined, color: statusColor),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Flexible(
+                          child: Text(
+                            displayUsername(report.reportedUsername),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        UserPrimaryBadge(
+                          role: report.reportedRole,
+                          verified: userRoleIsStaff(report.reportedRole),
+                          compact: true,
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      '${trText('Reported by')} ${displayUsername(report.reporterUsername)} • ${reportTimeLabel(report.createdAtMillis)}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Colors.white54,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 5),
+                    Text(
+                      trText(report.status),
+                      style: TextStyle(
+                        color: statusColor,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Text(
+            report.reason.isEmpty
+                ? trText('No reason provided.')
+                : report.reason,
+            style: const TextStyle(
+              color: Colors.white70,
+              fontWeight: FontWeight.w700,
+              height: 1.32,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              OutlinedButton.icon(
+                onPressed: report.reportedUid.trim().isEmpty
+                    ? null
+                    : () => openUserProfile(
+                        context,
+                        uid: report.reportedUid,
+                        fallbackUsername: report.reportedUsername,
+                      ),
+                icon: const Icon(Icons.person_outline),
+                label: Text(trText('Open reported profile')),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: blue,
+                  side: BorderSide(color: blue.withValues(alpha: 0.7)),
+                ),
+              ),
+              OutlinedButton.icon(
+                onPressed: report.reporterUid.trim().isEmpty
+                    ? null
+                    : () => openUserProfile(
+                        context,
+                        uid: report.reporterUid,
+                        fallbackUsername: report.reporterUsername,
+                      ),
+                icon: const Icon(Icons.visibility_outlined),
+                label: Text(trText('Open reporter')),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: Colors.white70,
+                  side: const BorderSide(color: Colors.white24),
+                ),
+              ),
+              if (report.status != 'reviewed')
+                ElevatedButton.icon(
+                  onPressed: () => unawaited(
+                    updateReportStatus(context, report, 'reviewed'),
+                  ),
+                  icon: const Icon(Icons.done_all),
+                  label: Text(trText('Mark reviewed')),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: blue,
+                    foregroundColor: Colors.white,
+                  ),
+                ),
+              if (report.status != 'resolved')
+                ElevatedButton.icon(
+                  onPressed: () => unawaited(
+                    updateReportStatus(context, report, 'resolved'),
+                  ),
+                  icon: const Icon(Icons.check_circle_outline),
+                  label: Text(trText('Resolve')),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.green,
+                    foregroundColor: Colors.white,
+                  ),
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.transparent,
+      appBar: AppBar(
+        title: Text(trText('User reports')),
+        backgroundColor: Colors.transparent,
+        foregroundColor: blue,
+      ),
+      body: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+        stream: userReportsCollection()
+            .orderBy('createdAtMillis', descending: true)
+            .limit(200)
+            .debugSnapshots('admin: user reports list listener'),
+        builder: (context, snapshot) {
+          final reports =
+              snapshot.data?.docs
+                  .map((doc) => UserReportData.fromFirestore(doc))
+                  .toList() ??
+              const <UserReportData>[];
+          final openCount = reports.where((report) => report.isOpen).length;
+
+          return ListView(
+            padding: const EdgeInsets.fromLTRB(12, 18, 12, 28),
+            children: [
+              Text(
+                trText('User reports'),
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 34,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                reports.isEmpty
+                    ? trText('No user reports yet.')
+                    : '$openCount open • ${reports.length} total',
+                style: const TextStyle(color: Colors.white54, height: 1.35),
+              ),
+              const SizedBox(height: 18),
+              if (reports.isEmpty)
+                const EmptyStateCard(
+                  icon: Icons.report_outlined,
+                  title: 'No user reports yet',
+                  text:
+                      'Reports submitted from public profiles will appear here.',
+                )
+              else
+                for (final report in reports) ...[
+                  reportTile(context, report),
                   const SizedBox(height: 10),
                 ],
             ],
@@ -45865,6 +46918,33 @@ class _AdminReviewScreenState extends State<AdminReviewScreen> {
                   Navigator.push(
                     context,
                     appPageRoute(builder: (_) => const AdminUsersScreen()),
+                  );
+                },
+              ),
+              const SizedBox(height: 10),
+              StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                stream: userReportsCollection()
+                    .where('status', isEqualTo: 'open')
+                    .limit(50)
+                    .debugSnapshots('admin: open user reports badge listener'),
+                builder: (context, reportSnapshot) {
+                  final openReports = reportSnapshot.data?.docs.length ?? 0;
+                  return _ProfileActionTile(
+                    icon: Icons.report_outlined,
+                    title: openReports > 0
+                        ? 'User reports ($openReports)'
+                        : 'User reports',
+                    subtitle: openReports > 0
+                        ? '$openReports open profile report${openReports == 1 ? '' : 's'} waiting'
+                        : 'Review profile reports from users',
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        appPageRoute(
+                          builder: (_) => const AdminUserReportsScreen(),
+                        ),
+                      );
+                    },
                   );
                 },
               ),
