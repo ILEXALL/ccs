@@ -12477,6 +12477,7 @@ void startFirebaseSpotSync() {
   _firebaseSpotCacheBySource.clear();
 
   unawaited(_startCachedSpotSync());
+  unawaited(syncActiveTemporarySpotForumTopics());
 }
 
 Future<void> _startCachedSpotSync() async {
@@ -14278,6 +14279,14 @@ Future<void> updateSpotStatus(
       .toList();
 
   upsertSpotIntoLocalImmediateCache(updatedSpot);
+
+  if (spot.isTemporary && statusChanged) {
+    await updateTemporarySpotForumTopicAfterSpotReview(
+      updatedSpot,
+      status,
+      rejectionReason: cleanRejectionReason,
+    );
+  }
 
   if (shouldNotifyNearbyMeetUsers) {
     await createMeetSpotNotificationsForNearbyUsers(updatedSpot);
@@ -29608,6 +29617,10 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
         spotToFirestoreData(newSpot, includeCreatedAt: true),
       );
 
+      if (newSpot.isTemporary) {
+        unawaited(createTemporarySpotForumTopic(newSpot));
+      }
+
       if (isAdminCreatedSpot) {
         await sendPushNotificationEvent({
           'type': newSpot.isTemporary ? 'temporary_event' : 'new_spot',
@@ -32090,7 +32103,7 @@ class _ChatScreenState extends State<ChatScreen>
             );
 
             return Scaffold(
-              backgroundColor: Colors.black,
+              backgroundColor: Colors.transparent,
               appBar: AppBar(
                 title: const CcsAppBarLogo(),
                 backgroundColor: Colors.transparent,
@@ -33014,6 +33027,299 @@ Future<String> createForumTopic({
   }
 }
 
+String temporarySpotForumTopicId(String spotId) {
+  return 'temporary_spot_$spotId';
+}
+
+bool forumTopicIsVisibleNow(Map<String, dynamic> data) {
+  final status = stringFromFirebase(data['status'], 'approved');
+  if (status != 'approved') {
+    return false;
+  }
+
+  final autoExpiresAtMillis = timestampMillisFromFirebase(
+    data['autoExpiresAt'] ?? data['temporarySpotExpiresAt'],
+  );
+  if (autoExpiresAtMillis <= 0) {
+    return true;
+  }
+
+  return autoExpiresAtMillis > DateTime.now().millisecondsSinceEpoch;
+}
+
+String temporarySpotForumDescription(CarSpot spot) {
+  final parts = <String>[];
+  if (spot.description.trim().isNotEmpty) {
+    parts.add(spot.description.trim());
+  }
+  if (spot.cityCountry.trim().isNotEmpty) {
+    parts.add('${trText('Location')}: ${spot.cityCountry.trim()}');
+  }
+  if (spot.startsAtMillis != null) {
+    parts.add(
+      '${trText('Starts at')}: ${formatShortDateTime(DateTime.fromMillisecondsSinceEpoch(spot.startsAtMillis!))}',
+    );
+  }
+  if (spot.expiresAtMillis != null) {
+    parts.add(
+      '${trText('Ends at')}: ${formatShortDateTime(DateTime.fromMillisecondsSinceEpoch(spot.expiresAtMillis!))}',
+    );
+  }
+
+  final text = parts.join('\n\n').trim();
+  return text.isEmpty ? 'Temporary meet/event spot.' : text;
+}
+
+Map<String, Object?> temporarySpotForumTopicData({
+  required CarSpot spot,
+  required String authorId,
+  required String authorName,
+  required UserRole authorRole,
+  required bool authorVerified,
+  required bool authorGlobalModerator,
+  required String status,
+  required Object? reviewedBy,
+  required Object? reviewedAt,
+  bool includeCreateTimestamps = true,
+}) {
+  final startsAt = spot.startsAtMillis == null
+      ? null
+      : Timestamp.fromMillisecondsSinceEpoch(spot.startsAtMillis!);
+  final expiresAt = spot.expiresAtMillis == null
+      ? null
+      : Timestamp.fromMillisecondsSinceEpoch(spot.expiresAtMillis!);
+
+  return {
+    'title': spot.name.trim().isEmpty ? 'Temporary meet' : spot.name,
+    'category': forumCategoryById('meets_events').titleKey,
+    'description': temporarySpotForumDescription(spot),
+    'avatarUrl': spot.photoUrl,
+    'categoryId': 'meets_events',
+    'authorId': authorId,
+    'authorName': authorName,
+    'authorRole': roleName(authorRole),
+    'authorVerified': authorVerified,
+    'authorGlobalChatModerator': authorGlobalModerator,
+    'authorGlobalModerator': authorGlobalModerator,
+    'repliesCount': 0,
+    'isPinned': false,
+    'status': status,
+    'rejectionReason': null,
+    'reviewedBy': reviewedBy,
+    'reviewedAt': reviewedAt,
+    if (includeCreateTimestamps) 'createdAt': FieldValue.serverTimestamp(),
+    if (includeCreateTimestamps) 'lastReplyAt': FieldValue.serverTimestamp(),
+    'source': 'temporary_spot',
+    'spotId': spot.id,
+    'temporarySpotId': spot.id,
+    'temporarySpotStartsAt': startsAt,
+    'temporarySpotExpiresAt': expiresAt,
+    'autoExpiresAt': expiresAt,
+  };
+}
+
+Future<void> createTemporarySpotForumTopic(CarSpot spot) async {
+  await ensureTemporarySpotForumTopic(spot, backfillFromExistingSpot: false);
+}
+
+Future<void> ensureTemporarySpotForumTopic(
+  CarSpot spot, {
+  required bool backfillFromExistingSpot,
+}) async {
+  if (!spot.isTemporary || spot.id.trim().isEmpty) {
+    return;
+  }
+
+  final firebaseUser = FirebaseAuth.instance.currentUser;
+  if (firebaseUser == null) {
+    return;
+  }
+
+  final expiresAtMillis = spot.expiresAtMillis;
+  if (backfillFromExistingSpot &&
+      expiresAtMillis != null &&
+      expiresAtMillis <= DateTime.now().millisecondsSinceEpoch) {
+    return;
+  }
+
+  try {
+    final topicRef = FirebaseFirestore.instance
+        .collection('forum_topics')
+        .doc(temporarySpotForumTopicId(spot.id));
+    final existingTopic = await topicRef.debugGet(
+      null,
+      backfillFromExistingSpot
+          ? 'forum: temporary spot topic backfill existing check'
+          : 'forum: temporary spot topic create existing check',
+    );
+    if (existingTopic.exists) {
+      return;
+    }
+
+    final authorUid =
+        backfillFromExistingSpot && spot.addedByUid.trim().isNotEmpty
+        ? spot.addedByUid.trim()
+        : firebaseUser.uid;
+    Map<String, dynamic>? userData;
+    try {
+      final userDoc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(authorUid)
+          .debugGet(null, 'forum: temporary spot author lookup');
+      userData = userDoc.data();
+    } catch (_) {
+      userData = null;
+    }
+
+    final creatorRole = roleFromFirebase(userData?['role']);
+    final creatorGlobalModerator = userDataHasCommunityModerationAccess(
+      userData,
+    );
+    // Keep this equal to the spot's stored creator name. Firestore rules
+    // validate auto-created temporary spot topics against the source spot, so
+    // using the current profile username here can block backfills if the user
+    // renamed their account after creating the spot.
+    final authorName = spot.addedBy.trim().isNotEmpty
+        ? spot.addedBy.trim()
+        : stringFromFirebase(
+            userData?['username'],
+            currentUser.username.trim().isEmpty
+                ? 'ccs_driver'
+                : currentUser.username,
+          );
+    final approvedNow = spot.status == SpotStatus.approved;
+    final canApproveOwnAutoTopic =
+        approvedNow &&
+        (userRoleIsStaff(creatorRole) ||
+            (authorUid == firebaseUser.uid &&
+                userRoleIsStaff(currentUser.role)) ||
+            backfillFromExistingSpot);
+    final topicStatus = canApproveOwnAutoTopic ? 'approved' : 'pending';
+
+    await topicRef.debugSet(
+      temporarySpotForumTopicData(
+        spot: spot,
+        authorId: authorUid,
+        authorName: authorName,
+        authorRole: creatorRole,
+        authorVerified:
+            userRoleIsStaff(creatorRole) || userData?['verified'] == true,
+        authorGlobalModerator: creatorGlobalModerator,
+        status: topicStatus,
+        reviewedBy: topicStatus == 'approved' ? firebaseUser.uid : null,
+        reviewedAt: topicStatus == 'approved'
+            ? FieldValue.serverTimestamp()
+            : null,
+      ),
+      null,
+      backfillFromExistingSpot
+          ? 'forum: auto temporary spot topic backfill create'
+          : 'forum: auto temporary spot topic create',
+    );
+    forumTopicsRefreshTick.value++;
+  } catch (error, stack) {
+    debugPrint('Could not create temporary spot forum topic: $error');
+    debugPrint('$stack');
+  }
+}
+
+bool temporarySpotNeedsForumTopicBackfill(CarSpot spot) {
+  if (!spot.isTemporary || spot.id.trim().isEmpty) {
+    return false;
+  }
+  if (spot.status != SpotStatus.approved && spot.status != SpotStatus.pending) {
+    return false;
+  }
+  final expiresAtMillis = spot.expiresAtMillis;
+  if (expiresAtMillis == null) {
+    return false;
+  }
+  return expiresAtMillis > DateTime.now().millisecondsSinceEpoch;
+}
+
+Future<void> syncActiveTemporarySpotForumTopics() async {
+  if (!firebaseReady || FirebaseAuth.instance.currentUser == null) {
+    return;
+  }
+
+  try {
+    // Do not combine isTemporary + expiresAt in the Firestore query here.
+    // Some projects do not have the composite index yet, and if that query
+    // fails the forum will stay empty. Read recent temporary spots and filter
+    // the active window locally instead.
+    final snapshot = await trackedQueryGet(
+      'forum: active temporary spot topic startup backfill',
+      spotsCollection().where('isTemporary', isEqualTo: true).limit(120),
+      const GetOptions(source: Source.server),
+    );
+
+    var createdOrChecked = false;
+    for (final doc in snapshot.docs) {
+      final spot = CarSpot.fromFirestore(doc);
+      if (temporarySpotNeedsForumTopicBackfill(spot)) {
+        createdOrChecked = true;
+        await ensureTemporarySpotForumTopic(
+          spot,
+          backfillFromExistingSpot: true,
+        );
+      }
+    }
+
+    if (createdOrChecked) {
+      forumTopicsRefreshTick.value++;
+    }
+  } catch (error, stack) {
+    debugPrint('Temporary spot forum topic sync failed: $error');
+    debugPrint('$stack');
+  }
+}
+
+Future<void> updateTemporarySpotForumTopicAfterSpotReview(
+  CarSpot spot,
+  SpotStatus status, {
+  String rejectionReason = '',
+}) async {
+  if (!spot.isTemporary || spot.id.trim().isEmpty) {
+    return;
+  }
+
+  try {
+    final topicRef = FirebaseFirestore.instance
+        .collection('forum_topics')
+        .doc(temporarySpotForumTopicId(spot.id));
+    final snapshot = await topicRef.debugGet(
+      null,
+      'forum: auto temporary spot topic review get',
+    );
+    if (!snapshot.exists) {
+      return;
+    }
+
+    await topicRef.debugUpdate({
+      'status': spotStatusName(status),
+      'rejectionReason': status == SpotStatus.rejected
+          ? rejectionReason.trim()
+          : null,
+      'reviewedBy': currentUser.uid,
+      'reviewedAt': FieldValue.serverTimestamp(),
+      'temporarySpotStartsAt': spot.startsAtMillis == null
+          ? null
+          : Timestamp.fromMillisecondsSinceEpoch(spot.startsAtMillis!),
+      'temporarySpotExpiresAt': spot.expiresAtMillis == null
+          ? null
+          : Timestamp.fromMillisecondsSinceEpoch(spot.expiresAtMillis!),
+      'autoExpiresAt': spot.expiresAtMillis == null
+          ? null
+          : Timestamp.fromMillisecondsSinceEpoch(spot.expiresAtMillis!),
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, 'forum: auto temporary spot topic review update');
+    forumTopicsRefreshTick.value++;
+  } catch (error, stack) {
+    debugPrint('Could not update temporary spot forum topic: $error');
+    debugPrint('$stack');
+  }
+}
+
 Future<void> showForumTopicSentForReviewDialog(BuildContext context) async {
   if (!context.mounted) {
     return;
@@ -33195,6 +33501,7 @@ class _ForumTabState extends State<ForumTab>
   bool hasMore = true;
   bool didLoadInitially = false;
   int handledRefreshTick = 0;
+  Timer? expiredTopicRefreshTimer;
   String searchQuery = '';
 
   @override
@@ -33214,6 +33521,11 @@ class _ForumTabState extends State<ForumTab>
         setState(() => searchQuery = searchController.text.trim());
       }
     });
+    expiredTopicRefreshTimer = Timer.periodic(const Duration(minutes: 1), (_) {
+      if (mounted) {
+        setState(() {});
+      }
+    });
     unawaited(refreshTopics());
   }
 
@@ -33230,6 +33542,7 @@ class _ForumTabState extends State<ForumTab>
   void dispose() {
     scrollController.removeListener(handleScroll);
     forumTopicsRefreshTick.removeListener(handleExternalForumRefresh);
+    expiredTopicRefreshTimer?.cancel();
     scrollController.dispose();
     searchController.dispose();
     super.dispose();
@@ -33269,8 +33582,7 @@ class _ForumTabState extends State<ForumTab>
 
       final docs =
           snapshot.docs.where((doc) {
-            final status = stringFromFirebase(doc.data()['status'], 'approved');
-            return status == 'approved';
+            return forumTopicIsVisibleNow(doc.data());
           }).toList()..sort((a, b) {
             final aPinned = a.data()['isPinned'] == true;
             final bPinned = b.data()['isPinned'] == true;
@@ -33313,11 +33625,14 @@ class _ForumTabState extends State<ForumTab>
 
   List<QueryDocumentSnapshot<Map<String, dynamic>>> visibleTopics() {
     final query = searchQuery.toLowerCase();
+    final currentVisibleTopics = topics
+        .where((doc) => forumTopicIsVisibleNow(doc.data()))
+        .toList();
     if (query.isEmpty) {
-      return topics;
+      return currentVisibleTopics;
     }
 
-    return topics.where((doc) {
+    return currentVisibleTopics.where((doc) {
       final data = doc.data();
       final title = stringFromFirebase(data['title'], '').toLowerCase();
       final description = stringFromFirebase(
@@ -33743,6 +34058,7 @@ class _ForumCategoryPageState extends State<ForumCategoryPage> {
   bool didLoadInitially = false;
   String searchQuery = '';
   int handledRefreshTick = 0;
+  Timer? expiredTopicRefreshTimer;
 
   ForumCategoryConfig get category => forumCategoryById(widget.categoryId);
 
@@ -33759,7 +34075,24 @@ class _ForumCategoryPageState extends State<ForumCategoryPage> {
         setState(() => searchQuery = searchController.text.trim());
       }
     });
-    unawaited(loadTopics());
+    expiredTopicRefreshTimer = Timer.periodic(const Duration(minutes: 1), (_) {
+      if (mounted) {
+        setState(() {});
+      }
+    });
+    if (widget.categoryId == 'meets_events') {
+      unawaited(_syncTemporarySpotsThenLoadTopics());
+    } else {
+      unawaited(loadTopics());
+    }
+  }
+
+  Future<void> _syncTemporarySpotsThenLoadTopics() async {
+    await syncActiveTemporarySpotForumTopics();
+    if (!mounted) {
+      return;
+    }
+    await loadTopics();
   }
 
   void handleExternalForumRefresh() {
@@ -33773,6 +34106,7 @@ class _ForumCategoryPageState extends State<ForumCategoryPage> {
   @override
   void dispose() {
     forumTopicsRefreshTick.removeListener(handleExternalForumRefresh);
+    expiredTopicRefreshTimer?.cancel();
     searchController.dispose();
     super.dispose();
   }
@@ -33791,8 +34125,7 @@ class _ForumCategoryPageState extends State<ForumCategoryPage> {
       final docs =
           snapshot.docs.where((doc) {
             final data = doc.data();
-            final status = stringFromFirebase(data['status'], 'approved');
-            return status == 'approved' &&
+            return forumTopicIsVisibleNow(data) &&
                 forumCategoryIdFromFirebase(
                       data['categoryId'] ?? data['category'],
                     ) ==
@@ -33835,11 +34168,14 @@ class _ForumCategoryPageState extends State<ForumCategoryPage> {
 
   List<QueryDocumentSnapshot<Map<String, dynamic>>> visibleTopics() {
     final query = searchQuery.toLowerCase();
+    final currentVisibleTopics = topics
+        .where((doc) => forumTopicIsVisibleNow(doc.data()))
+        .toList();
     if (query.isEmpty) {
-      return topics;
+      return currentVisibleTopics;
     }
 
-    return topics.where((doc) {
+    return currentVisibleTopics.where((doc) {
       final data = doc.data();
       final title = stringFromFirebase(data['title'], '').toLowerCase();
       final description = stringFromFirebase(
@@ -42801,15 +43137,17 @@ class _GarageGalleryHeaderState extends State<_GarageGalleryHeader> {
                   );
                 },
               ),
-            Container(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [
-                    Colors.transparent,
-                    Colors.black.withValues(alpha: 0.72),
-                  ],
+            IgnorePointer(
+              child: Container(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [
+                      Colors.transparent,
+                      Colors.black.withValues(alpha: 0.72),
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -42817,22 +43155,24 @@ class _GarageGalleryHeaderState extends State<_GarageGalleryHeader> {
               Positioned(
                 top: 14,
                 right: 14,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 6,
-                  ),
-                  decoration: BoxDecoration(
-                    color: Colors.black.withValues(alpha: 0.62),
-                    borderRadius: BorderRadius.circular(999),
-                    border: Border.all(color: Colors.white24),
-                  ),
-                  child: Text(
-                    '${currentIndex + 1}/${photos.length}',
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w900,
+                child: IgnorePointer(
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 6,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.62),
+                      borderRadius: BorderRadius.circular(999),
+                      border: Border.all(color: Colors.white24),
+                    ),
+                    child: Text(
+                      '${currentIndex + 1}/${photos.length}',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w900,
+                      ),
                     ),
                   ),
                 ),
@@ -42841,18 +43181,20 @@ class _GarageGalleryHeaderState extends State<_GarageGalleryHeader> {
               left: 16,
               right: 16,
               bottom: 26,
-              child: Align(
-                alignment: Alignment.bottomLeft,
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 270),
-                  child: Text(
-                    widget.car.name,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 18,
-                      fontWeight: FontWeight.w900,
+              child: IgnorePointer(
+                child: Align(
+                  alignment: Alignment.bottomLeft,
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 270),
+                    child: Text(
+                      widget.car.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 18,
+                        fontWeight: FontWeight.w900,
+                      ),
                     ),
                   ),
                 ),
@@ -42863,24 +43205,26 @@ class _GarageGalleryHeaderState extends State<_GarageGalleryHeader> {
                 bottom: 10,
                 left: 0,
                 right: 0,
-                child: Center(
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      for (var index = 0; index < photos.length; index++)
-                        AnimatedContainer(
-                          duration: const Duration(milliseconds: 180),
-                          width: currentIndex == index ? 18 : 6,
-                          height: 6,
-                          margin: const EdgeInsets.symmetric(horizontal: 3),
-                          decoration: BoxDecoration(
-                            color: currentIndex == index
-                                ? blue
-                                : Colors.white.withValues(alpha: 0.42),
-                            borderRadius: BorderRadius.circular(999),
+                child: IgnorePointer(
+                  child: Center(
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        for (var index = 0; index < photos.length; index++)
+                          AnimatedContainer(
+                            duration: const Duration(milliseconds: 180),
+                            width: currentIndex == index ? 18 : 6,
+                            height: 6,
+                            margin: const EdgeInsets.symmetric(horizontal: 3),
+                            decoration: BoxDecoration(
+                              color: currentIndex == index
+                                  ? blue
+                                  : Colors.white.withValues(alpha: 0.42),
+                              borderRadius: BorderRadius.circular(999),
+                            ),
                           ),
-                        ),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
               ),
