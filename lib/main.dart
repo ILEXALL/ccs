@@ -33251,8 +33251,11 @@ class _GlobalChatTabState extends State<GlobalChatTab>
           },
         ),
         Expanded(
-          child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-            stream: messagesStream,
+          child: GestureDetector(
+            behavior: HitTestBehavior.translucent,
+            onTap: () => FocusScope.of(context).unfocus(),
+            child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+              stream: messagesStream,
             builder: (context, snapshot) {
               if (snapshot.hasError) {
                 return Padding(
@@ -33293,6 +33296,7 @@ class _GlobalChatTabState extends State<GlobalChatTab>
                 children: globalChatMessageList(messages),
               );
             },
+            ),
           ),
         ),
         SafeArea(
@@ -35927,8 +35931,11 @@ class _ForumTopicPageState extends State<ForumTopicPage> {
       body: Column(
         children: [
           Expanded(
-            child: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-              stream: topicDocument.debugSnapshots('forum: topic listener'),
+            child: GestureDetector(
+              behavior: HitTestBehavior.translucent,
+              onTap: () => FocusScope.of(context).unfocus(),
+              child: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+                stream: topicDocument.debugSnapshots('forum: topic listener'),
               builder: (context, snapshot) {
                 if (snapshot.connectionState == ConnectionState.waiting) {
                   return const Center(
@@ -35994,7 +36001,8 @@ class _ForumTopicPageState extends State<ForumTopicPage> {
                     );
                   },
                 );
-              },
+                },
+              ),
             ),
           ),
           SafeArea(
@@ -40086,8 +40094,11 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
       body: Column(
         children: [
           Expanded(
-            child: Builder(
-              builder: (context) {
+            child: GestureDetector(
+              behavior: HitTestBehavior.translucent,
+              onTap: () => FocusScope.of(context).unfocus(),
+              child: Builder(
+                builder: (context) {
                 final messages = List<ChatMessageData>.from(_messages);
                 updateChatScrollForMessages(messages.length);
 
@@ -40193,7 +40204,8 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
                     return listWithUsers(usersById);
                   },
                 );
-              },
+                },
+              ),
             ),
           ),
           SafeArea(
