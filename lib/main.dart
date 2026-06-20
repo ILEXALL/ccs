@@ -12230,8 +12230,18 @@ Future<String> uploadGroupAvatarPhoto({
   required String groupId,
   required String localPhotoPath,
 }) async {
+  final firebaseUser = FirebaseAuth.instance.currentUser;
+  final userId = firebaseUser?.uid.trim() ?? '';
+
+  if (userId.isEmpty) {
+    throw Exception('Log in before updating a group photo.');
+  }
+
   final timestamp = DateTime.now().millisecondsSinceEpoch;
-  final r2Path = 'groups/${safeR2Path(groupId)}/avatar_$timestamp.jpg';
+  // Keep group avatars under an existing user upload root. Some R2 presign
+  // backends reject a direct groups/ root with "Invalid upload path".
+  final r2Path =
+      'users/${safeR2Path(userId)}/group_avatars/${safeR2Path(groupId)}/avatar_$timestamp.jpg';
 
   return uploadImageToR2(
     r2Path: r2Path,
@@ -39759,13 +39769,26 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
       onTap: openGroupSettings,
       borderRadius: BorderRadius.circular(12),
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 6),
+        padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 5),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
             const Icon(Icons.groups, size: 21),
             const SizedBox(width: 8),
-            Flexible(child: Text(title)),
+            Flexible(
+              child: Text(
+                title,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                softWrap: true,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w900,
+                  height: 1.08,
+                ),
+              ),
+            ),
           ],
         ),
       ),
@@ -39997,6 +40020,8 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
     return Scaffold(
       backgroundColor: Colors.transparent,
       appBar: AppBar(
+        toolbarHeight: widget.chat.isGroup ? 72 : null,
+        titleSpacing: widget.chat.isGroup ? 0 : null,
         title: widget.chat.isGroup
             ? groupChatTitle(title)
             : directChatTitle(currentUid, title, chatPhotoUrl),
@@ -40005,25 +40030,10 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
         actions: widget.chat.isGroup
             ? [
                 if (canModerateGroupChat)
-                  Padding(
-                    padding: const EdgeInsets.only(right: 2),
-                    child: TextButton.icon(
-                      onPressed: openGroupSettings,
-                      icon: const Icon(Icons.admin_panel_settings, size: 18),
-                      label: const Text(
-                        'Модерация',
-                        style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w900,
-                        ),
-                      ),
-                      style: TextButton.styleFrom(
-                        foregroundColor: blue,
-                        padding: const EdgeInsets.symmetric(horizontal: 8),
-                        minimumSize: const Size(0, 36),
-                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                      ),
-                    ),
+                  IconButton(
+                    tooltip: 'Модерация',
+                    onPressed: openGroupSettings,
+                    icon: const Icon(Icons.admin_panel_settings_outlined),
                   ),
                 IconButton(
                   tooltip: 'Group info',
