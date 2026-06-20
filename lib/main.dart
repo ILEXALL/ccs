@@ -38893,7 +38893,7 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
       for (final message in _messages) message.id: message,
     };
     for (final message in incoming) {
-      if (message.text.trim().isEmpty) {
+      if (message.text.trim().isEmpty && message.photoUrl.trim().isEmpty) {
         continue;
       }
       byId[message.id] = message;
