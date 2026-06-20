@@ -1,4 +1,4 @@
-﻿import 'dart:async';
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
@@ -33266,46 +33266,48 @@ class _GlobalChatTabState extends State<GlobalChatTab>
             onTap: () => FocusScope.of(context).unfocus(),
             child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
               stream: messagesStream,
-            builder: (context, snapshot) {
-              if (snapshot.hasError) {
-                return Padding(
-                  padding: const EdgeInsets.all(20),
-                  child: EmptyStateCard(
-                    icon: Icons.public_off,
-                    title: trText('Global chat unavailable'),
-                    text: trText('Could not load global chat right now.'),
-                  ),
+              builder: (context, snapshot) {
+                if (snapshot.hasError) {
+                  return Padding(
+                    padding: const EdgeInsets.all(20),
+                    child: EmptyStateCard(
+                      icon: Icons.public_off,
+                      title: trText('Global chat unavailable'),
+                      text: trText('Could not load global chat right now.'),
+                    ),
+                  );
+                }
+
+                final messages =
+                    (snapshot.data?.docs ??
+                            const <
+                              QueryDocumentSnapshot<Map<String, dynamic>>
+                            >[])
+                        .toList()
+                        .reversed
+                        .toList();
+
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Center(
+                    child: CircularProgressIndicator(color: blue),
+                  );
+                }
+
+                if (messages.isEmpty) {
+                  return EmptyStateCard(
+                    icon: Icons.public,
+                    title: trText('Global chat empty'),
+                    text: trText(
+                      'Write the first message for the whole community.',
+                    ),
+                  );
+                }
+
+                return ListView(
+                  padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
+                  children: globalChatMessageList(messages),
                 );
-              }
-
-              final messages =
-                  (snapshot.data?.docs ??
-                          const <QueryDocumentSnapshot<Map<String, dynamic>>>[])
-                      .toList()
-                      .reversed
-                      .toList();
-
-              if (snapshot.connectionState == ConnectionState.waiting) {
-                return const Center(
-                  child: CircularProgressIndicator(color: blue),
-                );
-              }
-
-              if (messages.isEmpty) {
-                return EmptyStateCard(
-                  icon: Icons.public,
-                  title: trText('Global chat empty'),
-                  text: trText(
-                    'Write the first message for the whole community.',
-                  ),
-                );
-              }
-
-              return ListView(
-                padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
-                children: globalChatMessageList(messages),
-              );
-            },
+              },
             ),
           ),
         ),
@@ -35946,71 +35948,71 @@ class _ForumTopicPageState extends State<ForumTopicPage> {
               onTap: () => FocusScope.of(context).unfocus(),
               child: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
                 stream: topicDocument.debugSnapshots('forum: topic listener'),
-              builder: (context, snapshot) {
-                if (snapshot.connectionState == ConnectionState.waiting) {
-                  return const Center(
-                    child: CircularProgressIndicator(color: blue),
-                  );
-                }
-
-                final topic = snapshot.data?.data();
-                if (topic == null) {
-                  return EmptyStateCard(
-                    icon: Icons.forum_outlined,
-                    title: trText('Topic not found'),
-                    text: trText('This topic may have been removed.'),
-                  );
-                }
-
-                return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                  stream: topicRepliesCollection
-                      .orderBy('timestamp', descending: false)
-                      .limit(50)
-                      .debugSnapshots('forum: topic replies listener'),
-                  builder: (context, repliesSnapshot) {
-                    final replies =
-                        repliesSnapshot.data?.docs ??
-                        const <QueryDocumentSnapshot<Map<String, dynamic>>>[];
-
-                    return ListView(
-                      padding: const EdgeInsets.fromLTRB(20, 18, 20, 12),
-                      children: [
-                        topicHeader(topic),
-                        if (repliesSnapshot.connectionState ==
-                            ConnectionState.waiting)
-                          const Padding(
-                            padding: EdgeInsets.symmetric(vertical: 30),
-                            child: Center(
-                              child: CircularProgressIndicator(color: blue),
-                            ),
-                          )
-                        else if (replies.isEmpty)
-                          EmptyStateCard(
-                            icon: Icons.forum_outlined,
-                            title: trText('No replies yet'),
-                            text: trText(
-                              'Be the first to reply in this topic.',
-                            ),
-                          )
-                        else
-                          for (var index = 0; index < replies.length; index++)
-                            replyTile(
-                              replies[index],
-                              showAuthorHeader:
-                                  index == 0 ||
-                                  stringFromFirebase(
-                                        replies[index].data()['userId'],
-                                        '',
-                                      ) !=
-                                      stringFromFirebase(
-                                        replies[index - 1].data()['userId'],
-                                        '',
-                                      ),
-                            ),
-                      ],
+                builder: (context, snapshot) {
+                  if (snapshot.connectionState == ConnectionState.waiting) {
+                    return const Center(
+                      child: CircularProgressIndicator(color: blue),
                     );
-                  },
-                );
+                  }
+
+                  final topic = snapshot.data?.data();
+                  if (topic == null) {
+                    return EmptyStateCard(
+                      icon: Icons.forum_outlined,
+                      title: trText('Topic not found'),
+                      text: trText('This topic may have been removed.'),
+                    );
+                  }
+
+                  return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                    stream: topicRepliesCollection
+                        .orderBy('timestamp', descending: false)
+                        .limit(50)
+                        .debugSnapshots('forum: topic replies listener'),
+                    builder: (context, repliesSnapshot) {
+                      final replies =
+                          repliesSnapshot.data?.docs ??
+                          const <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+
+                      return ListView(
+                        padding: const EdgeInsets.fromLTRB(20, 18, 20, 12),
+                        children: [
+                          topicHeader(topic),
+                          if (repliesSnapshot.connectionState ==
+                              ConnectionState.waiting)
+                            const Padding(
+                              padding: EdgeInsets.symmetric(vertical: 30),
+                              child: Center(
+                                child: CircularProgressIndicator(color: blue),
+                              ),
+                            )
+                          else if (replies.isEmpty)
+                            EmptyStateCard(
+                              icon: Icons.forum_outlined,
+                              title: trText('No replies yet'),
+                              text: trText(
+                                'Be the first to reply in this topic.',
+                              ),
+                            )
+                          else
+                            for (var index = 0; index < replies.length; index++)
+                              replyTile(
+                                replies[index],
+                                showAuthorHeader:
+                                    index == 0 ||
+                                    stringFromFirebase(
+                                          replies[index].data()['userId'],
+                                          '',
+                                        ) !=
+                                        stringFromFirebase(
+                                          replies[index - 1].data()['userId'],
+                                          '',
+                                        ),
+                              ),
+                        ],
+                      );
+                    },
+                  );
                 },
               ),
             ),
@@ -40109,111 +40111,111 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
               onTap: () => FocusScope.of(context).unfocus(),
               child: Builder(
                 builder: (context) {
-                final messages = List<ChatMessageData>.from(_messages);
-                updateChatScrollForMessages(messages.length);
+                  final messages = List<ChatMessageData>.from(_messages);
+                  updateChatScrollForMessages(messages.length);
 
-                if (_isInitialLoadingMessages) {
-                  return const Center(
-                    child: CircularProgressIndicator(color: blue),
-                  );
-                }
-
-                if (messages.isEmpty) {
-                  return const Padding(
-                    padding: EdgeInsets.all(20),
-                    child: EmptyStateCard(
-                      icon: Icons.chat_bubble_outline,
-                      title: 'No messages yet',
-                      text: 'Send the first message.',
-                    ),
-                  );
-                }
-
-                Widget listWithUsers(Map<String, FriendUserData> usersById) {
-                  String previousDateLabel = '';
-                  String previousSenderUid = '';
-                  final children = <Widget>[];
-                  for (final message in messages) {
-                    final dateLabel = chatDateDividerLabel(
-                      message.createdAtMillis,
+                  if (_isInitialLoadingMessages) {
+                    return const Center(
+                      child: CircularProgressIndicator(color: blue),
                     );
-                    if (dateLabel.isNotEmpty &&
-                        dateLabel != previousDateLabel) {
-                      children.add(chatDateDivider(dateLabel));
-                      previousDateLabel = dateLabel;
-                      previousSenderUid = '';
-                    }
-                    final showAuthorHeader =
-                        message.senderUid.isEmpty ||
-                        message.senderUid != previousSenderUid;
-                    children.add(
-                      messageBubble(
-                        message,
-                        currentUid,
-                        usersById,
-                        showAuthorHeader: showAuthorHeader,
-                      ),
-                    );
-                    previousSenderUid = message.senderUid;
                   }
 
-                  return ListView(
-                    controller: chatScrollController,
-                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-                    children: [
-                      if (_isLoadingOlderMessages)
-                        const Padding(
-                          padding: EdgeInsets.all(12),
-                          child: Center(
-                            child: SizedBox(
-                              width: 20,
-                              height: 20,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: blue,
+                  if (messages.isEmpty) {
+                    return const Padding(
+                      padding: EdgeInsets.all(20),
+                      child: EmptyStateCard(
+                        icon: Icons.chat_bubble_outline,
+                        title: 'No messages yet',
+                        text: 'Send the first message.',
+                      ),
+                    );
+                  }
+
+                  Widget listWithUsers(Map<String, FriendUserData> usersById) {
+                    String previousDateLabel = '';
+                    String previousSenderUid = '';
+                    final children = <Widget>[];
+                    for (final message in messages) {
+                      final dateLabel = chatDateDividerLabel(
+                        message.createdAtMillis,
+                      );
+                      if (dateLabel.isNotEmpty &&
+                          dateLabel != previousDateLabel) {
+                        children.add(chatDateDivider(dateLabel));
+                        previousDateLabel = dateLabel;
+                        previousSenderUid = '';
+                      }
+                      final showAuthorHeader =
+                          message.senderUid.isEmpty ||
+                          message.senderUid != previousSenderUid;
+                      children.add(
+                        messageBubble(
+                          message,
+                          currentUid,
+                          usersById,
+                          showAuthorHeader: showAuthorHeader,
+                        ),
+                      );
+                      previousSenderUid = message.senderUid;
+                    }
+
+                    return ListView(
+                      controller: chatScrollController,
+                      padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+                      children: [
+                        if (_isLoadingOlderMessages)
+                          const Padding(
+                            padding: EdgeInsets.all(12),
+                            child: Center(
+                              child: SizedBox(
+                                width: 20,
+                                height: 20,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: blue,
+                                ),
                               ),
                             ),
                           ),
-                        ),
-                      if (_hasMoreOlderMessages)
-                        Padding(
-                          padding: const EdgeInsets.only(bottom: 8),
-                          child: Center(
-                            child: Text(
-                              'Scroll up to load older messages',
-                              style: TextStyle(
-                                color: Colors.white.withValues(alpha: 0.35),
-                                fontSize: 10.5,
-                                fontWeight: FontWeight.w700,
+                        if (_hasMoreOlderMessages)
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 8),
+                            child: Center(
+                              child: Text(
+                                'Scroll up to load older messages',
+                                style: TextStyle(
+                                  color: Colors.white.withValues(alpha: 0.35),
+                                  fontSize: 10.5,
+                                  fontWeight: FontWeight.w700,
+                                ),
                               ),
                             ),
                           ),
-                        ),
-                      ...children,
-                    ],
+                        ...children,
+                      ],
+                    );
+                  }
+
+                  if (!widget.chat.isGroup) {
+                    return listWithUsers(const <String, FriendUserData>{});
+                  }
+
+                  return FutureBuilder<List<FriendUserData>>(
+                    future: loadChatMembers(widget.chat),
+                    builder: (context, usersSnapshot) {
+                      final members =
+                          usersSnapshot.data ??
+                          [
+                            for (final uid in widget.chat.memberIds)
+                              fallbackChatMember(widget.chat, uid),
+                          ];
+                      final usersById = <String, FriendUserData>{
+                        for (final member in members) member.uid: member,
+                      };
+
+                      return listWithUsers(usersById);
+                    },
                   );
-                }
-
-                if (!widget.chat.isGroup) {
-                  return listWithUsers(const <String, FriendUserData>{});
-                }
-
-                return FutureBuilder<List<FriendUserData>>(
-                  future: loadChatMembers(widget.chat),
-                  builder: (context, usersSnapshot) {
-                    final members =
-                        usersSnapshot.data ??
-                        [
-                          for (final uid in widget.chat.memberIds)
-                            fallbackChatMember(widget.chat, uid),
-                        ];
-                    final usersById = <String, FriendUserData>{
-                      for (final member in members) member.uid: member,
-                    };
-
-                    return listWithUsers(usersById);
-                  },
-                );
                 },
               ),
             ),
