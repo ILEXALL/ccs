@@ -53,6 +53,9 @@ const int r2SpotPhotoMaxLongSide = 1280;
 const int r2AvatarPhotoMaxLongSide = 768;
 const int r2GaragePhotoMaxLongSide = 1280;
 const int r2JpegQuality = 76;
+const int chatAttachmentTargetBytes = 260 * 1024;
+const int chatAttachmentMaxBytes = 300 * 1024;
+const int r2ChatAttachmentPhotoMaxLongSide = 1280;
 const double garagePhotoAspectRatio = 1.45;
 
 // Map gesture setup.
@@ -1572,6 +1575,7 @@ const _ruText = <String, String>{
   'Report': 'Пожаловаться',
   'Action': 'Действия',
   'New user report': 'Новая жалоба на пользователя',
+  'Spot topic': 'Тема спота',
   'Report user': 'Пожаловаться на пользователя',
   'Report reason': 'Причина жалобы',
   'Write the reason for reporting': 'Напишите причину жалобы',
@@ -2473,6 +2477,7 @@ const _lvText = <String, String>{
   'Report': 'Ziņot',
   'Action': 'Darbības',
   'New user report': 'Jauns lietotāja ziņojums',
+  'Spot topic': 'Spota tēma',
   'Report user': 'Ziņot par lietotāju',
   'Report reason': 'Ziņojuma iemesls',
   'Write the reason for reporting': 'Uzrakstiet ziņošanas iemeslu',
@@ -4909,7 +4914,7 @@ const spotCategoryLightIconAssets = {
 };
 
 const spotCategoryColors = {
-  'Drift': Color(0xFFFF7A00),
+  'Drift': Color(0xFF829600),
   'Photo': Color(0xFF9B35FF),
   'Meet': Color(0xFF8AE600),
   'Drive': Color(0xFF00B8FF),
@@ -6923,6 +6928,112 @@ Future<List<int>> compressedJpegBytesFromFile(
   }
 
   return img.encodeJpg(normalized, quality: quality);
+}
+
+Future<List<int>> compressedChatAttachmentJpegBytesFromFile(
+  String localPhotoPath,
+) async {
+  final file = File(localPhotoPath);
+
+  if (!await file.exists()) {
+    throw Exception('Selected image file was not found on this phone.');
+  }
+
+  final originalBytes = await file.readAsBytes();
+  final decoded = img.decodeImage(originalBytes);
+
+  if (decoded == null) {
+    throw Exception('Could not read selected image. Try another photo.');
+  }
+
+  final source = img.bakeOrientation(decoded);
+  var maxLongSide = r2ChatAttachmentPhotoMaxLongSide;
+  var quality = 84;
+  List<int> bestBytes = const <int>[];
+
+  for (var attempt = 0; attempt < 10; attempt++) {
+    var candidate = source;
+    final longestSide = math.max(candidate.width, candidate.height);
+    if (longestSide > maxLongSide) {
+      final scale = maxLongSide / longestSide;
+      candidate = img.copyResize(
+        candidate,
+        width: math.max(1, (candidate.width * scale).round()),
+        height: math.max(1, (candidate.height * scale).round()),
+        interpolation: img.Interpolation.average,
+      );
+    }
+
+    final bytes = img.encodeJpg(candidate, quality: quality);
+    bestBytes = bytes;
+
+    if (bytes.length <= chatAttachmentMaxBytes) {
+      if (bytes.length >= 180 * 1024 || quality <= 70 || maxLongSide <= 960) {
+        return bytes;
+      }
+    }
+
+    if (bytes.length > chatAttachmentTargetBytes) {
+      if (quality > 72) {
+        quality -= 6;
+      } else {
+        maxLongSide = (maxLongSide * 0.86).round().clamp(720, 1280).toInt();
+        quality = 78;
+      }
+    } else {
+      return bytes;
+    }
+  }
+
+  return bestBytes;
+}
+
+Future<String> uploadChatAttachmentPhoto({
+  required String scope,
+  required String parentId,
+  required String messageId,
+  required String localPhotoPath,
+}) async {
+  final firebaseUser = FirebaseAuth.instance.currentUser;
+  final userId = firebaseUser?.uid.trim() ?? '';
+
+  if (userId.isEmpty) {
+    throw Exception('Log in before attaching a photo.');
+  }
+
+  final timestamp = DateTime.now().millisecondsSinceEpoch;
+  // The R2 presign backend only accepts existing app upload roots such as
+  // users/, spots/, garage/, and groups/. Store chat/forum attachments under
+  // the sender's users/ folder instead of a new top-level chat_attachments/
+  // folder, otherwise the backend returns: Invalid upload path.
+  final r2Path =
+      'users/${safeR2Path(userId)}/chat_attachments/${safeR2Path(scope)}/${safeR2Path(parentId)}/${safeR2Path(messageId)}_$timestamp.jpg';
+  final bytes = await compressedChatAttachmentJpegBytesFromFile(localPhotoPath);
+
+  return uploadImageBytesToR2(
+    r2Path: r2Path,
+    bytes: bytes,
+    contentType: 'image/jpeg',
+  );
+}
+
+Future<String?> pickAndUploadChatAttachmentPhoto({
+  required BuildContext context,
+  required String scope,
+  required String parentId,
+  required String messageId,
+}) async {
+  final path = await pickPhotoFromPhone(context, cropPhoto: false);
+  if (path == null || path.trim().isEmpty) {
+    return null;
+  }
+
+  return uploadChatAttachmentPhoto(
+    scope: scope,
+    parentId: parentId,
+    messageId: messageId,
+    localPhotoPath: path,
+  );
 }
 
 Future<Map<String, dynamic>> postJsonToUrl(
@@ -9810,11 +9921,209 @@ class ChatThreadData {
 
 enum ChatMessageReceiptState { sending, delivered, read, failed }
 
+class ChatPhotoViewerScreen extends StatelessWidget {
+  final String imageUrl;
+
+  const ChatPhotoViewerScreen({super.key, required this.imageUrl});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        title: Text(trText('Photo')),
+        backgroundColor: Colors.transparent,
+        foregroundColor: Colors.white,
+      ),
+      body: Center(
+        child: InteractiveViewer(
+          minScale: 0.8,
+          maxScale: 4,
+          child: Image.network(
+            imageUrl,
+            fit: BoxFit.contain,
+            errorBuilder: (context, error, stack) {
+              return const Icon(
+                Icons.broken_image_outlined,
+                color: Colors.white54,
+                size: 44,
+              );
+            },
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class ChatAttachmentImage extends StatelessWidget {
+  final String imageUrl;
+  final bool mine;
+
+  const ChatAttachmentImage({
+    super.key,
+    required this.imageUrl,
+    this.mine = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final cleanUrl = imageUrl.trim();
+    if (cleanUrl.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    return GestureDetector(
+      onTap: () {
+        Navigator.push(
+          context,
+          appPageRoute(
+            builder: (_) => ChatPhotoViewerScreen(imageUrl: cleanUrl),
+          ),
+        );
+      },
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(14),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(
+            minWidth: 160,
+            maxWidth: 270,
+            maxHeight: 340,
+          ),
+          child: Image.network(
+            cleanUrl,
+            fit: BoxFit.cover,
+            loadingBuilder: (context, child, progress) {
+              if (progress == null) {
+                return child;
+              }
+
+              return Container(
+                width: 220,
+                height: 180,
+                alignment: Alignment.center,
+                color: Colors.white.withValues(alpha: mine ? 0.10 : 0.06),
+                child: const SizedBox(
+                  width: 22,
+                  height: 22,
+                  child: CircularProgressIndicator(color: blue, strokeWidth: 2),
+                ),
+              );
+            },
+            errorBuilder: (context, error, stack) {
+              return Container(
+                width: 220,
+                height: 150,
+                alignment: Alignment.center,
+                color: Colors.white.withValues(alpha: 0.06),
+                child: const Icon(
+                  Icons.broken_image_outlined,
+                  color: Colors.white54,
+                ),
+              );
+            },
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+Widget stagedChatPhotoPreview({
+  required String localPhotoPath,
+  required VoidCallback onRemove,
+  bool isBusy = false,
+}) {
+  final cleanPath = localPhotoPath.trim();
+  if (cleanPath.isEmpty) {
+    return const SizedBox.shrink();
+  }
+
+  return Padding(
+    padding: const EdgeInsets.fromLTRB(4, 0, 4, 10),
+    child: Align(
+      alignment: Alignment.centerLeft,
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          Container(
+            width: 88,
+            height: 88,
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.08),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: blue.withValues(alpha: 0.45)),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.22),
+                  blurRadius: 14,
+                  offset: const Offset(0, 7),
+                ),
+              ],
+            ),
+            clipBehavior: Clip.antiAlias,
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                Image.file(
+                  File(cleanPath),
+                  fit: BoxFit.cover,
+                  errorBuilder: (_, _, _) {
+                    return const Center(
+                      child: Icon(
+                        Icons.broken_image_outlined,
+                        color: Colors.white54,
+                      ),
+                    );
+                  },
+                ),
+                if (isBusy)
+                  Container(
+                    color: Colors.black.withValues(alpha: 0.42),
+                    child: const Center(
+                      child: SizedBox(
+                        width: 22,
+                        height: 22,
+                        child: CircularProgressIndicator(
+                          color: blue,
+                          strokeWidth: 2,
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          Positioned(
+            top: -8,
+            right: -8,
+            child: InkWell(
+              onTap: isBusy ? null : onRemove,
+              borderRadius: BorderRadius.circular(999),
+              child: Container(
+                width: 28,
+                height: 28,
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.82),
+                  shape: BoxShape.circle,
+                  border: Border.all(color: Colors.white24),
+                ),
+                child: const Icon(Icons.close, color: Colors.white, size: 17),
+              ),
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
 class ChatMessageData {
   final String id;
   final String senderUid;
   final String senderUsername;
   final String text;
+  final String photoUrl;
   final int createdAtMillis;
   final bool edited;
   final int updatedAtMillis;
@@ -9828,6 +10137,7 @@ class ChatMessageData {
     required this.senderUid,
     required this.senderUsername,
     required this.text,
+    this.photoUrl = '',
     required this.createdAtMillis,
     this.edited = false,
     this.updatedAtMillis = 0,
@@ -9852,6 +10162,10 @@ class ChatMessageData {
       senderUid: stringFromFirebase(data['senderUid'], ''),
       senderUsername: stringFromFirebase(data['senderUsername'], 'ccs_driver'),
       text: stringFromFirebase(data['text'], ''),
+      photoUrl: stringFromFirebase(
+        data['photoUrl'],
+        stringFromFirebase(data['imageUrl'], ''),
+      ),
       createdAtMillis: createdAtMillis > 0
           ? createdAtMillis
           : clientCreatedAtMillis,
@@ -9868,6 +10182,7 @@ class ChatMessageData {
     required String senderUid,
     required String senderUsername,
     required String text,
+    String photoUrl = '',
     required int createdAtMillis,
   }) {
     return ChatMessageData(
@@ -9875,6 +10190,7 @@ class ChatMessageData {
       senderUid: senderUid,
       senderUsername: senderUsername,
       text: text,
+      photoUrl: photoUrl,
       createdAtMillis: createdAtMillis,
       clientCreatedAtMillis: createdAtMillis,
       readByUserIds: [senderUid],
@@ -9887,6 +10203,7 @@ class ChatMessageData {
     String? senderUid,
     String? senderUsername,
     String? text,
+    String? photoUrl,
     int? createdAtMillis,
     bool? edited,
     int? updatedAtMillis,
@@ -9900,6 +10217,7 @@ class ChatMessageData {
       senderUid: senderUid ?? this.senderUid,
       senderUsername: senderUsername ?? this.senderUsername,
       text: text ?? this.text,
+      photoUrl: photoUrl ?? this.photoUrl,
       createdAtMillis: createdAtMillis ?? this.createdAtMillis,
       edited: edited ?? this.edited,
       updatedAtMillis: updatedAtMillis ?? this.updatedAtMillis,
@@ -10091,6 +10409,7 @@ Future<String> createGroupChat({
 Future<void> sendChatMessage({
   required String chatId,
   required String text,
+  String photoUrl = '',
   ChatThreadData? chat,
   String? messageId,
   int? clientCreatedAtMillis,
@@ -10106,8 +10425,9 @@ Future<void> sendChatMessage({
   }
 
   final cleanText = text.trim();
+  final cleanPhotoUrl = photoUrl.trim();
 
-  if (cleanText.isEmpty) {
+  if (cleanText.isEmpty && cleanPhotoUrl.isEmpty) {
     return;
   }
 
@@ -10128,6 +10448,8 @@ Future<void> sendChatMessage({
       'senderUid': firebaseUser.uid,
       'senderUsername': currentUser.username,
       'text': cleanText,
+      if (cleanPhotoUrl.isNotEmpty) 'photoUrl': cleanPhotoUrl,
+      if (cleanPhotoUrl.isNotEmpty) 'type': 'image',
       'clientCreatedAtMillis': clientMillis,
       'readByUserIds': [firebaseUser.uid],
       'createdAt': FieldValue.serverTimestamp(),
@@ -10143,7 +10465,7 @@ Future<void> sendChatMessage({
           .where((uid) => uid.isNotEmpty)
           .toList();
       await chatsCollection().doc(chatId).debugSet({
-        'lastMessage': cleanText,
+        'lastMessage': cleanText.isEmpty ? trText('Photo') : cleanText,
         'lastSenderUid': firebaseUser.uid,
         'lastSenderUsername': currentUser.username,
         if (chatMemberIds != null && chatMemberIds.isNotEmpty)
@@ -32405,6 +32727,8 @@ class _GlobalChatTabState extends State<GlobalChatTab>
   late final Stream<QuerySnapshot<Map<String, dynamic>>> messagesStream;
   late final Stream<QuerySnapshot<Map<String, dynamic>>> onlineUsersStream;
   bool isSending = false;
+  bool isUploadingPhotoAttachment = false;
+  String? pendingPhotoAttachmentPath;
   bool hasGlobalChatModeratorAccess = false;
 
   @override
@@ -32530,32 +32854,102 @@ class _GlobalChatTabState extends State<GlobalChatTab>
     }
   }
 
-  Future<void> sendMessage() async {
+  Future<void> attachPhoto() async {
     final firebaseUser = FirebaseAuth.instance.currentUser;
-    final text = messageController.text.trim();
 
-    if (firebaseUser == null || text.isEmpty || isSending) {
+    if (firebaseUser == null || isSending || isUploadingPhotoAttachment) {
       return;
     }
 
-    setState(() => isSending = true);
+    setState(() => isUploadingPhotoAttachment = true);
 
     try {
+      final path = await pickPhotoFromPhone(context, cropPhoto: false);
+
+      if (!mounted || path == null || path.trim().isEmpty) {
+        return;
+      }
+
+      setState(() => pendingPhotoAttachmentPath = path);
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: Colors.redAccent,
+            content: Text(
+              'Could not attach photo: $error',
+              style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => isUploadingPhotoAttachment = false);
+      }
+    }
+  }
+
+  Future<void> sendMessage() async {
+    final firebaseUser = FirebaseAuth.instance.currentUser;
+    final text = messageController.text.trim();
+    final localPhotoPath = pendingPhotoAttachmentPath?.trim() ?? '';
+    final hasPhoto = localPhotoPath.isNotEmpty;
+
+    if (firebaseUser == null ||
+        (!hasPhoto && text.isEmpty) ||
+        isSending ||
+        isUploadingPhotoAttachment) {
+      return;
+    }
+
+    final doc = globalChatCollection.doc();
+
+    setState(() {
+      isSending = true;
+      isUploadingPhotoAttachment = hasPhoto;
+    });
+
+    try {
+      String photoUrl = '';
+      if (hasPhoto) {
+        photoUrl = await uploadChatAttachmentPhoto(
+          scope: 'global_chat',
+          parentId: 'main',
+          messageId: doc.id,
+          localPhotoPath: localPhotoPath,
+        );
+      }
+
+      if (!mounted) {
+        return;
+      }
+
       messageController.clear();
-      await globalChatCollection.debugAdd({
-        'userId': firebaseUser.uid,
-        'username': currentUser.username.trim().isEmpty
-            ? 'ccs_driver'
-            : currentUser.username.trim(),
-        'avatarUrl': currentUser.photoUrl ?? '',
-        'role': roleName(currentUser.role),
-        'verified': currentUser.verified,
-        'globalChatModerator': currentUser.globalChatModerator,
-        'globalModerator': currentUser.globalChatModerator,
-        'text': text,
-        'timestamp': FieldValue.serverTimestamp(),
-        'type': 'text',
-      });
+      setState(() => pendingPhotoAttachmentPath = null);
+
+      await doc.debugSet(
+        {
+          'userId': firebaseUser.uid,
+          'username': currentUser.username.trim().isEmpty
+              ? 'ccs_driver'
+              : currentUser.username.trim(),
+          'avatarUrl': currentUser.photoUrl ?? '',
+          'role': roleName(currentUser.role),
+          'verified': currentUser.verified,
+          'globalChatModerator': currentUser.globalChatModerator,
+          'globalModerator': currentUser.globalChatModerator,
+          'text': text,
+          if (photoUrl.trim().isNotEmpty) 'photoUrl': photoUrl,
+          'timestamp': FieldValue.serverTimestamp(),
+          'type': photoUrl.trim().isNotEmpty ? 'image' : 'text',
+        },
+        null,
+        'global chat: send message',
+      );
     } catch (error) {
       if (mounted) {
         if (messageController.text.trim().isEmpty) {
@@ -32568,7 +32962,9 @@ class _GlobalChatTabState extends State<GlobalChatTab>
           SnackBar(
             backgroundColor: Colors.redAccent,
             content: Text(
-              'Could not send message: $error',
+              hasPhoto
+                  ? 'Could not attach photo: $error'
+                  : 'Could not send message: $error',
               style: const TextStyle(
                 color: Colors.white,
                 fontWeight: FontWeight.w700,
@@ -32579,7 +32975,10 @@ class _GlobalChatTabState extends State<GlobalChatTab>
       }
     } finally {
       if (mounted) {
-        setState(() => isSending = false);
+        setState(() {
+          isSending = false;
+          isUploadingPhotoAttachment = false;
+        });
       }
     }
   }
@@ -32603,6 +33002,10 @@ class _GlobalChatTabState extends State<GlobalChatTab>
     final fallbackVerified =
         userRoleIsStaff(fallbackRole) || data['verified'] == true;
     final text = stringFromFirebase(data['text'], '');
+    final photoUrl = stringFromFirebase(
+      data['photoUrl'],
+      stringFromFirebase(data['imageUrl'], ''),
+    );
     final time = formatChatMessageTime(
       timestampMillisFromFirebase(data['timestamp']),
     );
@@ -32708,15 +33111,20 @@ class _GlobalChatTabState extends State<GlobalChatTab>
                 ),
                 const SizedBox(height: 7),
               ],
-              Text(
-                text,
-                style: const TextStyle(
-                  color: Colors.white,
-                  height: 1.25,
-                  fontSize: 13.5,
-                  fontWeight: FontWeight.w500,
+              if (photoUrl.trim().isNotEmpty) ...[
+                ChatAttachmentImage(imageUrl: photoUrl, mine: mine),
+                if (text.trim().isNotEmpty) const SizedBox(height: 8),
+              ],
+              if (text.trim().isNotEmpty)
+                Text(
+                  text,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    height: 1.25,
+                    fontSize: 13.5,
+                    fontWeight: FontWeight.w500,
+                  ),
                 ),
-              ),
               if (!showAuthorHeader && time.isNotEmpty) ...[
                 const SizedBox(height: 2),
                 Align(
@@ -32895,43 +33303,73 @@ class _GlobalChatTabState extends State<GlobalChatTab>
               color: Colors.black,
               border: Border(top: BorderSide(color: Color(0xFF2A2A2A))),
             ),
-            child: Row(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
               children: [
-                Expanded(
-                  child: TextField(
-                    controller: messageController,
-                    minLines: 1,
-                    maxLines: 4,
-                    style: const TextStyle(color: Colors.white),
-                    decoration: InputDecoration(
-                      hintText: trText('Message in global chat'),
-                      hintStyle: const TextStyle(color: Colors.white38),
-                      filled: true,
-                      fillColor: const Color(0xFF1A1A1A),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(18),
-                        borderSide: const BorderSide(color: Color(0xFF2A2A2A)),
-                      ),
-                      enabledBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(18),
-                        borderSide: const BorderSide(color: Color(0xFF2A2A2A)),
-                      ),
-                      focusedBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(18),
-                        borderSide: const BorderSide(color: blue),
+                if (pendingPhotoAttachmentPath != null)
+                  stagedChatPhotoPreview(
+                    localPhotoPath: pendingPhotoAttachmentPath!,
+                    isBusy: isSending || isUploadingPhotoAttachment,
+                    onRemove: () {
+                      setState(() => pendingPhotoAttachmentPath = null);
+                    },
+                  ),
+                Row(
+                  children: [
+                    IconButton(
+                      tooltip: trText('Photo'),
+                      onPressed: isUploadingPhotoAttachment
+                          ? null
+                          : attachPhoto,
+                      style: IconButton.styleFrom(foregroundColor: blue),
+                      icon: Icon(
+                        isUploadingPhotoAttachment
+                            ? Icons.hourglass_top
+                            : Icons.photo_camera_outlined,
                       ),
                     ),
-                    onSubmitted: (_) => sendMessage(),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                IconButton.filled(
-                  onPressed: isSending ? null : sendMessage,
-                  style: IconButton.styleFrom(
-                    backgroundColor: blue,
-                    foregroundColor: Colors.white,
-                  ),
-                  icon: Icon(isSending ? Icons.hourglass_top : Icons.send),
+                    const SizedBox(width: 4),
+                    Expanded(
+                      child: TextField(
+                        controller: messageController,
+                        minLines: 1,
+                        maxLines: 4,
+                        style: const TextStyle(color: Colors.white),
+                        decoration: InputDecoration(
+                          hintText: trText('Message in global chat'),
+                          hintStyle: const TextStyle(color: Colors.white38),
+                          filled: true,
+                          fillColor: const Color(0xFF1A1A1A),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(18),
+                            borderSide: const BorderSide(
+                              color: Color(0xFF2A2A2A),
+                            ),
+                          ),
+                          enabledBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(18),
+                            borderSide: const BorderSide(
+                              color: Color(0xFF2A2A2A),
+                            ),
+                          ),
+                          focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(18),
+                            borderSide: const BorderSide(color: blue),
+                          ),
+                        ),
+                        onSubmitted: (_) => sendMessage(),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    IconButton.filled(
+                      onPressed: isSending ? null : sendMessage,
+                      style: IconButton.styleFrom(
+                        backgroundColor: blue,
+                        foregroundColor: Colors.white,
+                      ),
+                      icon: Icon(isSending ? Icons.hourglass_top : Icons.send),
+                    ),
+                  ],
                 ),
               ],
             ),
@@ -33110,6 +33548,7 @@ Map<String, Object?> temporarySpotForumTopicData({
     if (includeCreateTimestamps) 'createdAt': FieldValue.serverTimestamp(),
     if (includeCreateTimestamps) 'lastReplyAt': FieldValue.serverTimestamp(),
     'source': 'temporary_spot',
+    'isSpotTopic': true,
     'spotId': spot.id,
     'temporarySpotId': spot.id,
     'temporarySpotStartsAt': startsAt,
@@ -33815,6 +34254,16 @@ class _ForumTabState extends State<ForumTab>
       data['categoryId'] ?? data['category'],
     );
     final category = forumCategoryById(categoryId);
+    final isSpotTopic =
+        data['isSpotTopic'] == true ||
+        stringFromFirebase(data['source'], '') == 'temporary_spot' ||
+        stringFromFirebase(data['temporarySpotId'], '').trim().isNotEmpty;
+    final cardAccent = isSpotTopic
+        ? Colors.orangeAccent
+        : const Color(0xFF253246);
+    final cardFill = isSpotTopic
+        ? const Color(0xFF0D111A).withValues(alpha: 0.92)
+        : const Color(0xFF101722);
 
     return InkWell(
       onTap: () {
@@ -33830,9 +34279,23 @@ class _ForumTabState extends State<ForumTab>
         margin: const EdgeInsets.only(bottom: 10),
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-          color: const Color(0xFF101722),
+          color: cardFill,
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: const Color(0xFF253246)),
+          border: Border.all(
+            color: isSpotTopic
+                ? Colors.orangeAccent.withValues(alpha: 0.58)
+                : cardAccent,
+            width: isSpotTopic ? 1.15 : 1,
+          ),
+          boxShadow: isSpotTopic
+              ? [
+                  BoxShadow(
+                    color: Colors.orangeAccent.withValues(alpha: 0.12),
+                    blurRadius: 14,
+                    offset: const Offset(0, 7),
+                  ),
+                ]
+              : null,
         ),
         child: Row(
           children: [
@@ -33856,15 +34319,47 @@ class _ForumTabState extends State<ForumTab>
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 15.5,
-                      fontWeight: FontWeight.w900,
-                    ),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 15.5,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                      ),
+                      if (isSpotTopic) ...[
+                        const SizedBox(width: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 4,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.orangeAccent.withValues(alpha: 0.16),
+                            borderRadius: BorderRadius.circular(999),
+                            border: Border.all(
+                              color: Colors.orangeAccent.withValues(
+                                alpha: 0.65,
+                              ),
+                            ),
+                          ),
+                          child: Text(
+                            trText('Spot topic'),
+                            style: const TextStyle(
+                              color: Colors.orangeAccent,
+                              fontSize: 10.5,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
                   ),
                   if (description.trim().isNotEmpty) ...[
                     const SizedBox(height: 4),
@@ -34247,6 +34742,16 @@ class _ForumCategoryPageState extends State<ForumCategoryPage> {
       data['categoryId'] ?? data['category'],
     );
     final cardCategory = forumCategoryById(cardCategoryId);
+    final isSpotTopic =
+        data['isSpotTopic'] == true ||
+        stringFromFirebase(data['source'], '') == 'temporary_spot' ||
+        stringFromFirebase(data['temporarySpotId'], '').trim().isNotEmpty;
+    final cardAccent = isSpotTopic
+        ? Colors.orangeAccent
+        : const Color(0xFF253246);
+    final cardFill = isSpotTopic
+        ? const Color(0xFF0D111A).withValues(alpha: 0.92)
+        : const Color(0xFF101722);
 
     return InkWell(
       onTap: () {
@@ -34262,9 +34767,23 @@ class _ForumCategoryPageState extends State<ForumCategoryPage> {
         margin: const EdgeInsets.only(bottom: 10),
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-          color: const Color(0xFF101722),
+          color: cardFill,
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: const Color(0xFF253246)),
+          border: Border.all(
+            color: isSpotTopic
+                ? Colors.orangeAccent.withValues(alpha: 0.58)
+                : cardAccent,
+            width: isSpotTopic ? 1.15 : 1,
+          ),
+          boxShadow: isSpotTopic
+              ? [
+                  BoxShadow(
+                    color: Colors.orangeAccent.withValues(alpha: 0.12),
+                    blurRadius: 14,
+                    offset: const Offset(0, 7),
+                  ),
+                ]
+              : null,
         ),
         child: Row(
           children: [
@@ -34291,15 +34810,47 @@ class _ForumCategoryPageState extends State<ForumCategoryPage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 15.5,
-                      fontWeight: FontWeight.w900,
-                    ),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 15.5,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                      ),
+                      if (isSpotTopic) ...[
+                        const SizedBox(width: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 4,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.orangeAccent.withValues(alpha: 0.16),
+                            borderRadius: BorderRadius.circular(999),
+                            border: Border.all(
+                              color: Colors.orangeAccent.withValues(
+                                alpha: 0.65,
+                              ),
+                            ),
+                          ),
+                          child: Text(
+                            trText('Spot topic'),
+                            style: const TextStyle(
+                              color: Colors.orangeAccent,
+                              fontSize: 10.5,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
                   ),
                   if (description.trim().isNotEmpty) ...[
                     const SizedBox(height: 4),
@@ -34714,6 +35265,8 @@ class ForumTopicPage extends StatefulWidget {
 class _ForumTopicPageState extends State<ForumTopicPage> {
   final replyController = TextEditingController();
   bool isSending = false;
+  bool isUploadingPhotoAttachment = false;
+  String? pendingPhotoAttachmentPath;
   bool hasCommunityModerationAccess = false;
 
   DocumentReference<Map<String, dynamic>> get topicDocument =>
@@ -34744,37 +35297,134 @@ class _ForumTopicPageState extends State<ForumTopicPage> {
     }
   }
 
-  Future<void> sendReply() async {
+  Future<void> attachPhoto() async {
     final firebaseUser = FirebaseAuth.instance.currentUser;
-    final text = replyController.text.trim();
 
-    if (firebaseUser == null || text.isEmpty || isSending) {
+    if (firebaseUser == null || isSending || isUploadingPhotoAttachment) {
       return;
     }
 
-    setState(() => isSending = true);
+    setState(() => isUploadingPhotoAttachment = true);
 
     try {
+      final path = await pickPhotoFromPhone(context, cropPhoto: false);
+
+      if (!mounted || path == null || path.trim().isEmpty) {
+        return;
+      }
+
+      setState(() => pendingPhotoAttachmentPath = path);
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: Colors.redAccent,
+            content: Text(
+              'Could not attach photo: $error',
+              style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => isUploadingPhotoAttachment = false);
+      }
+    }
+  }
+
+  Future<void> sendReply() async {
+    final firebaseUser = FirebaseAuth.instance.currentUser;
+    final text = replyController.text.trim();
+    final localPhotoPath = pendingPhotoAttachmentPath?.trim() ?? '';
+    final hasPhoto = localPhotoPath.isNotEmpty;
+
+    if (firebaseUser == null ||
+        (!hasPhoto && text.isEmpty) ||
+        isSending ||
+        isUploadingPhotoAttachment) {
+      return;
+    }
+
+    final doc = topicRepliesCollection.doc();
+
+    setState(() {
+      isSending = true;
+      isUploadingPhotoAttachment = hasPhoto;
+    });
+
+    try {
+      String photoUrl = '';
+      if (hasPhoto) {
+        photoUrl = await uploadChatAttachmentPhoto(
+          scope: 'forum_topics',
+          parentId: widget.topicId,
+          messageId: doc.id,
+          localPhotoPath: localPhotoPath,
+        );
+      }
+
+      if (!mounted) {
+        return;
+      }
+
       replyController.clear();
-      await topicRepliesCollection.debugAdd({
-        'userId': firebaseUser.uid,
-        'username': currentUser.username,
-        'avatarUrl': currentUser.photoUrl ?? '',
-        'role': roleName(currentUser.role),
-        'verified': currentUser.verified,
-        'globalChatModerator': currentUser.globalChatModerator,
-        'globalModerator': currentUser.globalChatModerator,
-        'text': text,
-        'timestamp': FieldValue.serverTimestamp(),
-      });
+      setState(() => pendingPhotoAttachmentPath = null);
+
+      await doc.debugSet(
+        {
+          'userId': firebaseUser.uid,
+          'username': currentUser.username,
+          'avatarUrl': currentUser.photoUrl ?? '',
+          'role': roleName(currentUser.role),
+          'verified': currentUser.verified,
+          'globalChatModerator': currentUser.globalChatModerator,
+          'globalModerator': currentUser.globalChatModerator,
+          'text': text,
+          if (photoUrl.trim().isNotEmpty) 'photoUrl': photoUrl,
+          if (photoUrl.trim().isNotEmpty) 'type': 'image',
+          'timestamp': FieldValue.serverTimestamp(),
+        },
+        null,
+        'forum: send reply',
+      );
 
       await topicDocument.debugSet({
         'repliesCount': FieldValue.increment(1),
         'lastReplyAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
+    } catch (error) {
+      if (mounted) {
+        if (replyController.text.trim().isEmpty) {
+          replyController.text = text;
+          replyController.selection = TextSelection.collapsed(
+            offset: replyController.text.length,
+          );
+        }
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: Colors.redAccent,
+            content: Text(
+              hasPhoto
+                  ? 'Could not attach photo: $error'
+                  : 'Could not send message: $error',
+              style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        );
+      }
     } finally {
       if (mounted) {
-        setState(() => isSending = false);
+        setState(() {
+          isSending = false;
+          isUploadingPhotoAttachment = false;
+        });
       }
     }
   }
@@ -35128,6 +35778,10 @@ class _ForumTopicPageState extends State<ForumTopicPage> {
     final fallbackVerified =
         userRoleIsStaff(fallbackRole) || data['verified'] == true;
     final text = stringFromFirebase(data['text'], '');
+    final photoUrl = stringFromFirebase(
+      data['photoUrl'],
+      stringFromFirebase(data['imageUrl'], ''),
+    );
     final time = formatChatMessageTime(
       timestampMillisFromFirebase(data['timestamp']),
     );
@@ -35217,15 +35871,20 @@ class _ForumTopicPageState extends State<ForumTopicPage> {
             ),
             const SizedBox(height: 8),
           ],
-          Text(
-            text,
-            style: const TextStyle(
-              color: Colors.white,
-              height: 1.32,
-              fontSize: 13.5,
-              fontWeight: FontWeight.w500,
+          if (photoUrl.trim().isNotEmpty) ...[
+            ChatAttachmentImage(imageUrl: photoUrl),
+            if (text.trim().isNotEmpty) const SizedBox(height: 8),
+          ],
+          if (text.trim().isNotEmpty)
+            Text(
+              text,
+              style: const TextStyle(
+                color: Colors.white,
+                height: 1.32,
+                fontSize: 13.5,
+                fontWeight: FontWeight.w500,
+              ),
             ),
-          ),
           if (!showAuthorHeader && time.isNotEmpty) ...[
             const SizedBox(height: 4),
             Align(
@@ -35346,47 +36005,75 @@ class _ForumTopicPageState extends State<ForumTopicPage> {
                 color: Colors.black,
                 border: Border(top: BorderSide(color: Color(0xFF2A2A2A))),
               ),
-              child: Row(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
                 children: [
-                  Expanded(
-                    child: TextField(
-                      controller: replyController,
-                      minLines: 1,
-                      maxLines: 4,
-                      style: const TextStyle(color: Colors.white),
-                      decoration: InputDecoration(
-                        hintText: trText('Reply in topic'),
-                        hintStyle: const TextStyle(color: Colors.white38),
-                        filled: true,
-                        fillColor: const Color(0xFF1A1A1A),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(18),
-                          borderSide: const BorderSide(
-                            color: Color(0xFF2A2A2A),
-                          ),
-                        ),
-                        enabledBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(18),
-                          borderSide: const BorderSide(
-                            color: Color(0xFF2A2A2A),
-                          ),
-                        ),
-                        focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(18),
-                          borderSide: const BorderSide(color: blue),
+                  if (pendingPhotoAttachmentPath != null)
+                    stagedChatPhotoPreview(
+                      localPhotoPath: pendingPhotoAttachmentPath!,
+                      isBusy: isSending || isUploadingPhotoAttachment,
+                      onRemove: () {
+                        setState(() => pendingPhotoAttachmentPath = null);
+                      },
+                    ),
+                  Row(
+                    children: [
+                      IconButton(
+                        tooltip: trText('Photo'),
+                        onPressed: isUploadingPhotoAttachment
+                            ? null
+                            : attachPhoto,
+                        style: IconButton.styleFrom(foregroundColor: blue),
+                        icon: Icon(
+                          isUploadingPhotoAttachment
+                              ? Icons.hourglass_top
+                              : Icons.photo_camera_outlined,
                         ),
                       ),
-                      onSubmitted: (_) => sendReply(),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  IconButton.filled(
-                    onPressed: isSending ? null : sendReply,
-                    style: IconButton.styleFrom(
-                      backgroundColor: blue,
-                      foregroundColor: Colors.white,
-                    ),
-                    icon: Icon(isSending ? Icons.hourglass_top : Icons.send),
+                      const SizedBox(width: 4),
+                      Expanded(
+                        child: TextField(
+                          controller: replyController,
+                          minLines: 1,
+                          maxLines: 4,
+                          style: const TextStyle(color: Colors.white),
+                          decoration: InputDecoration(
+                            hintText: trText('Reply in topic'),
+                            hintStyle: const TextStyle(color: Colors.white38),
+                            filled: true,
+                            fillColor: const Color(0xFF1A1A1A),
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(18),
+                              borderSide: const BorderSide(
+                                color: Color(0xFF2A2A2A),
+                              ),
+                            ),
+                            enabledBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(18),
+                              borderSide: const BorderSide(
+                                color: Color(0xFF2A2A2A),
+                              ),
+                            ),
+                            focusedBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(18),
+                              borderSide: const BorderSide(color: blue),
+                            ),
+                          ),
+                          onSubmitted: (_) => sendReply(),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      IconButton.filled(
+                        onPressed: isSending ? null : sendReply,
+                        style: IconButton.styleFrom(
+                          backgroundColor: blue,
+                          foregroundColor: Colors.white,
+                        ),
+                        icon: Icon(
+                          isSending ? Icons.hourglass_top : Icons.send,
+                        ),
+                      ),
+                    ],
                   ),
                 ],
               ),
@@ -38074,6 +38761,8 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
   _newMessagesSubscription;
   Timer? _markMessagesReadDebounce;
   bool isSharingChatLocation = false;
+  bool isUploadingPhotoAttachment = false;
+  String? pendingPhotoAttachmentPath;
   bool hasScrolledToLatestMessage = false;
   bool scrollToLatestAfterNextMessage = false;
   int renderedMessageCount = 0;
@@ -38258,7 +38947,11 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
 
       final loaded = snapshot.docs
           .map((doc) => ChatMessageData.fromFirestore(doc))
-          .where((message) => message.text.trim().isNotEmpty)
+          .where(
+            (message) =>
+                message.text.trim().isNotEmpty ||
+                message.photoUrl.trim().isNotEmpty,
+          )
           .toList();
       loaded.sort((a, b) => a.createdAtMillis.compareTo(b.createdAtMillis));
 
@@ -38302,7 +38995,11 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
             final shouldFollow = isNearLatestMessage();
             final incoming = snapshot.docs
                 .map((doc) => ChatMessageData.fromFirestore(doc))
-                .where((message) => message.text.trim().isNotEmpty)
+                .where(
+                  (message) =>
+                      message.text.trim().isNotEmpty ||
+                      message.photoUrl.trim().isNotEmpty,
+                )
                 .toList();
 
             setState(() => _mergeMessages(incoming));
@@ -38356,7 +39053,11 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
 
       final older = snapshot.docs
           .map((doc) => ChatMessageData.fromFirestore(doc))
-          .where((message) => message.text.trim().isNotEmpty)
+          .where(
+            (message) =>
+                message.text.trim().isNotEmpty ||
+                message.photoUrl.trim().isNotEmpty,
+          )
           .toList()
           .reversed
           .toList();
@@ -38435,10 +39136,65 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
     }
   }
 
+  Future<void> attachPhoto() async {
+    if (isUploadingPhotoAttachment) {
+      return;
+    }
+
+    final firebaseUser = FirebaseAuth.instance.currentUser;
+    if (firebaseUser == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          backgroundColor: Colors.redAccent,
+          content: Text(
+            'Log in before sending messages.',
+            style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+          ),
+        ),
+      );
+      return;
+    }
+
+    setState(() => isUploadingPhotoAttachment = true);
+
+    try {
+      final path = await pickPhotoFromPhone(context, cropPhoto: false);
+
+      if (!mounted || path == null || path.trim().isEmpty) {
+        return;
+      }
+
+      setState(() => pendingPhotoAttachmentPath = path);
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: Colors.redAccent,
+          content: Text(
+            'Could not attach photo: $error',
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => isUploadingPhotoAttachment = false);
+      }
+    }
+  }
+
   Future<void> sendMessage() async {
     final text = messageController.text.trim();
+    final localPhotoPath = pendingPhotoAttachmentPath?.trim() ?? '';
+    final hasPhoto = localPhotoPath.isNotEmpty;
 
-    if (text.isEmpty) {
+    if ((!hasPhoto && text.isEmpty) || isUploadingPhotoAttachment) {
       return;
     }
 
@@ -38458,25 +39214,47 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
 
     final createdAtMillis = DateTime.now().millisecondsSinceEpoch;
     final messageId = chatMessagesCollection(widget.chat.id).doc().id;
-    final pendingMessage = ChatMessageData.pending(
-      id: messageId,
-      senderUid: firebaseUser.uid,
-      senderUsername: currentUser.username,
-      text: text,
-      createdAtMillis: createdAtMillis,
-    );
 
-    messageController.clear();
     setState(() {
-      _mergeMessages([pendingMessage]);
-      scrollToLatestAfterNextMessage = true;
+      isUploadingPhotoAttachment = hasPhoto;
     });
-    scheduleScrollToLatestMessage(animated: true);
 
     try {
+      String photoUrl = '';
+      if (hasPhoto) {
+        photoUrl = await uploadChatAttachmentPhoto(
+          scope: 'chats',
+          parentId: widget.chat.id,
+          messageId: messageId,
+          localPhotoPath: localPhotoPath,
+        );
+      }
+
+      if (!mounted) {
+        return;
+      }
+
+      final pendingMessage = ChatMessageData.pending(
+        id: messageId,
+        senderUid: firebaseUser.uid,
+        senderUsername: currentUser.username,
+        text: text,
+        photoUrl: photoUrl,
+        createdAtMillis: createdAtMillis,
+      );
+
+      messageController.clear();
+      setState(() {
+        pendingPhotoAttachmentPath = null;
+        _mergeMessages([pendingMessage]);
+        scrollToLatestAfterNextMessage = true;
+      });
+      scheduleScrollToLatestMessage(animated: true);
+
       await sendChatMessage(
         chatId: widget.chat.id,
         text: text,
+        photoUrl: photoUrl,
         chat: widget.chat,
         messageId: messageId,
         clientCreatedAtMillis: createdAtMillis,
@@ -38500,18 +39278,23 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
       }
 
       setState(() {
-        _updateMessage(
-          messageId,
-          (message) =>
-              message.copyWith(isLocalPending: false, sendFailed: true),
-        );
+        _messages.removeWhere((message) => message.id == messageId);
       });
+
+      if (messageController.text.trim().isEmpty) {
+        messageController.text = text;
+        messageController.selection = TextSelection.collapsed(
+          offset: messageController.text.length,
+        );
+      }
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           backgroundColor: Colors.redAccent,
           content: Text(
-            'Could not send message: $error',
+            hasPhoto
+                ? 'Could not attach photo: $error'
+                : 'Could not send message: $error',
             style: const TextStyle(
               color: Colors.white,
               fontWeight: FontWeight.w700,
@@ -38519,6 +39302,10 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
           ),
         ),
       );
+    } finally {
+      if (mounted) {
+        setState(() => isUploadingPhotoAttachment = false);
+      }
     }
   }
 
@@ -39097,24 +39884,29 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
                 ),
                 const SizedBox(height: 7),
               ],
-              Text(
-                message.text,
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 13.5,
-                  fontWeight: FontWeight.w600,
-                  height: 1.25,
-                  shadows: message.isLocalPending
-                      ? [
-                          Shadow(
-                            color: Colors.black.withValues(alpha: 0.16),
-                            offset: const Offset(0, 1),
-                            blurRadius: 6,
-                          ),
-                        ]
-                      : null,
+              if (message.photoUrl.trim().isNotEmpty) ...[
+                ChatAttachmentImage(imageUrl: message.photoUrl, mine: mine),
+                if (message.text.trim().isNotEmpty) const SizedBox(height: 8),
+              ],
+              if (message.text.trim().isNotEmpty)
+                Text(
+                  message.text,
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 13.5,
+                    fontWeight: FontWeight.w600,
+                    height: 1.25,
+                    shadows: message.isLocalPending
+                        ? [
+                            Shadow(
+                              color: Colors.black.withValues(alpha: 0.16),
+                              offset: const Offset(0, 1),
+                              blurRadius: 6,
+                            ),
+                          ]
+                        : null,
+                  ),
                 ),
-              ),
               const SizedBox(height: 4),
               Row(
                 mainAxisSize: MainAxisSize.min,
@@ -39412,59 +40204,90 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
                 color: panelGlass,
                 border: const Border(top: BorderSide(color: Colors.white12)),
               ),
-              child: Row(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
                 children: [
-                  IconButton(
-                    tooltip: 'Share location',
-                    onPressed: isSharingChatLocation ? null : shareLiveLocation,
-                    style: IconButton.styleFrom(foregroundColor: blue),
-                    icon: Icon(
-                      isSharingChatLocation
-                          ? Icons.hourglass_top
-                          : Icons.my_location,
+                  if (pendingPhotoAttachmentPath != null)
+                    stagedChatPhotoPreview(
+                      localPhotoPath: pendingPhotoAttachmentPath!,
+                      isBusy: isUploadingPhotoAttachment,
+                      onRemove: () {
+                        setState(() => pendingPhotoAttachmentPath = null);
+                      },
                     ),
-                  ),
-                  const SizedBox(width: 4),
-                  Expanded(
-                    child: TextField(
-                      controller: messageController,
-                      minLines: 1,
-                      maxLines: 4,
-                      keyboardType: TextInputType.multiline,
-                      textInputAction: TextInputAction.newline,
-                      style: const TextStyle(color: Colors.white),
-                      decoration: InputDecoration(
-                        hintText: trText('Message'),
-                        hintStyle: const TextStyle(color: Colors.white38),
-                        filled: true,
-                        fillColor: Colors.white.withValues(alpha: 0.06),
-                        contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 14,
-                          vertical: 12,
-                        ),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(18),
-                          borderSide: const BorderSide(color: Colors.white12),
-                        ),
-                        enabledBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(18),
-                          borderSide: const BorderSide(color: Colors.white12),
-                        ),
-                        focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(18),
-                          borderSide: const BorderSide(color: blue),
+                  Row(
+                    children: [
+                      IconButton(
+                        tooltip: 'Share location',
+                        onPressed: isSharingChatLocation
+                            ? null
+                            : shareLiveLocation,
+                        style: IconButton.styleFrom(foregroundColor: blue),
+                        icon: Icon(
+                          isSharingChatLocation
+                              ? Icons.hourglass_top
+                              : Icons.my_location,
                         ),
                       ),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  IconButton.filled(
-                    onPressed: sendMessage,
-                    style: IconButton.styleFrom(
-                      backgroundColor: blue,
-                      foregroundColor: Colors.white,
-                    ),
-                    icon: const Icon(Icons.send_rounded),
+                      IconButton(
+                        tooltip: trText('Photo'),
+                        onPressed: isUploadingPhotoAttachment
+                            ? null
+                            : attachPhoto,
+                        style: IconButton.styleFrom(foregroundColor: blue),
+                        icon: Icon(
+                          isUploadingPhotoAttachment
+                              ? Icons.hourglass_top
+                              : Icons.photo_camera_outlined,
+                        ),
+                      ),
+                      const SizedBox(width: 4),
+                      Expanded(
+                        child: TextField(
+                          controller: messageController,
+                          minLines: 1,
+                          maxLines: 4,
+                          keyboardType: TextInputType.multiline,
+                          textInputAction: TextInputAction.newline,
+                          style: const TextStyle(color: Colors.white),
+                          decoration: InputDecoration(
+                            hintText: trText('Message'),
+                            hintStyle: const TextStyle(color: Colors.white38),
+                            filled: true,
+                            fillColor: Colors.white.withValues(alpha: 0.06),
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 14,
+                              vertical: 12,
+                            ),
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(18),
+                              borderSide: const BorderSide(
+                                color: Colors.white12,
+                              ),
+                            ),
+                            enabledBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(18),
+                              borderSide: const BorderSide(
+                                color: Colors.white12,
+                              ),
+                            ),
+                            focusedBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(18),
+                              borderSide: const BorderSide(color: blue),
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      IconButton.filled(
+                        onPressed: sendMessage,
+                        style: IconButton.styleFrom(
+                          backgroundColor: blue,
+                          foregroundColor: Colors.white,
+                        ),
+                        icon: const Icon(Icons.send_rounded),
+                      ),
+                    ],
                   ),
                 ],
               ),
@@ -40287,8 +41110,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
               const SizedBox(height: 16),
               _ProfileSubmissionsPreview(spots: spots),
               const SizedBox(height: 16),
-              const MyForumTopicsPreview(),
-              const SizedBox(height: 16),
               _ProfileActionTile(
                 icon: Icons.group_add,
                 title: 'Friends',
@@ -40367,198 +41188,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
             ],
           );
         },
-      ),
-    );
-  }
-}
-
-Color forumStatusColor(String status) {
-  switch (status.trim().toLowerCase()) {
-    case 'approved':
-      return Colors.green;
-    case 'rejected':
-      return Colors.redAccent;
-    case 'pending':
-      return Colors.orangeAccent;
-    default:
-      return Colors.white54;
-  }
-}
-
-String forumStatusText(String status) {
-  switch (status.trim().toLowerCase()) {
-    case 'approved':
-      return '✅ Одобрено';
-    case 'rejected':
-      return '❌ Отклонено';
-    case 'pending':
-      return '⏳ На проверке';
-    default:
-      return '❓ Неизвестно';
-  }
-}
-
-Widget forumStatusBadge(String status) {
-  final color = forumStatusColor(status);
-
-  return Container(
-    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-    decoration: BoxDecoration(
-      color: color.withValues(alpha: 0.15),
-      borderRadius: BorderRadius.circular(20),
-      border: Border.all(color: color.withValues(alpha: 0.3)),
-    ),
-    child: Text(
-      forumStatusText(status),
-      style: TextStyle(color: color, fontSize: 12, fontWeight: FontWeight.w700),
-    ),
-  );
-}
-
-class MyForumTopicsPreview extends StatelessWidget {
-  const MyForumTopicsPreview({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    final firebaseUser = FirebaseAuth.instance.currentUser;
-
-    if (firebaseUser == null) {
-      return const SizedBox.shrink();
-    }
-
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: panelGlass,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: Colors.white12),
-      ),
-      child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-        stream: FirebaseFirestore.instance
-            .collection('forum_topics')
-            .where('authorId', isEqualTo: firebaseUser.uid)
-            .limit(30)
-            .debugSnapshots('profile: my forum topics listener'),
-        builder: (context, snapshot) {
-          final topics =
-              (snapshot.data?.docs ??
-                      const <QueryDocumentSnapshot<Map<String, dynamic>>>[])
-                  .toList()
-                ..sort((a, b) {
-                  final aMillis = timestampMillisFromFirebase(
-                    a.data()['createdAt'],
-                  );
-                  final bMillis = timestampMillisFromFirebase(
-                    b.data()['createdAt'],
-                  );
-                  return bMillis.compareTo(aMillis);
-                });
-
-          return Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Row(
-                children: [
-                  Icon(Icons.forum_outlined, color: blue),
-                  SizedBox(width: 10),
-                  Expanded(
-                    child: Text(
-                      'Мои темы форума',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 18,
-                        fontWeight: FontWeight.w900,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 10),
-              if (snapshot.connectionState == ConnectionState.waiting)
-                const Padding(
-                  padding: EdgeInsets.symmetric(vertical: 12),
-                  child: Center(child: CircularProgressIndicator(color: blue)),
-                )
-              else if (topics.isEmpty)
-                const Text(
-                  'Вы ещё не создавали темы форума.',
-                  style: TextStyle(color: Colors.white54),
-                )
-              else
-                for (final doc in topics.take(5)) ...[
-                  _MyForumTopicTile(doc: doc),
-                  const SizedBox(height: 8),
-                ],
-            ],
-          );
-        },
-      ),
-    );
-  }
-}
-
-class _MyForumTopicTile extends StatelessWidget {
-  final QueryDocumentSnapshot<Map<String, dynamic>> doc;
-
-  const _MyForumTopicTile({required this.doc});
-
-  @override
-  Widget build(BuildContext context) {
-    final topic = doc.data();
-    final title = stringFromFirebase(topic['title'], trText('Untitled topic'));
-    final category = forumCategoryTitle(
-      forumCategoryIdFromFirebase(topic['categoryId'] ?? topic['category']),
-    );
-    final status = stringFromFirebase(topic['status'], 'pending');
-    final rejectionReason = stringFromFirebase(topic['rejectionReason'], '');
-    final color = forumStatusColor(status);
-
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: const Color(0xFF1A1A1A),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: color.withValues(alpha: 0.3)),
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                if (category.trim().isNotEmpty) ...[
-                  const SizedBox(height: 4),
-                  Text(
-                    category,
-                    style: const TextStyle(color: Colors.white54, fontSize: 12),
-                  ),
-                ],
-                if (status == 'rejected' && rejectionReason.trim().isNotEmpty)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 4),
-                    child: Text(
-                      '❌ Причина: $rejectionReason',
-                      style: const TextStyle(
-                        color: Colors.redAccent,
-                        fontSize: 12,
-                      ),
-                    ),
-                  ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 10),
-          forumStatusBadge(status),
-        ],
       ),
     );
   }
