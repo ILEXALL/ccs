@@ -32724,6 +32724,8 @@ class _GroupsTabState extends State<GroupsTab>
   }
 }
 
+const int globalChatMessagePageSize = 20;
+
 class GlobalChatTab extends StatefulWidget {
   const GlobalChatTab({super.key});
 
@@ -32734,8 +32736,19 @@ class GlobalChatTab extends StatefulWidget {
 class _GlobalChatTabState extends State<GlobalChatTab>
     with AutomaticKeepAliveClientMixin {
   final messageController = TextEditingController();
-  late final Stream<QuerySnapshot<Map<String, dynamic>>> messagesStream;
+  final globalChatScrollController = ScrollController();
   late final Stream<QuerySnapshot<Map<String, dynamic>>> onlineUsersStream;
+  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>?
+  _globalMessagesSubscription;
+  final List<QueryDocumentSnapshot<Map<String, dynamic>>> _globalMessages = [];
+  DocumentSnapshot<Map<String, dynamic>>? _oldestLoadedGlobalMessageDoc;
+  bool _isInitialLoadingGlobalMessages = true;
+  bool _isLoadingOlderGlobalMessages = false;
+  bool _hasMoreOlderGlobalMessages = true;
+  bool _globalPaginationInitialized = false;
+  bool _initialGlobalBottomScrollDone = false;
+  bool _scrollGlobalChatToLatestAfterSend = false;
+  bool _globalMessagesLoadFailed = false;
   bool isSending = false;
   bool isUploadingPhotoAttachment = false;
   String? pendingPhotoAttachmentPath;
@@ -32748,15 +32761,12 @@ class _GlobalChatTabState extends State<GlobalChatTab>
   void initState() {
     super.initState();
     appUiPreferences.addListener(_handleLanguageChanged);
+    globalChatScrollController.addListener(_onGlobalChatScroll);
     onlineUsersStream = usersCollection()
         .where('isOnline', isEqualTo: true)
         .limit(200)
         .debugSnapshots('global chat: online users counter');
-    messagesStream = FirebaseFirestore.instance
-        .collection('global_chat')
-        .orderBy('timestamp', descending: true)
-        .limit(30)
-        .debugSnapshots('global chat: messages listener');
+    _startGlobalMessagesListener();
     unawaited(loadGlobalChatModeratorAccess());
   }
 
@@ -32771,12 +32781,20 @@ class _GlobalChatTabState extends State<GlobalChatTab>
   @override
   void dispose() {
     appUiPreferences.removeListener(_handleLanguageChanged);
+    _globalMessagesSubscription?.cancel();
+    globalChatScrollController.removeListener(_onGlobalChatScroll);
+    globalChatScrollController.dispose();
     messageController.dispose();
     super.dispose();
   }
 
   CollectionReference<Map<String, dynamic>> get globalChatCollection =>
       FirebaseFirestore.instance.collection('global_chat');
+
+  Query<Map<String, dynamic>> get latestGlobalChatMessagesQuery =>
+      globalChatCollection
+          .orderBy('timestamp', descending: true)
+          .limit(globalChatMessagePageSize);
 
   bool get canModerateGlobalChat =>
       userRoleIsStaff(currentUser.role) || hasGlobalChatModeratorAccess;
@@ -32791,6 +32809,211 @@ class _GlobalChatTabState extends State<GlobalChatTab>
     if (mounted) {
       setState(() => hasGlobalChatModeratorAccess = hasAccess);
     }
+  }
+
+  bool globalMessageHasContent(
+    QueryDocumentSnapshot<Map<String, dynamic>> doc,
+  ) {
+    final data = doc.data();
+    return stringFromFirebase(data['text'], '').trim().isNotEmpty ||
+        stringFromFirebase(
+          data['photoUrl'],
+          stringFromFirebase(data['imageUrl'], ''),
+        ).trim().isNotEmpty;
+  }
+
+  void _mergeGlobalMessages(
+    Iterable<QueryDocumentSnapshot<Map<String, dynamic>>> incoming,
+  ) {
+    final byId = <String, QueryDocumentSnapshot<Map<String, dynamic>>>{
+      for (final message in _globalMessages) message.id: message,
+    };
+    for (final message in incoming) {
+      if (!globalMessageHasContent(message)) {
+        continue;
+      }
+      byId[message.id] = message;
+    }
+
+    _globalMessages
+      ..clear()
+      ..addAll(byId.values);
+    _globalMessages.sort((a, b) {
+      final aMillis = timestampMillisFromFirebase(a.data()['timestamp']);
+      final bMillis = timestampMillisFromFirebase(b.data()['timestamp']);
+      return aMillis.compareTo(bMillis);
+    });
+  }
+
+  void _startGlobalMessagesListener() {
+    _globalMessagesSubscription?.cancel();
+
+    _globalMessagesSubscription = latestGlobalChatMessagesQuery
+        .debugSnapshots('global chat: latest messages listener')
+        .listen(
+          (snapshot) {
+            if (!mounted) {
+              return;
+            }
+
+            final shouldFollowLatest = isNearLatestGlobalMessage();
+            final shouldInitializePagination =
+                !_globalPaginationInitialized ||
+                (_oldestLoadedGlobalMessageDoc == null &&
+                    _globalMessages.isEmpty &&
+                    snapshot.docs.isNotEmpty);
+
+            setState(() {
+              if (shouldInitializePagination) {
+                _oldestLoadedGlobalMessageDoc = snapshot.docs.isEmpty
+                    ? null
+                    : snapshot.docs.last;
+                _hasMoreOlderGlobalMessages =
+                    snapshot.docs.length >= globalChatMessagePageSize;
+                _globalPaginationInitialized = true;
+              }
+              _mergeGlobalMessages(snapshot.docs);
+              _isInitialLoadingGlobalMessages = false;
+              _globalMessagesLoadFailed = false;
+            });
+
+            if (!_initialGlobalBottomScrollDone ||
+                shouldFollowLatest ||
+                _scrollGlobalChatToLatestAfterSend) {
+              _scrollGlobalChatToLatestAfterSend = false;
+              scheduleGlobalChatScrollToLatest(
+                animated: _initialGlobalBottomScrollDone,
+              );
+            }
+          },
+          onError: (Object error, StackTrace stack) {
+            debugPrint('Global chat messages listener failed: $error');
+            debugPrint('$stack');
+            if (mounted) {
+              setState(() {
+                _isInitialLoadingGlobalMessages = false;
+                _globalMessagesLoadFailed = true;
+              });
+            }
+          },
+        );
+  }
+
+  void _onGlobalChatScroll() {
+    if (!globalChatScrollController.hasClients ||
+        !_initialGlobalBottomScrollDone) {
+      return;
+    }
+
+    final position = globalChatScrollController.position;
+    if (position.pixels <= 120 &&
+        _hasMoreOlderGlobalMessages &&
+        !_isLoadingOlderGlobalMessages &&
+        _globalPaginationInitialized) {
+      unawaited(_loadOlderGlobalMessages());
+    }
+  }
+
+  Future<void> _loadOlderGlobalMessages() async {
+    if (_isLoadingOlderGlobalMessages || !_hasMoreOlderGlobalMessages) {
+      return;
+    }
+
+    final oldestDoc = _oldestLoadedGlobalMessageDoc;
+    if (oldestDoc == null) {
+      return;
+    }
+
+    final oldMaxExtent = globalChatScrollController.hasClients
+        ? globalChatScrollController.position.maxScrollExtent
+        : 0.0;
+    final oldOffset = globalChatScrollController.hasClients
+        ? globalChatScrollController.position.pixels
+        : 0.0;
+
+    setState(() => _isLoadingOlderGlobalMessages = true);
+
+    try {
+      final snapshot = await globalChatCollection
+          .orderBy('timestamp', descending: true)
+          .startAfterDocument(oldestDoc)
+          .limit(globalChatMessagePageSize)
+          .debugGet(null, 'global chat: load older messages');
+
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        if (snapshot.docs.isNotEmpty) {
+          _oldestLoadedGlobalMessageDoc = snapshot.docs.last;
+          _mergeGlobalMessages(snapshot.docs);
+        }
+        _hasMoreOlderGlobalMessages =
+            snapshot.docs.length >= globalChatMessagePageSize;
+        _isLoadingOlderGlobalMessages = false;
+      });
+
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || !globalChatScrollController.hasClients) {
+          return;
+        }
+
+        final newMaxExtent =
+            globalChatScrollController.position.maxScrollExtent;
+        final addedHeight = newMaxExtent - oldMaxExtent;
+        final target = (oldOffset + addedHeight)
+            .clamp(0.0, newMaxExtent)
+            .toDouble();
+        globalChatScrollController.jumpTo(target);
+      });
+    } catch (error, stack) {
+      debugPrint('Older global chat messages could not load: $error');
+      debugPrint('$stack');
+      if (mounted) {
+        setState(() => _isLoadingOlderGlobalMessages = false);
+      }
+    }
+  }
+
+  bool isNearLatestGlobalMessage() {
+    if (!globalChatScrollController.hasClients) {
+      return true;
+    }
+
+    final position = globalChatScrollController.position;
+    return position.maxScrollExtent - position.pixels < 140;
+  }
+
+  void scheduleGlobalChatScrollToLatest({bool animated = false}) {
+    final doubleCheckAfterLayout = !_initialGlobalBottomScrollDone;
+
+    void scrollToLatest({required bool animate}) {
+      if (!mounted || !globalChatScrollController.hasClients) {
+        return;
+      }
+
+      final target = globalChatScrollController.position.maxScrollExtent;
+      if (animate && _initialGlobalBottomScrollDone) {
+        globalChatScrollController.animateTo(
+          target,
+          duration: const Duration(milliseconds: 220),
+          curve: Curves.easeOut,
+        );
+      } else {
+        globalChatScrollController.jumpTo(target);
+      }
+      _initialGlobalBottomScrollDone = true;
+    }
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      scrollToLatest(animate: animated);
+      if (doubleCheckAfterLayout) {
+        Future<void>.delayed(const Duration(milliseconds: 90), () {
+          scrollToLatest(animate: false);
+        });
+      }
+    });
   }
 
   Future<void> confirmDeleteGlobalMessage(
@@ -32939,7 +33162,10 @@ class _GlobalChatTabState extends State<GlobalChatTab>
       }
 
       messageController.clear();
-      setState(() => pendingPhotoAttachmentPath = null);
+      setState(() {
+        pendingPhotoAttachmentPath = null;
+        _scrollGlobalChatToLatestAfterSend = true;
+      });
 
       await doc.debugSet(
         {
@@ -33028,55 +33254,62 @@ class _GlobalChatTabState extends State<GlobalChatTab>
       openUserProfile(context, uid: userId, fallbackUsername: username);
     }
 
-    final header = GestureDetector(
-      onTap: openAuthorProfile,
-      behavior: HitTestBehavior.opaque,
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          avatar(avatarUrl, username),
-          const SizedBox(width: 8),
-          Flexible(
+    final header = Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Flexible(
+          child: GestureDetector(
+            onTap: openAuthorProfile,
+            behavior: HitTestBehavior.opaque,
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
+                avatar(avatarUrl, username),
+                const SizedBox(width: 8),
                 Flexible(
-                  child: Text(
-                    displayUsername(username),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w900,
-                      letterSpacing: 0.1,
-                    ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Flexible(
+                        child: Text(
+                          displayUsername(username),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: 0.1,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 4),
+                      UserPrimaryBadgeForUid(
+                        uid: userId,
+                        fallbackRole: fallbackRole,
+                        fallbackVerified: fallbackVerified,
+                        fallbackGlobalChatModerator: fallbackGlobalModerator,
+                        compact: true,
+                      ),
+                    ],
                   ),
-                ),
-                const SizedBox(width: 4),
-                UserPrimaryBadgeForUid(
-                  uid: userId,
-                  fallbackRole: fallbackRole,
-                  fallbackVerified: fallbackVerified,
-                  fallbackGlobalChatModerator: fallbackGlobalModerator,
-                  compact: true,
                 ),
               ],
             ),
           ),
-          if (time.isNotEmpty) ...[
-            const SizedBox(width: 10),
-            Text(
-              time,
-              style: const TextStyle(
-                color: Colors.white38,
-                fontSize: 10,
-                fontWeight: FontWeight.w700,
-              ),
+        ),
+        if (time.isNotEmpty) ...[
+          const SizedBox(width: 10),
+          Text(
+            time,
+            style: const TextStyle(
+              color: Colors.white38,
+              fontSize: 10,
+              fontWeight: FontWeight.w700,
             ),
-          ],
+          ),
         ],
-      ),
+      ],
     );
 
     final card = IntrinsicWidth(
@@ -33156,11 +33389,7 @@ class _GlobalChatTabState extends State<GlobalChatTab>
 
     final message = Align(
       alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
-      child: GestureDetector(
-        onTap: openAuthorProfile,
-        behavior: HitTestBehavior.opaque,
-        child: card,
-      ),
+      child: card,
     );
 
     if (!canModerateGlobalChat) {
@@ -33263,11 +33492,21 @@ class _GlobalChatTabState extends State<GlobalChatTab>
         Expanded(
           child: GestureDetector(
             behavior: HitTestBehavior.translucent,
-            onTap: () => FocusScope.of(context).unfocus(),
-            child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-              stream: messagesStream,
-              builder: (context, snapshot) {
-                if (snapshot.hasError) {
+            onTap: () => FocusManager.instance.primaryFocus?.unfocus(),
+            child: Builder(
+              builder: (context) {
+                final messages =
+                    List<QueryDocumentSnapshot<Map<String, dynamic>>>.from(
+                      _globalMessages,
+                    );
+
+                if (_isInitialLoadingGlobalMessages) {
+                  return const Center(
+                    child: CircularProgressIndicator(color: blue),
+                  );
+                }
+
+                if (_globalMessagesLoadFailed) {
                   return Padding(
                     padding: const EdgeInsets.all(20),
                     child: EmptyStateCard(
@@ -33275,21 +33514,6 @@ class _GlobalChatTabState extends State<GlobalChatTab>
                       title: trText('Global chat unavailable'),
                       text: trText('Could not load global chat right now.'),
                     ),
-                  );
-                }
-
-                final messages =
-                    (snapshot.data?.docs ??
-                            const <
-                              QueryDocumentSnapshot<Map<String, dynamic>>
-                            >[])
-                        .toList()
-                        .reversed
-                        .toList();
-
-                if (snapshot.connectionState == ConnectionState.waiting) {
-                  return const Center(
-                    child: CircularProgressIndicator(color: blue),
                   );
                 }
 
@@ -33304,8 +33528,41 @@ class _GlobalChatTabState extends State<GlobalChatTab>
                 }
 
                 return ListView(
+                  controller: globalChatScrollController,
+                  keyboardDismissBehavior:
+                      ScrollViewKeyboardDismissBehavior.onDrag,
                   padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
-                  children: globalChatMessageList(messages),
+                  children: [
+                    if (_isLoadingOlderGlobalMessages)
+                      const Padding(
+                        padding: EdgeInsets.all(12),
+                        child: Center(
+                          child: SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: blue,
+                            ),
+                          ),
+                        ),
+                      ),
+                    if (_hasMoreOlderGlobalMessages)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 8),
+                        child: Center(
+                          child: Text(
+                            trText('Scroll up to load older messages'),
+                            style: TextStyle(
+                              color: Colors.white.withValues(alpha: 0.35),
+                              fontSize: 10.5,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ...globalChatMessageList(messages),
+                  ],
                 );
               },
             ),
@@ -33314,7 +33571,7 @@ class _GlobalChatTabState extends State<GlobalChatTab>
         SafeArea(
           top: false,
           child: Container(
-            padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+            padding: const EdgeInsets.fromLTRB(10, 6, 10, 8),
             decoration: const BoxDecoration(
               color: Colors.black,
               border: Border(top: BorderSide(color: Color(0xFF2A2A2A))),
@@ -33337,6 +33594,12 @@ class _GlobalChatTabState extends State<GlobalChatTab>
                       onPressed: isUploadingPhotoAttachment
                           ? null
                           : attachPhoto,
+                      constraints: const BoxConstraints.tightFor(
+                        width: 40,
+                        height: 40,
+                      ),
+                      padding: EdgeInsets.zero,
+                      visualDensity: VisualDensity.compact,
                       style: IconButton.styleFrom(foregroundColor: blue),
                       icon: Icon(
                         isUploadingPhotoAttachment
@@ -33349,27 +33612,33 @@ class _GlobalChatTabState extends State<GlobalChatTab>
                       child: TextField(
                         controller: messageController,
                         minLines: 1,
-                        maxLines: 4,
+                        maxLines: 3,
+                        keyboardType: TextInputType.multiline,
                         style: const TextStyle(color: Colors.white),
                         decoration: InputDecoration(
                           hintText: trText('Message in global chat'),
                           hintStyle: const TextStyle(color: Colors.white38),
                           filled: true,
                           fillColor: const Color(0xFF1A1A1A),
+                          isDense: true,
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 8,
+                          ),
                           border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(18),
+                            borderRadius: BorderRadius.circular(16),
                             borderSide: const BorderSide(
                               color: Color(0xFF2A2A2A),
                             ),
                           ),
                           enabledBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(18),
+                            borderRadius: BorderRadius.circular(16),
                             borderSide: const BorderSide(
                               color: Color(0xFF2A2A2A),
                             ),
                           ),
                           focusedBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(18),
+                            borderRadius: BorderRadius.circular(16),
                             borderSide: const BorderSide(color: blue),
                           ),
                         ),
@@ -33379,6 +33648,12 @@ class _GlobalChatTabState extends State<GlobalChatTab>
                     const SizedBox(width: 10),
                     IconButton.filled(
                       onPressed: isSending ? null : sendMessage,
+                      constraints: const BoxConstraints.tightFor(
+                        width: 40,
+                        height: 40,
+                      ),
+                      padding: EdgeInsets.zero,
+                      visualDensity: VisualDensity.compact,
                       style: IconButton.styleFrom(
                         backgroundColor: blue,
                         foregroundColor: Colors.white,
@@ -38779,6 +39054,7 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
   final chatScrollController = ScrollController();
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>?
   _newMessagesSubscription;
+  Future<List<FriendUserData>>? _chatMembersFuture;
   Timer? _markMessagesReadDebounce;
   bool isSharingChatLocation = false;
   bool isUploadingPhotoAttachment = false;
@@ -38800,9 +39076,23 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
   @override
   void initState() {
     super.initState();
+    if (widget.chat.isGroup) {
+      _chatMembersFuture = loadChatMembers(widget.chat);
+    }
     chatScrollController.addListener(_onScroll);
     markCurrentChatNotificationsRead();
     unawaited(_loadInitialMessages());
+  }
+
+  @override
+  void didUpdateWidget(ChatConversationScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.chat.id != widget.chat.id ||
+        oldWidget.chat.memberIds.join('|') != widget.chat.memberIds.join('|')) {
+      _chatMembersFuture = widget.chat.isGroup
+          ? loadChatMembers(widget.chat)
+          : null;
+    }
   }
 
   @override
@@ -39117,13 +39407,15 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
   }
 
   void scheduleScrollToLatestMessage({bool animated = false}) {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    final doubleCheckAfterLayout = !_initialBottomScrollDone;
+
+    void scrollToLatest({required bool animate}) {
       if (!mounted || !chatScrollController.hasClients) {
         return;
       }
 
       final target = chatScrollController.position.maxScrollExtent;
-      if (animated && _initialBottomScrollDone) {
+      if (animate && _initialBottomScrollDone) {
         chatScrollController.animateTo(
           target,
           duration: const Duration(milliseconds: 220),
@@ -39133,6 +39425,15 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
         chatScrollController.jumpTo(target);
       }
       _initialBottomScrollDone = true;
+    }
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      scrollToLatest(animate: animated);
+      if (doubleCheckAfterLayout) {
+        Future<void>.delayed(const Duration(milliseconds: 90), () {
+          scrollToLatest(animate: false);
+        });
+      }
     });
   }
 
@@ -39994,15 +40295,18 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
       ),
     );
 
+    final alignedMessage = Align(
+      alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
+      child: card,
+    );
+
+    if (!canActOnMessage) {
+      return alignedMessage;
+    }
+
     return GestureDetector(
-      onTap: openSenderProfile,
-      onLongPress: canActOnMessage
-          ? () => showOwnMessageActions(message)
-          : null,
-      child: Align(
-        alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
-        child: card,
-      ),
+      onLongPress: () => showOwnMessageActions(message),
+      child: alignedMessage,
     );
   }
 
@@ -40108,7 +40412,7 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
           Expanded(
             child: GestureDetector(
               behavior: HitTestBehavior.translucent,
-              onTap: () => FocusScope.of(context).unfocus(),
+              onTap: () => FocusManager.instance.primaryFocus?.unfocus(),
               child: Builder(
                 builder: (context) {
                   final messages = List<ChatMessageData>.from(_messages);
@@ -40161,6 +40465,8 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
 
                     return ListView(
                       controller: chatScrollController,
+                      keyboardDismissBehavior:
+                          ScrollViewKeyboardDismissBehavior.onDrag,
                       padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
                       children: [
                         if (_isLoadingOlderMessages)
@@ -40201,7 +40507,7 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
                   }
 
                   return FutureBuilder<List<FriendUserData>>(
-                    future: loadChatMembers(widget.chat),
+                    future: _chatMembersFuture,
                     builder: (context, usersSnapshot) {
                       final members =
                           usersSnapshot.data ??
@@ -40223,7 +40529,7 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
           SafeArea(
             top: false,
             child: Container(
-              padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+              padding: const EdgeInsets.fromLTRB(8, 6, 8, 8),
               decoration: BoxDecoration(
                 color: panelGlass,
                 border: const Border(top: BorderSide(color: Colors.white12)),
@@ -40246,6 +40552,12 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
                         onPressed: isSharingChatLocation
                             ? null
                             : shareLiveLocation,
+                        constraints: const BoxConstraints.tightFor(
+                          width: 38,
+                          height: 40,
+                        ),
+                        padding: EdgeInsets.zero,
+                        visualDensity: VisualDensity.compact,
                         style: IconButton.styleFrom(foregroundColor: blue),
                         icon: Icon(
                           isSharingChatLocation
@@ -40258,6 +40570,12 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
                         onPressed: isUploadingPhotoAttachment
                             ? null
                             : attachPhoto,
+                        constraints: const BoxConstraints.tightFor(
+                          width: 38,
+                          height: 40,
+                        ),
+                        padding: EdgeInsets.zero,
+                        visualDensity: VisualDensity.compact,
                         style: IconButton.styleFrom(foregroundColor: blue),
                         icon: Icon(
                           isUploadingPhotoAttachment
@@ -40270,7 +40588,7 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
                         child: TextField(
                           controller: messageController,
                           minLines: 1,
-                          maxLines: 4,
+                          maxLines: 3,
                           keyboardType: TextInputType.multiline,
                           textInputAction: TextInputAction.newline,
                           style: const TextStyle(color: Colors.white),
@@ -40279,24 +40597,25 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
                             hintStyle: const TextStyle(color: Colors.white38),
                             filled: true,
                             fillColor: Colors.white.withValues(alpha: 0.06),
+                            isDense: true,
                             contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 14,
-                              vertical: 12,
+                              horizontal: 12,
+                              vertical: 8,
                             ),
                             border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(18),
+                              borderRadius: BorderRadius.circular(16),
                               borderSide: const BorderSide(
                                 color: Colors.white12,
                               ),
                             ),
                             enabledBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(18),
+                              borderRadius: BorderRadius.circular(16),
                               borderSide: const BorderSide(
                                 color: Colors.white12,
                               ),
                             ),
                             focusedBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(18),
+                              borderRadius: BorderRadius.circular(16),
                               borderSide: const BorderSide(color: blue),
                             ),
                           ),
@@ -40305,6 +40624,12 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
                       const SizedBox(width: 8),
                       IconButton.filled(
                         onPressed: sendMessage,
+                        constraints: const BoxConstraints.tightFor(
+                          width: 40,
+                          height: 40,
+                        ),
+                        padding: EdgeInsets.zero,
+                        visualDensity: VisualDensity.compact,
                         style: IconButton.styleFrom(
                           backgroundColor: blue,
                           foregroundColor: Colors.white,
