@@ -33019,7 +33019,11 @@ class _GlobalChatTabState extends State<GlobalChatTab>
   Future<void> confirmDeleteGlobalMessage(
     QueryDocumentSnapshot<Map<String, dynamic>> doc,
   ) async {
-    if (!canModerateGlobalChat || isSending) {
+    final firebaseUser = FirebaseAuth.instance.currentUser;
+    final data = doc.data();
+    final mine = stringFromFirebase(data['userId'], '') == firebaseUser?.uid;
+
+    if ((!mine && !canModerateGlobalChat) || isSending) {
       return;
     }
 
@@ -33077,6 +33081,187 @@ class _GlobalChatTabState extends State<GlobalChatTab>
           backgroundColor: Colors.redAccent,
           content: Text(
             '${trText('Could not delete message')}: $error',
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+      );
+    }
+  }
+
+  Future<void> showGlobalMessageActions(
+    QueryDocumentSnapshot<Map<String, dynamic>> doc,
+  ) async {
+    final firebaseUser = FirebaseAuth.instance.currentUser;
+    final data = doc.data();
+    final mine = stringFromFirebase(data['userId'], '') == firebaseUser?.uid;
+    final canDelete = mine || canModerateGlobalChat;
+
+    if (!mine && !canDelete) {
+      return;
+    }
+
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: panelGlass,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (context) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(18, 12, 18, 20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (mine)
+                  ListTile(
+                    leading: const Icon(Icons.edit, color: blue),
+                    title: Text(
+                      trText('Edit message'),
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    onTap: () => Navigator.pop(context, 'edit'),
+                  ),
+                if (canDelete)
+                  ListTile(
+                    leading: const Icon(
+                      Icons.delete_outline,
+                      color: Colors.redAccent,
+                    ),
+                    title: Text(
+                      trText('Delete message'),
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    onTap: () => Navigator.pop(context, 'delete'),
+                  ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+
+    if (!mounted || action == null) {
+      return;
+    }
+
+    if (action == 'edit') {
+      await showEditGlobalMessageDialog(doc);
+    } else if (action == 'delete') {
+      await confirmDeleteGlobalMessage(doc);
+    }
+  }
+
+  Future<void> showEditGlobalMessageDialog(
+    QueryDocumentSnapshot<Map<String, dynamic>> doc,
+  ) async {
+    final data = doc.data();
+    final originalText = stringFromFirebase(data['text'], '');
+    final controller = TextEditingController(text: originalText);
+
+    final updatedText = await showDialog<String>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          backgroundColor: panelGlass,
+          title: Text(
+            trText('Edit message'),
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          content: TextField(
+            controller: controller,
+            autofocus: true,
+            minLines: 2,
+            maxLines: 5,
+            keyboardType: TextInputType.multiline,
+            textInputAction: TextInputAction.newline,
+            style: const TextStyle(color: Colors.white),
+            decoration: InputDecoration(
+              hintText: trText('Message in global chat'),
+              hintStyle: const TextStyle(color: Colors.white38),
+              filled: true,
+              fillColor: Colors.white.withValues(alpha: 0.06),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(16),
+                borderSide: const BorderSide(color: Colors.white12),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(16),
+                borderSide: const BorderSide(color: blue),
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: Text(trText('Cancel')),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(context, controller.text),
+              style: ElevatedButton.styleFrom(backgroundColor: blue),
+              child: Text(
+                trText('Save'),
+                style: const TextStyle(color: Colors.white),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+
+    controller.dispose();
+
+    if (!mounted ||
+        updatedText == null ||
+        updatedText.trim() == originalText.trim()) {
+      return;
+    }
+
+    final cleanText = updatedText.trim();
+    if (cleanText.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: Colors.redAccent,
+          content: Text(
+            trText('Message cannot be empty.'),
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+      );
+      return;
+    }
+
+    try {
+      await globalChatCollection.doc(doc.id).debugSet({
+        'text': cleanText,
+        'edited': true,
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true), 'global chat: edit own message');
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: Colors.redAccent,
+          content: Text(
+            '${trText('Could not edit message')}: $error',
             style: const TextStyle(
               color: Colors.white,
               fontWeight: FontWeight.w700,
@@ -33219,8 +33404,12 @@ class _GlobalChatTabState extends State<GlobalChatTab>
     }
   }
 
-  Widget avatar(String avatarUrl, String username) {
-    return GlobalSmallAvatar(avatarUrl: avatarUrl, username: username);
+  Widget avatar(String userId, String avatarUrl, String username) {
+    return LiveUserSmallAvatar(
+      uid: userId,
+      fallbackAvatarUrl: avatarUrl,
+      fallbackUsername: username,
+    );
   }
 
   Widget messageBubble(
@@ -33237,6 +33426,7 @@ class _GlobalChatTabState extends State<GlobalChatTab>
     final fallbackGlobalModerator = userDataHasCommunityModerationAccess(data);
     final fallbackVerified =
         userRoleIsStaff(fallbackRole) || data['verified'] == true;
+    final edited = data['edited'] == true;
     final text = stringFromFirebase(data['text'], '');
     final photoUrl = stringFromFirebase(
       data['photoUrl'],
@@ -33245,6 +33435,7 @@ class _GlobalChatTabState extends State<GlobalChatTab>
     final time = formatChatMessageTime(
       timestampMillisFromFirebase(data['timestamp']),
     );
+    final canActOnMessage = mine || canModerateGlobalChat;
 
     void openAuthorProfile() {
       if (userId.trim().isEmpty) {
@@ -33264,7 +33455,7 @@ class _GlobalChatTabState extends State<GlobalChatTab>
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                avatar(avatarUrl, username),
+                avatar(userId, avatarUrl, username),
                 const SizedBox(width: 8),
                 Flexible(
                   child: Row(
@@ -33368,17 +33559,52 @@ class _GlobalChatTabState extends State<GlobalChatTab>
                     fontWeight: FontWeight.w500,
                   ),
                 ),
-              if (!showAuthorHeader && time.isNotEmpty) ...[
-                const SizedBox(height: 2),
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: Text(
-                    time,
-                    style: const TextStyle(
-                      color: Colors.white54,
-                      fontSize: 9.5,
-                    ),
-                  ),
+              if (edited ||
+                  (!showAuthorHeader && time.isNotEmpty) ||
+                  canActOnMessage) ...[
+                const SizedBox(height: 4),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (edited) ...[
+                      Text(
+                        trText('edited'),
+                        style: const TextStyle(
+                          color: Colors.white54,
+                          fontSize: 10,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      if (!showAuthorHeader && time.isNotEmpty)
+                        const SizedBox(width: 6),
+                    ],
+                    if (!showAuthorHeader && time.isNotEmpty)
+                      Text(
+                        time,
+                        style: const TextStyle(
+                          color: Colors.white54,
+                          fontSize: 9.5,
+                        ),
+                      ),
+                    if (canActOnMessage) ...[
+                      const SizedBox(width: 4),
+                      InkWell(
+                        onTap: () => showGlobalMessageActions(doc),
+                        borderRadius: BorderRadius.circular(10),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 3,
+                            vertical: 1,
+                          ),
+                          child: Icon(
+                            Icons.more_horiz,
+                            size: 16,
+                            color: Colors.white.withValues(alpha: 0.72),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ],
                 ),
               ],
             ],
@@ -33392,16 +33618,15 @@ class _GlobalChatTabState extends State<GlobalChatTab>
       child: card,
     );
 
-    if (!canModerateGlobalChat) {
+    if (!canActOnMessage) {
       return message;
     }
 
     return GestureDetector(
-      onLongPress: () => confirmDeleteGlobalMessage(doc),
+      onLongPress: () => showGlobalMessageActions(doc),
       child: message,
     );
   }
-
   List<Widget> globalChatMessageList(
     List<QueryDocumentSnapshot<Map<String, dynamic>>> messages,
   ) {
@@ -33433,6 +33658,7 @@ class _GlobalChatTabState extends State<GlobalChatTab>
   @override
   Widget build(BuildContext context) {
     super.build(context);
+    final keyboardOpen = MediaQuery.viewInsetsOf(context).bottom > 0;
 
     return Column(
       children: [
@@ -33570,8 +33796,9 @@ class _GlobalChatTabState extends State<GlobalChatTab>
         ),
         SafeArea(
           top: false,
+          bottom: !keyboardOpen,
           child: Container(
-            padding: const EdgeInsets.fromLTRB(10, 6, 10, 8),
+            padding: EdgeInsets.fromLTRB(10, 6, 10, keyboardOpen ? 0 : 8),
             decoration: const BoxDecoration(
               color: Colors.black,
               border: Border(top: BorderSide(color: Color(0xFF2A2A2A))),
@@ -35835,7 +36062,11 @@ class _ForumTopicPageState extends State<ForumTopicPage> {
   Future<void> confirmDeleteForumReply(
     QueryDocumentSnapshot<Map<String, dynamic>> doc,
   ) async {
-    if (!canModerateForumTopic) {
+    final firebaseUser = FirebaseAuth.instance.currentUser;
+    final data = doc.data();
+    final mine = stringFromFirebase(data['userId'], '') == firebaseUser?.uid;
+
+    if (!mine && !canModerateForumTopic) {
       return;
     }
 
@@ -35883,10 +36114,15 @@ class _ForumTopicPageState extends State<ForumTopicPage> {
       await topicRepliesCollection
           .doc(doc.id)
           .debugDelete('forum: delete reply');
-      await topicDocument.debugSet({
-        'repliesCount': FieldValue.increment(-1),
-        'updatedAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
+      try {
+        await topicDocument.debugSet({
+          'repliesCount': FieldValue.increment(-1),
+          'updatedAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+      } catch (error, stack) {
+        debugPrint('Forum topic count update skipped after reply delete: $error');
+        debugPrint('$stack');
+      }
     } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -35902,6 +36138,186 @@ class _ForumTopicPageState extends State<ForumTopicPage> {
           ),
         );
       }
+    }
+  }
+
+  Future<void> showForumReplyActions(
+    QueryDocumentSnapshot<Map<String, dynamic>> doc,
+  ) async {
+    final firebaseUser = FirebaseAuth.instance.currentUser;
+    final data = doc.data();
+    final mine = stringFromFirebase(data['userId'], '') == firebaseUser?.uid;
+    final canDelete = mine || canModerateForumTopic;
+
+    if (!mine && !canDelete) {
+      return;
+    }
+
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: panelGlass,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (context) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(18, 12, 18, 20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (mine)
+                  ListTile(
+                    leading: const Icon(Icons.edit, color: blue),
+                    title: Text(
+                      trText('Edit message'),
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    onTap: () => Navigator.pop(context, 'edit'),
+                  ),
+                if (canDelete)
+                  ListTile(
+                    leading: const Icon(
+                      Icons.delete_outline,
+                      color: Colors.redAccent,
+                    ),
+                    title: Text(
+                      trText('Delete message'),
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    onTap: () => Navigator.pop(context, 'delete'),
+                  ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+
+    if (!mounted || action == null) {
+      return;
+    }
+
+    if (action == 'edit') {
+      await showEditForumReplyDialog(doc);
+    } else if (action == 'delete') {
+      await confirmDeleteForumReply(doc);
+    }
+  }
+
+  Future<void> showEditForumReplyDialog(
+    QueryDocumentSnapshot<Map<String, dynamic>> doc,
+  ) async {
+    final originalText = stringFromFirebase(doc.data()['text'], '');
+    final controller = TextEditingController(text: originalText);
+
+    final updatedText = await showDialog<String>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          backgroundColor: panelGlass,
+          title: Text(
+            trText('Edit message'),
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          content: TextField(
+            controller: controller,
+            autofocus: true,
+            minLines: 2,
+            maxLines: 5,
+            keyboardType: TextInputType.multiline,
+            textInputAction: TextInputAction.newline,
+            style: const TextStyle(color: Colors.white),
+            decoration: InputDecoration(
+              hintText: trText('Reply in topic'),
+              hintStyle: const TextStyle(color: Colors.white38),
+              filled: true,
+              fillColor: Colors.white.withValues(alpha: 0.06),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(16),
+                borderSide: const BorderSide(color: Colors.white12),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(16),
+                borderSide: const BorderSide(color: blue),
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: Text(trText('Cancel')),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(context, controller.text),
+              style: ElevatedButton.styleFrom(backgroundColor: blue),
+              child: Text(
+                trText('Save'),
+                style: const TextStyle(color: Colors.white),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+
+    controller.dispose();
+
+    if (!mounted ||
+        updatedText == null ||
+        updatedText.trim() == originalText.trim()) {
+      return;
+    }
+
+    final cleanText = updatedText.trim();
+    if (cleanText.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: Colors.redAccent,
+          content: Text(
+            trText('Message cannot be empty.'),
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+      );
+      return;
+    }
+
+    try {
+      await topicRepliesCollection.doc(doc.id).debugSet({
+        'text': cleanText,
+        'edited': true,
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true), 'forum: edit own reply');
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: Colors.redAccent,
+          content: Text(
+            '${trText('Could not edit message')}: $error',
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+      );
     }
   }
 
@@ -35922,7 +36338,6 @@ class _ForumTopicPageState extends State<ForumTopicPage> {
     final createdAt = formatChatMessageTime(
       timestampMillisFromFirebase(topic['createdAt']),
     );
-    final isPinned = topic['isPinned'] == true;
     final canEditHeader =
         canModerateForumTopic ||
         (authorId.isNotEmpty && authorId == currentUid);
@@ -36061,6 +36476,8 @@ class _ForumTopicPageState extends State<ForumTopicPage> {
     required bool showAuthorHeader,
   }) {
     final data = doc.data();
+    final currentUid =
+        FirebaseAuth.instance.currentUser?.uid ?? currentUser.uid;
     final userId = stringFromFirebase(data['userId'], '');
     final username = stringFromFirebase(data['username'], 'ccs_driver');
     final avatarUrl = stringFromFirebase(data['avatarUrl'], '');
@@ -36068,6 +36485,7 @@ class _ForumTopicPageState extends State<ForumTopicPage> {
     final fallbackGlobalModerator = userDataHasCommunityModerationAccess(data);
     final fallbackVerified =
         userRoleIsStaff(fallbackRole) || data['verified'] == true;
+    final edited = data['edited'] == true;
     final text = stringFromFirebase(data['text'], '');
     final photoUrl = stringFromFirebase(
       data['photoUrl'],
@@ -36076,6 +36494,7 @@ class _ForumTopicPageState extends State<ForumTopicPage> {
     final time = formatChatMessageTime(
       timestampMillisFromFirebase(data['timestamp']),
     );
+    final canActOnReply = userId == currentUid || canModerateForumTopic;
 
     void openReplyAuthorProfile() {
       if (userId.trim().isEmpty) {
@@ -36176,38 +36595,69 @@ class _ForumTopicPageState extends State<ForumTopicPage> {
                 fontWeight: FontWeight.w500,
               ),
             ),
-          if (!showAuthorHeader && time.isNotEmpty) ...[
+          if (edited ||
+              (!showAuthorHeader && time.isNotEmpty) ||
+              canActOnReply) ...[
             const SizedBox(height: 4),
-            Align(
-              alignment: Alignment.centerRight,
-              child: Text(
-                time,
-                style: const TextStyle(color: Colors.white38, fontSize: 10),
-              ),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (edited) ...[
+                  Text(
+                    trText('edited'),
+                    style: const TextStyle(
+                      color: Colors.white38,
+                      fontSize: 10,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  if (!showAuthorHeader && time.isNotEmpty)
+                    const SizedBox(width: 6),
+                ],
+                if (!showAuthorHeader && time.isNotEmpty)
+                  Text(
+                    time,
+                    style: const TextStyle(color: Colors.white38, fontSize: 10),
+                  ),
+                if (canActOnReply) ...[
+                  const SizedBox(width: 4),
+                  InkWell(
+                    onTap: () => showForumReplyActions(doc),
+                    borderRadius: BorderRadius.circular(10),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 3,
+                        vertical: 1,
+                      ),
+                      child: Icon(
+                        Icons.more_horiz,
+                        size: 16,
+                        color: Colors.white.withValues(alpha: 0.72),
+                      ),
+                    ),
+                  ),
+                ],
+              ],
             ),
           ],
         ],
       ),
     );
 
-    final reply = GestureDetector(
-      onTap: openReplyAuthorProfile,
-      behavior: HitTestBehavior.opaque,
-      child: tile,
-    );
-
-    if (!canModerateForumTopic) {
-      return reply;
+    if (!canActOnReply) {
+      return tile;
     }
 
     return GestureDetector(
-      onLongPress: () => confirmDeleteForumReply(doc),
-      child: reply,
+      onLongPress: () => showForumReplyActions(doc),
+      child: tile,
     );
   }
 
   @override
   Widget build(BuildContext context) {
+    final keyboardOpen = MediaQuery.viewInsetsOf(context).bottom > 0;
+
     return Scaffold(
       backgroundColor: Colors.black,
       appBar: AppBar(
@@ -36220,7 +36670,7 @@ class _ForumTopicPageState extends State<ForumTopicPage> {
           Expanded(
             child: GestureDetector(
               behavior: HitTestBehavior.translucent,
-              onTap: () => FocusScope.of(context).unfocus(),
+              onTap: () => FocusManager.instance.primaryFocus?.unfocus(),
               child: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
                 stream: topicDocument.debugSnapshots('forum: topic listener'),
                 builder: (context, snapshot) {
@@ -36250,6 +36700,8 @@ class _ForumTopicPageState extends State<ForumTopicPage> {
                           const <QueryDocumentSnapshot<Map<String, dynamic>>>[];
 
                       return ListView(
+                        keyboardDismissBehavior:
+                            ScrollViewKeyboardDismissBehavior.onDrag,
                         padding: const EdgeInsets.fromLTRB(20, 18, 20, 12),
                         children: [
                           topicHeader(topic),
@@ -36294,8 +36746,9 @@ class _ForumTopicPageState extends State<ForumTopicPage> {
           ),
           SafeArea(
             top: false,
+            bottom: !keyboardOpen,
             child: Container(
-              padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+              padding: EdgeInsets.fromLTRB(10, 6, 10, keyboardOpen ? 0 : 8),
               decoration: const BoxDecoration(
                 color: Colors.black,
                 border: Border(top: BorderSide(color: Color(0xFF2A2A2A))),
@@ -36318,6 +36771,12 @@ class _ForumTopicPageState extends State<ForumTopicPage> {
                         onPressed: isUploadingPhotoAttachment
                             ? null
                             : attachPhoto,
+                        constraints: const BoxConstraints.tightFor(
+                          width: 40,
+                          height: 40,
+                        ),
+                        padding: EdgeInsets.zero,
+                        visualDensity: VisualDensity.compact,
                         style: IconButton.styleFrom(foregroundColor: blue),
                         icon: Icon(
                           isUploadingPhotoAttachment
@@ -36330,27 +36789,33 @@ class _ForumTopicPageState extends State<ForumTopicPage> {
                         child: TextField(
                           controller: replyController,
                           minLines: 1,
-                          maxLines: 4,
+                          maxLines: 3,
+                          keyboardType: TextInputType.multiline,
                           style: const TextStyle(color: Colors.white),
                           decoration: InputDecoration(
                             hintText: trText('Reply in topic'),
                             hintStyle: const TextStyle(color: Colors.white38),
                             filled: true,
                             fillColor: const Color(0xFF1A1A1A),
+                            isDense: true,
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 8,
+                            ),
                             border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(18),
+                              borderRadius: BorderRadius.circular(16),
                               borderSide: const BorderSide(
                                 color: Color(0xFF2A2A2A),
                               ),
                             ),
                             enabledBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(18),
+                              borderRadius: BorderRadius.circular(16),
                               borderSide: const BorderSide(
                                 color: Color(0xFF2A2A2A),
                               ),
                             ),
                             focusedBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(18),
+                              borderRadius: BorderRadius.circular(16),
                               borderSide: const BorderSide(color: blue),
                             ),
                           ),
@@ -36360,6 +36825,12 @@ class _ForumTopicPageState extends State<ForumTopicPage> {
                       const SizedBox(width: 10),
                       IconButton.filled(
                         onPressed: isSending ? null : sendReply,
+                        constraints: const BoxConstraints.tightFor(
+                          width: 40,
+                          height: 40,
+                        ),
+                        padding: EdgeInsets.zero,
+                        visualDensity: VisualDensity.compact,
                         style: IconButton.styleFrom(
                           backgroundColor: blue,
                           foregroundColor: Colors.white,
@@ -36785,6 +37256,65 @@ class GlobalSmallAvatar extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+class LiveUserSmallAvatar extends StatelessWidget {
+  final String uid;
+  final String fallbackAvatarUrl;
+  final String fallbackUsername;
+  final double size;
+
+  const LiveUserSmallAvatar({
+    super.key,
+    required this.uid,
+    required this.fallbackAvatarUrl,
+    required this.fallbackUsername,
+    this.size = 34,
+  });
+
+  Widget avatarFromData(Map<String, dynamic>? data) {
+    final cleanUsername = stringFromFirebase(
+      data?['username'],
+      fallbackUsername,
+    );
+    final cleanAvatarUrl = stringFromFirebase(
+      data?['photoUrl'],
+      fallbackAvatarUrl,
+    );
+
+    return GlobalSmallAvatar(
+      avatarUrl: cleanAvatarUrl,
+      username: cleanUsername.trim().isEmpty ? fallbackUsername : cleanUsername,
+      size: size,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cleanUid = uid.trim();
+    if (cleanUid.isEmpty) {
+      return avatarFromData(null);
+    }
+
+    if (cleanUid == currentUser.uid) {
+      return GlobalSmallAvatar(
+        avatarUrl: currentUser.photoUrl ?? fallbackAvatarUrl,
+        username: currentUser.username.trim().isEmpty
+            ? fallbackUsername
+            : currentUser.username,
+        size: size,
+      );
+    }
+
+    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      stream: usersCollection()
+          .doc(cleanUid)
+          .debugSnapshots('global chat: author avatar listener'),
+      builder: (context, snapshot) {
+        return avatarFromData(snapshot.data?.data());
+      },
     );
   }
 }
@@ -40316,6 +40846,7 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
     final currentUid = firebaseUser?.uid ?? currentUser.uid;
     final title = widget.chat.titleForCurrentUser(currentUid);
     final chatPhotoUrl = widget.chat.directPhotoUrlForCurrentUser(currentUid);
+    final keyboardOpen = MediaQuery.viewInsetsOf(context).bottom > 0;
     final canModerateGroupChat =
         widget.chat.isGroup &&
         (widget.chat.isOwner(currentUid) ||
@@ -40528,8 +41059,9 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
           ),
           SafeArea(
             top: false,
+            bottom: !keyboardOpen,
             child: Container(
-              padding: const EdgeInsets.fromLTRB(8, 6, 8, 8),
+              padding: EdgeInsets.fromLTRB(8, 6, 8, keyboardOpen ? 0 : 8),
               decoration: BoxDecoration(
                 color: panelGlass,
                 border: const Border(top: BorderSide(color: Colors.white12)),
