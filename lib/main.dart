@@ -18158,76 +18158,78 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
             bottomNavigationBar: keyboardOpen
                 ? null
                 : SafeArea(
-              top: false,
-              child: Container(
-                height: 62,
-                decoration: BoxDecoration(
-                  color: panelGlass,
-                  border: const Border(top: BorderSide(color: Colors.white12)),
-                ),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: _CcsBottomNavItem(
-                        icon: Icons.location_on,
-                        label: trText('Spots'),
-                        selected: index == 0,
-                        onTap: () => selectBottomTab(0),
+                    top: false,
+                    child: Container(
+                      height: 62,
+                      decoration: BoxDecoration(
+                        color: panelGlass,
+                        border: const Border(
+                          top: BorderSide(color: Colors.white12),
+                        ),
                       ),
-                    ),
-                    Expanded(
-                      child: _CcsBottomNavItem(
-                        icon: Icons.map,
-                        label: trText('Map'),
-                        selected: index == 1,
-                        onTap: openMapTab,
-                      ),
-                    ),
-                    Expanded(
-                      child: _CcsBottomNavItem(
-                        icon: Icons.add_circle_outline,
-                        label: trText('Add Spot Nav'),
-                        selected: index == 2,
-                        onTap: () => selectBottomTab(2),
-                        twoLineCentered:
-                            appUiPreferences.language != AppLanguage.en,
-                      ),
-                    ),
-                    Expanded(
-                      child: ValueListenableBuilder<Map<String, int>>(
-                        valueListenable: chatUnreadCountsByChatId,
-                        builder: (context, unreadCountsByChatId, _) {
-                          return _CcsBottomNavItem(
-                            icon: Icons.chat_bubble_outline,
-                            label: trText('Chat'),
-                            selected: index == 3,
-                            badgeCount: totalChatUnreadCount(
-                              unreadCountsByChatId,
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: _CcsBottomNavItem(
+                              icon: Icons.location_on,
+                              label: trText('Spots'),
+                              selected: index == 0,
+                              onTap: () => selectBottomTab(0),
                             ),
-                            onTap: openChatTab,
-                          );
-                        },
+                          ),
+                          Expanded(
+                            child: _CcsBottomNavItem(
+                              icon: Icons.map,
+                              label: trText('Map'),
+                              selected: index == 1,
+                              onTap: openMapTab,
+                            ),
+                          ),
+                          Expanded(
+                            child: _CcsBottomNavItem(
+                              icon: Icons.add_circle_outline,
+                              label: trText('Add Spot Nav'),
+                              selected: index == 2,
+                              onTap: () => selectBottomTab(2),
+                              twoLineCentered:
+                                  appUiPreferences.language != AppLanguage.en,
+                            ),
+                          ),
+                          Expanded(
+                            child: ValueListenableBuilder<Map<String, int>>(
+                              valueListenable: chatUnreadCountsByChatId,
+                              builder: (context, unreadCountsByChatId, _) {
+                                return _CcsBottomNavItem(
+                                  icon: Icons.chat_bubble_outline,
+                                  label: trText('Chat'),
+                                  selected: index == 3,
+                                  badgeCount: totalChatUnreadCount(
+                                    unreadCountsByChatId,
+                                  ),
+                                  onTap: openChatTab,
+                                );
+                              },
+                            ),
+                          ),
+                          Expanded(
+                            child: StreamBuilder<int>(
+                              stream: incomingFriendRequestCountStream(),
+                              initialData: 0,
+                              builder: (context, snapshot) {
+                                return _CcsBottomNavItem(
+                                  icon: Icons.person_outline,
+                                  label: trText('Profile'),
+                                  selected: index == 4,
+                                  badgeCount: snapshot.data ?? 0,
+                                  onTap: () => selectBottomTab(4),
+                                );
+                              },
+                            ),
+                          ),
+                        ],
                       ),
                     ),
-                    Expanded(
-                      child: StreamBuilder<int>(
-                        stream: incomingFriendRequestCountStream(),
-                        initialData: 0,
-                        builder: (context, snapshot) {
-                          return _CcsBottomNavItem(
-                            icon: Icons.person_outline,
-                            label: trText('Profile'),
-                            selected: index == 4,
-                            badgeCount: snapshot.data ?? 0,
-                            onTap: () => selectBottomTab(4),
-                          );
-                        },
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
+                  ),
           ),
         );
       },
@@ -32944,7 +32946,6 @@ class _GlobalChatTabState extends State<GlobalChatTab>
             snapshot.docs.length >= globalChatMessagePageSize;
         _isLoadingOlderGlobalMessages = false;
       });
-
     } catch (error, stack) {
       debugPrint('Older global chat messages could not load: $error');
       debugPrint('$stack');
@@ -33206,11 +33207,17 @@ class _GlobalChatTabState extends State<GlobalChatTab>
     }
 
     try {
-      await globalChatCollection.doc(doc.id).debugSet({
-        'text': cleanText,
-        'edited': true,
-        'updatedAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true), 'global chat: edit own message');
+      await globalChatCollection
+          .doc(doc.id)
+          .debugSet(
+            {
+              'text': cleanText,
+              'edited': true,
+              'updatedAt': FieldValue.serverTimestamp(),
+            },
+            SetOptions(merge: true),
+            'global chat: edit own message',
+          );
     } catch (error) {
       if (!mounted) {
         return;
@@ -33586,6 +33593,7 @@ class _GlobalChatTabState extends State<GlobalChatTab>
       child: message,
     );
   }
+
   List<Widget> globalChatMessageList(
     List<QueryDocumentSnapshot<Map<String, dynamic>>> messages,
   ) {
@@ -36082,7 +36090,9 @@ class _ForumTopicPageState extends State<ForumTopicPage> {
           'updatedAt': FieldValue.serverTimestamp(),
         }, SetOptions(merge: true));
       } catch (error, stack) {
-        debugPrint('Forum topic count update skipped after reply delete: $error');
+        debugPrint(
+          'Forum topic count update skipped after reply delete: $error',
+        );
         debugPrint('$stack');
       }
     } catch (error) {
@@ -36258,11 +36268,17 @@ class _ForumTopicPageState extends State<ForumTopicPage> {
     }
 
     try {
-      await topicRepliesCollection.doc(doc.id).debugSet({
-        'text': cleanText,
-        'edited': true,
-        'updatedAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true), 'forum: edit own reply');
+      await topicRepliesCollection
+          .doc(doc.id)
+          .debugSet(
+            {
+              'text': cleanText,
+              'edited': true,
+              'updatedAt': FieldValue.serverTimestamp(),
+            },
+            SetOptions(merge: true),
+            'forum: edit own reply',
+          );
     } catch (error) {
       if (!mounted) {
         return;
@@ -39864,7 +39880,6 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
         _isLoadingOlderMessages = false;
       });
       scheduleMarkVisibleMessagesRead();
-
     } catch (error, stack) {
       debugPrint('Older chat messages could not load: $error');
       debugPrint('$stack');
