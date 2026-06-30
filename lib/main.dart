@@ -10483,12 +10483,25 @@ Future<void> sendChatMessage({
   // row plus calling the backend caused duplicated direct-chat notifications.
   unawaited(() async {
     try {
+      final recipientUserIds =
+          chat?.memberIds
+              .map((uid) => uid.trim())
+              .where((uid) => uid.isNotEmpty && uid != firebaseUser.uid)
+              .toSet()
+              .toList() ??
+          const <String>[];
+
       await sendPushNotificationEvent({
         'type': 'chat_message',
         'notificationId': 'chat_${chatId}_${messageRef.id}',
         'chatId': chatId,
         'messageId': messageRef.id,
         'senderUsername': currentUser.username,
+        'messageText': cleanText.isEmpty ? trText('Photo') : cleanText,
+        if (chat != null) 'isGroup': chat.isGroup,
+        if (chat != null)
+          'chatTitle': chat.titleForCurrentUser(firebaseUser.uid),
+        if (recipientUserIds.isNotEmpty) 'recipientUserIds': recipientUserIds,
       });
     } catch (error, stack) {
       debugPrint('Chat push notification skipped after message send: $error');
@@ -11771,18 +11784,18 @@ Future<void> createAdminSpotReviewNotification(CarSpot spot) async {
     return;
   }
 
-  final adminUids = await adminUserIdsExcept(excludedUid: spot.addedByUid);
+  final staffUids = await staffUserIdsExcept(excludedUid: spot.addedByUid);
 
-  if (adminUids.isEmpty) {
+  if (staffUids.isEmpty) {
     return;
   }
 
   final batch = FirebaseFirestore.instance.batch();
 
-  for (final adminUid in adminUids) {
-    final notificationId = 'admin_${spot.id}_review_$adminUid';
+  for (final staffUid in staffUids) {
+    final notificationId = 'admin_${spot.id}_review_$staffUid';
     final notificationData = {
-      'userId': adminUid,
+      'userId': staffUid,
       'type': 'spot_pending_review',
       'title': 'Spot review updates',
       'body': '${spot.name} is waiting for review.',
@@ -11805,6 +11818,17 @@ Future<void> createAdminSpotReviewNotification(CarSpot spot) async {
   }
 
   await batch.commit();
+
+  await sendPushNotificationEvent({
+    'type': 'spot_pending_review',
+    'notificationId': 'spot_pending_review_${spot.id}',
+    'spotId': spot.id,
+    'spotName': spot.name,
+    'cityCountry': spot.cityCountry,
+    'addedBy': spot.addedBy,
+    'addedByUid': spot.addedByUid,
+    'recipientUserIds': staffUids,
+  });
 }
 
 Future<void> createAdminSpotDecisionNotification(
@@ -12181,6 +12205,18 @@ Query<Map<String, dynamic>> approvedSpotsForCurrentUserQuery() {
     'status',
     isEqualTo: spotStatusName(SpotStatus.approved),
   );
+
+  if (!currentUserCanUseVerifiedOnlySpots) {
+    query = query.where('verifiedOnly', isEqualTo: false);
+  }
+
+  return query;
+}
+
+Query<Map<String, dynamic>> activeTemporarySpotsForCurrentUserQuery() {
+  var query = spotsCollection()
+      .where('status', isEqualTo: spotStatusName(SpotStatus.approved))
+      .where('isTemporary', isEqualTo: true);
 
   if (!currentUserCanUseVerifiedOnlySpots) {
     query = query.where('verifiedOnly', isEqualTo: false);
@@ -12586,6 +12622,19 @@ Future<void> syncApprovedSpotsWithServerDelta() async {
       for (final doc in snapshot.docs)
         _spotCacheKey(CarSpot.fromFirestore(doc)): CarSpot.fromFirestore(doc),
     };
+
+    final temporarySnapshot = await trackedQueryGet(
+      'spots cache full sync: active temporary approved',
+      activeTemporarySpotsForCurrentUserQuery().limit(
+        firebaseTemporarySpotsListenLimit,
+      ),
+      const GetOptions(source: Source.server),
+    );
+    _firebaseSpotCacheBySource['temporary approved'] = {
+      for (final doc in temporarySnapshot.docs)
+        _spotCacheKey(CarSpot.fromFirestore(doc)): CarSpot.fromFirestore(doc),
+    };
+
     _publishFirebaseSpotCaches();
     await saveApprovedSpotsToLocalCache();
     return;
@@ -12631,6 +12680,7 @@ Future<void> syncApprovedSpotsWithServerDelta() async {
 }
 
 const int firebaseApprovedSpotsListenLimit = 250;
+const int firebaseTemporarySpotsListenLimit = 500;
 const int firebaseMySpotsListenLimit = 100;
 const int firebaseAdminReviewSpotsListenLimit = 250;
 const int firebaseChatsListenLimit = 60;
@@ -12752,6 +12802,13 @@ void startApprovedSpotsLiveSync() {
       firebaseApprovedSpotsListenLimit,
     ),
   );
+
+  _listenToSpotQuery(
+    source: 'temporary approved live',
+    query: activeTemporarySpotsForCurrentUserQuery().limit(
+      firebaseTemporarySpotsListenLimit,
+    ),
+  );
 }
 
 Future<void> stopAdminReviewSpotSync() async {
@@ -12841,6 +12898,12 @@ Future<void> _startCachedSpotSync() async {
           firebaseApprovedSpotsListenLimit,
         ),
       );
+      _listenToSpotQuery(
+        source: 'temporary approved fallback listener',
+        query: activeTemporarySpotsForCurrentUserQuery().limit(
+          firebaseTemporarySpotsListenLimit,
+        ),
+      );
     }
   } finally {
     _spotSyncInProgress = false;
@@ -12870,9 +12933,16 @@ Future<void> refreshFirebaseSpotsFromServer() async {
     approvedSpotsForCurrentUserQuery().limit(firebaseApprovedSpotsListenLimit),
   );
 
-  // Keep manual refresh focused on public approved spots. My submissions and
-  // admin review queues should be loaded only from their own screens, not on
-  // every app startup.
+  await loadQuery(
+    'temporary approved',
+    activeTemporarySpotsForCurrentUserQuery().limit(
+      firebaseTemporarySpotsListenLimit,
+    ),
+  );
+
+  // Keep manual refresh focused on public approved spots and active temporary
+  // spots. My submissions and admin review queues should be loaded only from
+  // their own screens, not on every app startup.
   _firebaseSpotCacheBySource
     ..clear()
     ..addAll(refreshCaches);
@@ -14639,6 +14709,19 @@ Future<void> updateSpotStatus(
       status,
       rejectionReason: cleanRejectionReason,
     );
+  }
+
+  if (statusChanged && status == SpotStatus.approved) {
+    await createNewSpotNotificationForUsers(updatedSpot);
+
+    await sendPushNotificationEvent({
+      'type': updatedSpot.isTemporary ? 'temporary_event' : 'new_spot',
+      'notificationId':
+          '${updatedSpot.isTemporary ? 'temporary_event' : 'new_spot'}_${updatedSpot.id}',
+      'spotId': updatedSpot.id,
+      'spotName': updatedSpot.name,
+      'cityCountry': updatedSpot.cityCountry,
+    });
   }
 
   if (statusChanged &&
@@ -29959,28 +30042,6 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
         unawaited(createTemporarySpotForumTopic(newSpot));
       }
 
-      if (isAdminCreatedSpot) {
-        await sendPushNotificationEvent({
-          'type': newSpot.isTemporary ? 'temporary_event' : 'new_spot',
-          'spotId': spotRef.id,
-          'spotName': newSpot.name,
-          'cityCountry': newSpot.cityCountry,
-        });
-      }
-
-      if (isAdminCreatedSpot && newSpot.categories.contains('Meet')) {
-        await createMeetSpotNotificationsForNearbyUsers(newSpot);
-      }
-
-      if (!isAdminCreatedSpot) {
-        try {
-          await createAdminSpotReviewNotification(newSpot);
-        } catch (error, stack) {
-          debugPrint('Could not create admin spot review notification: $error');
-          debugPrint('$stack');
-        }
-      }
-
       final savedSpot = await spotRef.debugGet(
         const GetOptions(source: Source.server),
       );
@@ -29995,6 +30056,32 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
 
       final savedNewSpot = CarSpot.fromFirestore(savedSpot);
       upsertSpotIntoLocalImmediateCache(savedNewSpot);
+
+      if (isAdminCreatedSpot) {
+        await createNewSpotNotificationForUsers(savedNewSpot);
+
+        await sendPushNotificationEvent({
+          'type': savedNewSpot.isTemporary ? 'temporary_event' : 'new_spot',
+          'notificationId':
+              '${savedNewSpot.isTemporary ? 'temporary_event' : 'new_spot'}_${savedNewSpot.id}',
+          'spotId': savedNewSpot.id,
+          'spotName': savedNewSpot.name,
+          'cityCountry': savedNewSpot.cityCountry,
+        });
+      }
+
+      if (isAdminCreatedSpot && savedNewSpot.categories.contains('Meet')) {
+        await createMeetSpotNotificationsForNearbyUsers(savedNewSpot);
+      }
+
+      if (!isAdminCreatedSpot) {
+        try {
+          await createAdminSpotReviewNotification(savedNewSpot);
+        } catch (error, stack) {
+          debugPrint('Could not create staff spot review notification: $error');
+          debugPrint('$stack');
+        }
+      }
 
       if (!mounted) {
         return;
@@ -33337,6 +33424,16 @@ class _GlobalChatTabState extends State<GlobalChatTab>
         null,
         'global chat: send message',
       );
+
+      unawaited(
+        sendPushNotificationEvent({
+          'type': 'global_chat_message',
+          'notificationId': 'global_chat_${doc.id}',
+          'messageId': doc.id,
+          'senderUsername': currentUser.username,
+          'messageText': text.isEmpty ? trText('Photo') : text,
+        }),
+      );
     } catch (error) {
       if (mounted) {
         if (messageController.text.trim().isEmpty) {
@@ -35884,6 +35981,18 @@ class _ForumTopicPageState extends State<ForumTopicPage> {
         'repliesCount': FieldValue.increment(1),
         'lastReplyAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
+
+      unawaited(
+        sendPushNotificationEvent({
+          'type': 'forum_reply',
+          'notificationId': 'forum_${widget.topicId}_${doc.id}',
+          'topicId': widget.topicId,
+          'topicTitle': widget.title,
+          'messageId': doc.id,
+          'senderUsername': currentUser.username,
+          'messageText': text.isEmpty ? trText('Photo') : text,
+        }),
+      );
     } catch (error) {
       if (mounted) {
         if (replyController.text.trim().isEmpty) {
