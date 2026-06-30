@@ -4,11 +4,13 @@ import UserNotifications
 import UIKit
 
 @main
-@objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate, PHPickerViewControllerDelegate {
+@objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate, PHPickerViewControllerDelegate, UIAdaptivePresentationControllerDelegate {
   private var photoPickerChannel: FlutterMethodChannel?
   private var deviceIdentityChannel: FlutterMethodChannel?
   private var appBadgeChannel: FlutterMethodChannel?
   private var pendingPhotoResult: FlutterResult?
+  private weak var activePhotoPicker: PHPickerViewController?
+  private var isCompletingPhotoPick = false
 
   override func application(
     _ application: UIApplication,
@@ -139,79 +141,121 @@ import UIKit
 
     let picker = PHPickerViewController(configuration: configuration)
     picker.delegate = self
-    presenter.present(picker, animated: true)
+    activePhotoPicker = picker
+    isCompletingPhotoPick = false
+    picker.presentationController?.delegate = self
+    presenter.present(picker, animated: true) { [weak self, weak picker] in
+      guard let self = self, let picker = picker else {
+        return
+      }
+
+      picker.presentationController?.delegate = self
+      if picker.presentingViewController == nil {
+        self.completePhotoPicker(
+          with: FlutterError(
+            code: "picker_unavailable",
+            message: "Could not open photo picker.",
+            details: nil
+          )
+        )
+      }
+    }
   }
 
   func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
-    picker.dismiss(animated: true)
-
-    guard let result = pendingPhotoResult else {
+    guard pendingPhotoResult != nil else {
       return
     }
 
+    isCompletingPhotoPick = true
+
     guard let itemProvider = results.first?.itemProvider else {
-      pendingPhotoResult = nil
-      result(nil)
+      picker.dismiss(animated: true) { [weak self] in
+        self?.completePhotoPicker(with: nil)
+      }
       return
     }
 
     guard itemProvider.canLoadObject(ofClass: UIImage.self) else {
-      pendingPhotoResult = nil
-      result(
-        FlutterError(
-          code: "unsupported_image",
-          message: "Could not read the selected photo.",
-          details: nil
+      picker.dismiss(animated: true) { [weak self] in
+        self?.completePhotoPicker(
+          with: FlutterError(
+            code: "unsupported_image",
+            message: "Could not read the selected photo.",
+            details: nil
+          )
         )
-      )
+      }
       return
     }
 
-    itemProvider.loadObject(ofClass: UIImage.self) { [weak self] object, error in
-      DispatchQueue.main.async {
-        guard let self = self else {
-          return
-        }
+    picker.dismiss(animated: true) {
+      itemProvider.loadObject(ofClass: UIImage.self) { [weak self] object, error in
+        DispatchQueue.main.async {
+          guard let self = self else {
+            return
+          }
 
-        self.pendingPhotoResult = nil
-
-        if let error = error {
-          result(
-            FlutterError(
-              code: "photo_load_failed",
-              message: error.localizedDescription,
-              details: nil
+          if let error = error {
+            self.completePhotoPicker(
+              with: FlutterError(
+                code: "photo_load_failed",
+                message: error.localizedDescription,
+                details: nil
+              )
             )
-          )
-          return
-        }
+            return
+          }
 
-        guard let image = object as? UIImage else {
-          result(
-            FlutterError(
-              code: "photo_load_failed",
-              message: "Could not read the selected photo.",
-              details: nil
+          guard let image = object as? UIImage else {
+            self.completePhotoPicker(
+              with: FlutterError(
+                code: "photo_load_failed",
+                message: "Could not read the selected photo.",
+                details: nil
+              )
             )
-          )
-          return
-        }
+            return
+          }
 
-        do {
-          result(try self.writePickedImageToTemporaryJpeg(image))
-        } catch {
-          result(
-            FlutterError(
-              code: "photo_copy_failed",
-              message: error.localizedDescription,
-              details: nil
+          do {
+            self.completePhotoPicker(
+              with: try self.writePickedImageToTemporaryJpeg(image)
             )
-          )
+          } catch {
+            self.completePhotoPicker(
+              with: FlutterError(
+                code: "photo_copy_failed",
+                message: error.localizedDescription,
+                details: nil
+              )
+            )
+          }
         }
       }
     }
   }
 
+  func presentationControllerDidDismiss(_ presentationController: UIPresentationController) {
+    guard presentationController.presentedViewController === activePhotoPicker,
+          !isCompletingPhotoPick else {
+      return
+    }
+
+    completePhotoPicker(with: nil)
+  }
+
+  private func completePhotoPicker(with value: Any?) {
+    guard let result = pendingPhotoResult else {
+      return
+    }
+
+    pendingPhotoResult = nil
+    activePhotoPicker?.presentationController?.delegate = nil
+    activePhotoPicker = nil
+    isCompletingPhotoPick = false
+    result(value)
+  }
   private func writePickedImageToTemporaryJpeg(_ image: UIImage) throws -> String {
     let format = UIGraphicsImageRendererFormat.default()
     format.scale = image.scale

@@ -18104,6 +18104,8 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     return AnimatedBuilder(
       animation: appUiPreferences,
       builder: (context, _) {
+        final keyboardOpen = MediaQuery.viewInsetsOf(context).bottom > 0;
+
         return WillPopScope(
           onWillPop: handleSystemBack,
           child: Scaffold(
@@ -18153,7 +18155,9 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                 ),
               ],
             ),
-            bottomNavigationBar: SafeArea(
+            bottomNavigationBar: keyboardOpen
+                ? null
+                : SafeArea(
               top: false,
               child: Container(
                 height: 62,
@@ -32746,7 +32750,6 @@ class _GlobalChatTabState extends State<GlobalChatTab>
   bool _isLoadingOlderGlobalMessages = false;
   bool _hasMoreOlderGlobalMessages = true;
   bool _globalPaginationInitialized = false;
-  bool _initialGlobalBottomScrollDone = false;
   bool _scrollGlobalChatToLatestAfterSend = false;
   bool _globalMessagesLoadFailed = false;
   bool isSending = false;
@@ -32877,13 +32880,9 @@ class _GlobalChatTabState extends State<GlobalChatTab>
               _globalMessagesLoadFailed = false;
             });
 
-            if (!_initialGlobalBottomScrollDone ||
-                shouldFollowLatest ||
-                _scrollGlobalChatToLatestAfterSend) {
+            if (shouldFollowLatest || _scrollGlobalChatToLatestAfterSend) {
               _scrollGlobalChatToLatestAfterSend = false;
-              scheduleGlobalChatScrollToLatest(
-                animated: _initialGlobalBottomScrollDone,
-              );
+              scheduleGlobalChatScrollToLatest();
             }
           },
           onError: (Object error, StackTrace stack) {
@@ -32900,13 +32899,12 @@ class _GlobalChatTabState extends State<GlobalChatTab>
   }
 
   void _onGlobalChatScroll() {
-    if (!globalChatScrollController.hasClients ||
-        !_initialGlobalBottomScrollDone) {
+    if (!globalChatScrollController.hasClients) {
       return;
     }
 
     final position = globalChatScrollController.position;
-    if (position.pixels <= 120 &&
+    if (position.maxScrollExtent - position.pixels <= 120 &&
         _hasMoreOlderGlobalMessages &&
         !_isLoadingOlderGlobalMessages &&
         _globalPaginationInitialized) {
@@ -32923,13 +32921,6 @@ class _GlobalChatTabState extends State<GlobalChatTab>
     if (oldestDoc == null) {
       return;
     }
-
-    final oldMaxExtent = globalChatScrollController.hasClients
-        ? globalChatScrollController.position.maxScrollExtent
-        : 0.0;
-    final oldOffset = globalChatScrollController.hasClients
-        ? globalChatScrollController.position.pixels
-        : 0.0;
 
     setState(() => _isLoadingOlderGlobalMessages = true);
 
@@ -32954,19 +32945,6 @@ class _GlobalChatTabState extends State<GlobalChatTab>
         _isLoadingOlderGlobalMessages = false;
       });
 
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted || !globalChatScrollController.hasClients) {
-          return;
-        }
-
-        final newMaxExtent =
-            globalChatScrollController.position.maxScrollExtent;
-        final addedHeight = newMaxExtent - oldMaxExtent;
-        final target = (oldOffset + addedHeight)
-            .clamp(0.0, newMaxExtent)
-            .toDouble();
-        globalChatScrollController.jumpTo(target);
-      });
     } catch (error, stack) {
       debugPrint('Older global chat messages could not load: $error');
       debugPrint('$stack');
@@ -32982,37 +32960,18 @@ class _GlobalChatTabState extends State<GlobalChatTab>
     }
 
     final position = globalChatScrollController.position;
-    return position.maxScrollExtent - position.pixels < 140;
+    return position.pixels - position.minScrollExtent < 140;
   }
 
-  void scheduleGlobalChatScrollToLatest({bool animated = false}) {
-    final doubleCheckAfterLayout = !_initialGlobalBottomScrollDone;
-
-    void scrollToLatest({required bool animate}) {
+  void scheduleGlobalChatScrollToLatest() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted || !globalChatScrollController.hasClients) {
         return;
       }
 
-      final target = globalChatScrollController.position.maxScrollExtent;
-      if (animate && _initialGlobalBottomScrollDone) {
-        globalChatScrollController.animateTo(
-          target,
-          duration: const Duration(milliseconds: 220),
-          curve: Curves.easeOut,
-        );
-      } else {
-        globalChatScrollController.jumpTo(target);
-      }
-      _initialGlobalBottomScrollDone = true;
-    }
-
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      scrollToLatest(animate: animated);
-      if (doubleCheckAfterLayout) {
-        Future<void>.delayed(const Duration(milliseconds: 90), () {
-          scrollToLatest(animate: false);
-        });
-      }
+      globalChatScrollController.jumpTo(
+        globalChatScrollController.position.minScrollExtent,
+      );
     });
   }
 
@@ -33753,26 +33712,16 @@ class _GlobalChatTabState extends State<GlobalChatTab>
                   );
                 }
 
+                final messageWidgets = globalChatMessageList(messages);
+
                 return ListView(
                   controller: globalChatScrollController,
+                  reverse: true,
                   keyboardDismissBehavior:
                       ScrollViewKeyboardDismissBehavior.onDrag,
                   padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
                   children: [
-                    if (_isLoadingOlderGlobalMessages)
-                      const Padding(
-                        padding: EdgeInsets.all(12),
-                        child: Center(
-                          child: SizedBox(
-                            width: 20,
-                            height: 20,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: blue,
-                            ),
-                          ),
-                        ),
-                      ),
+                    ...messageWidgets.reversed,
                     if (_hasMoreOlderGlobalMessages)
                       Padding(
                         padding: const EdgeInsets.only(bottom: 8),
@@ -33787,7 +33736,20 @@ class _GlobalChatTabState extends State<GlobalChatTab>
                           ),
                         ),
                       ),
-                    ...globalChatMessageList(messages),
+                    if (_isLoadingOlderGlobalMessages)
+                      const Padding(
+                        padding: EdgeInsets.all(12),
+                        child: Center(
+                          child: SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: blue,
+                            ),
+                          ),
+                        ),
+                      ),
                   ],
                 );
               },
@@ -39601,7 +39563,6 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
   bool _isLoadingOlderMessages = false;
   bool _hasMoreOlderMessages = true;
   bool _paginationInitialized = false;
-  bool _initialBottomScrollDone = false;
 
   @override
   void initState() {
@@ -39846,7 +39807,7 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
             markCurrentChatNotificationsRead(delay: const Duration(seconds: 1));
             scheduleMarkVisibleMessagesRead();
             if (shouldFollow || scrollToLatestAfterNextMessage) {
-              scheduleScrollToLatestMessage(animated: true);
+              scheduleScrollToLatestMessage();
             }
           },
           onError: (Object error, StackTrace stack) {
@@ -39857,11 +39818,10 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
   }
 
   void _onScroll() {
-    if (!chatScrollController.hasClients || !_initialBottomScrollDone) return;
+    if (!chatScrollController.hasClients) return;
     final position = chatScrollController.position;
-    // Load older messages only after the initial jump to bottom is finished and
-    // the user intentionally scrolls near the top.
-    if (position.pixels <= 120 &&
+    // Load older messages when the user scrolls near the top.
+    if (position.maxScrollExtent - position.pixels <= 120 &&
         _hasMoreOlderMessages &&
         !_isLoadingOlderMessages &&
         _paginationInitialized) {
@@ -39872,13 +39832,6 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
   Future<void> _loadOlderMessages() async {
     if (_isLoadingOlderMessages || !_hasMoreOlderMessages) return;
     if (_oldestLoadedDoc == null) return;
-
-    final oldMaxExtent = chatScrollController.hasClients
-        ? chatScrollController.position.maxScrollExtent
-        : 0.0;
-    final oldOffset = chatScrollController.hasClients
-        ? chatScrollController.position.pixels
-        : 0.0;
 
     setState(() => _isLoadingOlderMessages = true);
 
@@ -39912,14 +39865,6 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
       });
       scheduleMarkVisibleMessagesRead();
 
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted || !chatScrollController.hasClients) {
-          return;
-        }
-        final newMaxExtent = chatScrollController.position.maxScrollExtent;
-        final addedHeight = newMaxExtent - oldMaxExtent;
-        chatScrollController.jumpTo(oldOffset + addedHeight);
-      });
     } catch (error, stack) {
       debugPrint('Older chat messages could not load: $error');
       debugPrint('$stack');
@@ -39933,37 +39878,18 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
     }
 
     final position = chatScrollController.position;
-    return position.maxScrollExtent - position.pixels < 140;
+    return position.pixels - position.minScrollExtent < 140;
   }
 
-  void scheduleScrollToLatestMessage({bool animated = false}) {
-    final doubleCheckAfterLayout = !_initialBottomScrollDone;
-
-    void scrollToLatest({required bool animate}) {
+  void scheduleScrollToLatestMessage() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted || !chatScrollController.hasClients) {
         return;
       }
 
-      final target = chatScrollController.position.maxScrollExtent;
-      if (animate && _initialBottomScrollDone) {
-        chatScrollController.animateTo(
-          target,
-          duration: const Duration(milliseconds: 220),
-          curve: Curves.easeOut,
-        );
-      } else {
-        chatScrollController.jumpTo(target);
-      }
-      _initialBottomScrollDone = true;
-    }
-
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      scrollToLatest(animate: animated);
-      if (doubleCheckAfterLayout) {
-        Future<void>.delayed(const Duration(milliseconds: 90), () {
-          scrollToLatest(animate: false);
-        });
-      }
+      chatScrollController.jumpTo(
+        chatScrollController.position.minScrollExtent,
+      );
     });
   }
 
@@ -39983,7 +39909,7 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
       scrollToLatestAfterNextMessage = false;
     }
     if (shouldFollowLatest) {
-      scheduleScrollToLatestMessage(animated: !firstMessageLayout);
+      scheduleScrollToLatestMessage();
     }
   }
 
@@ -40100,7 +40026,7 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
         _mergeMessages([pendingMessage]);
         scrollToLatestAfterNextMessage = true;
       });
-      scheduleScrollToLatestMessage(animated: true);
+      scheduleScrollToLatestMessage();
 
       await sendChatMessage(
         chatId: widget.chat.id,
@@ -40122,7 +40048,7 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
         );
       });
       markCurrentChatNotificationsRead(delay: const Duration(seconds: 1));
-      scheduleScrollToLatestMessage(animated: true);
+      scheduleScrollToLatestMessage();
     } catch (error) {
       if (!mounted) {
         return;
@@ -40996,24 +40922,12 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
 
                     return ListView(
                       controller: chatScrollController,
+                      reverse: true,
                       keyboardDismissBehavior:
                           ScrollViewKeyboardDismissBehavior.onDrag,
                       padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
                       children: [
-                        if (_isLoadingOlderMessages)
-                          const Padding(
-                            padding: EdgeInsets.all(12),
-                            child: Center(
-                              child: SizedBox(
-                                width: 20,
-                                height: 20,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  color: blue,
-                                ),
-                              ),
-                            ),
-                          ),
+                        ...children.reversed,
                         if (_hasMoreOlderMessages)
                           Padding(
                             padding: const EdgeInsets.only(bottom: 8),
@@ -41028,7 +40942,20 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
                               ),
                             ),
                           ),
-                        ...children,
+                        if (_isLoadingOlderMessages)
+                          const Padding(
+                            padding: EdgeInsets.all(12),
+                            child: Center(
+                              child: SizedBox(
+                                width: 20,
+                                height: 20,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: blue,
+                                ),
+                              ),
+                            ),
+                          ),
                       ],
                     );
                   }
