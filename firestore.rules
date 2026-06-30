@@ -77,6 +77,13 @@ service cloud.firestore {
         && data.get('banned', false) != true;
     }
 
+    function isStaffUid(userId) {
+      let data = userDoc(userId).data;
+      return data.get('role', 'user') in ['admin', 'moderator']
+        && data.get('deleted', false) != true
+        && data.get('banned', false) != true;
+    }
+
     function validUsername(username) {
       return username is string
         && username.size() >= 3
@@ -228,6 +235,76 @@ service cloud.firestore {
         && request.resource.data.get('verified', false) != true
         && request.resource.data.get('banned', false) != true
         && request.resource.data.get('deleted', false) != true;
+    }
+
+
+    function validNewUserReport() {
+      return isActiveUser()
+        && request.resource.data.keys().hasOnly([
+          'reportedUid',
+          'reportedUsername',
+          'reportedName',
+          'reportedEmail',
+          'reportedRole',
+          'reporterUid',
+          'reporterUsername',
+          'reporterName',
+          'reporterEmail',
+          'reason',
+          'status',
+          'createdAt',
+          'createdAtMillis',
+          'updatedAt'
+        ])
+        && request.resource.data.reporterUid == currentUid()
+        && request.resource.data.reportedUid is string
+        && request.resource.data.reportedUid.size() > 0
+        && request.resource.data.reportedUid != currentUid()
+        && exists(
+          /databases/$(database)/documents/users/$(request.resource.data.reportedUid)
+        )
+        && request.resource.data.reportedUsername is string
+        && request.resource.data.reportedUsername.size() <= 80
+        && request.resource.data.reportedName is string
+        && request.resource.data.reportedName.size() <= 120
+        && request.resource.data.reportedEmail is string
+        && request.resource.data.reportedEmail.size() <= 200
+        && request.resource.data.reportedRole is string
+        && request.resource.data.reportedRole in [
+          'user',
+          'admin',
+          'moderator'
+        ]
+        && request.resource.data.reporterUsername is string
+        && request.resource.data.reporterUsername.size() >= 1
+        && request.resource.data.reporterUsername.size() <= 80
+        && request.resource.data.reporterName is string
+        && request.resource.data.reporterName.size() <= 120
+        && request.resource.data.reporterEmail is string
+        && request.resource.data.reporterEmail.size() <= 200
+        && request.resource.data.reason is string
+        && request.resource.data.reason.size() >= 1
+        && request.resource.data.reason.size() <= 1000
+        && request.resource.data.status == 'open'
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.createdAtMillis is int
+        && request.resource.data.createdAtMillis > 0
+        && request.resource.data.updatedAt == request.time;
+    }
+
+    function userReportIdentityUnchanged() {
+      return request.resource.data.reportedUid == resource.data.reportedUid
+        && request.resource.data.reportedUsername == resource.data.reportedUsername
+        && request.resource.data.reportedName == resource.data.reportedName
+        && request.resource.data.reportedEmail == resource.data.reportedEmail
+        && request.resource.data.reportedRole == resource.data.reportedRole
+        && request.resource.data.reporterUid == resource.data.reporterUid
+        && request.resource.data.reporterUsername == resource.data.reporterUsername
+        && request.resource.data.reporterName == resource.data.reporterName
+        && request.resource.data.reporterEmail == resource.data.reporterEmail
+        && request.resource.data.reason == resource.data.reason
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.createdAtMillis == resource.data.createdAtMillis;
     }
 
     function moderatorCanUpdateUser() {
@@ -539,6 +616,18 @@ service cloud.firestore {
       return isChatOwner(chatId) || isChatModerator(chatId) || isStaff();
     }
 
+    function canOverridePrivateGroup(chatId) {
+      return isChatOwner(chatId) || isStaff() || isGlobalModerator();
+    }
+
+    function canManageChatMembers(chatId) {
+      let data = chatData(chatId);
+      return (
+          data.get('isPrivate', false) != true
+          && canManageChat(chatId)
+        ) || canOverridePrivateGroup(chatId);
+    }
+
     function forumTopicData(topicId) {
       return get(/databases/$(database)/documents/forum_topics/$(topicId)).data;
     }
@@ -552,12 +641,104 @@ service cloud.firestore {
         );
     }
 
+
+    function temporarySpotData(spotId) {
+      return get(/databases/$(database)/documents/spots/$(spotId)).data;
+    }
+
+    function validTemporarySpotAutoForumTopicCreate(topicId) {
+      let data = request.resource.data;
+      let spot = temporarySpotData(data.spotId);
+      return data.source == 'temporary_spot'
+        && data.get('isSpotTopic', true) == true
+        && data.spotId is string
+        && data.spotId.size() >= 1
+        && exists(/databases/$(database)/documents/spots/$(data.spotId))
+        && topicId == 'temporary_spot_' + data.spotId
+        && data.temporarySpotId == data.spotId
+        && spot.get('isTemporary', false) == true
+        && spot.expiresAt is timestamp
+        && spot.expiresAt > request.time
+        && spot.status in ['approved', 'pending']
+        && data.authorId == spot.addedByUid
+        && data.authorName is string
+        && data.authorName.size() >= 1
+        && data.authorName.size() <= 80
+        && data.title == spot.name
+        && data.avatarUrl == spot.photoUrl
+        && data.categoryId == 'meets_events'
+        && data.temporarySpotStartsAt == spot.startsAt
+        && data.temporarySpotExpiresAt == spot.expiresAt
+        && data.autoExpiresAt == spot.expiresAt
+        && (
+          (
+            spot.status == 'approved'
+            && data.status == 'approved'
+            && data.rejectionReason == null
+            && data.reviewedBy == currentUid()
+            && data.reviewedAt == request.time
+          )
+          || (
+            spot.status == 'pending'
+            && data.status == 'pending'
+            && data.rejectionReason == null
+            && data.reviewedBy == null
+            && data.reviewedAt == null
+          )
+        );
+    }
+
     function chatMembershipUnchanged() {
       return request.resource.data.memberIds is list
         && request.resource.data.memberIds.size() == resource.data.memberIds.size()
         && request.resource.data.memberIds.hasAll(resource.data.memberIds)
         && resource.data.memberIds.hasAll(request.resource.data.memberIds)
         && request.resource.data.isGroup == resource.data.isGroup;
+    }
+
+    function managedGroupChatUpdateAllowed(chatId) {
+      let ownerUid = chatOwnerUid(chatId);
+      return (canManageChat(chatId) || isGlobalModerator())
+        && resource.data.get('isGroup', false) == true
+        && request.resource.data.get('isGroup', false) == true
+        && request.resource.data.get('ownerUid', ownerUid) == ownerUid
+        && request.resource.data.memberIds is list
+        && request.resource.data.memberIds.size() >= 1
+        && ownerUid in request.resource.data.memberIds
+        && request.resource.data.get('moderatorIds', []) is list
+        && request.resource.data.memberIds.hasAll(
+          request.resource.data.get('moderatorIds', [])
+        )
+        && (
+          !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+            'memberIds',
+            'memberUsernames',
+            'memberPhotoUrls'
+          ])
+          || canManageChatMembers(chatId)
+        )
+        && (
+          !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+            'isPrivate'
+          ])
+          || canOverridePrivateGroup(chatId)
+        )
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'name',
+          'photoUrl',
+          'avatarUrl',
+          'description',
+          'memberIds',
+          'memberUsernames',
+          'memberPhotoUrls',
+          'moderatorIds',
+          'isPrivate',
+          'hiddenForUserIds',
+          'lastMessage',
+          'lastSenderUid',
+          'lastSenderUsername',
+          'updatedAt'
+        ]);
     }
 
     function chatHiddenForChangedOnlyByCurrentUser() {
@@ -740,6 +921,56 @@ service cloud.firestore {
         && isAdminUid(data.userId);
     }
 
+    function validUserReportAdminNotification() {
+      let data = request.resource.data;
+      return isActiveUser()
+        && data.keys().hasOnly([
+          'userId',
+          'type',
+          'title',
+          'body',
+          'actorUserId',
+          'actorUsername',
+          'reportedUid',
+          'reportedUsername',
+          'reportId',
+          'reason',
+          'read',
+          'createdAt',
+          'createdAtMillis'
+        ])
+        && data.userId is string
+        && isStaffUid(data.userId)
+        && data.userId != currentUid()
+        && data.type == 'user_report_new'
+        && data.title is string
+        && data.title.size() >= 1
+        && data.title.size() <= 120
+        && data.body is string
+        && data.body.size() >= 1
+        && data.body.size() <= 1200
+        && data.actorUserId == currentUid()
+        && data.actorUsername is string
+        && data.actorUsername.size() >= 1
+        && data.actorUsername.size() <= 80
+        && data.reportedUid is string
+        && data.reportedUid.size() > 0
+        && data.reportedUid != currentUid()
+        && exists(/databases/$(database)/documents/users/$(data.reportedUid))
+        && data.reportedUsername is string
+        && data.reportedUsername.size() <= 80
+        && data.reportId is string
+        && data.reportId.size() > 0
+        && exists(/databases/$(database)/documents/user_reports/$(data.reportId))
+        && data.reason is string
+        && data.reason.size() >= 1
+        && data.reason.size() <= 1000
+        && data.read == false
+        && data.createdAt == request.time
+        && data.createdAtMillis is int
+        && data.createdAtMillis > 0;
+    }
+
     function validUserNotificationCreate() {
       let data = request.resource.data;
       return isActiveUser()
@@ -863,7 +1094,7 @@ service cloud.firestore {
       allow update: if isActiveUser()
         && resource.data.userId == currentUid()
         && request.resource.data.userId == resource.data.userId
-        && request.resource.data.spotId == resource.data.spotId
+        && request.resource.data.get('spotId', '') == resource.data.get('spotId', '')
         && request.resource.data.username == resource.data.username
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           'comment',
@@ -897,7 +1128,7 @@ service cloud.firestore {
       allow update: if isActiveUser()
         && resource.data.userId == currentUid()
         && request.resource.data.userId == resource.data.userId
-        && request.resource.data.spotId == resource.data.spotId
+        && request.resource.data.get('spotId', '') == resource.data.get('spotId', '')
         && request.resource.data.dayKey == resource.data.dayKey
         && request.resource.data.count is int
         && request.resource.data.count >= resource.data.count
@@ -1032,7 +1263,7 @@ service cloud.firestore {
       allow update: if isActiveUser()
         && resource.data.userId == currentUid()
         && request.resource.data.userId == resource.data.userId
-        && request.resource.data.spotId == resource.data.spotId
+        && request.resource.data.get('spotId', '') == resource.data.get('spotId', '')
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           'read',
           'readAt'
@@ -1044,24 +1275,26 @@ service cloud.firestore {
     match /admin_notifications/{notificationId} {
       allow read: if isActiveUser()
         && resource.data.userId == currentUid();
-      allow create: if isActiveUser()
-        && request.resource.data.userId is string
-        && isAdminUid(request.resource.data.userId)
-        && request.resource.data.type is string
-        && request.resource.data.spotId is string
-        && request.resource.data.spotName is string
-        && request.resource.data.read == false
-        && (
-          isStaff()
-          || (
-            request.resource.data.type == 'spot_pending_review'
-            && request.resource.data.addedByUid == currentUid()
+      allow create: if (
+          isActiveUser()
+          && request.resource.data.userId is string
+          && isAdminUid(request.resource.data.userId)
+          && request.resource.data.type is string
+          && request.resource.data.spotId is string
+          && request.resource.data.spotName is string
+          && request.resource.data.read == false
+          && (
+            isStaff()
+            || (
+              request.resource.data.type == 'spot_pending_review'
+              && request.resource.data.addedByUid == currentUid()
+            )
           )
-        );
+        ) || validUserReportAdminNotification();
       allow update: if isActiveUser()
         && resource.data.userId == currentUid()
         && request.resource.data.userId == resource.data.userId
-        && request.resource.data.spotId == resource.data.spotId
+        && request.resource.data.get('spotId', '') == resource.data.get('spotId', '')
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           'read',
           'readAt'
@@ -1234,41 +1467,35 @@ service cloud.firestore {
           || !directMemberIdsBlocked(request.resource.data.memberIds)
         );
       allow update: if isSignedIn()
-        && currentUid() in resource.data.memberIds
         && (
           (
-            !directChatBlocked(chatId)
+            currentUid() in resource.data.memberIds
             && (
               (
-                chatMembershipUnchanged()
-                && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-                  'lastMessage',
-                  'lastSenderUid',
-                  'lastSenderUsername',
-                  'hiddenForUserIds',
-                  'updatedAt'
-                ])
+                !directChatBlocked(chatId)
+                && (
+                  (
+                    chatMembershipUnchanged()
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+                      'lastMessage',
+                      'lastSenderUid',
+                      'lastSenderUsername',
+                      'hiddenForUserIds',
+                      'updatedAt'
+                    ])
+                  )
+                  || managedGroupChatUpdateAllowed(chatId)
+                  || currentUserLeavesGroupOnly(chatId)
+                )
               )
-              || (
-                canManageChat(chatId)
-                && request.resource.data.isGroup == resource.data.isGroup
-                && chatMembershipUnchanged()
-                && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-                  'name',
-                  'photoUrl',
-                  'avatarUrl',
-                  'description',
-                  'lastMessage',
-                  'lastSenderUid',
-                  'lastSenderUsername',
-                  'hiddenForUserIds',
-                  'updatedAt'
-                ])
-              )
-              || currentUserLeavesGroupOnly(chatId)
+              || chatHiddenForChangedOnlyByCurrentUser()
             )
           )
-          || chatHiddenForChangedOnlyByCurrentUser()
+          || (
+            resource.data.get('isGroup', false) == true
+            && (isStaff() || isGlobalModerator())
+            && managedGroupChatUpdateAllowed(chatId)
+          )
         );
       allow delete: if isStaff()
         || (
@@ -1286,13 +1513,31 @@ service cloud.firestore {
           && !directChatBlocked(chatId)
           && request.resource.data.senderUid == currentUid()
           && request.resource.data.senderUsername is string
-          && request.resource.data.text is string;
+          && request.resource.data.text is string
+          && (
+            request.resource.data.text.size() >= 1
+            || request.resource.data.get('photoUrl', request.resource.data.get('imageUrl', '')) is string
+          )
+          && (
+            !request.resource.data.keys().hasAny(['photoUrl'])
+            || (
+              request.resource.data.photoUrl is string
+              && request.resource.data.photoUrl.size() >= 1
+              && request.resource.data.photoUrl.size() <= 1500
+            )
+          )
+          && (
+            !request.resource.data.keys().hasAny(['imageUrl'])
+            || (
+              request.resource.data.imageUrl is string
+              && request.resource.data.imageUrl.size() >= 1
+              && request.resource.data.imageUrl.size() <= 1500
+            )
+          );
         allow update: if isChatMember(chatId)
           && (
             (
-              (
-                resource.data.senderUid == currentUid()
-              )
+              resource.data.senderUid == currentUid()
               && request.resource.data.senderUid == resource.data.senderUid
               && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
                 'text',
@@ -1302,10 +1547,10 @@ service cloud.firestore {
             )
             || chatMessageReadReceiptUpdateOnly()
           );
-        allow delete: if isChatMember(chatId)
-          && (
-            resource.data.senderUid == currentUid()
-          );
+        allow delete: if (
+          isChatMember(chatId)
+          && resource.data.senderUid == currentUid()
+        ) || canManageChat(chatId) || isGlobalModerator();
       }
     }
 
@@ -1321,6 +1566,8 @@ service cloud.firestore {
           'globalChatModerator',
           'globalModerator',
           'text',
+          'photoUrl',
+          'imageUrl',
           'timestamp',
           'type'
         ])
@@ -1331,9 +1578,20 @@ service cloud.firestore {
         && request.resource.data.avatarUrl is string
         && request.resource.data.avatarUrl.size() <= 1000
         && request.resource.data.text is string
-        && request.resource.data.text.size() >= 1
         && request.resource.data.text.size() <= 1000
-        && request.resource.data.type == 'text'
+        && request.resource.data.type in ['text', 'image']
+        && (
+          (
+            request.resource.data.type == 'text'
+            && request.resource.data.text.size() >= 1
+          )
+          || (
+            request.resource.data.type == 'image'
+            && request.resource.data.get('photoUrl', request.resource.data.get('imageUrl', '')) is string
+            && request.resource.data.get('photoUrl', request.resource.data.get('imageUrl', '')).size() >= 1
+            && request.resource.data.get('photoUrl', request.resource.data.get('imageUrl', '')).size() <= 1500
+          )
+        )
         && request.resource.data.timestamp == request.time;
       allow update: if false;
       allow delete: if isGlobalModerator()
@@ -1341,6 +1599,31 @@ service cloud.firestore {
           isActiveUser()
           && resource.data.userId == currentUid()
         );
+    }
+
+
+    match /user_reports/{reportId} {
+      allow read: if isStaff();
+
+      allow create: if validNewUserReport();
+
+      allow update: if isStaff()
+        && userReportIdentityUnchanged()
+        && request.resource.data.status in ['open', 'reviewed', 'resolved']
+        && request.resource.data.get('reviewedByUid', currentUid()) == currentUid()
+        && request.resource.data.get('reviewedBy', '') is string
+        && request.resource.data.get('reviewedBy', '').size() <= 80
+        && request.resource.data.get('reviewedAt', request.time) == request.time
+        && request.resource.data.updatedAt == request.time
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'status',
+          'reviewedByUid',
+          'reviewedBy',
+          'reviewedAt',
+          'updatedAt'
+        ]);
+
+      allow delete: if isStaff();
     }
 
     match /moderation_logs/{logId} {
@@ -1352,17 +1635,96 @@ service cloud.firestore {
       allow read: if isActiveUser();
 
       allow create: if isActiveUser()
-        && request.resource.data.authorId == currentUid()
+        && request.resource.data.keys().hasOnly([
+          'title',
+          'category',
+          'description',
+          'avatarUrl',
+          'categoryId',
+          'authorId',
+          'authorName',
+          'authorRole',
+          'authorVerified',
+          'authorGlobalChatModerator',
+          'authorGlobalModerator',
+          'repliesCount',
+          'isPinned',
+          'status',
+          'rejectionReason',
+          'reviewedBy',
+          'reviewedAt',
+          'createdAt',
+          'lastReplyAt',
+          'source',
+          'isSpotTopic',
+          'spotId',
+          'temporarySpotId',
+          'temporarySpotStartsAt',
+          'temporarySpotExpiresAt',
+          'autoExpiresAt'
+        ])
+        && (
+          request.resource.data.authorId == currentUid()
+          || validTemporarySpotAutoForumTopicCreate(topicId)
+        )
         && request.resource.data.title is string
+        && request.resource.data.title.size() >= 1
+        && request.resource.data.title.size() <= 120
         && request.resource.data.category is string
+        && request.resource.data.categoryId is string
         && request.resource.data.description is string
+        && request.resource.data.description.size() >= 1
+        && request.resource.data.description.size() <= 2000
+        && request.resource.data.avatarUrl is string
+        && request.resource.data.avatarUrl.size() <= 1200
         && request.resource.data.authorName is string
+        && (
+          !request.resource.data.keys().hasAny(['authorRole'])
+          || request.resource.data.authorRole is string
+        )
+        && (
+          !request.resource.data.keys().hasAny(['authorVerified'])
+          || request.resource.data.authorVerified is bool
+        )
+        && (
+          !request.resource.data.keys().hasAny(['authorGlobalChatModerator'])
+          || request.resource.data.authorGlobalChatModerator is bool
+        )
+        && (
+          !request.resource.data.keys().hasAny(['authorGlobalModerator'])
+          || request.resource.data.authorGlobalModerator is bool
+        )
+        && (
+          !request.resource.data.keys().hasAny(['source'])
+          || (
+            request.resource.data.source == 'temporary_spot'
+            && request.resource.data.get('isSpotTopic', true) == true
+            && request.resource.data.spotId is string
+            && request.resource.data.spotId.size() >= 1
+            && request.resource.data.temporarySpotId == request.resource.data.spotId
+            && topicId == 'temporary_spot_' + request.resource.data.spotId
+            && request.resource.data.temporarySpotStartsAt is timestamp
+            && request.resource.data.temporarySpotExpiresAt is timestamp
+            && request.resource.data.autoExpiresAt == request.resource.data.temporarySpotExpiresAt
+          )
+        )
         && request.resource.data.repliesCount == 0
         && request.resource.data.isPinned == false
-        && request.resource.data.status == 'pending'
-        && request.resource.data.rejectionReason == null
-        && request.resource.data.reviewedBy == null
-        && request.resource.data.reviewedAt == null
+        && (
+          (
+            request.resource.data.status == 'pending'
+            && request.resource.data.rejectionReason == null
+            && request.resource.data.reviewedBy == null
+            && request.resource.data.reviewedAt == null
+          )
+          || (
+            (isStaff() || validTemporarySpotAutoForumTopicCreate(topicId))
+            && request.resource.data.status == 'approved'
+            && request.resource.data.rejectionReason == null
+            && request.resource.data.reviewedBy == currentUid()
+            && request.resource.data.reviewedAt == request.time
+          )
+        )
         && request.resource.data.createdAt == request.time
         && request.resource.data.lastReplyAt == request.time;
 
@@ -1397,6 +1759,30 @@ service cloud.firestore {
           && request.resource.data.username is string
           && request.resource.data.avatarUrl is string
           && request.resource.data.text is string
+          && (
+            request.resource.data.text.size() >= 1
+            || request.resource.data.get('photoUrl', request.resource.data.get('imageUrl', '')) is string
+          )
+          && (
+            !request.resource.data.keys().hasAny(['photoUrl'])
+            || (
+              request.resource.data.photoUrl is string
+              && request.resource.data.photoUrl.size() >= 1
+              && request.resource.data.photoUrl.size() <= 1500
+            )
+          )
+          && (
+            !request.resource.data.keys().hasAny(['imageUrl'])
+            || (
+              request.resource.data.imageUrl is string
+              && request.resource.data.imageUrl.size() >= 1
+              && request.resource.data.imageUrl.size() <= 1500
+            )
+          )
+          && (
+            !request.resource.data.keys().hasAny(['type'])
+            || request.resource.data.type in ['text', 'image']
+          )
           && request.resource.data.timestamp == request.time;
 
         allow update: if isStaff()
@@ -1422,4 +1808,3 @@ service cloud.firestore {
     }
   }
 }
-й

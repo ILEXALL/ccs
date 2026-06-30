@@ -18104,6 +18104,8 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     return AnimatedBuilder(
       animation: appUiPreferences,
       builder: (context, _) {
+        final keyboardOpen = MediaQuery.viewInsetsOf(context).bottom > 0;
+
         return WillPopScope(
           onWillPop: handleSystemBack,
           child: Scaffold(
@@ -18153,7 +18155,9 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                 ),
               ],
             ),
-            bottomNavigationBar: SafeArea(
+            bottomNavigationBar: keyboardOpen
+                ? null
+                : SafeArea(
               top: false,
               child: Container(
                 height: 62,
@@ -32724,6 +32728,8 @@ class _GroupsTabState extends State<GroupsTab>
   }
 }
 
+const int globalChatMessagePageSize = 20;
+
 class GlobalChatTab extends StatefulWidget {
   const GlobalChatTab({super.key});
 
@@ -32734,8 +32740,18 @@ class GlobalChatTab extends StatefulWidget {
 class _GlobalChatTabState extends State<GlobalChatTab>
     with AutomaticKeepAliveClientMixin {
   final messageController = TextEditingController();
-  late final Stream<QuerySnapshot<Map<String, dynamic>>> messagesStream;
+  final globalChatScrollController = ScrollController();
   late final Stream<QuerySnapshot<Map<String, dynamic>>> onlineUsersStream;
+  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>?
+  _globalMessagesSubscription;
+  final List<QueryDocumentSnapshot<Map<String, dynamic>>> _globalMessages = [];
+  DocumentSnapshot<Map<String, dynamic>>? _oldestLoadedGlobalMessageDoc;
+  bool _isInitialLoadingGlobalMessages = true;
+  bool _isLoadingOlderGlobalMessages = false;
+  bool _hasMoreOlderGlobalMessages = true;
+  bool _globalPaginationInitialized = false;
+  bool _scrollGlobalChatToLatestAfterSend = false;
+  bool _globalMessagesLoadFailed = false;
   bool isSending = false;
   bool isUploadingPhotoAttachment = false;
   String? pendingPhotoAttachmentPath;
@@ -32748,15 +32764,12 @@ class _GlobalChatTabState extends State<GlobalChatTab>
   void initState() {
     super.initState();
     appUiPreferences.addListener(_handleLanguageChanged);
+    globalChatScrollController.addListener(_onGlobalChatScroll);
     onlineUsersStream = usersCollection()
         .where('isOnline', isEqualTo: true)
         .limit(200)
         .debugSnapshots('global chat: online users counter');
-    messagesStream = FirebaseFirestore.instance
-        .collection('global_chat')
-        .orderBy('timestamp', descending: true)
-        .limit(30)
-        .debugSnapshots('global chat: messages listener');
+    _startGlobalMessagesListener();
     unawaited(loadGlobalChatModeratorAccess());
   }
 
@@ -32771,12 +32784,20 @@ class _GlobalChatTabState extends State<GlobalChatTab>
   @override
   void dispose() {
     appUiPreferences.removeListener(_handleLanguageChanged);
+    _globalMessagesSubscription?.cancel();
+    globalChatScrollController.removeListener(_onGlobalChatScroll);
+    globalChatScrollController.dispose();
     messageController.dispose();
     super.dispose();
   }
 
   CollectionReference<Map<String, dynamic>> get globalChatCollection =>
       FirebaseFirestore.instance.collection('global_chat');
+
+  Query<Map<String, dynamic>> get latestGlobalChatMessagesQuery =>
+      globalChatCollection
+          .orderBy('timestamp', descending: true)
+          .limit(globalChatMessagePageSize);
 
   bool get canModerateGlobalChat =>
       userRoleIsStaff(currentUser.role) || hasGlobalChatModeratorAccess;
@@ -32793,10 +32814,175 @@ class _GlobalChatTabState extends State<GlobalChatTab>
     }
   }
 
+  bool globalMessageHasContent(
+    QueryDocumentSnapshot<Map<String, dynamic>> doc,
+  ) {
+    final data = doc.data();
+    return stringFromFirebase(data['text'], '').trim().isNotEmpty ||
+        stringFromFirebase(
+          data['photoUrl'],
+          stringFromFirebase(data['imageUrl'], ''),
+        ).trim().isNotEmpty;
+  }
+
+  void _mergeGlobalMessages(
+    Iterable<QueryDocumentSnapshot<Map<String, dynamic>>> incoming,
+  ) {
+    final byId = <String, QueryDocumentSnapshot<Map<String, dynamic>>>{
+      for (final message in _globalMessages) message.id: message,
+    };
+    for (final message in incoming) {
+      if (!globalMessageHasContent(message)) {
+        continue;
+      }
+      byId[message.id] = message;
+    }
+
+    _globalMessages
+      ..clear()
+      ..addAll(byId.values);
+    _globalMessages.sort((a, b) {
+      final aMillis = timestampMillisFromFirebase(a.data()['timestamp']);
+      final bMillis = timestampMillisFromFirebase(b.data()['timestamp']);
+      return aMillis.compareTo(bMillis);
+    });
+  }
+
+  void _startGlobalMessagesListener() {
+    _globalMessagesSubscription?.cancel();
+
+    _globalMessagesSubscription = latestGlobalChatMessagesQuery
+        .debugSnapshots('global chat: latest messages listener')
+        .listen(
+          (snapshot) {
+            if (!mounted) {
+              return;
+            }
+
+            final shouldFollowLatest = isNearLatestGlobalMessage();
+            final shouldInitializePagination =
+                !_globalPaginationInitialized ||
+                (_oldestLoadedGlobalMessageDoc == null &&
+                    _globalMessages.isEmpty &&
+                    snapshot.docs.isNotEmpty);
+
+            setState(() {
+              if (shouldInitializePagination) {
+                _oldestLoadedGlobalMessageDoc = snapshot.docs.isEmpty
+                    ? null
+                    : snapshot.docs.last;
+                _hasMoreOlderGlobalMessages =
+                    snapshot.docs.length >= globalChatMessagePageSize;
+                _globalPaginationInitialized = true;
+              }
+              _mergeGlobalMessages(snapshot.docs);
+              _isInitialLoadingGlobalMessages = false;
+              _globalMessagesLoadFailed = false;
+            });
+
+            if (shouldFollowLatest || _scrollGlobalChatToLatestAfterSend) {
+              _scrollGlobalChatToLatestAfterSend = false;
+              scheduleGlobalChatScrollToLatest();
+            }
+          },
+          onError: (Object error, StackTrace stack) {
+            debugPrint('Global chat messages listener failed: $error');
+            debugPrint('$stack');
+            if (mounted) {
+              setState(() {
+                _isInitialLoadingGlobalMessages = false;
+                _globalMessagesLoadFailed = true;
+              });
+            }
+          },
+        );
+  }
+
+  void _onGlobalChatScroll() {
+    if (!globalChatScrollController.hasClients) {
+      return;
+    }
+
+    final position = globalChatScrollController.position;
+    if (position.maxScrollExtent - position.pixels <= 120 &&
+        _hasMoreOlderGlobalMessages &&
+        !_isLoadingOlderGlobalMessages &&
+        _globalPaginationInitialized) {
+      unawaited(_loadOlderGlobalMessages());
+    }
+  }
+
+  Future<void> _loadOlderGlobalMessages() async {
+    if (_isLoadingOlderGlobalMessages || !_hasMoreOlderGlobalMessages) {
+      return;
+    }
+
+    final oldestDoc = _oldestLoadedGlobalMessageDoc;
+    if (oldestDoc == null) {
+      return;
+    }
+
+    setState(() => _isLoadingOlderGlobalMessages = true);
+
+    try {
+      final snapshot = await globalChatCollection
+          .orderBy('timestamp', descending: true)
+          .startAfterDocument(oldestDoc)
+          .limit(globalChatMessagePageSize)
+          .debugGet(null, 'global chat: load older messages');
+
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        if (snapshot.docs.isNotEmpty) {
+          _oldestLoadedGlobalMessageDoc = snapshot.docs.last;
+          _mergeGlobalMessages(snapshot.docs);
+        }
+        _hasMoreOlderGlobalMessages =
+            snapshot.docs.length >= globalChatMessagePageSize;
+        _isLoadingOlderGlobalMessages = false;
+      });
+
+    } catch (error, stack) {
+      debugPrint('Older global chat messages could not load: $error');
+      debugPrint('$stack');
+      if (mounted) {
+        setState(() => _isLoadingOlderGlobalMessages = false);
+      }
+    }
+  }
+
+  bool isNearLatestGlobalMessage() {
+    if (!globalChatScrollController.hasClients) {
+      return true;
+    }
+
+    final position = globalChatScrollController.position;
+    return position.pixels - position.minScrollExtent < 140;
+  }
+
+  void scheduleGlobalChatScrollToLatest() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !globalChatScrollController.hasClients) {
+        return;
+      }
+
+      globalChatScrollController.jumpTo(
+        globalChatScrollController.position.minScrollExtent,
+      );
+    });
+  }
+
   Future<void> confirmDeleteGlobalMessage(
     QueryDocumentSnapshot<Map<String, dynamic>> doc,
   ) async {
-    if (!canModerateGlobalChat || isSending) {
+    final firebaseUser = FirebaseAuth.instance.currentUser;
+    final data = doc.data();
+    final mine = stringFromFirebase(data['userId'], '') == firebaseUser?.uid;
+
+    if ((!mine && !canModerateGlobalChat) || isSending) {
       return;
     }
 
@@ -32854,6 +33040,187 @@ class _GlobalChatTabState extends State<GlobalChatTab>
           backgroundColor: Colors.redAccent,
           content: Text(
             '${trText('Could not delete message')}: $error',
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+      );
+    }
+  }
+
+  Future<void> showGlobalMessageActions(
+    QueryDocumentSnapshot<Map<String, dynamic>> doc,
+  ) async {
+    final firebaseUser = FirebaseAuth.instance.currentUser;
+    final data = doc.data();
+    final mine = stringFromFirebase(data['userId'], '') == firebaseUser?.uid;
+    final canDelete = mine || canModerateGlobalChat;
+
+    if (!mine && !canDelete) {
+      return;
+    }
+
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: panelGlass,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (context) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(18, 12, 18, 20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (mine)
+                  ListTile(
+                    leading: const Icon(Icons.edit, color: blue),
+                    title: Text(
+                      trText('Edit message'),
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    onTap: () => Navigator.pop(context, 'edit'),
+                  ),
+                if (canDelete)
+                  ListTile(
+                    leading: const Icon(
+                      Icons.delete_outline,
+                      color: Colors.redAccent,
+                    ),
+                    title: Text(
+                      trText('Delete message'),
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    onTap: () => Navigator.pop(context, 'delete'),
+                  ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+
+    if (!mounted || action == null) {
+      return;
+    }
+
+    if (action == 'edit') {
+      await showEditGlobalMessageDialog(doc);
+    } else if (action == 'delete') {
+      await confirmDeleteGlobalMessage(doc);
+    }
+  }
+
+  Future<void> showEditGlobalMessageDialog(
+    QueryDocumentSnapshot<Map<String, dynamic>> doc,
+  ) async {
+    final data = doc.data();
+    final originalText = stringFromFirebase(data['text'], '');
+    final controller = TextEditingController(text: originalText);
+
+    final updatedText = await showDialog<String>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          backgroundColor: panelGlass,
+          title: Text(
+            trText('Edit message'),
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          content: TextField(
+            controller: controller,
+            autofocus: true,
+            minLines: 2,
+            maxLines: 5,
+            keyboardType: TextInputType.multiline,
+            textInputAction: TextInputAction.newline,
+            style: const TextStyle(color: Colors.white),
+            decoration: InputDecoration(
+              hintText: trText('Message in global chat'),
+              hintStyle: const TextStyle(color: Colors.white38),
+              filled: true,
+              fillColor: Colors.white.withValues(alpha: 0.06),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(16),
+                borderSide: const BorderSide(color: Colors.white12),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(16),
+                borderSide: const BorderSide(color: blue),
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: Text(trText('Cancel')),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(context, controller.text),
+              style: ElevatedButton.styleFrom(backgroundColor: blue),
+              child: Text(
+                trText('Save'),
+                style: const TextStyle(color: Colors.white),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+
+    controller.dispose();
+
+    if (!mounted ||
+        updatedText == null ||
+        updatedText.trim() == originalText.trim()) {
+      return;
+    }
+
+    final cleanText = updatedText.trim();
+    if (cleanText.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: Colors.redAccent,
+          content: Text(
+            trText('Message cannot be empty.'),
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+      );
+      return;
+    }
+
+    try {
+      await globalChatCollection.doc(doc.id).debugSet({
+        'text': cleanText,
+        'edited': true,
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true), 'global chat: edit own message');
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: Colors.redAccent,
+          content: Text(
+            '${trText('Could not edit message')}: $error',
             style: const TextStyle(
               color: Colors.white,
               fontWeight: FontWeight.w700,
@@ -32939,7 +33306,10 @@ class _GlobalChatTabState extends State<GlobalChatTab>
       }
 
       messageController.clear();
-      setState(() => pendingPhotoAttachmentPath = null);
+      setState(() {
+        pendingPhotoAttachmentPath = null;
+        _scrollGlobalChatToLatestAfterSend = true;
+      });
 
       await doc.debugSet(
         {
@@ -32993,8 +33363,12 @@ class _GlobalChatTabState extends State<GlobalChatTab>
     }
   }
 
-  Widget avatar(String avatarUrl, String username) {
-    return GlobalSmallAvatar(avatarUrl: avatarUrl, username: username);
+  Widget avatar(String userId, String avatarUrl, String username) {
+    return LiveUserSmallAvatar(
+      uid: userId,
+      fallbackAvatarUrl: avatarUrl,
+      fallbackUsername: username,
+    );
   }
 
   Widget messageBubble(
@@ -33011,6 +33385,7 @@ class _GlobalChatTabState extends State<GlobalChatTab>
     final fallbackGlobalModerator = userDataHasCommunityModerationAccess(data);
     final fallbackVerified =
         userRoleIsStaff(fallbackRole) || data['verified'] == true;
+    final edited = data['edited'] == true;
     final text = stringFromFirebase(data['text'], '');
     final photoUrl = stringFromFirebase(
       data['photoUrl'],
@@ -33019,6 +33394,7 @@ class _GlobalChatTabState extends State<GlobalChatTab>
     final time = formatChatMessageTime(
       timestampMillisFromFirebase(data['timestamp']),
     );
+    final canActOnMessage = mine || canModerateGlobalChat;
 
     void openAuthorProfile() {
       if (userId.trim().isEmpty) {
@@ -33028,55 +33404,62 @@ class _GlobalChatTabState extends State<GlobalChatTab>
       openUserProfile(context, uid: userId, fallbackUsername: username);
     }
 
-    final header = GestureDetector(
-      onTap: openAuthorProfile,
-      behavior: HitTestBehavior.opaque,
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          avatar(avatarUrl, username),
-          const SizedBox(width: 8),
-          Flexible(
+    final header = Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Flexible(
+          child: GestureDetector(
+            onTap: openAuthorProfile,
+            behavior: HitTestBehavior.opaque,
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
+                avatar(userId, avatarUrl, username),
+                const SizedBox(width: 8),
                 Flexible(
-                  child: Text(
-                    displayUsername(username),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w900,
-                      letterSpacing: 0.1,
-                    ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Flexible(
+                        child: Text(
+                          displayUsername(username),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: 0.1,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 4),
+                      UserPrimaryBadgeForUid(
+                        uid: userId,
+                        fallbackRole: fallbackRole,
+                        fallbackVerified: fallbackVerified,
+                        fallbackGlobalChatModerator: fallbackGlobalModerator,
+                        compact: true,
+                      ),
+                    ],
                   ),
-                ),
-                const SizedBox(width: 4),
-                UserPrimaryBadgeForUid(
-                  uid: userId,
-                  fallbackRole: fallbackRole,
-                  fallbackVerified: fallbackVerified,
-                  fallbackGlobalChatModerator: fallbackGlobalModerator,
-                  compact: true,
                 ),
               ],
             ),
           ),
-          if (time.isNotEmpty) ...[
-            const SizedBox(width: 10),
-            Text(
-              time,
-              style: const TextStyle(
-                color: Colors.white38,
-                fontSize: 10,
-                fontWeight: FontWeight.w700,
-              ),
+        ),
+        if (time.isNotEmpty) ...[
+          const SizedBox(width: 10),
+          Text(
+            time,
+            style: const TextStyle(
+              color: Colors.white38,
+              fontSize: 10,
+              fontWeight: FontWeight.w700,
             ),
-          ],
+          ),
         ],
-      ),
+      ],
     );
 
     final card = IntrinsicWidth(
@@ -33135,17 +33518,52 @@ class _GlobalChatTabState extends State<GlobalChatTab>
                     fontWeight: FontWeight.w500,
                   ),
                 ),
-              if (!showAuthorHeader && time.isNotEmpty) ...[
-                const SizedBox(height: 2),
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: Text(
-                    time,
-                    style: const TextStyle(
-                      color: Colors.white54,
-                      fontSize: 9.5,
-                    ),
-                  ),
+              if (edited ||
+                  (!showAuthorHeader && time.isNotEmpty) ||
+                  canActOnMessage) ...[
+                const SizedBox(height: 4),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (edited) ...[
+                      Text(
+                        trText('edited'),
+                        style: const TextStyle(
+                          color: Colors.white54,
+                          fontSize: 10,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      if (!showAuthorHeader && time.isNotEmpty)
+                        const SizedBox(width: 6),
+                    ],
+                    if (!showAuthorHeader && time.isNotEmpty)
+                      Text(
+                        time,
+                        style: const TextStyle(
+                          color: Colors.white54,
+                          fontSize: 9.5,
+                        ),
+                      ),
+                    if (canActOnMessage) ...[
+                      const SizedBox(width: 4),
+                      InkWell(
+                        onTap: () => showGlobalMessageActions(doc),
+                        borderRadius: BorderRadius.circular(10),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 3,
+                            vertical: 1,
+                          ),
+                          child: Icon(
+                            Icons.more_horiz,
+                            size: 16,
+                            color: Colors.white.withValues(alpha: 0.72),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ],
                 ),
               ],
             ],
@@ -33156,23 +33574,18 @@ class _GlobalChatTabState extends State<GlobalChatTab>
 
     final message = Align(
       alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
-      child: GestureDetector(
-        onTap: openAuthorProfile,
-        behavior: HitTestBehavior.opaque,
-        child: card,
-      ),
+      child: card,
     );
 
-    if (!canModerateGlobalChat) {
+    if (!canActOnMessage) {
       return message;
     }
 
     return GestureDetector(
-      onLongPress: () => confirmDeleteGlobalMessage(doc),
+      onLongPress: () => showGlobalMessageActions(doc),
       child: message,
     );
   }
-
   List<Widget> globalChatMessageList(
     List<QueryDocumentSnapshot<Map<String, dynamic>>> messages,
   ) {
@@ -33204,6 +33617,7 @@ class _GlobalChatTabState extends State<GlobalChatTab>
   @override
   Widget build(BuildContext context) {
     super.build(context);
+    final keyboardOpen = MediaQuery.viewInsetsOf(context).bottom > 0;
 
     return Column(
       children: [
@@ -33263,11 +33677,21 @@ class _GlobalChatTabState extends State<GlobalChatTab>
         Expanded(
           child: GestureDetector(
             behavior: HitTestBehavior.translucent,
-            onTap: () => FocusScope.of(context).unfocus(),
-            child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-              stream: messagesStream,
-              builder: (context, snapshot) {
-                if (snapshot.hasError) {
+            onTap: () => FocusManager.instance.primaryFocus?.unfocus(),
+            child: Builder(
+              builder: (context) {
+                final messages =
+                    List<QueryDocumentSnapshot<Map<String, dynamic>>>.from(
+                      _globalMessages,
+                    );
+
+                if (_isInitialLoadingGlobalMessages) {
+                  return const Center(
+                    child: CircularProgressIndicator(color: blue),
+                  );
+                }
+
+                if (_globalMessagesLoadFailed) {
                   return Padding(
                     padding: const EdgeInsets.all(20),
                     child: EmptyStateCard(
@@ -33275,21 +33699,6 @@ class _GlobalChatTabState extends State<GlobalChatTab>
                       title: trText('Global chat unavailable'),
                       text: trText('Could not load global chat right now.'),
                     ),
-                  );
-                }
-
-                final messages =
-                    (snapshot.data?.docs ??
-                            const <
-                              QueryDocumentSnapshot<Map<String, dynamic>>
-                            >[])
-                        .toList()
-                        .reversed
-                        .toList();
-
-                if (snapshot.connectionState == ConnectionState.waiting) {
-                  return const Center(
-                    child: CircularProgressIndicator(color: blue),
                   );
                 }
 
@@ -33303,9 +33712,45 @@ class _GlobalChatTabState extends State<GlobalChatTab>
                   );
                 }
 
+                final messageWidgets = globalChatMessageList(messages);
+
                 return ListView(
+                  controller: globalChatScrollController,
+                  reverse: true,
+                  keyboardDismissBehavior:
+                      ScrollViewKeyboardDismissBehavior.onDrag,
                   padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
-                  children: globalChatMessageList(messages),
+                  children: [
+                    ...messageWidgets.reversed,
+                    if (_hasMoreOlderGlobalMessages)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 8),
+                        child: Center(
+                          child: Text(
+                            trText('Scroll up to load older messages'),
+                            style: TextStyle(
+                              color: Colors.white.withValues(alpha: 0.35),
+                              fontSize: 10.5,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                      ),
+                    if (_isLoadingOlderGlobalMessages)
+                      const Padding(
+                        padding: EdgeInsets.all(12),
+                        child: Center(
+                          child: SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: blue,
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
                 );
               },
             ),
@@ -33313,8 +33758,9 @@ class _GlobalChatTabState extends State<GlobalChatTab>
         ),
         SafeArea(
           top: false,
+          bottom: !keyboardOpen,
           child: Container(
-            padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+            padding: EdgeInsets.fromLTRB(10, 6, 10, keyboardOpen ? 0 : 8),
             decoration: const BoxDecoration(
               color: Colors.black,
               border: Border(top: BorderSide(color: Color(0xFF2A2A2A))),
@@ -33337,6 +33783,12 @@ class _GlobalChatTabState extends State<GlobalChatTab>
                       onPressed: isUploadingPhotoAttachment
                           ? null
                           : attachPhoto,
+                      constraints: const BoxConstraints.tightFor(
+                        width: 40,
+                        height: 40,
+                      ),
+                      padding: EdgeInsets.zero,
+                      visualDensity: VisualDensity.compact,
                       style: IconButton.styleFrom(foregroundColor: blue),
                       icon: Icon(
                         isUploadingPhotoAttachment
@@ -33349,27 +33801,33 @@ class _GlobalChatTabState extends State<GlobalChatTab>
                       child: TextField(
                         controller: messageController,
                         minLines: 1,
-                        maxLines: 4,
+                        maxLines: 3,
+                        keyboardType: TextInputType.multiline,
                         style: const TextStyle(color: Colors.white),
                         decoration: InputDecoration(
                           hintText: trText('Message in global chat'),
                           hintStyle: const TextStyle(color: Colors.white38),
                           filled: true,
                           fillColor: const Color(0xFF1A1A1A),
+                          isDense: true,
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 8,
+                          ),
                           border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(18),
+                            borderRadius: BorderRadius.circular(16),
                             borderSide: const BorderSide(
                               color: Color(0xFF2A2A2A),
                             ),
                           ),
                           enabledBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(18),
+                            borderRadius: BorderRadius.circular(16),
                             borderSide: const BorderSide(
                               color: Color(0xFF2A2A2A),
                             ),
                           ),
                           focusedBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(18),
+                            borderRadius: BorderRadius.circular(16),
                             borderSide: const BorderSide(color: blue),
                           ),
                         ),
@@ -33379,6 +33837,12 @@ class _GlobalChatTabState extends State<GlobalChatTab>
                     const SizedBox(width: 10),
                     IconButton.filled(
                       onPressed: isSending ? null : sendMessage,
+                      constraints: const BoxConstraints.tightFor(
+                        width: 40,
+                        height: 40,
+                      ),
+                      padding: EdgeInsets.zero,
+                      visualDensity: VisualDensity.compact,
                       style: IconButton.styleFrom(
                         backgroundColor: blue,
                         foregroundColor: Colors.white,
@@ -35560,7 +36024,11 @@ class _ForumTopicPageState extends State<ForumTopicPage> {
   Future<void> confirmDeleteForumReply(
     QueryDocumentSnapshot<Map<String, dynamic>> doc,
   ) async {
-    if (!canModerateForumTopic) {
+    final firebaseUser = FirebaseAuth.instance.currentUser;
+    final data = doc.data();
+    final mine = stringFromFirebase(data['userId'], '') == firebaseUser?.uid;
+
+    if (!mine && !canModerateForumTopic) {
       return;
     }
 
@@ -35608,10 +36076,15 @@ class _ForumTopicPageState extends State<ForumTopicPage> {
       await topicRepliesCollection
           .doc(doc.id)
           .debugDelete('forum: delete reply');
-      await topicDocument.debugSet({
-        'repliesCount': FieldValue.increment(-1),
-        'updatedAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
+      try {
+        await topicDocument.debugSet({
+          'repliesCount': FieldValue.increment(-1),
+          'updatedAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+      } catch (error, stack) {
+        debugPrint('Forum topic count update skipped after reply delete: $error');
+        debugPrint('$stack');
+      }
     } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -35627,6 +36100,186 @@ class _ForumTopicPageState extends State<ForumTopicPage> {
           ),
         );
       }
+    }
+  }
+
+  Future<void> showForumReplyActions(
+    QueryDocumentSnapshot<Map<String, dynamic>> doc,
+  ) async {
+    final firebaseUser = FirebaseAuth.instance.currentUser;
+    final data = doc.data();
+    final mine = stringFromFirebase(data['userId'], '') == firebaseUser?.uid;
+    final canDelete = mine || canModerateForumTopic;
+
+    if (!mine && !canDelete) {
+      return;
+    }
+
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: panelGlass,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (context) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(18, 12, 18, 20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (mine)
+                  ListTile(
+                    leading: const Icon(Icons.edit, color: blue),
+                    title: Text(
+                      trText('Edit message'),
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    onTap: () => Navigator.pop(context, 'edit'),
+                  ),
+                if (canDelete)
+                  ListTile(
+                    leading: const Icon(
+                      Icons.delete_outline,
+                      color: Colors.redAccent,
+                    ),
+                    title: Text(
+                      trText('Delete message'),
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    onTap: () => Navigator.pop(context, 'delete'),
+                  ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+
+    if (!mounted || action == null) {
+      return;
+    }
+
+    if (action == 'edit') {
+      await showEditForumReplyDialog(doc);
+    } else if (action == 'delete') {
+      await confirmDeleteForumReply(doc);
+    }
+  }
+
+  Future<void> showEditForumReplyDialog(
+    QueryDocumentSnapshot<Map<String, dynamic>> doc,
+  ) async {
+    final originalText = stringFromFirebase(doc.data()['text'], '');
+    final controller = TextEditingController(text: originalText);
+
+    final updatedText = await showDialog<String>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          backgroundColor: panelGlass,
+          title: Text(
+            trText('Edit message'),
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          content: TextField(
+            controller: controller,
+            autofocus: true,
+            minLines: 2,
+            maxLines: 5,
+            keyboardType: TextInputType.multiline,
+            textInputAction: TextInputAction.newline,
+            style: const TextStyle(color: Colors.white),
+            decoration: InputDecoration(
+              hintText: trText('Reply in topic'),
+              hintStyle: const TextStyle(color: Colors.white38),
+              filled: true,
+              fillColor: Colors.white.withValues(alpha: 0.06),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(16),
+                borderSide: const BorderSide(color: Colors.white12),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(16),
+                borderSide: const BorderSide(color: blue),
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: Text(trText('Cancel')),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(context, controller.text),
+              style: ElevatedButton.styleFrom(backgroundColor: blue),
+              child: Text(
+                trText('Save'),
+                style: const TextStyle(color: Colors.white),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+
+    controller.dispose();
+
+    if (!mounted ||
+        updatedText == null ||
+        updatedText.trim() == originalText.trim()) {
+      return;
+    }
+
+    final cleanText = updatedText.trim();
+    if (cleanText.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: Colors.redAccent,
+          content: Text(
+            trText('Message cannot be empty.'),
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+      );
+      return;
+    }
+
+    try {
+      await topicRepliesCollection.doc(doc.id).debugSet({
+        'text': cleanText,
+        'edited': true,
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true), 'forum: edit own reply');
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: Colors.redAccent,
+          content: Text(
+            '${trText('Could not edit message')}: $error',
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+      );
     }
   }
 
@@ -35647,7 +36300,6 @@ class _ForumTopicPageState extends State<ForumTopicPage> {
     final createdAt = formatChatMessageTime(
       timestampMillisFromFirebase(topic['createdAt']),
     );
-    final isPinned = topic['isPinned'] == true;
     final canEditHeader =
         canModerateForumTopic ||
         (authorId.isNotEmpty && authorId == currentUid);
@@ -35786,6 +36438,8 @@ class _ForumTopicPageState extends State<ForumTopicPage> {
     required bool showAuthorHeader,
   }) {
     final data = doc.data();
+    final currentUid =
+        FirebaseAuth.instance.currentUser?.uid ?? currentUser.uid;
     final userId = stringFromFirebase(data['userId'], '');
     final username = stringFromFirebase(data['username'], 'ccs_driver');
     final avatarUrl = stringFromFirebase(data['avatarUrl'], '');
@@ -35793,6 +36447,7 @@ class _ForumTopicPageState extends State<ForumTopicPage> {
     final fallbackGlobalModerator = userDataHasCommunityModerationAccess(data);
     final fallbackVerified =
         userRoleIsStaff(fallbackRole) || data['verified'] == true;
+    final edited = data['edited'] == true;
     final text = stringFromFirebase(data['text'], '');
     final photoUrl = stringFromFirebase(
       data['photoUrl'],
@@ -35801,6 +36456,7 @@ class _ForumTopicPageState extends State<ForumTopicPage> {
     final time = formatChatMessageTime(
       timestampMillisFromFirebase(data['timestamp']),
     );
+    final canActOnReply = userId == currentUid || canModerateForumTopic;
 
     void openReplyAuthorProfile() {
       if (userId.trim().isEmpty) {
@@ -35901,38 +36557,69 @@ class _ForumTopicPageState extends State<ForumTopicPage> {
                 fontWeight: FontWeight.w500,
               ),
             ),
-          if (!showAuthorHeader && time.isNotEmpty) ...[
+          if (edited ||
+              (!showAuthorHeader && time.isNotEmpty) ||
+              canActOnReply) ...[
             const SizedBox(height: 4),
-            Align(
-              alignment: Alignment.centerRight,
-              child: Text(
-                time,
-                style: const TextStyle(color: Colors.white38, fontSize: 10),
-              ),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (edited) ...[
+                  Text(
+                    trText('edited'),
+                    style: const TextStyle(
+                      color: Colors.white38,
+                      fontSize: 10,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  if (!showAuthorHeader && time.isNotEmpty)
+                    const SizedBox(width: 6),
+                ],
+                if (!showAuthorHeader && time.isNotEmpty)
+                  Text(
+                    time,
+                    style: const TextStyle(color: Colors.white38, fontSize: 10),
+                  ),
+                if (canActOnReply) ...[
+                  const SizedBox(width: 4),
+                  InkWell(
+                    onTap: () => showForumReplyActions(doc),
+                    borderRadius: BorderRadius.circular(10),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 3,
+                        vertical: 1,
+                      ),
+                      child: Icon(
+                        Icons.more_horiz,
+                        size: 16,
+                        color: Colors.white.withValues(alpha: 0.72),
+                      ),
+                    ),
+                  ),
+                ],
+              ],
             ),
           ],
         ],
       ),
     );
 
-    final reply = GestureDetector(
-      onTap: openReplyAuthorProfile,
-      behavior: HitTestBehavior.opaque,
-      child: tile,
-    );
-
-    if (!canModerateForumTopic) {
-      return reply;
+    if (!canActOnReply) {
+      return tile;
     }
 
     return GestureDetector(
-      onLongPress: () => confirmDeleteForumReply(doc),
-      child: reply,
+      onLongPress: () => showForumReplyActions(doc),
+      child: tile,
     );
   }
 
   @override
   Widget build(BuildContext context) {
+    final keyboardOpen = MediaQuery.viewInsetsOf(context).bottom > 0;
+
     return Scaffold(
       backgroundColor: Colors.black,
       appBar: AppBar(
@@ -35945,7 +36632,7 @@ class _ForumTopicPageState extends State<ForumTopicPage> {
           Expanded(
             child: GestureDetector(
               behavior: HitTestBehavior.translucent,
-              onTap: () => FocusScope.of(context).unfocus(),
+              onTap: () => FocusManager.instance.primaryFocus?.unfocus(),
               child: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
                 stream: topicDocument.debugSnapshots('forum: topic listener'),
                 builder: (context, snapshot) {
@@ -35975,6 +36662,8 @@ class _ForumTopicPageState extends State<ForumTopicPage> {
                           const <QueryDocumentSnapshot<Map<String, dynamic>>>[];
 
                       return ListView(
+                        keyboardDismissBehavior:
+                            ScrollViewKeyboardDismissBehavior.onDrag,
                         padding: const EdgeInsets.fromLTRB(20, 18, 20, 12),
                         children: [
                           topicHeader(topic),
@@ -36019,8 +36708,9 @@ class _ForumTopicPageState extends State<ForumTopicPage> {
           ),
           SafeArea(
             top: false,
+            bottom: !keyboardOpen,
             child: Container(
-              padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+              padding: EdgeInsets.fromLTRB(10, 6, 10, keyboardOpen ? 0 : 8),
               decoration: const BoxDecoration(
                 color: Colors.black,
                 border: Border(top: BorderSide(color: Color(0xFF2A2A2A))),
@@ -36043,6 +36733,12 @@ class _ForumTopicPageState extends State<ForumTopicPage> {
                         onPressed: isUploadingPhotoAttachment
                             ? null
                             : attachPhoto,
+                        constraints: const BoxConstraints.tightFor(
+                          width: 40,
+                          height: 40,
+                        ),
+                        padding: EdgeInsets.zero,
+                        visualDensity: VisualDensity.compact,
                         style: IconButton.styleFrom(foregroundColor: blue),
                         icon: Icon(
                           isUploadingPhotoAttachment
@@ -36055,27 +36751,33 @@ class _ForumTopicPageState extends State<ForumTopicPage> {
                         child: TextField(
                           controller: replyController,
                           minLines: 1,
-                          maxLines: 4,
+                          maxLines: 3,
+                          keyboardType: TextInputType.multiline,
                           style: const TextStyle(color: Colors.white),
                           decoration: InputDecoration(
                             hintText: trText('Reply in topic'),
                             hintStyle: const TextStyle(color: Colors.white38),
                             filled: true,
                             fillColor: const Color(0xFF1A1A1A),
+                            isDense: true,
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 8,
+                            ),
                             border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(18),
+                              borderRadius: BorderRadius.circular(16),
                               borderSide: const BorderSide(
                                 color: Color(0xFF2A2A2A),
                               ),
                             ),
                             enabledBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(18),
+                              borderRadius: BorderRadius.circular(16),
                               borderSide: const BorderSide(
                                 color: Color(0xFF2A2A2A),
                               ),
                             ),
                             focusedBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(18),
+                              borderRadius: BorderRadius.circular(16),
                               borderSide: const BorderSide(color: blue),
                             ),
                           ),
@@ -36085,6 +36787,12 @@ class _ForumTopicPageState extends State<ForumTopicPage> {
                       const SizedBox(width: 10),
                       IconButton.filled(
                         onPressed: isSending ? null : sendReply,
+                        constraints: const BoxConstraints.tightFor(
+                          width: 40,
+                          height: 40,
+                        ),
+                        padding: EdgeInsets.zero,
+                        visualDensity: VisualDensity.compact,
                         style: IconButton.styleFrom(
                           backgroundColor: blue,
                           foregroundColor: Colors.white,
@@ -36510,6 +37218,65 @@ class GlobalSmallAvatar extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+class LiveUserSmallAvatar extends StatelessWidget {
+  final String uid;
+  final String fallbackAvatarUrl;
+  final String fallbackUsername;
+  final double size;
+
+  const LiveUserSmallAvatar({
+    super.key,
+    required this.uid,
+    required this.fallbackAvatarUrl,
+    required this.fallbackUsername,
+    this.size = 34,
+  });
+
+  Widget avatarFromData(Map<String, dynamic>? data) {
+    final cleanUsername = stringFromFirebase(
+      data?['username'],
+      fallbackUsername,
+    );
+    final cleanAvatarUrl = stringFromFirebase(
+      data?['photoUrl'],
+      fallbackAvatarUrl,
+    );
+
+    return GlobalSmallAvatar(
+      avatarUrl: cleanAvatarUrl,
+      username: cleanUsername.trim().isEmpty ? fallbackUsername : cleanUsername,
+      size: size,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cleanUid = uid.trim();
+    if (cleanUid.isEmpty) {
+      return avatarFromData(null);
+    }
+
+    if (cleanUid == currentUser.uid) {
+      return GlobalSmallAvatar(
+        avatarUrl: currentUser.photoUrl ?? fallbackAvatarUrl,
+        username: currentUser.username.trim().isEmpty
+            ? fallbackUsername
+            : currentUser.username,
+        size: size,
+      );
+    }
+
+    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      stream: usersCollection()
+          .doc(cleanUid)
+          .debugSnapshots('global chat: author avatar listener'),
+      builder: (context, snapshot) {
+        return avatarFromData(snapshot.data?.data());
+      },
     );
   }
 }
@@ -38779,6 +39546,7 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
   final chatScrollController = ScrollController();
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>?
   _newMessagesSubscription;
+  Future<List<FriendUserData>>? _chatMembersFuture;
   Timer? _markMessagesReadDebounce;
   bool isSharingChatLocation = false;
   bool isUploadingPhotoAttachment = false;
@@ -38795,14 +39563,27 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
   bool _isLoadingOlderMessages = false;
   bool _hasMoreOlderMessages = true;
   bool _paginationInitialized = false;
-  bool _initialBottomScrollDone = false;
 
   @override
   void initState() {
     super.initState();
+    if (widget.chat.isGroup) {
+      _chatMembersFuture = loadChatMembers(widget.chat);
+    }
     chatScrollController.addListener(_onScroll);
     markCurrentChatNotificationsRead();
     unawaited(_loadInitialMessages());
+  }
+
+  @override
+  void didUpdateWidget(ChatConversationScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.chat.id != widget.chat.id ||
+        oldWidget.chat.memberIds.join('|') != widget.chat.memberIds.join('|')) {
+      _chatMembersFuture = widget.chat.isGroup
+          ? loadChatMembers(widget.chat)
+          : null;
+    }
   }
 
   @override
@@ -39026,7 +39807,7 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
             markCurrentChatNotificationsRead(delay: const Duration(seconds: 1));
             scheduleMarkVisibleMessagesRead();
             if (shouldFollow || scrollToLatestAfterNextMessage) {
-              scheduleScrollToLatestMessage(animated: true);
+              scheduleScrollToLatestMessage();
             }
           },
           onError: (Object error, StackTrace stack) {
@@ -39037,11 +39818,10 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
   }
 
   void _onScroll() {
-    if (!chatScrollController.hasClients || !_initialBottomScrollDone) return;
+    if (!chatScrollController.hasClients) return;
     final position = chatScrollController.position;
-    // Load older messages only after the initial jump to bottom is finished and
-    // the user intentionally scrolls near the top.
-    if (position.pixels <= 120 &&
+    // Load older messages when the user scrolls near the top.
+    if (position.maxScrollExtent - position.pixels <= 120 &&
         _hasMoreOlderMessages &&
         !_isLoadingOlderMessages &&
         _paginationInitialized) {
@@ -39052,13 +39832,6 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
   Future<void> _loadOlderMessages() async {
     if (_isLoadingOlderMessages || !_hasMoreOlderMessages) return;
     if (_oldestLoadedDoc == null) return;
-
-    final oldMaxExtent = chatScrollController.hasClients
-        ? chatScrollController.position.maxScrollExtent
-        : 0.0;
-    final oldOffset = chatScrollController.hasClients
-        ? chatScrollController.position.pixels
-        : 0.0;
 
     setState(() => _isLoadingOlderMessages = true);
 
@@ -39092,14 +39865,6 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
       });
       scheduleMarkVisibleMessagesRead();
 
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted || !chatScrollController.hasClients) {
-          return;
-        }
-        final newMaxExtent = chatScrollController.position.maxScrollExtent;
-        final addedHeight = newMaxExtent - oldMaxExtent;
-        chatScrollController.jumpTo(oldOffset + addedHeight);
-      });
     } catch (error, stack) {
       debugPrint('Older chat messages could not load: $error');
       debugPrint('$stack');
@@ -39113,26 +39878,18 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
     }
 
     final position = chatScrollController.position;
-    return position.maxScrollExtent - position.pixels < 140;
+    return position.pixels - position.minScrollExtent < 140;
   }
 
-  void scheduleScrollToLatestMessage({bool animated = false}) {
+  void scheduleScrollToLatestMessage() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted || !chatScrollController.hasClients) {
         return;
       }
 
-      final target = chatScrollController.position.maxScrollExtent;
-      if (animated && _initialBottomScrollDone) {
-        chatScrollController.animateTo(
-          target,
-          duration: const Duration(milliseconds: 220),
-          curve: Curves.easeOut,
-        );
-      } else {
-        chatScrollController.jumpTo(target);
-      }
-      _initialBottomScrollDone = true;
+      chatScrollController.jumpTo(
+        chatScrollController.position.minScrollExtent,
+      );
     });
   }
 
@@ -39152,7 +39909,7 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
       scrollToLatestAfterNextMessage = false;
     }
     if (shouldFollowLatest) {
-      scheduleScrollToLatestMessage(animated: !firstMessageLayout);
+      scheduleScrollToLatestMessage();
     }
   }
 
@@ -39269,7 +40026,7 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
         _mergeMessages([pendingMessage]);
         scrollToLatestAfterNextMessage = true;
       });
-      scheduleScrollToLatestMessage(animated: true);
+      scheduleScrollToLatestMessage();
 
       await sendChatMessage(
         chatId: widget.chat.id,
@@ -39291,7 +40048,7 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
         );
       });
       markCurrentChatNotificationsRead(delay: const Duration(seconds: 1));
-      scheduleScrollToLatestMessage(animated: true);
+      scheduleScrollToLatestMessage();
     } catch (error) {
       if (!mounted) {
         return;
@@ -39994,15 +40751,18 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
       ),
     );
 
+    final alignedMessage = Align(
+      alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
+      child: card,
+    );
+
+    if (!canActOnMessage) {
+      return alignedMessage;
+    }
+
     return GestureDetector(
-      onTap: openSenderProfile,
-      onLongPress: canActOnMessage
-          ? () => showOwnMessageActions(message)
-          : null,
-      child: Align(
-        alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
-        child: card,
-      ),
+      onLongPress: () => showOwnMessageActions(message),
+      child: alignedMessage,
     );
   }
 
@@ -40012,6 +40772,7 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
     final currentUid = firebaseUser?.uid ?? currentUser.uid;
     final title = widget.chat.titleForCurrentUser(currentUid);
     final chatPhotoUrl = widget.chat.directPhotoUrlForCurrentUser(currentUid);
+    final keyboardOpen = MediaQuery.viewInsetsOf(context).bottom > 0;
     final canModerateGroupChat =
         widget.chat.isGroup &&
         (widget.chat.isOwner(currentUid) ||
@@ -40108,7 +40869,7 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
           Expanded(
             child: GestureDetector(
               behavior: HitTestBehavior.translucent,
-              onTap: () => FocusScope.of(context).unfocus(),
+              onTap: () => FocusManager.instance.primaryFocus?.unfocus(),
               child: Builder(
                 builder: (context) {
                   final messages = List<ChatMessageData>.from(_messages);
@@ -40161,22 +40922,12 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
 
                     return ListView(
                       controller: chatScrollController,
+                      reverse: true,
+                      keyboardDismissBehavior:
+                          ScrollViewKeyboardDismissBehavior.onDrag,
                       padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
                       children: [
-                        if (_isLoadingOlderMessages)
-                          const Padding(
-                            padding: EdgeInsets.all(12),
-                            child: Center(
-                              child: SizedBox(
-                                width: 20,
-                                height: 20,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  color: blue,
-                                ),
-                              ),
-                            ),
-                          ),
+                        ...children.reversed,
                         if (_hasMoreOlderMessages)
                           Padding(
                             padding: const EdgeInsets.only(bottom: 8),
@@ -40191,7 +40942,20 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
                               ),
                             ),
                           ),
-                        ...children,
+                        if (_isLoadingOlderMessages)
+                          const Padding(
+                            padding: EdgeInsets.all(12),
+                            child: Center(
+                              child: SizedBox(
+                                width: 20,
+                                height: 20,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: blue,
+                                ),
+                              ),
+                            ),
+                          ),
                       ],
                     );
                   }
@@ -40201,7 +40965,7 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
                   }
 
                   return FutureBuilder<List<FriendUserData>>(
-                    future: loadChatMembers(widget.chat),
+                    future: _chatMembersFuture,
                     builder: (context, usersSnapshot) {
                       final members =
                           usersSnapshot.data ??
@@ -40222,8 +40986,9 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
           ),
           SafeArea(
             top: false,
+            bottom: !keyboardOpen,
             child: Container(
-              padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+              padding: EdgeInsets.fromLTRB(8, 6, 8, keyboardOpen ? 0 : 8),
               decoration: BoxDecoration(
                 color: panelGlass,
                 border: const Border(top: BorderSide(color: Colors.white12)),
@@ -40246,6 +41011,12 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
                         onPressed: isSharingChatLocation
                             ? null
                             : shareLiveLocation,
+                        constraints: const BoxConstraints.tightFor(
+                          width: 38,
+                          height: 40,
+                        ),
+                        padding: EdgeInsets.zero,
+                        visualDensity: VisualDensity.compact,
                         style: IconButton.styleFrom(foregroundColor: blue),
                         icon: Icon(
                           isSharingChatLocation
@@ -40258,6 +41029,12 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
                         onPressed: isUploadingPhotoAttachment
                             ? null
                             : attachPhoto,
+                        constraints: const BoxConstraints.tightFor(
+                          width: 38,
+                          height: 40,
+                        ),
+                        padding: EdgeInsets.zero,
+                        visualDensity: VisualDensity.compact,
                         style: IconButton.styleFrom(foregroundColor: blue),
                         icon: Icon(
                           isUploadingPhotoAttachment
@@ -40270,7 +41047,7 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
                         child: TextField(
                           controller: messageController,
                           minLines: 1,
-                          maxLines: 4,
+                          maxLines: 3,
                           keyboardType: TextInputType.multiline,
                           textInputAction: TextInputAction.newline,
                           style: const TextStyle(color: Colors.white),
@@ -40279,24 +41056,25 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
                             hintStyle: const TextStyle(color: Colors.white38),
                             filled: true,
                             fillColor: Colors.white.withValues(alpha: 0.06),
+                            isDense: true,
                             contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 14,
-                              vertical: 12,
+                              horizontal: 12,
+                              vertical: 8,
                             ),
                             border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(18),
+                              borderRadius: BorderRadius.circular(16),
                               borderSide: const BorderSide(
                                 color: Colors.white12,
                               ),
                             ),
                             enabledBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(18),
+                              borderRadius: BorderRadius.circular(16),
                               borderSide: const BorderSide(
                                 color: Colors.white12,
                               ),
                             ),
                             focusedBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(18),
+                              borderRadius: BorderRadius.circular(16),
                               borderSide: const BorderSide(color: blue),
                             ),
                           ),
@@ -40305,6 +41083,12 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
                       const SizedBox(width: 8),
                       IconButton.filled(
                         onPressed: sendMessage,
+                        constraints: const BoxConstraints.tightFor(
+                          width: 40,
+                          height: 40,
+                        ),
+                        padding: EdgeInsets.zero,
+                        visualDensity: VisualDensity.compact,
                         style: IconButton.styleFrom(
                           backgroundColor: blue,
                           foregroundColor: Colors.white,
