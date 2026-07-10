@@ -90,6 +90,8 @@ const double liveLocationSpotStaleKeepRadiusMeters = 200;
 const userLocationLookupTimeout = Duration(seconds: 15);
 StreamSubscription<String>? pushTokenRefreshSubscription;
 StreamSubscription<RemoteMessage>? foregroundPushSubscription;
+Timer? pushInitializationRetryTimer;
+int pushInitializationRetryAttempts = 0;
 StreamSubscription<QuerySnapshot<Map<String, dynamic>>>?
 notificationCenterUnreadSubscription;
 StreamSubscription<QuerySnapshot<Map<String, dynamic>>>?
@@ -105,6 +107,7 @@ final chatUnreadCountsByChatId = ValueNotifier<Map<String, int>>(
   const <String, int>{},
 );
 bool appIconBadgeSyncStarted = false;
+const int maxPushInitializationRetries = 6;
 
 const bool firestoreDebugTrackerEnabled = true;
 
@@ -1668,6 +1671,8 @@ const _ruText = <String, String>{
   'Oldest': 'Старые',
   'Meet spots': 'Встречи',
   'Saved': 'Сохранённые',
+  'More details': 'Подробнее',
+  'Show more': 'Показать ещё',
   'Show less': 'Свернуть',
   'Saved Spots': 'Сохранённые споты',
   'No saved spots yet': 'Сохранённых спотов пока нет',
@@ -2569,6 +2574,8 @@ const _lvText = <String, String>{
   'Oldest': 'Vecākie',
   'Meet spots': 'Tikšanās',
   'Saved': 'Saglabātie',
+  'More details': 'Vairāk informācijas',
+  'Show more': 'Rādīt vairāk',
   'Show less': 'Rādīt mazāk',
   'Saved Spots': 'Saglabātās vietas',
   'No saved spots yet': 'Saglabātu vietu vēl nav',
@@ -4631,6 +4638,60 @@ Future<void> unregisterPushTokenForCurrentUser() async {
   }
 }
 
+void cancelPushInitializationRetry() {
+  pushInitializationRetryTimer?.cancel();
+  pushInitializationRetryTimer = null;
+  pushInitializationRetryAttempts = 0;
+}
+
+void schedulePushInitializationRetry(String reason) {
+  if (!firebaseReady || FirebaseAuth.instance.currentUser == null) {
+    return;
+  }
+
+  if (pushInitializationRetryAttempts >= maxPushInitializationRetries) {
+    debugPrint('Push initialization retries exhausted. reason=$reason');
+    return;
+  }
+
+  if (pushInitializationRetryTimer?.isActive == true) {
+    return;
+  }
+
+  pushInitializationRetryAttempts++;
+  final delay = Duration(
+    seconds: math.min(30, 3 * pushInitializationRetryAttempts),
+  );
+  debugPrint(
+    'Scheduling push initialization retry #$pushInitializationRetryAttempts '
+    'in ${delay.inSeconds}s. reason=$reason',
+  );
+
+  pushInitializationRetryTimer = Timer(delay, () {
+    pushInitializationRetryTimer = null;
+    unawaited(initializePushNotificationsForCurrentUser());
+  });
+}
+
+Future<String?> waitForApnsToken(FirebaseMessaging messaging) async {
+  for (var attempt = 0; attempt < 8; attempt++) {
+    try {
+      final token = await messaging.getAPNSToken();
+      if (token != null && token.trim().isNotEmpty) {
+        return token;
+      }
+    } catch (error) {
+      debugPrint('APNs token lookup failed on attempt ${attempt + 1}: $error');
+    }
+
+    await Future<void>.delayed(
+      Duration(milliseconds: math.min(1500, 250 + attempt * 250)),
+    );
+  }
+
+  return null;
+}
+
 Future<void> showForegroundSystemNotification(RemoteMessage message) async {
   if (!Platform.isAndroid) {
     return;
@@ -4681,24 +4742,31 @@ Future<void> initializePushNotificationsForCurrentUser() async {
         badge: true,
         sound: true,
       );
-      final apnsToken = await messaging.getAPNSToken();
+      final apnsToken = await waitForApnsToken(messaging);
       debugPrint(
         'APNs token ${apnsToken == null || apnsToken.trim().isEmpty ? 'is empty' : 'is available'}.',
       );
+      if (apnsToken == null || apnsToken.trim().isEmpty) {
+        schedulePushInitializationRetry('apns-token-empty');
+        return;
+      }
     }
     debugPrint('Push permission status: ${settings.authorizationStatus}');
 
     final token = await messaging.getToken();
     if (token == null || token.trim().isEmpty) {
       debugPrint('FirebaseMessaging.getToken() returned no token.');
+      schedulePushInitializationRetry('fcm-token-empty');
     } else {
       await registerPushTokenForCurrentUser(token);
+      cancelPushInitializationRetry();
     }
     // Keep notification reads lazy. The notification center loads when opened.
 
     pushTokenRefreshSubscription ??= messaging.onTokenRefresh.listen(
       (token) {
         debugPrint('FCM token refreshed.');
+        pushInitializationRetryAttempts = 0;
         unawaited(registerPushTokenForCurrentUser(token));
       },
       onError: (Object error, StackTrace stack) {
@@ -4723,6 +4791,7 @@ Future<void> initializePushNotificationsForCurrentUser() async {
   } catch (error, stack) {
     debugPrint('Push initialization failed: $error');
     debugPrint('$stack');
+    schedulePushInitializationRetry('push-initialization-error');
   }
 }
 
@@ -5961,6 +6030,7 @@ AppUser appUserFromCurrentUserDocument(
 }
 
 Future<void> stopCurrentUserAppServicesForAccessBlock() async {
+  cancelPushInitializationRetry();
   for (final subscription in spotSyncSubscriptions) {
     await subscription.cancel();
   }
@@ -6023,6 +6093,7 @@ void startCurrentUserDocumentWatcher() {
 
 Future<void> signOutCurrentAccount() async {
   await saveRememberMePreference(false);
+  cancelPushInitializationRetry();
   await unregisterPushTokenForCurrentUser();
 
   // Stop live Firebase listeners before auth becomes null.
@@ -11315,6 +11386,9 @@ Future<void> notifyCurrentUserFriendsAboutSpotPresence({
   }
 
   final friendUids = await loadCurrentFriendUids();
+  final notificationBucket =
+      DateTime.now().millisecondsSinceEpoch ~/
+      friendLocationNotificationCooldown.inMilliseconds;
   for (final friendUid in friendUids) {
     await createCurrentUserFriendLocationNotification(
       notificationId: friendSpotNotificationId(
@@ -11338,6 +11412,7 @@ Future<void> notifyCurrentUserFriendsAboutSpotPresence({
       'spotName': spot.name,
       'lat': coordinates.latitude,
       'lng': coordinates.longitude,
+      'notificationBucket': notificationBucket,
       'recipientUserIds': friendUids,
     }),
   );
@@ -11373,6 +11448,7 @@ Future<void> notifyCurrentUserFriendsAboutLiveSharing({
       'type': 'friend_live_sharing',
       'lat': coordinates.latitude,
       'lng': coordinates.longitude,
+      'sessionKey': sessionKey,
       'recipientUserIds': friendUids,
     }),
   );
@@ -27375,16 +27451,7 @@ class _SpotDetailScreenState extends State<SpotDetailScreen> {
                 SpotRouteActions(spot: spot, onShowMap: showSpotOnMap),
                 if (spot.description.trim().isNotEmpty) ...[
                   const SizedBox(height: 10),
-                  Text(
-                    spot.description,
-                    maxLines: 3,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: Colors.white70,
-                      fontSize: 13,
-                      height: 1.28,
-                    ),
-                  ),
+                  SpotDetailMoreSection(description: spot.description),
                 ],
                 const SizedBox(height: 10),
                 Wrap(
@@ -27451,6 +27518,118 @@ class _SpotDetailScreenState extends State<SpotDetailScreen> {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class SpotDetailMoreSection extends StatefulWidget {
+  final String description;
+
+  const SpotDetailMoreSection({super.key, required this.description});
+
+  @override
+  State<SpotDetailMoreSection> createState() => _SpotDetailMoreSectionState();
+}
+
+class _SpotDetailMoreSectionState extends State<SpotDetailMoreSection> {
+  static const int collapsedLines = 4;
+  bool expanded = false;
+
+  @override
+  void didUpdateWidget(covariant SpotDetailMoreSection oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.description != widget.description) {
+      expanded = false;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final description = widget.description.trim();
+    const bodyStyle = TextStyle(
+      color: Colors.white70,
+      fontSize: 13,
+      height: 1.32,
+    );
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 10),
+      decoration: BoxDecoration(
+        color: panelGlass,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.white12),
+      ),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final textPainter = TextPainter(
+            text: TextSpan(text: description, style: bodyStyle),
+            textDirection: Directionality.of(context),
+            maxLines: collapsedLines,
+          )..layout(maxWidth: constraints.maxWidth);
+          final canExpand = textPainter.didExceedMaxLines;
+
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  const Icon(
+                    Icons.notes_rounded,
+                    color: blue,
+                    size: 18,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      trText('More details'),
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Text(
+                description,
+                maxLines: expanded ? null : collapsedLines,
+                overflow: expanded
+                    ? TextOverflow.visible
+                    : TextOverflow.ellipsis,
+                style: bodyStyle,
+              ),
+              if (canExpand) ...[
+                const SizedBox(height: 8),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: TextButton.icon(
+                    onPressed: () => setState(() => expanded = !expanded),
+                    style: TextButton.styleFrom(
+                      foregroundColor: blue,
+                      padding: EdgeInsets.zero,
+                      minimumSize: const Size(0, 32),
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    ),
+                    icon: Icon(
+                      expanded
+                          ? Icons.keyboard_arrow_up
+                          : Icons.keyboard_arrow_down,
+                      size: 18,
+                    ),
+                    label: Text(
+                      trText(expanded ? 'Show less' : 'Show more'),
+                      style: const TextStyle(fontWeight: FontWeight.w900),
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          );
+        },
       ),
     );
   }

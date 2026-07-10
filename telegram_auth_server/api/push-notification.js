@@ -28,10 +28,12 @@ const db = admin.firestore();
 const defaultNotificationSettings = {
   reviewNotifications: true,
   likeNotifications: true,
-  commentNotifications: false,
+  commentNotifications: true,
   newSpotNotifications: true,
   newMessageNotifications: true,
   friendRequestNotifications: true,
+  friendAtSpotNotifications: true,
+  friendLiveShareNotifications: true,
 };
 
 function cleanText(value, fallback = '') {
@@ -43,12 +45,34 @@ function shortText(value, fallback = '', maxLength = 140) {
   return text.length <= maxLength ? text : `${text.slice(0, maxLength - 1)}...`;
 }
 
+function cleanStringArray(value, limit = 500) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return [
+    ...new Set(
+      value
+        .filter((item) => typeof item === 'string')
+        .map((item) => item.trim())
+        .filter(Boolean),
+    ),
+  ].slice(0, limit);
+}
+
 function settingEnabled(user, settingName) {
   const settings = user.settings || {};
   const fallback = defaultNotificationSettings[settingName] === true;
-  return typeof settings[settingName] === 'boolean'
-    ? settings[settingName]
-    : fallback;
+
+  if (typeof user[settingName] === 'boolean') {
+    return user[settingName];
+  }
+
+  if (typeof settings[settingName] === 'boolean') {
+    return settings[settingName];
+  }
+
+  return fallback;
 }
 
 function userTokens(user) {
@@ -64,6 +88,46 @@ function deliveryId(deliveryKey, userId) {
     .createHash('sha256')
     .update(`${deliveryKey}|${userId}`)
     .digest('hex');
+}
+
+function spotNotificationOwnerUid(spot = {}) {
+  return cleanText(spot.ownerUid, cleanText(spot.addedByUid));
+}
+
+function friendshipIdFor(firstUid, secondUid) {
+  return [firstUid, secondUid].sort().join('_');
+}
+
+function userIsStaff(user = {}) {
+  const role = cleanText(user.role);
+  return role === 'admin' || role === 'moderator';
+}
+
+async function friendshipAccepted(firstUid, secondUid) {
+  if (!firstUid || !secondUid || firstUid === secondUid) {
+    return false;
+  }
+
+  const [firstRequest, secondRequest, friendship] = await Promise.all([
+    db.collection('friend_requests').doc(`${firstUid}_${secondUid}`).get(),
+    db.collection('friend_requests').doc(`${secondUid}_${firstUid}`).get(),
+    db.collection('friendships').doc(friendshipIdFor(firstUid, secondUid)).get(),
+  ]);
+
+  if (firstRequest.exists && firstRequest.data()?.status === 'accepted') {
+    return true;
+  }
+
+  if (secondRequest.exists && secondRequest.data()?.status === 'accepted') {
+    return true;
+  }
+
+  if (!friendship.exists) {
+    return false;
+  }
+
+  const userIds = cleanStringArray(friendship.data()?.userIds, 2);
+  return userIds.includes(firstUid) && userIds.includes(secondUid);
 }
 
 async function claimDelivery(deliveryKey, userId) {
@@ -86,13 +150,25 @@ async function claimDelivery(deliveryKey, userId) {
 }
 
 async function unreadNotificationCount(userId) {
-  const snapshot = await db
+  const userSnapshot = await db
     .collection('user_notifications')
     .where('userId', '==', userId)
     .where('read', '==', false)
     .get();
+  let adminUnreadCount = 0;
 
-  return snapshot.size;
+  try {
+    const adminSnapshot = await db
+      .collection('admin_notifications')
+      .where('userId', '==', userId)
+      .where('read', '==', false)
+      .get();
+    adminUnreadCount = adminSnapshot.size;
+  } catch (error) {
+    console.warn('Admin unread count skipped:', error?.message || error);
+  }
+
+  return userSnapshot.size + adminUnreadCount;
 }
 
 async function sendPushToUser({
@@ -100,6 +176,7 @@ async function sendPushToUser({
   settingName,
   deliveryKey,
   notificationId,
+  notificationCollection = 'user_notifications',
   title,
   body,
   data = {},
@@ -128,7 +205,7 @@ async function sendPushToUser({
 
   const notificationType = cleanText(data.type, 'notification');
   const notificationRef = db
-    .collection('user_notifications')
+    .collection(notificationCollection)
     .doc(cleanText(notificationId, deliveryRef.id));
 
   await notificationRef.set(
@@ -167,10 +244,15 @@ async function sendPushToUser({
       },
       apns: {
         headers: {
+          'apns-push-type': 'alert',
           'apns-priority': '10',
         },
         payload: {
           aps: {
+            alert: {
+              title,
+              body,
+            },
             sound: 'default',
             badge: badgeCount,
           },
@@ -296,11 +378,21 @@ async function requireStaff(userId) {
   }
 }
 
-async function notifyUsersAboutNewSpot({ spotId, spot, deliveryKey }) {
-  const ownerUid = cleanText(spot.addedByUid);
+async function notifyUsersAboutNewSpot({
+  spotId,
+  spot,
+  deliveryKey,
+  notificationType = 'new_spot',
+}) {
+  const ownerUid = spotNotificationOwnerUid(spot);
   const spotName = cleanText(spot.name, 'New car spot');
   const cityCountry = cleanText(spot.cityCountry);
   const locationSuffix = cityCountry ? ` in ${cityCountry}` : '';
+  const isTemporary = notificationType === 'temporary_event' || spot.isTemporary === true;
+  const title = isTemporary ? 'New CCS event' : 'New CCS spot';
+  const body = isTemporary
+    ? `${spotName} event was added${locationSuffix}.`
+    : `${spotName}${locationSuffix}`;
   const usersSnapshot = await db.collection('users').get();
 
   return Promise.all(
@@ -311,9 +403,10 @@ async function notifyUsersAboutNewSpot({ spotId, spot, deliveryKey }) {
           userId: doc.id,
           settingName: 'newSpotNotifications',
           deliveryKey,
-          title: 'New CCS spot',
-          body: `${spotName}${locationSuffix}`,
-          data: { type: 'new_spot', spotId },
+          notificationId: `${notificationType}_${spotId}_${doc.id}`,
+          title,
+          body,
+          data: { type: notificationType, spotId },
         }),
       ),
   );
@@ -336,7 +429,7 @@ async function handleSpotLike(userId, payload) {
   }
 
   const spot = spotSnapshot.data();
-  const ownerUid = cleanText(spot.addedByUid);
+  const ownerUid = spotNotificationOwnerUid(spot);
 
   if (!ownerUid || ownerUid === userId) {
     return [];
@@ -347,9 +440,10 @@ async function handleSpotLike(userId, payload) {
       userId: ownerUid,
       settingName: 'likeNotifications',
       deliveryKey: `spot_like:${likeId}`,
+      notificationId: cleanText(payload.notificationId, `spot_like_${likeId}`),
       title: 'New like',
       body: `@${cleanText(like.username, 'driver')} liked ${cleanText(spot.name, 'your spot')}.`,
-      data: { type: 'spot_like', spotId },
+      data: { type: 'spot_like', spotId, likeId },
     }),
   ];
 }
@@ -371,7 +465,7 @@ async function handleSpotComment(userId, payload) {
   }
 
   const spot = spotSnapshot.data();
-  const ownerUid = cleanText(spot.addedByUid);
+  const ownerUid = spotNotificationOwnerUid(spot);
 
   if (!ownerUid || ownerUid === userId) {
     return [];
@@ -382,9 +476,10 @@ async function handleSpotComment(userId, payload) {
       userId: ownerUid,
       settingName: 'commentNotifications',
       deliveryKey: `spot_comment:${reviewId}`,
+      notificationId: cleanText(payload.notificationId, `spot_comment_${reviewId}`),
       title: 'New comment',
       body: `@${cleanText(review.username, 'driver')}: ${shortText(review.comment)}`,
-      data: { type: 'spot_comment', spotId },
+      data: { type: 'spot_comment', spotId, reviewId },
     }),
   ];
 }
@@ -461,7 +556,7 @@ async function handleFriendRequest(userId, payload) {
       userId: toUid,
       settingName: 'friendRequestNotifications',
       deliveryKey: `friend_request:${friendRequestId}`,
-      notificationId: `friend_request_${friendRequestId}`,
+      notificationId: cleanText(payload.notificationId, `friend_request_${friendRequestId}`),
       title: 'New friend request',
       body: `@${senderUsername} sent you a friend request.`,
       data: {
@@ -492,16 +587,23 @@ async function handleSpotDecision(userId, payload) {
   }
 
   const approved = status === 'approved';
+  const ownerUid = spotNotificationOwnerUid(spot);
   const results = [
     await sendPushToUser({
-      userId: cleanText(spot.addedByUid),
+      userId: ownerUid,
       settingName: 'reviewNotifications',
       deliveryKey: `spot_decision:${spotId}:${status}`,
+      notificationId: `spot_review_${spotId}_${status}_${ownerUid}`,
       title: approved ? 'Spot approved' : 'Spot rejected',
       body: approved
         ? `${cleanText(spot.name, 'Your spot')} is now visible in CCS.`
         : `${cleanText(spot.name, 'Your spot')} was not approved.`,
-      data: { type: 'spot_review_update', spotId, status },
+      data: {
+        type: 'spot_review_update',
+        spotId,
+        status,
+        rejectionReason: cleanText(payload.rejectionReason),
+      },
     }),
   ];
 
@@ -511,6 +613,7 @@ async function handleSpotDecision(userId, payload) {
         spotId,
         spot,
         deliveryKey: `new_spot_approved:${spotId}`,
+        notificationType: spot.isTemporary === true ? 'temporary_event' : 'new_spot',
       })),
     );
   }
@@ -538,7 +641,220 @@ async function handleNewSpot(userId, payload) {
     spotId,
     spot,
     deliveryKey: `new_spot_created:${spotId}`,
+    notificationType: 'new_spot',
   });
+}
+
+async function handleTemporaryEvent(userId, payload) {
+  const spotId = cleanText(payload.spotId);
+  const spotSnapshot = await db.collection('spots').doc(spotId).get();
+
+  if (!spotSnapshot.exists) {
+    return [];
+  }
+
+  const spot = spotSnapshot.data();
+
+  if (spot.status !== 'approved' || spot.addedByUid !== userId) {
+    return [];
+  }
+
+  await requireStaff(userId);
+
+  return notifyUsersAboutNewSpot({
+    spotId,
+    spot,
+    deliveryKey: `temporary_event_created:${spotId}`,
+    notificationType: 'temporary_event',
+  });
+}
+
+async function handleSpotPendingReview(userId, payload) {
+  const spotId = cleanText(payload.spotId);
+  const recipientUserIds = cleanStringArray(payload.recipientUserIds).filter(
+    (recipientUserId) => recipientUserId !== userId,
+  );
+  const spotSnapshot = await db.collection('spots').doc(spotId).get();
+
+  if (!spotSnapshot.exists || !recipientUserIds.length) {
+    return [];
+  }
+
+  const spot = spotSnapshot.data();
+
+  if (spot.status !== 'pending' || spot.addedByUid !== userId) {
+    return [];
+  }
+
+  const spotName = cleanText(spot.name, cleanText(payload.spotName, 'New spot'));
+  const addedBy = cleanText(spot.addedBy, cleanText(payload.addedBy, 'driver'));
+
+  return Promise.all(
+    recipientUserIds.map(async (recipientUserId) => {
+      const staffSnapshot = await db.collection('users').doc(recipientUserId).get();
+      const staff = staffSnapshot.exists ? staffSnapshot.data() || {} : {};
+
+      if (!staffSnapshot.exists || staff.deleted === true || staff.banned === true || !userIsStaff(staff)) {
+        return 0;
+      }
+
+      return sendPushToUser({
+        userId: recipientUserId,
+        settingName: 'reviewNotifications',
+        deliveryKey: `spot_pending_review:${spotId}:${recipientUserId}`,
+        notificationId: `admin_${spotId}_review_${recipientUserId}`,
+        notificationCollection: 'admin_notifications',
+        title: 'Spot review updates',
+        body: `${spotName} is waiting for review.`,
+        data: {
+          type: 'spot_pending_review',
+          spotId,
+          spotName,
+          cityCountry: cleanText(spot.cityCountry, cleanText(payload.cityCountry)),
+          addedBy,
+          addedByUid: userId,
+        },
+      });
+    }),
+  );
+}
+
+async function handleFriendAtSpot(userId, payload) {
+  const recipientUserIds = cleanStringArray(payload.recipientUserIds).filter(
+    (recipientUserId) => recipientUserId !== userId,
+  );
+  const spotId = cleanText(payload.spotId);
+  const spotName = cleanText(payload.spotName, 'a spot');
+  const fallbackNotificationBucket = String(Math.floor(Date.now() / 1800000));
+  const notificationBucket = payload.notificationBucket == null
+    ? fallbackNotificationBucket
+    : cleanText(String(payload.notificationBucket), fallbackNotificationBucket);
+
+  if (!recipientUserIds.length || !spotId) {
+    return [];
+  }
+
+  const senderSnapshot = await db.collection('users').doc(userId).get();
+  const sender = senderSnapshot.exists ? senderSnapshot.data() || {} : {};
+  const senderUsername = cleanText(sender.username, cleanText(payload.senderUsername, 'driver'));
+
+  return Promise.all(
+    recipientUserIds.map(async (recipientUserId) => {
+      if (!(await friendshipAccepted(userId, recipientUserId))) {
+        return 0;
+      }
+
+      return sendPushToUser({
+        userId: recipientUserId,
+        settingName: 'friendAtSpotNotifications',
+        deliveryKey: `friend_at_spot:${userId}:${recipientUserId}:${spotId}:${notificationBucket}`,
+        notificationId: `spot_${recipientUserId}_${userId}_${spotId}`,
+        title: 'Live location',
+        body: `@${senderUsername} is at ${spotName}.`,
+        data: {
+          type: 'friend_at_spot',
+          spotId,
+          spotName,
+          friendUid: userId,
+          friendUsername: senderUsername,
+          lat: payload.lat ?? '',
+          lng: payload.lng ?? '',
+        },
+      });
+    }),
+  );
+}
+
+async function handleFriendLiveSharing(userId, payload) {
+  const recipientUserIds = cleanStringArray(payload.recipientUserIds).filter(
+    (recipientUserId) => recipientUserId !== userId,
+  );
+
+  if (!recipientUserIds.length) {
+    return [];
+  }
+
+  const senderSnapshot = await db.collection('users').doc(userId).get();
+  const sender = senderSnapshot.exists ? senderSnapshot.data() || {} : {};
+  const senderUsername = cleanText(sender.username, cleanText(payload.senderUsername, 'driver'));
+  const fallbackSessionKey = String(Math.floor(Date.now() / 1800000));
+  const sessionKey = payload.sessionKey == null
+    ? fallbackSessionKey
+    : cleanText(String(payload.sessionKey), fallbackSessionKey);
+
+  return Promise.all(
+    recipientUserIds.map(async (recipientUserId) => {
+      if (!(await friendshipAccepted(userId, recipientUserId))) {
+        return 0;
+      }
+
+      return sendPushToUser({
+        userId: recipientUserId,
+        settingName: 'friendLiveShareNotifications',
+        deliveryKey: `friend_live_sharing:${userId}:${recipientUserId}:${sessionKey}`,
+        notificationId: `live_share_${recipientUserId}_${userId}_${sessionKey}`,
+        title: 'Live location',
+        body: `@${senderUsername} has been sharing live location for 10 minutes.`,
+        data: {
+          type: 'friend_live_sharing',
+          friendUid: userId,
+          friendUsername: senderUsername,
+          lat: payload.lat ?? '',
+          lng: payload.lng ?? '',
+          sessionKey,
+        },
+      });
+    }),
+  );
+}
+
+async function handleForumReply(userId, payload) {
+  const topicId = cleanText(payload.topicId);
+  const messageId = cleanText(payload.messageId);
+  const topicRef = db.collection('forum_topics').doc(topicId);
+  const [topicSnapshot, replySnapshot] = await Promise.all([
+    topicRef.get(),
+    topicRef.collection('replies').doc(messageId).get(),
+  ]);
+
+  if (!topicSnapshot.exists || !replySnapshot.exists) {
+    return [];
+  }
+
+  const topic = topicSnapshot.data() || {};
+  const reply = replySnapshot.data() || {};
+
+  if (reply.userId !== userId) {
+    return [];
+  }
+
+  const authorId = cleanText(topic.authorId);
+  if (!authorId || authorId === userId) {
+    return [];
+  }
+
+  const senderUsername = cleanText(reply.username, cleanText(payload.senderUsername, 'driver'));
+  const topicTitle = cleanText(topic.title, cleanText(payload.topicTitle, 'Forum topic'));
+  const text = shortText(reply.text, cleanText(payload.messageText, 'New reply'));
+
+  return [
+    await sendPushToUser({
+      userId: authorId,
+      settingName: 'commentNotifications',
+      deliveryKey: `forum_reply:${topicId}:${messageId}`,
+      notificationId: cleanText(payload.notificationId, `forum_${topicId}_${messageId}`),
+      title: 'Forum reply',
+      body: `@${senderUsername}: ${text}`,
+      data: {
+        type: 'forum_reply',
+        topicId,
+        topicTitle,
+        messageId,
+        senderUid: userId,
+        senderUsername,
+      },
+    }),
+  ];
 }
 
 export default async function handler(request, response) {
@@ -581,7 +897,12 @@ export default async function handler(request, response) {
       chat_message: handleChatMessage,
       friend_request: handleFriendRequest,
       spot_decision: handleSpotDecision,
+      spot_pending_review: handleSpotPendingReview,
       new_spot: handleNewSpot,
+      temporary_event: handleTemporaryEvent,
+      friend_at_spot: handleFriendAtSpot,
+      friend_live_sharing: handleFriendLiveSharing,
+      forum_reply: handleForumReply,
     };
     const handler = handlers[type];
 
