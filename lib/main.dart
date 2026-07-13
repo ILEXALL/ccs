@@ -36,6 +36,10 @@ const telegramAuthBaseUrls = <String>[
   'https://ccs-telegram-auth-server.vercel.app',
 ];
 const telegramAuthBaseUrl = 'https://ccs-wine.vercel.app';
+const pushNotificationUrls = <String>[
+  'https://ccs-wine.vercel.app/api/push-notification',
+  'https://ccs-telegram-auth-server.vercel.app/api/push-notification',
+];
 const pushNotificationUrl = '$telegramAuthBaseUrl/api/push-notification';
 const firestoreUsageUrl = '$telegramAuthBaseUrl/api/firestore-usage';
 const moderationActionUrl = '$telegramAuthBaseUrl/api/moderation-action';
@@ -5261,9 +5265,26 @@ class _PhotoCropScreenState extends State<PhotoCropScreen> {
     final minY = cropBottom - (editorHeight + displayHeight) / 2;
     final maxY = cropTop - (editorHeight - displayHeight) / 2;
 
+    // Depending on the photo aspect ratio, the image can be smaller than
+    // the crop frame on one axis while the layout is settling. In that case
+    // the calculated clamp bounds are reversed, and num.clamp throws an
+    // "Invalid argument(s)" red-screen exception. Normalise the ranges and
+    // keep non-finite gesture values from reaching Transform.translate.
+    double clampAxis(double axisValue, double firstBound, double secondBound) {
+      if (!axisValue.isFinite ||
+          !firstBound.isFinite ||
+          !secondBound.isFinite) {
+        return 0.0;
+      }
+
+      final lower = math.min(firstBound, secondBound);
+      final upper = math.max(firstBound, secondBound);
+      return axisValue.clamp(lower, upper).toDouble();
+    }
+
     return Offset(
-      value.dx.clamp(minX, maxX).toDouble(),
-      value.dy.clamp(minY, maxY).toDouble(),
+      clampAxis(value.dx, minX, maxX),
+      clampAxis(value.dy, minY, maxY),
     );
   }
 
@@ -7206,26 +7227,65 @@ Future<void> sendPushNotificationEvent(Map<String, Object?> event) async {
     return;
   }
 
-  try {
-    final idToken = await firebaseUser.getIdToken(true);
+  final recipientUserIds = stringListFromFirebase(
+    event['recipientUserIds'],
+    const <String>[],
+  ).where((uid) => uid.trim().isNotEmpty && uid != firebaseUser.uid).toSet();
+  if (event.containsKey('recipientUserIds') && recipientUserIds.isEmpty) {
+    debugPrint('Push event skipped because it has no recipients. event=$event');
+    return;
+  }
 
+  Object? lastError;
+  StackTrace? lastStack;
+
+  for (var attempt = 0; attempt < 2; attempt++) {
+    final idToken = await firebaseUser.getIdToken(attempt > 0);
     if (idToken == null || idToken.trim().isEmpty) {
-      debugPrint(
-        'Push event skipped because Firebase ID token is empty. event=$event',
-      );
-      return;
+      lastError = StateError('Firebase ID token is empty.');
+      continue;
     }
 
-    debugPrint('Sending push event: $event');
-    await postJsonToUrl(
-      pushNotificationUrl,
-      {...event, 'senderUserId': firebaseUser.uid},
-      headers: {HttpHeaders.authorizationHeader: 'Bearer $idToken'},
-    );
-    debugPrint('Push event accepted by backend: $event');
-  } catch (error, stack) {
-    debugPrint('Push event failed: $error');
-    debugPrint('$stack');
+    for (final endpoint in pushNotificationUrls) {
+      try {
+        final payload = <String, Object?>{
+          ...event,
+          if (recipientUserIds.isNotEmpty)
+            'recipientUserIds': recipientUserIds.toList(),
+          'senderUserId': firebaseUser.uid,
+          'sentAtMillis': DateTime.now().millisecondsSinceEpoch,
+        };
+        debugPrint('Sending push event to $endpoint: $payload');
+        final response = await postJsonToUrl(
+          endpoint,
+          payload,
+          headers: {HttpHeaders.authorizationHeader: 'Bearer $idToken'},
+        );
+        if (response['ok'] == false) {
+          throw StateError(
+            stringFromFirebase(
+              response['error'],
+              'Push backend rejected event.',
+            ),
+          );
+        }
+        debugPrint('Push event accepted by $endpoint: $event');
+        return;
+      } catch (error, stack) {
+        lastError = error;
+        lastStack = stack;
+        debugPrint('Push endpoint failed ($endpoint): $error');
+      }
+    }
+
+    if (attempt == 0) {
+      await Future<void>.delayed(const Duration(milliseconds: 350));
+    }
+  }
+
+  debugPrint('Push event failed on every configured endpoint: $lastError');
+  if (lastStack != null) {
+    debugPrint('$lastStack');
   }
 }
 
@@ -11368,14 +11428,14 @@ Future<void> notifyCurrentUserFriendsAboutLiveSharing({
     );
   }
 
-  unawaited(
-    sendPushNotificationEvent({
-      'type': 'friend_live_sharing',
-      'lat': coordinates.latitude,
-      'lng': coordinates.longitude,
-      'recipientUserIds': friendUids,
-    }),
-  );
+  await sendPushNotificationEvent({
+    'type': 'friend_live_sharing',
+    'preferenceKey': 'friendLiveShareNotifications',
+    'audience': 'recipient_user_ids',
+    'lat': coordinates.latitude,
+    'lng': coordinates.longitude,
+    'recipientUserIds': friendUids,
+  });
 }
 
 Future<void> checkFriendLocationNotifications() async {
@@ -14716,6 +14776,8 @@ Future<void> updateSpotStatus(
 
     await sendPushNotificationEvent({
       'type': updatedSpot.isTemporary ? 'temporary_event' : 'new_spot',
+      'preferenceKey': 'newSpotNotifications',
+      'audience': 'all_users',
       'notificationId':
           '${updatedSpot.isTemporary ? 'temporary_event' : 'new_spot'}_${updatedSpot.id}',
       'spotId': updatedSpot.id,
@@ -19788,13 +19850,18 @@ class UpcomingTemporarySpotNewsCard extends StatelessWidget {
                       fontWeight: FontWeight.w900,
                     ),
                   ),
-                  const SizedBox(height: 2),
-                  Text(
-                    spot.cityCountry,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(color: Colors.white54, fontSize: 12),
-                  ),
+                  if (spot.isTemporaryLocationAvailableNow) ...[
+                    const SizedBox(height: 2),
+                    Text(
+                      spot.cityCountry,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Colors.white54,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
                   const SizedBox(height: 2),
                   Text(
                     timeWindow,
@@ -30062,6 +30129,8 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
 
         await sendPushNotificationEvent({
           'type': savedNewSpot.isTemporary ? 'temporary_event' : 'new_spot',
+          'preferenceKey': 'newSpotNotifications',
+          'audience': 'all_users',
           'notificationId':
               '${savedNewSpot.isTemporary ? 'temporary_event' : 'new_spot'}_${savedNewSpot.id}',
           'spotId': savedNewSpot.id,
@@ -33425,15 +33494,15 @@ class _GlobalChatTabState extends State<GlobalChatTab>
         'global chat: send message',
       );
 
-      unawaited(
-        sendPushNotificationEvent({
-          'type': 'global_chat_message',
-          'notificationId': 'global_chat_${doc.id}',
-          'messageId': doc.id,
-          'senderUsername': currentUser.username,
-          'messageText': text.isEmpty ? trText('Photo') : text,
-        }),
-      );
+      await sendPushNotificationEvent({
+        'type': 'global_chat_message',
+        'preferenceKey': 'newMessageNotifications',
+        'audience': 'all_users',
+        'notificationId': 'global_chat_${doc.id}',
+        'messageId': doc.id,
+        'senderUsername': currentUser.username,
+        'messageText': text.isEmpty ? trText('Photo') : text,
+      });
     } catch (error) {
       if (mounted) {
         if (messageController.text.trim().isEmpty) {
@@ -35982,17 +36051,17 @@ class _ForumTopicPageState extends State<ForumTopicPage> {
         'lastReplyAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
 
-      unawaited(
-        sendPushNotificationEvent({
-          'type': 'forum_reply',
-          'notificationId': 'forum_${widget.topicId}_${doc.id}',
-          'topicId': widget.topicId,
-          'topicTitle': widget.title,
-          'messageId': doc.id,
-          'senderUsername': currentUser.username,
-          'messageText': text.isEmpty ? trText('Photo') : text,
-        }),
-      );
+      await sendPushNotificationEvent({
+        'type': 'forum_reply',
+        'preferenceKey': 'newMessageNotifications',
+        'audience': 'all_users',
+        'notificationId': 'forum_${widget.topicId}_${doc.id}',
+        'topicId': widget.topicId,
+        'topicTitle': widget.title,
+        'messageId': doc.id,
+        'senderUsername': currentUser.username,
+        'messageText': text.isEmpty ? trText('Photo') : text,
+      });
     } catch (error) {
       if (mounted) {
         if (replyController.text.trim().isEmpty) {
