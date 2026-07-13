@@ -81,6 +81,7 @@
 	<array>
 		<string>location</string>
 		<string>fetch</string>
+		<string>remote-notification</string>
 	</array>
 	<key>GIDClientID</key>
 	<string>325709324670-3c73nb2saj3klbvrqkralqmi4ajpchi9.apps.googleusercontent.com</string>

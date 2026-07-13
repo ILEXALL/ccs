@@ -8,6 +8,7 @@ import UIKit
   private var photoPickerChannel: FlutterMethodChannel?
   private var deviceIdentityChannel: FlutterMethodChannel?
   private var appBadgeChannel: FlutterMethodChannel?
+  private var systemNotificationsChannel: FlutterMethodChannel?
   private var pendingPhotoResult: FlutterResult?
   private weak var activePhotoPicker: PHPickerViewController?
   private var isCompletingPhotoPick = false
@@ -16,14 +17,18 @@ import UIKit
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
+    UNUserNotificationCenter.current().delegate = self
+    application.registerForRemoteNotifications()
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
   }
 
   func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
     GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
+    UNUserNotificationCenter.current().delegate = self
     registerPhotoPickerChannel(messenger: engineBridge.applicationRegistrar.messenger())
     registerDeviceIdentityChannel(messenger: engineBridge.applicationRegistrar.messenger())
     registerAppBadgeChannel(messenger: engineBridge.applicationRegistrar.messenger())
+    registerSystemNotificationsChannel(messenger: engineBridge.applicationRegistrar.messenger())
   }
 
   private func registerPhotoPickerChannel(messenger: FlutterBinaryMessenger) {
@@ -80,6 +85,90 @@ import UIKit
         self.setAppIconBadgeCount(count, result: result)
       default:
         result(FlutterMethodNotImplemented)
+      }
+    }
+  }
+
+  private func registerSystemNotificationsChannel(messenger: FlutterBinaryMessenger) {
+    systemNotificationsChannel = FlutterMethodChannel(
+      name: "ccs/system_notifications",
+      binaryMessenger: messenger
+    )
+
+    systemNotificationsChannel?.setMethodCallHandler { call, result in
+      switch call.method {
+      case "showNotification":
+        let arguments = call.arguments as? [String: Any]
+        let id = arguments?["id"] as? Int ?? Int(Date().timeIntervalSince1970)
+        let title = arguments?["title"] as? String ?? "CCS"
+        let body = arguments?["body"] as? String ?? ""
+        let badgeCount = max(1, arguments?["badgeCount"] as? Int ?? 1)
+        self.showSystemNotification(
+          id: id,
+          title: title,
+          body: body,
+          badgeCount: badgeCount,
+          result: result
+        )
+      default:
+        result(FlutterMethodNotImplemented)
+      }
+    }
+  }
+
+  private func showSystemNotification(
+    id: Int,
+    title: String,
+    body: String,
+    badgeCount: Int,
+    result: @escaping FlutterResult
+  ) {
+    let cleanBody = body.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !cleanBody.isEmpty else {
+      result(nil)
+      return
+    }
+
+    let content = UNMutableNotificationContent()
+    content.title = title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "CCS" : title
+    content.body = cleanBody
+    content.sound = .default
+    content.badge = NSNumber(value: badgeCount)
+
+    let request = UNNotificationRequest(
+      identifier: "ccs-\(id)",
+      content: content,
+      trigger: nil
+    )
+
+    UNUserNotificationCenter.current().add(request) { error in
+      DispatchQueue.main.async {
+        if let error = error {
+          result(
+            FlutterError(
+              code: "notification_failed",
+              message: error.localizedDescription,
+              details: nil
+            )
+          )
+          return
+        }
+
+        result(nil)
+      }
+    }
+  }
+
+  override func userNotificationCenter(
+    _ center: UNUserNotificationCenter,
+    willPresent notification: UNNotification,
+    withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
+  ) {
+    super.userNotificationCenter(center, willPresent: notification) { _ in
+      if #available(iOS 14.0, *) {
+        completionHandler([.banner, .list, .sound, .badge])
+      } else {
+        completionHandler([.alert, .sound, .badge])
       }
     }
   }
