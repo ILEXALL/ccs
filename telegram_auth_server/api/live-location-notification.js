@@ -14,6 +14,9 @@ const {
 } = require('firebase-admin/firestore');
 const { getMessaging } = require('firebase-admin/messaging');
 
+const LIVE_SHARE_THROTTLE_MILLIS = 30 * 60 * 1000;
+const LIVE_SHARE_CLAIM_TTL_MILLIS = 2 * 60 * 1000;
+
 function firstEnvironmentValue(...names) {
   for (const name of names) {
     const value = process.env[name];
@@ -115,6 +118,90 @@ function safeNotificationId(value) {
   return clean || `friend_live_share_${Date.now()}`;
 }
 
+async function acquireLiveShareNotificationClaim({
+  db,
+  senderReference,
+}) {
+  const nowMillis = Date.now();
+
+  return db.runTransaction(async (transaction) => {
+    const senderSnapshot = await transaction.get(senderReference);
+    const senderData = senderSnapshot.data() || {};
+    const lastSentMillis = Number(
+      senderData.lastFriendLiveShareNotificationAtMillis || 0,
+    );
+    const claimAtMillis = Number(
+      senderData.friendLiveShareNotificationClaimAtMillis || 0,
+    );
+
+    if (
+      Number.isFinite(lastSentMillis) &&
+      lastSentMillis > 0 &&
+      nowMillis - lastSentMillis < LIVE_SHARE_THROTTLE_MILLIS
+    ) {
+      return {
+        allowed: false,
+        reason: 'throttled',
+        retryAfterMillis:
+          LIVE_SHARE_THROTTLE_MILLIS - (nowMillis - lastSentMillis),
+        senderData,
+      };
+    }
+
+    if (
+      Number.isFinite(claimAtMillis) &&
+      claimAtMillis > 0 &&
+      nowMillis - claimAtMillis < LIVE_SHARE_CLAIM_TTL_MILLIS
+    ) {
+      return {
+        allowed: false,
+        reason: 'dispatch_in_progress',
+        retryAfterMillis:
+          LIVE_SHARE_CLAIM_TTL_MILLIS - (nowMillis - claimAtMillis),
+        senderData,
+      };
+    }
+
+    transaction.set(
+      senderReference,
+      {
+        friendLiveShareNotificationClaimAtMillis: nowMillis,
+        friendLiveShareNotificationClaimAt: FieldValue.serverTimestamp(),
+      },
+      { merge: true },
+    );
+
+    return {
+      allowed: true,
+      reason: '',
+      retryAfterMillis: 0,
+      senderData,
+    };
+  });
+}
+
+async function releaseLiveShareNotificationClaim(senderReference) {
+  await senderReference.set(
+    {
+      friendLiveShareNotificationClaimAtMillis: FieldValue.delete(),
+      friendLiveShareNotificationClaimAt: FieldValue.delete(),
+    },
+    { merge: true },
+  );
+}
+
+async function completeLiveShareNotificationClaim(senderReference) {
+  await senderReference.set(
+    {
+      lastFriendLiveShareNotificationAtMillis: Date.now(),
+      lastFriendLiveShareNotificationAt: FieldValue.serverTimestamp(),
+      friendLiveShareNotificationClaimAtMillis: FieldValue.delete(),
+      friendLiveShareNotificationClaimAt: FieldValue.delete(),
+    },
+    { merge: true },
+  );
+}
+
 async function commitNotificationHistory({
   db,
   recipients,
@@ -205,6 +292,7 @@ async function removeInvalidTokens(db, invalidTokensByUser) {
 }
 
 module.exports = async function liveLocationNotificationHandler(req, res) {
+  let claimedSenderReference = null;
   if (req.method === 'OPTIONS') {
     res.status(204).end();
     return;
@@ -253,15 +341,35 @@ module.exports = async function liveLocationNotificationHandler(req, res) {
 
     const db = getFirestore();
     const senderReference = db.collection('users').doc(senderUid);
-    const [senderSnapshot, friendshipsSnapshot] = await Promise.all([
-      senderReference.get(),
-      db
-        .collection('friendships')
-        .where('userIds', 'array-contains', senderUid)
-        .get(),
-    ]);
+    const claim = await acquireLiveShareNotificationClaim({
+      db,
+      senderReference,
+    });
 
-    const senderData = senderSnapshot.data() || {};
+    if (!claim.allowed) {
+      res.status(200).json({
+        ok: true,
+        skipped: true,
+        reason: claim.reason,
+        throttleMinutes: 30,
+        retryAfterSeconds: Math.max(
+          1,
+          Math.ceil(claim.retryAfterMillis / 1000),
+        ),
+        recipientCount: 0,
+        tokenCount: 0,
+        successCount: 0,
+        failureCount: 0,
+      });
+      return;
+    }
+
+    claimedSenderReference = senderReference;
+    const senderData = claim.senderData;
+    const friendshipsSnapshot = await db
+      .collection('friendships')
+      .where('userIds', 'array-contains', senderUid)
+      .get();
     const senderUsername =
       String(senderData.username || event.senderUsername || 'ccs_driver').trim() ||
       'ccs_driver';
@@ -279,6 +387,8 @@ module.exports = async function liveLocationNotificationHandler(req, res) {
     }
 
     if (friendIds.size === 0) {
+      await releaseLiveShareNotificationClaim(senderReference);
+      claimedSenderReference = null;
       res.status(404).json({
         ok: false,
         error: 'No accepted friends found for this user.',
@@ -313,6 +423,8 @@ module.exports = async function liveLocationNotificationHandler(req, res) {
 
     const allTokens = [...tokenOwner.keys()];
     if (allTokens.length === 0) {
+      await releaseLiveShareNotificationClaim(senderReference);
+      claimedSenderReference = null;
       res.status(404).json({
         ok: false,
         error: 'Friends have no registered FCM tokens.',
@@ -388,7 +500,25 @@ module.exports = async function liveLocationNotificationHandler(req, res) {
       });
     }
 
-    // History and stale-token cleanup happen after the time-sensitive send.
+    if (successCount === 0) {
+      await releaseLiveShareNotificationClaim(senderReference);
+      claimedSenderReference = null;
+      res.status(502).json({
+        ok: false,
+        error: 'FCM did not accept any live-location notifications.',
+        recipientCount: recipients.length,
+        tokenCount: allTokens.length,
+        successCount,
+        failureCount,
+      });
+      return;
+    }
+
+    await completeLiveShareNotificationClaim(senderReference);
+    claimedSenderReference = null;
+
+    // History and stale-token cleanup happen after the time-sensitive send and
+    // after the sender's 30-minute window has been committed.
     await Promise.allSettled([
       commitNotificationHistory({
         db,
@@ -405,20 +535,10 @@ module.exports = async function liveLocationNotificationHandler(req, res) {
       removeInvalidTokens(db, invalidTokensByUser),
     ]);
 
-    if (successCount === 0) {
-      res.status(502).json({
-        ok: false,
-        error: 'FCM did not accept any live-location notifications.',
-        recipientCount: recipients.length,
-        tokenCount: allTokens.length,
-        successCount,
-        failureCount,
-      });
-      return;
-    }
-
     res.status(200).json({
       ok: true,
+      skipped: false,
+      throttleMinutes: 30,
       notificationId,
       recipientCount: recipients.length,
       tokenCount: allTokens.length,
@@ -426,6 +546,16 @@ module.exports = async function liveLocationNotificationHandler(req, res) {
       failureCount,
     });
   } catch (error) {
+    if (claimedSenderReference) {
+      try {
+        await releaseLiveShareNotificationClaim(claimedSenderReference);
+      } catch (releaseError) {
+        console.error(
+          'Live-location notification claim cleanup failed:',
+          releaseError,
+        );
+      }
+    }
     console.error('Live-location notification failed:', error);
     res.status(500).json({
       ok: false,
