@@ -12040,43 +12040,21 @@ Future<bool> notifyFriendsLiveLocationStartedNow({LatLng? coordinates}) async {
     'body': '@$senderUsername is sharing live location.',
   };
 
-  // Use the dedicated server endpoint first. It derives the sender's friends
-  // from Firestore and sends a real FCM notification payload, so Android and
-  // iOS can display it while the receiving app is backgrounded or terminated.
-  final deliveredByDedicatedRoute = await trySendPushNotificationEvent(
+  // This dedicated endpoint derives the sender's friends, sends the FCM
+  // notification, and enforces one live-location notification per sender
+  // every 30 minutes across Android, iOS, app restarts, and multiple devices.
+  //
+  // Do not fall back to the legacy push route here. That route does not own the
+  // server-side throttle and could bypass the 30-minute limit during an error.
+  final delivered = await trySendPushNotificationEvent(
     event,
     endpoints: liveLocationPushNotificationUrls,
     deduplicate: false,
   );
-  if (deliveredByDedicatedRoute) {
-    return true;
-  }
-
-  // Temporary compatibility fallback for deployments where the new route has
-  // not reached every Vercel hostname yet. There is intentionally no hourly
-  // throttle while this feature is being tested.
-  List<String> friendIds;
-  try {
-    friendIds = await loadCurrentFriendUids();
-  } catch (error, stack) {
-    debugPrint('Live share friend recipient lookup failed: $error');
-    debugPrint('$stack');
-    return false;
-  }
-  if (friendIds.isEmpty) {
-    debugPrint('Live share push skipped because the sender has no friends.');
-    return false;
-  }
-
-  final deliveredByLegacyRoute = await trySendPushNotificationEvent(
-    <String, Object?>{...event, 'recipientUserIds': friendIds},
-    endpoints: pushNotificationUrls,
-    deduplicate: false,
-  );
-  if (!deliveredByLegacyRoute) {
+  if (!delivered) {
     debugPrint('Live share push was not delivered: $dispatchId');
   }
-  return deliveredByLegacyRoute;
+  return delivered;
 }
 
 Future<void> createAdminUserReportNotifications({
