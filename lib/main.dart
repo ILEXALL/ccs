@@ -40,6 +40,13 @@ const pushNotificationUrls = <String>[
   'https://ccs-wine.vercel.app/api/push-notification',
   'https://ccs-telegram-auth-server.vercel.app/api/push-notification',
 ];
+// Dedicated route for immediate friend live-location alerts. The server route
+// derives the friend list, checks preferences, writes notification history,
+// and sends an FCM notification payload for both Android and iOS.
+const liveLocationPushNotificationUrls = <String>[
+  'https://ccs-wine.vercel.app/api/live-location-notification',
+  'https://ccs-telegram-auth-server.vercel.app/api/live-location-notification',
+];
 const pushNotificationUrl = '$telegramAuthBaseUrl/api/push-notification';
 const firestoreUsageUrl = '$telegramAuthBaseUrl/api/firestore-usage';
 const moderationActionUrl = '$telegramAuthBaseUrl/api/moderation-action';
@@ -1698,8 +1705,8 @@ const _ruText = <String, String>{
   'When friends stay near a spot for 5 minutes':
       'Когда друзья находятся возле спота 5 минут',
   'Friends sharing location': 'Друзья делятся геопозицией',
-  'When a friend starts sharing live location (max once per hour)':
-      'Когда друг начинает делиться геопозицией (не чаще раза в час)',
+  'When a friend starts sharing live location':
+      'Когда друг начинает делиться геопозицией',
   'Public profile': 'Публичный профиль',
   'Let other drivers see your profile':
       'Разрешить другим водителям видеть профиль',
@@ -2599,8 +2606,8 @@ const _lvText = <String, String>{
   'When friends stay near a spot for 5 minutes':
       'Kad draugi 5 minūtes atrodas pie vietas',
   'Friends sharing location': 'Draugi kopīgo atrašanās vietu',
-  'When a friend starts sharing live location (max once per hour)':
-      'Kad draugs sāk kopīgot atrašanās vietu (ne biežāk kā reizi stundā)',
+  'When a friend starts sharing live location':
+      'Kad draugs sāk kopīgot atrašanās vietu',
   'Public profile': 'Publisks profils',
   'Let other drivers see your profile':
       'Ļaut citiem autovadītājiem redzēt profilu',
@@ -7216,7 +7223,11 @@ bool shouldSendPushNotificationEvent(
   return true;
 }
 
-Future<bool> trySendPushNotificationEvent(Map<String, Object?> event) async {
+Future<bool> trySendPushNotificationEvent(
+  Map<String, Object?> event, {
+  List<String> endpoints = pushNotificationUrls,
+  bool deduplicate = true,
+}) async {
   final firebaseUser = FirebaseAuth.instance.currentUser;
 
   if (firebaseUser == null) {
@@ -7227,7 +7238,8 @@ Future<bool> trySendPushNotificationEvent(Map<String, Object?> event) async {
   }
 
   final dedupKey = pushNotificationEventDedupKey(event, firebaseUser.uid);
-  if (!shouldSendPushNotificationEvent(event, firebaseUser.uid)) {
+  if (deduplicate &&
+      !shouldSendPushNotificationEvent(event, firebaseUser.uid)) {
     // Another identical event was already accepted or is currently in flight.
     return true;
   }
@@ -7260,7 +7272,7 @@ Future<bool> trySendPushNotificationEvent(Map<String, Object?> event) async {
       continue;
     }
 
-    for (final endpoint in pushNotificationUrls) {
+    for (final endpoint in endpoints) {
       try {
         final payload = <String, Object?>{
           ...event,
@@ -10983,10 +10995,8 @@ Future<void> shareChatLiveLocation(
     'isOnline': true,
   }, label: 'presence: current user live location started');
 
-  unawaited(
-    notifyFriendsLiveLocationStartedOncePerHour(
-      coordinates: LatLng(position.latitude, position.longitude),
-    ),
+  await notifyFriendsLiveLocationStartedNow(
+    coordinates: LatLng(position.latitude, position.longitude),
   );
 
   await sendChatMessage(
@@ -12005,135 +12015,66 @@ void startTemporarySpotTodayNotificationScheduler() {
   );
 }
 
-Future<void> notifyFriendsLiveLocationStartedOncePerHour({
-  LatLng? coordinates,
-}) async {
+Future<bool> notifyFriendsLiveLocationStartedNow({LatLng? coordinates}) async {
   final firebaseUser = FirebaseAuth.instance.currentUser;
-  if (firebaseUser == null) return;
+  if (firebaseUser == null) {
+    return false;
+  }
 
+  final liveCoordinates = coordinates ?? const LatLng(0, 0);
+  final dispatchId =
+      'friend_live_share_started_${firebaseUser.uid}_${DateTime.now().microsecondsSinceEpoch}';
+  final senderUsername = currentUser.username.trim().isEmpty
+      ? 'ccs_driver'
+      : currentUser.username.trim();
+  final event = <String, Object?>{
+    'type': 'friend_live_sharing',
+    'preferenceKey': 'friendLiveShareNotifications',
+    'notificationId': dispatchId,
+    'senderUsername': senderUsername,
+    'lat': liveCoordinates.latitude,
+    'lng': liveCoordinates.longitude,
+    'title': 'Live location',
+    'body': '@$senderUsername is sharing live location.',
+  };
+
+  // Use the dedicated server endpoint first. It derives the sender's friends
+  // from Firestore and sends a real FCM notification payload, so Android and
+  // iOS can display it while the receiving app is backgrounded or terminated.
+  final deliveredByDedicatedRoute = await trySendPushNotificationEvent(
+    event,
+    endpoints: liveLocationPushNotificationUrls,
+    deduplicate: false,
+  );
+  if (deliveredByDedicatedRoute) {
+    return true;
+  }
+
+  // Temporary compatibility fallback for deployments where the new route has
+  // not reached every Vercel hostname yet. There is intentionally no hourly
+  // throttle while this feature is being tested.
   List<String> friendIds;
   try {
     friendIds = await loadCurrentFriendUids();
   } catch (error, stack) {
     debugPrint('Live share friend recipient lookup failed: $error');
     debugPrint('$stack');
-    return;
+    return false;
   }
-  if (friendIds.isEmpty) return;
-
-  final now = DateTime.now();
-  final nowMillis = now.millisecondsSinceEpoch;
-  final userRef = usersCollection().doc(firebaseUser.uid);
-  var claimed = false;
-
-  try {
-    await FirebaseFirestore.instance.runTransaction((transaction) async {
-      final snapshot = await transaction.debugGet(
-        userRef,
-        'friends: live share throttle lookup',
-      );
-      final data = snapshot.data();
-      final lastSuccessfulMillis = intFromFirebase(
-        data?['lastFriendLiveShareNotificationAtMillis'],
-        timestampMillisFromFirebase(data?['lastFriendLiveShareNotificationAt']),
-      );
-      final activeClaimMillis = intFromFirebase(
-        data?['friendLiveShareNotificationClaimAtMillis'],
-        0,
-      );
-
-      if (lastSuccessfulMillis > 0 &&
-          nowMillis - lastSuccessfulMillis <
-              const Duration(hours: 1).inMilliseconds) {
-        return;
-      }
-      // Protect simultaneous starts on two devices, but allow recovery if a
-      // device died after claiming and before recording successful delivery.
-      if (activeClaimMillis > 0 &&
-          nowMillis - activeClaimMillis <
-              const Duration(minutes: 2).inMilliseconds) {
-        return;
-      }
-
-      transaction.debugSet(
-        userRef,
-        {
-          'friendLiveShareNotificationClaimAtMillis': nowMillis,
-          'friendLiveShareNotificationClaimAt': FieldValue.serverTimestamp(),
-        },
-        SetOptions(merge: true),
-        'friends: live share throttle claim',
-      );
-      claimed = true;
-    });
-  } catch (error, stack) {
-    debugPrint('Live share throttle transaction failed: $error');
-    debugPrint('$stack');
-    return;
+  if (friendIds.isEmpty) {
+    debugPrint('Live share push skipped because the sender has no friends.');
+    return false;
   }
 
-  if (!claimed) return;
-
-  final liveCoordinates = coordinates ?? const LatLng(0, 0);
-  final hourBucket = nowMillis ~/ const Duration(hours: 1).inMilliseconds;
-  var notificationDocumentCreated = false;
-
-  for (final friendId in friendIds) {
-    try {
-      final created = await createCurrentUserFriendLocationNotification(
-        notificationId:
-            'live_share_started_${friendId}_${firebaseUser.uid}_$hourBucket',
-        userId: friendId,
-        type: 'friend_live_sharing',
-        settingName: 'friendLiveShareNotifications',
-        coordinates: liveCoordinates,
-        distanceMeters: 0,
-      );
-      notificationDocumentCreated = notificationDocumentCreated || created;
-    } catch (error, stack) {
-      debugPrint(
-        'Live share notification document failed for $friendId: $error',
-      );
-      debugPrint('$stack');
-    }
+  final deliveredByLegacyRoute = await trySendPushNotificationEvent(
+    <String, Object?>{...event, 'recipientUserIds': friendIds},
+    endpoints: pushNotificationUrls,
+    deduplicate: false,
+  );
+  if (!deliveredByLegacyRoute) {
+    debugPrint('Live share push was not delivered: $dispatchId');
   }
-
-  final pushed = await trySendPushNotificationEvent({
-    'type': 'friend_live_sharing',
-    'preferenceKey': 'friendLiveShareNotifications',
-    'notificationId':
-        'friend_live_share_started_${firebaseUser.uid}_$hourBucket',
-    'recipientUserIds': friendIds,
-    'senderUsername': currentUser.username,
-    'lat': liveCoordinates.latitude,
-    'lng': liveCoordinates.longitude,
-    'title': 'Live location',
-    'body': '@${currentUser.username} is sharing live location.',
-  });
-
-  final delivered = notificationDocumentCreated || pushed;
-  try {
-    await userRef.debugSet(
-      delivered
-          ? {
-              'lastFriendLiveShareNotificationAtMillis': nowMillis,
-              'lastFriendLiveShareNotificationAt': FieldValue.serverTimestamp(),
-              'friendLiveShareNotificationClaimAtMillis': FieldValue.delete(),
-              'friendLiveShareNotificationClaimAt': FieldValue.delete(),
-            }
-          : {
-              'friendLiveShareNotificationClaimAtMillis': FieldValue.delete(),
-              'friendLiveShareNotificationClaimAt': FieldValue.delete(),
-            },
-      SetOptions(merge: true),
-      delivered
-          ? 'friends: live share throttle success'
-          : 'friends: live share throttle release',
-    );
-  } catch (error, stack) {
-    debugPrint('Live share throttle completion failed: $error');
-    debugPrint('$stack');
-  }
+  return deliveredByLegacyRoute;
 }
 
 Future<void> createAdminUserReportNotifications({
@@ -23114,9 +23055,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
       debugPrint('$stack');
     }
 
-    unawaited(
-      notifyFriendsLiveLocationStartedOncePerHour(coordinates: location),
-    );
+    await notifyFriendsLiveLocationStartedNow(coordinates: location);
 
     if (!mounted) {
       return;
@@ -24877,10 +24816,8 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     }, label: 'presence: current user live location heartbeat');
 
     if (renewWindow) {
-      unawaited(
-        notifyFriendsLiveLocationStartedOncePerHour(
-          coordinates: LatLng(position.latitude, position.longitude),
-        ),
+      await notifyFriendsLiveLocationStartedNow(
+        coordinates: LatLng(position.latitude, position.longitude),
       );
     }
 
@@ -47142,8 +47079,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               _SettingsSwitchTile(
                 icon: Icons.share_location,
                 title: 'Friends sharing location',
-                subtitle:
-                    'When a friend starts sharing live location (max once per hour)',
+                subtitle: 'When a friend starts sharing live location',
                 value: friendLiveShareNotifications,
                 onChanged: (value) => updateSettingsSwitch(
                   () => friendLiveShareNotifications = value,
