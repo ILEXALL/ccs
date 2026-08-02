@@ -1698,8 +1698,8 @@ const _ruText = <String, String>{
   'When friends stay near a spot for 5 minutes':
       'Когда друзья находятся возле спота 5 минут',
   'Friends sharing location': 'Друзья делятся геопозицией',
-  'After a friend shares live location for 10 minutes':
-      'После 10 минут показа геопозиции другом',
+  'When a friend starts sharing live location (max once per hour)':
+      'Когда друг начинает делиться геопозицией (не чаще раза в час)',
   'Public profile': 'Публичный профиль',
   'Let other drivers see your profile':
       'Разрешить другим водителям видеть профиль',
@@ -2599,8 +2599,8 @@ const _lvText = <String, String>{
   'When friends stay near a spot for 5 minutes':
       'Kad draugi 5 minūtes atrodas pie vietas',
   'Friends sharing location': 'Draugi kopīgo atrašanās vietu',
-  'After a friend shares live location for 10 minutes':
-      'Pēc 10 minūtēm, kad draugs kopīgo tiešo atrašanās vietu',
+  'When a friend starts sharing live location (max once per hour)':
+      'Kad draugs sāk kopīgot atrašanās vietu (ne biežāk kā reizi stundā)',
   'Public profile': 'Publisks profils',
   'Let other drivers see your profile':
       'Ļaut citiem autovadītājiem redzēt profilu',
@@ -5982,6 +5982,7 @@ AppUser appUserFromCurrentUserDocument(
 }
 
 Future<void> stopCurrentUserAppServicesForAccessBlock() async {
+  stopTemporarySpotTodayNotificationScheduler();
   for (final subscription in spotSyncSubscriptions) {
     await subscription.cancel();
   }
@@ -6026,6 +6027,7 @@ void startCurrentUserDocumentWatcher() {
           final wasBanActive = currentUser.banActive;
           final nextUser = appUserFromCurrentUserDocument(snapshot);
           setCurrentUser(nextUser);
+          startTemporarySpotTodayNotificationScheduler();
 
           if (nextUser.banActive) {
             unawaited(stopCurrentUserAppServicesForAccessBlock());
@@ -6043,6 +6045,7 @@ void startCurrentUserDocumentWatcher() {
 }
 
 Future<void> signOutCurrentAccount() async {
+  stopTemporarySpotTodayNotificationScheduler();
   await saveRememberMePreference(false);
   await unregisterPushTokenForCurrentUser();
 
@@ -7213,18 +7216,20 @@ bool shouldSendPushNotificationEvent(
   return true;
 }
 
-Future<void> sendPushNotificationEvent(Map<String, Object?> event) async {
+Future<bool> trySendPushNotificationEvent(Map<String, Object?> event) async {
   final firebaseUser = FirebaseAuth.instance.currentUser;
 
   if (firebaseUser == null) {
     debugPrint(
       'Push event skipped because there is no signed-in Firebase user. event=$event',
     );
-    return;
+    return false;
   }
 
+  final dedupKey = pushNotificationEventDedupKey(event, firebaseUser.uid);
   if (!shouldSendPushNotificationEvent(event, firebaseUser.uid)) {
-    return;
+    // Another identical event was already accepted or is currently in flight.
+    return true;
   }
 
   final recipientUserIds = stringListFromFirebase(
@@ -7232,15 +7237,24 @@ Future<void> sendPushNotificationEvent(Map<String, Object?> event) async {
     const <String>[],
   ).where((uid) => uid.trim().isNotEmpty && uid != firebaseUser.uid).toSet();
   if (event.containsKey('recipientUserIds') && recipientUserIds.isEmpty) {
+    _recentPushEventSentAtMillis.remove(dedupKey);
     debugPrint('Push event skipped because it has no recipients. event=$event');
-    return;
+    return false;
   }
 
   Object? lastError;
   StackTrace? lastStack;
 
   for (var attempt = 0; attempt < 2; attempt++) {
-    final idToken = await firebaseUser.getIdToken(attempt > 0);
+    String? idToken;
+    try {
+      idToken = await firebaseUser.getIdToken(attempt > 0);
+    } catch (error, stack) {
+      lastError = error;
+      lastStack = stack;
+      debugPrint('Could not obtain Firebase ID token for push: $error');
+      continue;
+    }
     if (idToken == null || idToken.trim().isEmpty) {
       lastError = StateError('Firebase ID token is empty.');
       continue;
@@ -7270,7 +7284,7 @@ Future<void> sendPushNotificationEvent(Map<String, Object?> event) async {
           );
         }
         debugPrint('Push event accepted by $endpoint: $event');
-        return;
+        return true;
       } catch (error, stack) {
         lastError = error;
         lastStack = stack;
@@ -7283,10 +7297,17 @@ Future<void> sendPushNotificationEvent(Map<String, Object?> event) async {
     }
   }
 
+  // Permit a later retry when every endpoint failed.
+  _recentPushEventSentAtMillis.remove(dedupKey);
   debugPrint('Push event failed on every configured endpoint: $lastError');
   if (lastStack != null) {
     debugPrint('$lastStack');
   }
+  return false;
+}
+
+Future<void> sendPushNotificationEvent(Map<String, Object?> event) async {
+  await trySendPushNotificationEvent(event);
 }
 
 Future<void> putBytesToPresignedUrl({
@@ -9668,8 +9689,12 @@ Future<void> unblockUserById(String userId) async {
 const double friendNearbyRadiusMeters = 5000;
 const double friendAtSpotRadiusMeters = 100;
 const Duration friendAtSpotNotificationDwellTime = Duration(minutes: 5);
-const Duration friendLiveSharingNotificationDelay = Duration(minutes: 10);
 const Duration friendLocationNotificationCooldown = Duration(minutes: 30);
+const Duration temporarySpotTodayNotificationCheckInterval = Duration(
+  minutes: 30,
+);
+Timer? temporarySpotTodayNotificationTimer;
+final Set<String> temporarySpotTodayDispatchesThisSession = <String>{};
 
 String friendNearbyNotificationId(String userId, String friendUid) {
   return 'nearby_${userId}_$friendUid';
@@ -10958,6 +10983,12 @@ Future<void> shareChatLiveLocation(
     'isOnline': true,
   }, label: 'presence: current user live location started');
 
+  unawaited(
+    notifyFriendsLiveLocationStartedOncePerHour(
+      coordinates: LatLng(position.latitude, position.longitude),
+    ),
+  );
+
   await sendChatMessage(
     chatId: chat.id,
     text: chat.isGroup
@@ -11297,7 +11328,7 @@ Future<void> createFriendLocationNotification({
   }, SetOptions(merge: true));
 }
 
-Future<void> createCurrentUserFriendLocationNotification({
+Future<bool> createCurrentUserFriendLocationNotification({
   required String notificationId,
   required String userId,
   required String type,
@@ -11312,7 +11343,7 @@ Future<void> createCurrentUserFriendLocationNotification({
   if (firebaseUser == null ||
       cleanUserId.isEmpty ||
       cleanUserId == firebaseUser.uid) {
-    return;
+    return false;
   }
 
   final allowed = await userNotificationPreferenceEnabled(
@@ -11320,11 +11351,11 @@ Future<void> createCurrentUserFriendLocationNotification({
     settingName,
   );
   if (!allowed) {
-    return;
+    return false;
   }
 
   if (!await shouldCreateFriendLocationNotification(notificationId)) {
-    return;
+    return false;
   }
 
   final nowMillis = DateTime.now().millisecondsSinceEpoch;
@@ -11333,7 +11364,7 @@ Future<void> createCurrentUserFriendLocationNotification({
     'friend_at_spot' =>
       '@${currentUser.username} is at ${spotName.isEmpty ? 'a spot' : spotName}.',
     'friend_live_sharing' =>
-      '@${currentUser.username} has been sharing live location for 10 minutes.',
+      '@${currentUser.username} is sharing live location.',
     _ => '@${currentUser.username} is on the map.',
   };
 
@@ -11361,6 +11392,7 @@ Future<void> createCurrentUserFriendLocationNotification({
     'createdAt': FieldValue.serverTimestamp(),
     'updatedAt': FieldValue.serverTimestamp(),
   }, SetOptions(merge: true));
+  return true;
 }
 
 Future<void> notifyCurrentUserFriendsAboutSpotPresence({
@@ -11401,41 +11433,6 @@ Future<void> notifyCurrentUserFriendsAboutSpotPresence({
       'recipientUserIds': friendUids,
     }),
   );
-}
-
-Future<void> notifyCurrentUserFriendsAboutLiveSharing({
-  required LatLng coordinates,
-}) async {
-  final firebaseUser = FirebaseAuth.instance.currentUser;
-
-  if (firebaseUser == null) {
-    return;
-  }
-
-  final friendUids = await loadCurrentFriendUids();
-  final sessionKey =
-      DateTime.now().millisecondsSinceEpoch ~/
-      Duration(minutes: 30).inMilliseconds;
-
-  for (final friendUid in friendUids) {
-    await createCurrentUserFriendLocationNotification(
-      notificationId: 'live_share_${friendUid}_${firebaseUser.uid}_$sessionKey',
-      userId: friendUid,
-      type: 'friend_live_sharing',
-      settingName: 'friendLiveShareNotifications',
-      coordinates: coordinates,
-      distanceMeters: 0,
-    );
-  }
-
-  await sendPushNotificationEvent({
-    'type': 'friend_live_sharing',
-    'preferenceKey': 'friendLiveShareNotifications',
-    'audience': 'recipient_user_ids',
-    'lat': coordinates.latitude,
-    'lng': coordinates.longitude,
-    'recipientUserIds': friendUids,
-  });
 }
 
 Future<void> checkFriendLocationNotifications() async {
@@ -11790,8 +11787,353 @@ Future<List<String>> staffUserIdsExcept({String? excludedUid}) async {
   return ids.toList();
 }
 
+Future<List<String>> communityModerationUserIdsExcept({
+  String? excludedUid,
+}) async {
+  final ids = <String>{...await staffUserIdsExcept(excludedUid: excludedUid)};
+
+  Future<void> addFlaggedUsers(String field, String label) async {
+    try {
+      final snapshot = await usersCollection()
+          .where(field, isEqualTo: true)
+          .debugGet(null, label);
+      for (final doc in snapshot.docs) {
+        final data = doc.data();
+        final uid = stringFromFirebase(data['uid'], doc.id).trim();
+        if (uid.isNotEmpty &&
+            uid != excludedUid &&
+            data['deleted'] != true &&
+            data['banned'] != true) {
+          ids.add(uid);
+        }
+      }
+    } catch (error, stack) {
+      debugPrint('Community moderator lookup failed for $field: $error');
+      debugPrint('$stack');
+    }
+  }
+
+  await addFlaggedUsers(
+    'globalChatModerator',
+    'users: global chat moderator ids query',
+  );
+  await addFlaggedUsers('globalModerator', 'users: global moderator ids query');
+
+  try {
+    final config = await FirebaseFirestore.instance
+        .collection('app_config')
+        .doc('global_chat')
+        .debugGet(null, 'community moderation: notification recipients config');
+    final data = config.data();
+    for (final uid in <String>{
+      ...stringListFromFirebase(data?['moderatorIds'], const []),
+      ...stringListFromFirebase(data?['globalModeratorIds'], const []),
+    }) {
+      final cleanUid = uid.trim();
+      if (cleanUid.isNotEmpty && cleanUid != excludedUid) {
+        ids.add(cleanUid);
+      }
+    }
+  } catch (error, stack) {
+    debugPrint('Community moderator config lookup failed: $error');
+    debugPrint('$stack');
+  }
+
+  return ids.toList();
+}
+
 Future<List<String>> adminUserIdsExcept({String? excludedUid}) {
   return staffUserIdsExcept(excludedUid: excludedUid);
+}
+
+Future<void> notifyStaffAboutCommunityEvent({
+  required String type,
+  required String notificationId,
+  required String title,
+  required String body,
+  Map<String, Object?> extra = const <String, Object?>{},
+}) async {
+  final senderUid = FirebaseAuth.instance.currentUser?.uid ?? currentUser.uid;
+  final recipientUids = await communityModerationUserIdsExcept(
+    excludedUid: senderUid,
+  );
+  if (recipientUids.isEmpty) {
+    debugPrint(
+      'Community moderation notification skipped because no recipients were found.',
+    );
+    return;
+  }
+
+  final nowMillis = DateTime.now().millisecondsSinceEpoch;
+  try {
+    final batch = FirebaseFirestore.instance.batch();
+    for (final recipientUid in recipientUids) {
+      batch.debugSet(
+        adminNotificationsCollection().doc('${notificationId}_$recipientUid'),
+        {
+          'userId': recipientUid,
+          'type': type,
+          'title': title,
+          'body': body,
+          'actorUserId': senderUid,
+          'actorUsername': currentUser.username,
+          'read': false,
+          'createdAt': FieldValue.serverTimestamp(),
+          'createdAtMillis': nowMillis,
+          ...extra,
+        },
+        SetOptions(merge: true),
+        'admin notifications: community event',
+      );
+    }
+    await batch.commit();
+  } catch (error, stack) {
+    // The push endpoint may still be able to deliver even when client rules do
+    // not permit direct writes to admin_notifications.
+    debugPrint('Community admin notification documents failed: $error');
+    debugPrint('$stack');
+  }
+
+  final delivered = await trySendPushNotificationEvent({
+    'type': type,
+    'notificationId': notificationId,
+    'recipientUserIds': recipientUids,
+    'title': title,
+    'body': body,
+    ...extra,
+  });
+  if (!delivered) {
+    debugPrint('Community moderation push was not delivered: $notificationId');
+  }
+}
+
+bool isSameLocalCalendarDay(DateTime first, DateTime second) =>
+    first.year == second.year &&
+    first.month == second.month &&
+    first.day == second.day;
+
+String localCalendarDayKey(DateTime value) =>
+    '${value.year}${twoDigits(value.month)}${twoDigits(value.day)}';
+
+bool temporarySpotStartsToday(CarSpot spot, DateTime now) {
+  if (!spot.isTemporary || spot.status != SpotStatus.approved) {
+    return false;
+  }
+  final startsAtMillis = spot.startsAtMillis;
+  if (startsAtMillis == null || spot.id.trim().isEmpty) {
+    return false;
+  }
+  final expiresAtMillis = spot.expiresAtMillis;
+  if (expiresAtMillis != null &&
+      expiresAtMillis <= now.millisecondsSinceEpoch) {
+    return false;
+  }
+  return isSameLocalCalendarDay(
+    DateTime.fromMillisecondsSinceEpoch(startsAtMillis),
+    now,
+  );
+}
+
+Future<void> notifyAllUsersIfTemporarySpotIsToday(CarSpot spot) async {
+  final now = DateTime.now();
+  if (!temporarySpotStartsToday(spot, now)) return;
+
+  final startsAtMillis = spot.startsAtMillis!;
+  final startsAt = DateTime.fromMillisecondsSinceEpoch(startsAtMillis);
+  final dayKey = localCalendarDayKey(startsAt);
+  final notificationId = 'temporary_spot_today_${spot.id}_$dayKey';
+  if (temporarySpotTodayDispatchesThisSession.contains(notificationId)) {
+    return;
+  }
+
+  final delivered = await trySendPushNotificationEvent({
+    'type': 'temporary_spot_today',
+    'preferenceKey': 'newSpotNotifications',
+    'audience': 'all_users',
+    'notificationId': notificationId,
+    'title': 'Temporary spot today',
+    'body': '${spot.name} is happening today in ${spot.cityCountry}.',
+    'spotId': spot.id,
+    'spotName': spot.name,
+    'cityCountry': spot.cityCountry,
+    'startsAtMillis': startsAtMillis,
+  });
+  if (delivered) {
+    temporarySpotTodayDispatchesThisSession.add(notificationId);
+  }
+}
+
+Future<void> notifyAllUsersAboutTemporarySpotsToday(
+  Iterable<CarSpot> spots,
+) async {
+  final now = DateTime.now();
+  final todaySpots =
+      spots.where((spot) => temporarySpotStartsToday(spot, now)).toList()
+        ..sort((first, second) {
+          return (first.startsAtMillis ?? 0).compareTo(
+            second.startsAtMillis ?? 0,
+          );
+        });
+
+  for (final spot in todaySpots) {
+    await notifyAllUsersIfTemporarySpotIsToday(spot);
+  }
+}
+
+void stopTemporarySpotTodayNotificationScheduler() {
+  temporarySpotTodayNotificationTimer?.cancel();
+  temporarySpotTodayNotificationTimer = null;
+  temporarySpotTodayDispatchesThisSession.clear();
+}
+
+void startTemporarySpotTodayNotificationScheduler() {
+  temporarySpotTodayNotificationTimer?.cancel();
+  temporarySpotTodayNotificationTimer = null;
+
+  // A client-only app cannot guarantee a midnight dispatch while every admin
+  // device is offline. When a staff session is active, this immediate +
+  // periodic cache check covers startup, midnight rollover, and spot changes.
+  if (!userRoleIsStaff(currentUser.role) ||
+      FirebaseAuth.instance.currentUser == null) {
+    return;
+  }
+
+  unawaited(notifyAllUsersAboutTemporarySpotsToday(reviewSpots.value));
+  temporarySpotTodayNotificationTimer = Timer.periodic(
+    temporarySpotTodayNotificationCheckInterval,
+    (_) => unawaited(notifyAllUsersAboutTemporarySpotsToday(reviewSpots.value)),
+  );
+}
+
+Future<void> notifyFriendsLiveLocationStartedOncePerHour({
+  LatLng? coordinates,
+}) async {
+  final firebaseUser = FirebaseAuth.instance.currentUser;
+  if (firebaseUser == null) return;
+
+  List<String> friendIds;
+  try {
+    friendIds = await loadCurrentFriendUids();
+  } catch (error, stack) {
+    debugPrint('Live share friend recipient lookup failed: $error');
+    debugPrint('$stack');
+    return;
+  }
+  if (friendIds.isEmpty) return;
+
+  final now = DateTime.now();
+  final nowMillis = now.millisecondsSinceEpoch;
+  final userRef = usersCollection().doc(firebaseUser.uid);
+  var claimed = false;
+
+  try {
+    await FirebaseFirestore.instance.runTransaction((transaction) async {
+      final snapshot = await transaction.debugGet(
+        userRef,
+        'friends: live share throttle lookup',
+      );
+      final data = snapshot.data();
+      final lastSuccessfulMillis = intFromFirebase(
+        data?['lastFriendLiveShareNotificationAtMillis'],
+        timestampMillisFromFirebase(data?['lastFriendLiveShareNotificationAt']),
+      );
+      final activeClaimMillis = intFromFirebase(
+        data?['friendLiveShareNotificationClaimAtMillis'],
+        0,
+      );
+
+      if (lastSuccessfulMillis > 0 &&
+          nowMillis - lastSuccessfulMillis <
+              const Duration(hours: 1).inMilliseconds) {
+        return;
+      }
+      // Protect simultaneous starts on two devices, but allow recovery if a
+      // device died after claiming and before recording successful delivery.
+      if (activeClaimMillis > 0 &&
+          nowMillis - activeClaimMillis <
+              const Duration(minutes: 2).inMilliseconds) {
+        return;
+      }
+
+      transaction.debugSet(
+        userRef,
+        {
+          'friendLiveShareNotificationClaimAtMillis': nowMillis,
+          'friendLiveShareNotificationClaimAt': FieldValue.serverTimestamp(),
+        },
+        SetOptions(merge: true),
+        'friends: live share throttle claim',
+      );
+      claimed = true;
+    });
+  } catch (error, stack) {
+    debugPrint('Live share throttle transaction failed: $error');
+    debugPrint('$stack');
+    return;
+  }
+
+  if (!claimed) return;
+
+  final liveCoordinates = coordinates ?? const LatLng(0, 0);
+  final hourBucket = nowMillis ~/ const Duration(hours: 1).inMilliseconds;
+  var notificationDocumentCreated = false;
+
+  for (final friendId in friendIds) {
+    try {
+      final created = await createCurrentUserFriendLocationNotification(
+        notificationId:
+            'live_share_started_${friendId}_${firebaseUser.uid}_$hourBucket',
+        userId: friendId,
+        type: 'friend_live_sharing',
+        settingName: 'friendLiveShareNotifications',
+        coordinates: liveCoordinates,
+        distanceMeters: 0,
+      );
+      notificationDocumentCreated = notificationDocumentCreated || created;
+    } catch (error, stack) {
+      debugPrint(
+        'Live share notification document failed for $friendId: $error',
+      );
+      debugPrint('$stack');
+    }
+  }
+
+  final pushed = await trySendPushNotificationEvent({
+    'type': 'friend_live_sharing',
+    'preferenceKey': 'friendLiveShareNotifications',
+    'notificationId':
+        'friend_live_share_started_${firebaseUser.uid}_$hourBucket',
+    'recipientUserIds': friendIds,
+    'senderUsername': currentUser.username,
+    'lat': liveCoordinates.latitude,
+    'lng': liveCoordinates.longitude,
+    'title': 'Live location',
+    'body': '@${currentUser.username} is sharing live location.',
+  });
+
+  final delivered = notificationDocumentCreated || pushed;
+  try {
+    await userRef.debugSet(
+      delivered
+          ? {
+              'lastFriendLiveShareNotificationAtMillis': nowMillis,
+              'lastFriendLiveShareNotificationAt': FieldValue.serverTimestamp(),
+              'friendLiveShareNotificationClaimAtMillis': FieldValue.delete(),
+              'friendLiveShareNotificationClaimAt': FieldValue.delete(),
+            }
+          : {
+              'friendLiveShareNotificationClaimAtMillis': FieldValue.delete(),
+              'friendLiveShareNotificationClaimAt': FieldValue.delete(),
+            },
+      SetOptions(merge: true),
+      delivered
+          ? 'friends: live share throttle success'
+          : 'friends: live share throttle release',
+    );
+  } catch (error, stack) {
+    debugPrint('Live share throttle completion failed: $error');
+    debugPrint('$stack');
+  }
 }
 
 Future<void> createAdminUserReportNotifications({
@@ -11850,36 +12192,43 @@ Future<void> createAdminSpotReviewNotification(CarSpot spot) async {
     return;
   }
 
-  final batch = FirebaseFirestore.instance.batch();
+  final nowMillis = DateTime.now().millisecondsSinceEpoch;
+  try {
+    final batch = FirebaseFirestore.instance.batch();
 
-  for (final staffUid in staffUids) {
-    final notificationId = 'admin_${spot.id}_review_$staffUid';
-    final notificationData = {
-      'userId': staffUid,
-      'type': 'spot_pending_review',
-      'title': 'Spot review updates',
-      'body': '${spot.name} is waiting for review.',
-      'actorUserId': spot.addedByUid,
-      'actorUsername': spot.addedBy,
-      'spotId': spot.id,
-      'spotName': spot.name,
-      'cityCountry': spot.cityCountry,
-      'addedBy': spot.addedBy,
-      'addedByUid': spot.addedByUid,
-      'read': false,
-      'createdAt': FieldValue.serverTimestamp(),
-    };
+    for (final staffUid in staffUids) {
+      final notificationId = 'admin_${spot.id}_review_$staffUid';
+      final notificationData = {
+        'userId': staffUid,
+        'type': 'spot_pending_review',
+        'title': 'Spot review updates',
+        'body': '${spot.name} is waiting for review.',
+        'actorUserId': spot.addedByUid,
+        'actorUsername': spot.addedBy,
+        'spotId': spot.id,
+        'spotName': spot.name,
+        'cityCountry': spot.cityCountry,
+        'addedBy': spot.addedBy,
+        'addedByUid': spot.addedByUid,
+        'read': false,
+        'createdAt': FieldValue.serverTimestamp(),
+        'createdAtMillis': nowMillis,
+      };
 
-    batch.debugSet(
-      adminNotificationsCollection().doc(notificationId),
-      notificationData,
-      SetOptions(merge: true),
-    );
+      batch.debugSet(
+        adminNotificationsCollection().doc(notificationId),
+        notificationData,
+        SetOptions(merge: true),
+      );
+    }
+
+    await batch.commit();
+  } catch (error, stack) {
+    debugPrint('Pending spot admin notification documents failed: $error');
+    debugPrint('$stack');
   }
 
-  await batch.commit();
-
-  await sendPushNotificationEvent({
+  final delivered = await trySendPushNotificationEvent({
     'type': 'spot_pending_review',
     'notificationId': 'spot_pending_review_${spot.id}',
     'spotId': spot.id,
@@ -11888,7 +12237,12 @@ Future<void> createAdminSpotReviewNotification(CarSpot spot) async {
     'addedBy': spot.addedBy,
     'addedByUid': spot.addedByUid,
     'recipientUserIds': staffUids,
+    'title': 'Spot waiting for review',
+    'body': '${spot.name} was submitted by @${spot.addedBy}.',
   });
+  if (!delivered) {
+    debugPrint('Pending spot admin push was not delivered: ${spot.id}');
+  }
 }
 
 Future<void> createAdminSpotDecisionNotification(
@@ -12838,13 +13192,16 @@ void _listenToSpotQuery({
   final subscription = trackedQuerySnapshots('spots listener: $source', query)
       .listen(
         (snapshot) {
+          final parsedSpots = snapshot.docs.map(CarSpot.fromFirestore).toList();
           _firebaseSpotCacheBySource[source] = {
-            for (final doc in snapshot.docs)
-              _spotCacheKey(CarSpot.fromFirestore(doc)): CarSpot.fromFirestore(
-                doc,
-              ),
+            for (final spot in parsedSpots) _spotCacheKey(spot): spot,
           };
           _publishFirebaseSpotCaches();
+
+          if (userRoleIsStaff(currentUser.role) &&
+              source.contains('temporary approved')) {
+            unawaited(notifyAllUsersAboutTemporarySpotsToday(parsedSpots));
+          }
         },
         onError: (Object error, StackTrace stack) {
           debugPrint('Spot listener failed for $source: $error');
@@ -12924,6 +13281,7 @@ void startFirebaseSpotSync() {
   }
   spotSyncSubscriptions.clear();
   _firebaseSpotCacheBySource.clear();
+  startTemporarySpotTodayNotificationScheduler();
 
   unawaited(_startCachedSpotSync());
   unawaited(syncActiveTemporarySpotForumTopics());
@@ -14773,6 +15131,7 @@ Future<void> updateSpotStatus(
 
   if (statusChanged && status == SpotStatus.approved) {
     await createNewSpotNotificationForUsers(updatedSpot);
+    await notifyAllUsersIfTemporarySpotIsToday(updatedSpot);
 
     await sendPushNotificationEvent({
       'type': updatedSpot.isTemporary ? 'temporary_event' : 'new_spot',
@@ -15087,6 +15446,7 @@ class NotificationCenterItem {
   final String spotId;
   final String spotName;
   final String chatId;
+  final String topicId;
   final String reviewId;
   final String messageId;
   final String likeId;
@@ -15111,6 +15471,7 @@ class NotificationCenterItem {
     this.spotId = '',
     this.spotName = '',
     this.chatId = '',
+    this.topicId = '',
     this.reviewId = '',
     this.messageId = '',
     this.likeId = '',
@@ -15137,6 +15498,7 @@ class NotificationCenterItem {
     String? spotId,
     String? spotName,
     String? chatId,
+    String? topicId,
     String? reviewId,
     String? messageId,
     String? likeId,
@@ -15161,6 +15523,7 @@ class NotificationCenterItem {
       spotId: spotId ?? this.spotId,
       spotName: spotName ?? this.spotName,
       chatId: chatId ?? this.chatId,
+      topicId: topicId ?? this.topicId,
       reviewId: reviewId ?? this.reviewId,
       messageId: messageId ?? this.messageId,
       likeId: likeId ?? this.likeId,
@@ -15179,6 +15542,8 @@ class NotificationCenterItem {
       !projectNews &&
       (spotId.trim().isNotEmpty ||
           chatId.trim().isNotEmpty ||
+          topicId.trim().isNotEmpty ||
+          type == 'global_chat_admin' ||
           (type == 'chat_message' &&
               (actorUserId.trim().isNotEmpty ||
                   id.trim().startsWith('chat_'))) ||
@@ -15247,11 +15612,13 @@ IconData notificationCenterIcon(NotificationCenterItem item) {
           ? Icons.cancel
           : Icons.check_circle,
     'spot_pending_review' => Icons.fact_check,
+    'global_chat_admin' => Icons.public,
+    'forum_topic_pending' || 'forum_reply_admin' => Icons.forum_outlined,
     'user_report_new' => Icons.report_outlined,
     'spot_approved_by_admin' => Icons.check_circle,
     'spot_rejected_by_admin' => Icons.cancel,
     'new_spot' => Icons.add_location_alt,
-    'temporary_event' => Icons.event_available,
+    'temporary_event' || 'temporary_spot_today' => Icons.event_available,
     'friend_request' => Icons.person_add_alt_1,
     'friend_nearby' ||
     'friend_at_spot' ||
@@ -15278,9 +15645,10 @@ Color notificationCenterColor(NotificationCenterItem item) {
     'spot_rejected_by_admin' => Colors.redAccent,
     'spot_approved_by_admin' => Colors.green,
     'spot_pending_review' => blue,
+    'global_chat_admin' || 'forum_topic_pending' || 'forum_reply_admin' => blue,
     'user_report_new' => Colors.orangeAccent,
     'new_spot' => const Color(0xFF9B35FF),
-    'temporary_event' => const Color(0xFFFF7A00),
+    'temporary_event' || 'temporary_spot_today' => const Color(0xFFFF7A00),
     'friend_request' => blue,
     'friend_nearby' ||
     'friend_at_spot' ||
@@ -15374,7 +15742,9 @@ String spotNameFromNotificationBody(String type, String body) {
     return match?.group(1)?.trim().replaceAll(RegExp(r'\.+$'), '') ?? '';
   }
 
-  if (cleanType == 'new_spot' || cleanType == 'temporary_event') {
+  if (cleanType == 'new_spot' ||
+      cleanType == 'temporary_event' ||
+      cleanType == 'temporary_spot_today') {
     final patterns = [
       RegExp(
         r'^(.+?)\s+(?:event\s+)?was\s+added(?:\s+in\s+.+)?\.?$',
@@ -15526,6 +15896,7 @@ NotificationCenterItem notificationCenterItemFromJson(Object? value) {
       if (v.isNotEmpty) return v;
       return pickString('chat_id', '');
     })(),
+    topicId: pickString('topicId', ''),
     reviewId: pickString('reviewId', ''),
     messageId: pickString('messageId', ''),
     likeId: pickString('likeId', ''),
@@ -15590,6 +15961,10 @@ NotificationCenterItem notificationCenterItemFromDocument(
     'chat_message' => chatNotificationTitle(actorUsername),
     'new_spot' => 'New spots',
     'temporary_event' => 'Temporary events',
+    'temporary_spot_today' => 'Temporary spot today',
+    'global_chat_admin' => 'Global chat',
+    'forum_topic_pending' => 'Forum topic waiting for review',
+    'forum_reply_admin' => 'New forum reply',
     'spot_pending_review' => 'Spot review updates',
     'user_report_new' => 'New user report',
     'spot_approved_by_admin' ||
@@ -15628,6 +16003,13 @@ NotificationCenterItem notificationCenterItemFromDocument(
         spotName.trim().isEmpty
             ? 'New temporary event was added.'
             : '$spotName temporary event was added.',
+      'temporary_spot_today' =>
+        spotName.trim().isEmpty
+            ? 'A temporary spot is happening today.'
+            : '$spotName is happening today.',
+      'global_chat_admin' => 'New message in global chat.',
+      'forum_topic_pending' => 'A forum topic is waiting for review.',
+      'forum_reply_admin' => 'A new reply was posted in the forum.',
       'spot_review_update' =>
         status == 'approved'
             ? (spotName.trim().isEmpty
@@ -15665,7 +16047,7 @@ NotificationCenterItem notificationCenterItemFromDocument(
       'friend_live_sharing' =>
         friendUsername.trim().isEmpty
             ? 'A friend is sharing live location.'
-            : '@$friendUsername has been sharing live location for 10 minutes.',
+            : '@$friendUsername is sharing live location.',
       _ => pickString('message', ''),
     };
   }
@@ -15703,6 +16085,7 @@ NotificationCenterItem notificationCenterItemFromDocument(
       if (v.isNotEmpty) return v;
       return pickString('chat_id', '');
     })(),
+    topicId: pickString('topicId', ''),
     reviewId: pickString('reviewId', ''),
     messageId: pickString('messageId', ''),
     likeId: pickString('likeId', ''),
@@ -16814,6 +17197,27 @@ Future<void> openNotificationCenterItem(
     unawaited(markNotificationReadBestEffort(item.reference!));
   }
 
+  if (item.type == 'global_chat_admin') {
+    Navigator.push(
+      context,
+      appPageRoute(builder: (_) => const ChatScreen(initialTabIndex: 3)),
+    );
+    return;
+  }
+
+  if ((item.type == 'forum_topic_pending' ||
+          item.type == 'forum_reply_admin') &&
+      item.topicId.trim().isNotEmpty) {
+    Navigator.push(
+      context,
+      appPageRoute(
+        builder: (_) =>
+            ForumTopicPage(topicId: item.topicId.trim(), title: item.title),
+      ),
+    );
+    return;
+  }
+
   if (item.type == 'chat_message') {
     final chat = await chatForNotificationItem(item);
     if (!context.mounted) return;
@@ -17921,12 +18325,11 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     ) {
       updateCurrentUserOnlinePresence(isOnline: true);
     });
-    // Do not start Firestore notification listeners on app launch.
-    // Notifications are now stored in user_notifications and loaded only when
-    // the bell is opened; push notifications handle real-time alerts.
-    // This avoids startup reads from unread admin/friend/meet listeners.
+    // Keep general notification collections lazy, but admins/community
+    // moderators need a live admin_notifications listener so review and
+    // moderation events appear immediately while the app is foregrounded.
     // startMeetNotificationListener();
-    // startAdminNotificationListener();
+    startAdminNotificationListener();
     // startFriendLocationNotificationListener();
     // startFriendLocationNotificationChecks();
   }
@@ -18062,72 +18465,56 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   void startAdminNotificationListener() {
     final firebaseUser = FirebaseAuth.instance.currentUser;
 
-    if (firebaseUser == null || currentUser.role != UserRole.admin) {
+    if (firebaseUser == null ||
+        (!userRoleIsStaff(currentUser.role) &&
+            !currentUser.globalChatModerator)) {
       return;
     }
 
-    adminNotificationSubscription = userNotificationsCollection()
+    adminNotificationSubscription = adminNotificationsCollection()
         .where('userId', isEqualTo: firebaseUser.uid)
         .where('read', isEqualTo: false)
         .limit(20)
         .debugSnapshots('notifications: unread admin notifications listener')
-        .listen((snapshot) async {
-          for (final change in snapshot.docChanges) {
-            if (change.type != DocumentChangeType.added) {
-              continue;
-            }
+        .listen(
+          (snapshot) async {
+            for (final change in snapshot.docChanges) {
+              if (change.type != DocumentChangeType.added) {
+                continue;
+              }
 
-            final data = change.doc.data() ?? {};
+              final data = change.doc.data() ?? {};
+              if (data['read'] == true) {
+                continue;
+              }
 
-            if (data['read'] == true) {
-              continue;
-            }
+              final title = stringFromFirebase(data['title'], 'Admin update');
+              final body = stringFromFirebase(data['body'], '').trim();
+              final message = body.isEmpty ? title : body;
 
-            final type = stringFromFirebase(data['type'], '');
-            if (type != 'spot_pending_review' &&
-                type != 'spot_approved_by_admin' &&
-                type != 'spot_rejected_by_admin') {
-              continue;
-            }
-            final spotName = stringFromFirebase(data['spotName'], 'New spot');
-            final addedBy = stringFromFirebase(data['addedBy'], 'user');
-            final reviewedBy = stringFromFirebase(data['reviewedBy'], 'admin');
-            final rejectionReason = stringFromFirebase(
-              data['rejectionReason'],
-              '',
-            );
-            final rejectionSuffix = rejectionReason.trim().isEmpty
-                ? ''
-                : ' — $rejectionReason';
-
-            final message = switch (type) {
-              'spot_pending_review' =>
-                'New spot waiting for review: $spotName by $addedBy',
-              'spot_approved_by_admin' =>
-                '$reviewedBy approved spot: $spotName',
-              'spot_rejected_by_admin' =>
-                '$reviewedBy rejected spot: $spotName$rejectionSuffix',
-              _ => 'Admin update: $spotName',
-            };
-
-            if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  backgroundColor: panelGlass,
-                  content: Text(
-                    message,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w700,
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    backgroundColor: panelGlass,
+                    content: Text(
+                      message,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
                   ),
-                ),
-              );
-            }
+                );
+              }
 
-            scheduleNotificationCenterUnreadRefresh();
-          }
-        });
+              scheduleNotificationCenterUnreadRefresh();
+            }
+          },
+          onError: (Object error, StackTrace stack) {
+            debugPrint('Admin notification listener failed: $error');
+            debugPrint('$stack');
+          },
+        );
   }
 
   void startFriendLocationNotificationListener() {
@@ -20811,7 +21198,6 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
   Timer? liveLocationUploadTimer;
   Timer? liveLocationPromptTimer;
   Timer? liveLocationAutoStopTimer;
-  Timer? friendLiveSharingNotificationTimer;
   Timer? friendAtSpotDwellTimer;
   Timer? liveLocationStaleSweepTimer;
   Timer? mapGestureIdleTimer;
@@ -22728,6 +23114,10 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
       debugPrint('$stack');
     }
 
+    unawaited(
+      notifyFriendsLiveLocationStartedOncePerHour(coordinates: location),
+    );
+
     if (!mounted) {
       return;
     }
@@ -24132,24 +24522,6 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     });
   }
 
-  void scheduleFriendLiveSharingNotification(LatLng location) {
-    friendLiveSharingNotificationTimer?.cancel();
-    friendLiveSharingNotificationTimer = Timer(
-      friendLiveSharingNotificationDelay,
-      () {
-        if (!isSharingLiveLocation) {
-          return;
-        }
-
-        final latestLocation =
-            currentUserLocation ?? displayedUserLocation ?? location;
-        unawaited(
-          notifyCurrentUserFriendsAboutLiveSharing(coordinates: latestLocation),
-        );
-      },
-    );
-  }
-
   void scheduleLiveLocationTimers() {
     final expiresAt = liveLocationExpiresAt;
 
@@ -24317,7 +24689,6 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
       isTogglingLiveLocation = false;
     });
 
-    scheduleFriendLiveSharingNotification(location);
     monitorCurrentUserSpotPresenceForFriends(location);
 
     startNavigationTracking();
@@ -24505,6 +24876,14 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
       'isOnline': true,
     }, label: 'presence: current user live location heartbeat');
 
+    if (renewWindow) {
+      unawaited(
+        notifyFriendsLiveLocationStartedOncePerHour(
+          coordinates: LatLng(position.latitude, position.longitude),
+        ),
+      );
+    }
+
     if (mounted) {
       scheduleLiveLocationTimers();
     }
@@ -24515,8 +24894,6 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
 
     liveLocationUploadTimer?.cancel();
     liveLocationUploadTimer = null;
-    friendLiveSharingNotificationTimer?.cancel();
-    friendLiveSharingNotificationTimer = null;
     cancelFriendAtSpotDwellTimer();
     friendAtSpotNotifiedSpotId = null;
     cancelLiveLocationTimers(keepUploadTimer: true);
@@ -24696,7 +25073,6 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     liveLocationUploadTimer?.cancel();
     liveLocationPromptTimer?.cancel();
     liveLocationAutoStopTimer?.cancel();
-    friendLiveSharingNotificationTimer?.cancel();
     friendAtSpotDwellTimer?.cancel();
     liveLocationStaleSweepTimer?.cancel();
     mapGestureIdleTimer?.cancel();
@@ -30126,6 +30502,7 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
 
       if (isAdminCreatedSpot) {
         await createNewSpotNotificationForUsers(savedNewSpot);
+        await notifyAllUsersIfTemporarySpotIsToday(savedNewSpot);
 
         await sendPushNotificationEvent({
           'type': savedNewSpot.isTemporary ? 'temporary_event' : 'new_spot',
@@ -32459,7 +32836,9 @@ Widget chatAvatarWidget(ChatThreadData chat, String currentUid) {
 }
 
 class ChatScreen extends StatefulWidget {
-  const ChatScreen({super.key});
+  final int initialTabIndex;
+
+  const ChatScreen({super.key, this.initialTabIndex = 0});
 
   @override
   State<ChatScreen> createState() => _ChatScreenState();
@@ -32475,7 +32854,13 @@ class _ChatScreenState extends State<ChatScreen>
   void initState() {
     super.initState();
     appUiPreferences.addListener(_handleLanguageChanged);
-    tabController = TabController(length: 4, vsync: this);
+    final initialIndex = widget.initialTabIndex.clamp(0, 3).toInt();
+    activeTabIndex = initialIndex;
+    tabController = TabController(
+      length: 4,
+      vsync: this,
+      initialIndex: initialIndex,
+    );
     tabController.addListener(handleTabChanged);
     final uid = FirebaseAuth.instance.currentUser?.uid ?? currentUser.uid;
     chatsStream = currentUserChatsQuery(
@@ -33023,6 +33408,10 @@ class _GlobalChatTabState extends State<GlobalChatTab>
                 (_oldestLoadedGlobalMessageDoc == null &&
                     _globalMessages.isEmpty &&
                     snapshot.docs.isNotEmpty);
+            final removedMessageIds = snapshot.docChanges
+                .where((change) => change.type == DocumentChangeType.removed)
+                .map((change) => change.doc.id)
+                .toSet();
 
             setState(() {
               if (shouldInitializePagination) {
@@ -33032,6 +33421,11 @@ class _GlobalChatTabState extends State<GlobalChatTab>
                 _hasMoreOlderGlobalMessages =
                     snapshot.docs.length >= globalChatMessagePageSize;
                 _globalPaginationInitialized = true;
+              }
+              if (removedMessageIds.isNotEmpty) {
+                _globalMessages.removeWhere(
+                  (message) => removedMessageIds.contains(message.id),
+                );
               }
               _mergeGlobalMessages(snapshot.docs);
               _isInitialLoadingGlobalMessages = false;
@@ -33468,12 +33862,10 @@ class _GlobalChatTabState extends State<GlobalChatTab>
         return;
       }
 
-      messageController.clear();
-      setState(() {
-        pendingPhotoAttachmentPath = null;
-        _scrollGlobalChatToLatestAfterSend = true;
-      });
-
+      // Only write message-owned fields. Role, verification and moderator
+      // status are authoritative user-profile data and must not be asserted by
+      // an ordinary chat-message create request. Firestore rules that use an
+      // allow-list correctly reject those privilege-bearing fields.
       await doc.debugSet(
         {
           'userId': firebaseUser.uid,
@@ -33481,10 +33873,6 @@ class _GlobalChatTabState extends State<GlobalChatTab>
               ? 'ccs_driver'
               : currentUser.username.trim(),
           'avatarUrl': currentUser.photoUrl ?? '',
-          'role': roleName(currentUser.role),
-          'verified': currentUser.verified,
-          'globalChatModerator': currentUser.globalChatModerator,
-          'globalModerator': currentUser.globalChatModerator,
           'text': text,
           if (photoUrl.trim().isNotEmpty) 'photoUrl': photoUrl,
           'timestamp': FieldValue.serverTimestamp(),
@@ -33494,15 +33882,39 @@ class _GlobalChatTabState extends State<GlobalChatTab>
         'global chat: send message',
       );
 
-      await sendPushNotificationEvent({
-        'type': 'global_chat_message',
-        'preferenceKey': 'newMessageNotifications',
-        'audience': 'all_users',
-        'notificationId': 'global_chat_${doc.id}',
-        'messageId': doc.id,
-        'senderUsername': currentUser.username,
-        'messageText': text.isEmpty ? trText('Photo') : text,
+      // Clear the composer only after Firestore acknowledges the write. This
+      // avoids presenting a rejected local-cache write as a successful send.
+      if (!mounted) {
+        return;
+      }
+      messageController.clear();
+      setState(() {
+        pendingPhotoAttachmentPath = null;
+        _scrollGlobalChatToLatestAfterSend = true;
       });
+
+      unawaited(
+        sendPushNotificationEvent({
+          'type': 'global_chat_message',
+          'preferenceKey': 'newMessageNotifications',
+          'audience': 'all_users',
+          'notificationId': 'global_chat_${doc.id}',
+          'messageId': doc.id,
+          'senderUsername': currentUser.username,
+          'messageText': text.isEmpty ? trText('Photo') : text,
+        }),
+      );
+
+      unawaited(
+        notifyStaffAboutCommunityEvent(
+          type: 'global_chat_admin',
+          notificationId: 'global_chat_admin_${doc.id}',
+          title: 'New global chat message',
+          body:
+              '@${currentUser.username}: ${text.isEmpty ? trText('Photo') : text}',
+          extra: {'messageId': doc.id},
+        ),
+      );
     } catch (error) {
       if (mounted) {
         if (messageController.text.trim().isEmpty) {
@@ -33515,7 +33927,9 @@ class _GlobalChatTabState extends State<GlobalChatTab>
           SnackBar(
             backgroundColor: Colors.redAccent,
             content: Text(
-              hasPhoto
+              isFirestorePermissionDenied(error)
+                  ? 'Global chat write was blocked by Firestore rules. Update the global_chat create rule to allow authenticated users to create messages with their own userId.'
+                  : hasPhoto
                   ? 'Could not attach photo: $error'
                   : 'Could not send message: $error',
               style: const TextStyle(
@@ -34109,6 +34523,22 @@ Future<String> createForumTopic({
           'lastReplyAt': FieldValue.serverTimestamp(),
         });
 
+    if (topicStatus == 'pending') {
+      unawaited(
+        notifyStaffAboutCommunityEvent(
+          type: 'forum_topic_pending',
+          notificationId: 'forum_topic_pending_${docRef.id}',
+          title: 'Forum topic waiting for review',
+          body: '$title was submitted by @$username.',
+          extra: {
+            'topicId': docRef.id,
+            'topicTitle': title,
+            'categoryId': categoryId,
+          },
+        ),
+      );
+    }
+
     debugPrint('SUCCESS: Topic $topicStatus: ${docRef.id}');
     forumTopicsRefreshTick.value++;
     return topicStatus;
@@ -34310,6 +34740,23 @@ Future<void> ensureTemporarySpotForumTopic(
           : 'forum: auto temporary spot topic create',
     );
     forumTopicsRefreshTick.value++;
+
+    if (topicStatus == 'pending') {
+      unawaited(
+        notifyStaffAboutCommunityEvent(
+          type: 'forum_topic_pending',
+          notificationId: 'forum_topic_pending_${topicRef.id}',
+          title: 'Forum topic waiting for review',
+          body: '${spot.name} was submitted by @$authorName.',
+          extra: {
+            'topicId': topicRef.id,
+            'topicTitle': spot.name,
+            'categoryId': 'meets_events',
+            'spotId': spot.id,
+          },
+        ),
+      );
+    }
   } catch (error, stack) {
     debugPrint('Could not create temporary spot forum topic: $error');
     debugPrint('$stack');
@@ -36051,17 +36498,33 @@ class _ForumTopicPageState extends State<ForumTopicPage> {
         'lastReplyAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
 
-      await sendPushNotificationEvent({
-        'type': 'forum_reply',
-        'preferenceKey': 'newMessageNotifications',
-        'audience': 'all_users',
-        'notificationId': 'forum_${widget.topicId}_${doc.id}',
-        'topicId': widget.topicId,
-        'topicTitle': widget.title,
-        'messageId': doc.id,
-        'senderUsername': currentUser.username,
-        'messageText': text.isEmpty ? trText('Photo') : text,
-      });
+      unawaited(
+        sendPushNotificationEvent({
+          'type': 'forum_reply',
+          'preferenceKey': 'newMessageNotifications',
+          'audience': 'all_users',
+          'notificationId': 'forum_${widget.topicId}_${doc.id}',
+          'topicId': widget.topicId,
+          'topicTitle': widget.title,
+          'messageId': doc.id,
+          'senderUsername': currentUser.username,
+          'messageText': text.isEmpty ? trText('Photo') : text,
+        }),
+      );
+      unawaited(
+        notifyStaffAboutCommunityEvent(
+          type: 'forum_reply_admin',
+          notificationId: 'forum_reply_admin_${widget.topicId}_${doc.id}',
+          title: 'New forum reply',
+          body:
+              '@${currentUser.username}: ${text.isEmpty ? trText('Photo') : text}',
+          extra: {
+            'topicId': widget.topicId,
+            'topicTitle': widget.title,
+            'messageId': doc.id,
+          },
+        ),
+      );
     } catch (error) {
       if (mounted) {
         if (replyController.text.trim().isEmpty) {
@@ -41753,11 +42216,14 @@ Future<void> saveGarageToFirebase(List<GarageCar> cars) async {
     );
   }
 
-  garageCars.value = uploadedCars;
-
   await saveCurrentUserFields({
     'garage': uploadedCars.map((car) => car.toFirebase()).toList(),
   });
+
+  // Publish only after the account write succeeds. This keeps the global
+  // garage state consistent when a delete/edit upload fails and the UI rolls
+  // back to the previous list.
+  garageCars.value = uploadedCars;
 }
 
 Future<void> saveSettingsToFirebase(UserSettingsData settings) async {
@@ -41914,6 +42380,55 @@ class _ProfileScreenState extends State<ProfileScreen> {
               fontWeight: FontWeight.w700,
             ),
           ),
+        ),
+      );
+    }
+  }
+
+  Future<void> deleteCar(int index) async {
+    if (index < 0 || index >= cars.length) return;
+    final car = cars[index];
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Delete vehicle?'),
+        content: Text(
+          'Remove ${car.name} from your garage? This cannot be undone.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    final previousCars = [...cars];
+    final nextCars = [...cars]..removeAt(index);
+    setState(() => cars = nextCars);
+    try {
+      await saveGarageToFirebase(nextCars);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          backgroundColor: blue,
+          content: Text('Vehicle deleted from your garage.'),
+        ),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => cars = previousCars);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: Colors.redAccent,
+          content: Text('Could not delete vehicle: $error'),
         ),
       );
     }
@@ -42099,7 +42614,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 const SizedBox(height: 16),
               ] else
                 for (var i = 0; i < cars.length; i++) ...[
-                  _GarageCard(car: cars[i], onEdit: () => editGarage(i)),
+                  _GarageCard(
+                    car: cars[i],
+                    onEdit: () => editGarage(i),
+                    onDelete: () => deleteCar(i),
+                  ),
                   const SizedBox(height: 16),
                 ],
               ValueListenableBuilder<List<CarSpot>>(
@@ -44947,8 +45466,9 @@ class _GaragePhotoGalleryScreenState extends State<GaragePhotoGalleryScreen> {
 class _GarageCard extends StatelessWidget {
   final GarageCar car;
   final VoidCallback? onEdit;
+  final VoidCallback? onDelete;
 
-  const _GarageCard({required this.car, this.onEdit});
+  const _GarageCard({required this.car, this.onEdit, this.onDelete});
 
   @override
   Widget build(BuildContext context) {
@@ -44971,23 +45491,48 @@ class _GarageCard extends StatelessWidget {
                   car.description,
                   style: const TextStyle(color: Colors.white70, height: 1.35),
                 ),
-                if (onEdit != null) ...[
+                if (onEdit != null || onDelete != null) ...[
                   const SizedBox(height: 16),
-                  SizedBox(
-                    width: double.infinity,
-                    height: 44,
-                    child: ElevatedButton.icon(
-                      onPressed: onEdit,
-                      icon: const Icon(Icons.edit, size: 18),
-                      label: const Text('Edit Garage'),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: blue,
-                        foregroundColor: Colors.white,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(9),
+                  Row(
+                    children: [
+                      if (onEdit != null)
+                        Expanded(
+                          child: SizedBox(
+                            height: 44,
+                            child: ElevatedButton.icon(
+                              onPressed: onEdit,
+                              icon: const Icon(Icons.edit, size: 18),
+                              label: const Text('Edit Garage'),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: blue,
+                                foregroundColor: Colors.white,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(9),
+                                ),
+                              ),
+                            ),
+                          ),
                         ),
-                      ),
-                    ),
+                      if (onEdit != null && onDelete != null)
+                        const SizedBox(width: 10),
+                      if (onDelete != null)
+                        SizedBox(
+                          width: 48,
+                          height: 44,
+                          child: IconButton.filled(
+                            tooltip: 'Delete vehicle',
+                            onPressed: onDelete,
+                            style: IconButton.styleFrom(
+                              backgroundColor: Colors.redAccent,
+                              foregroundColor: Colors.white,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(9),
+                              ),
+                            ),
+                            icon: const Icon(Icons.delete_outline),
+                          ),
+                        ),
+                    ],
                   ),
                 ],
               ],
@@ -46597,7 +47142,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
               _SettingsSwitchTile(
                 icon: Icons.share_location,
                 title: 'Friends sharing location',
-                subtitle: 'After a friend shares live location for 10 minutes',
+                subtitle:
+                    'When a friend starts sharing live location (max once per hour)',
                 value: friendLiveShareNotifications,
                 onChanged: (value) => updateSettingsSwitch(
                   () => friendLiveShareNotifications = value,
