@@ -44,7 +44,9 @@ const pushNotificationUrls = <String>[
 // derives the friend list, checks preferences, writes notification history,
 // and sends an FCM notification payload for both Android and iOS.
 const liveLocationPushNotificationUrls = <String>[
-  'https://ccs-wine.vercel.app/api/live-location-notification',
+  // Use the backend project that contains api/live-location-notification.js.
+  // Keep this single-host while testing so another endpoint cannot swallow the
+  // request before it reaches the deployed route and its Vercel logs.
   'https://ccs-telegram-auth-server.vercel.app/api/live-location-notification',
 ];
 const pushNotificationUrl = '$telegramAuthBaseUrl/api/push-notification';
