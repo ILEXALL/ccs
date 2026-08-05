@@ -8602,6 +8602,202 @@ CollectionReference<Map<String, dynamic>> userNotificationsCollection() {
   return FirebaseFirestore.instance.collection('user_notifications');
 }
 
+const int maxCommunityPushRecipientUsers = 500;
+const Duration communityPushRecipientCacheDuration = Duration(minutes: 1);
+final Map<String, List<String>> _communityPushRecipientCache =
+    <String, List<String>>{};
+final Map<String, int> _communityPushRecipientCacheAtMillis = <String, int>{};
+
+bool notificationPreferenceEnabledInUserData(
+  Map<String, dynamic> data,
+  String preferenceKey,
+) {
+  final nestedSettings = mapFromFirebase(data['settings']);
+  if (data[preferenceKey] is bool) {
+    return data[preferenceKey] == true;
+  }
+  if (nestedSettings[preferenceKey] is bool) {
+    return nestedSettings[preferenceKey] == true;
+  }
+  return true;
+}
+
+bool userDataHasActiveBan(Map<String, dynamic> data, int nowMillis) {
+  if (data['banned'] != true) {
+    return false;
+  }
+
+  final bannedUntilMillis = nullableTimestampMillisFromFirebase(
+    data['bannedUntil'],
+  );
+  return bannedUntilMillis == null || bannedUntilMillis > nowMillis;
+}
+
+Future<List<String>?> communityPushRecipientUserIds({
+  required String preferenceKey,
+}) async {
+  final firebaseUser = FirebaseAuth.instance.currentUser;
+  if (firebaseUser == null) {
+    return null;
+  }
+
+  final nowMillis = DateTime.now().millisecondsSinceEpoch;
+  final cachedAtMillis = _communityPushRecipientCacheAtMillis[preferenceKey];
+  final cached = _communityPushRecipientCache[preferenceKey];
+  if (cachedAtMillis != null &&
+      cached != null &&
+      nowMillis - cachedAtMillis <
+          communityPushRecipientCacheDuration.inMilliseconds) {
+    return cached.where((uid) => uid != firebaseUser.uid).toList();
+  }
+
+  try {
+    final snapshot = await usersCollection()
+        .limit(maxCommunityPushRecipientUsers)
+        .debugGet(
+          null,
+          'notifications: community push recipients ($preferenceKey)',
+        );
+    final recipients = <String>{};
+
+    for (final doc in snapshot.docs) {
+      final data = doc.data();
+      final uid = stringFromFirebase(data['uid'], doc.id).trim();
+      if (uid.isEmpty ||
+          data['deleted'] == true ||
+          userDataHasActiveBan(data, nowMillis) ||
+          !notificationPreferenceEnabledInUserData(data, preferenceKey)) {
+        continue;
+      }
+      recipients.add(uid);
+    }
+
+    final cachedRecipients = recipients.toList(growable: false);
+    _communityPushRecipientCache[preferenceKey] = cachedRecipients;
+    _communityPushRecipientCacheAtMillis[preferenceKey] = nowMillis;
+    return cachedRecipients.where((uid) => uid != firebaseUser.uid).toList();
+  } catch (error, stack) {
+    // Fall back to the backend's audience expansion. The explicit-recipient
+    // path is preferred, but a restrictive users read rule must not disable
+    // the existing broadcast path completely.
+    debugPrint('Could not load community push recipients: $error');
+    debugPrint('$stack');
+    return null;
+  }
+}
+
+Future<void> createCommunityNotificationCenterItems({
+  required List<String> recipientUserIds,
+  required String type,
+  required String notificationId,
+  required String title,
+  required String body,
+  Map<String, Object?> extra = const <String, Object?>{},
+}) async {
+  final firebaseUser = FirebaseAuth.instance.currentUser;
+  if (firebaseUser == null || recipientUserIds.isEmpty) {
+    return;
+  }
+
+  final cleanRecipients = recipientUserIds
+      .map((uid) => uid.trim())
+      .where((uid) => uid.isNotEmpty && uid != firebaseUser.uid)
+      .toSet()
+      .toList(growable: false);
+  if (cleanRecipients.isEmpty) {
+    return;
+  }
+
+  final nowMillis = DateTime.now().millisecondsSinceEpoch;
+  try {
+    // Keep every batch below Firestore's 500-operation limit. These documents
+    // are the in-app bell fallback when the deployed push endpoint does not yet
+    // understand a new community notification type.
+    for (var offset = 0; offset < cleanRecipients.length; offset += 400) {
+      final end = math.min(offset + 400, cleanRecipients.length);
+      final batch = FirebaseFirestore.instance.batch();
+
+      for (final recipientUid in cleanRecipients.sublist(offset, end)) {
+        batch.debugSet(
+          userNotificationsCollection().doc('${notificationId}_$recipientUid'),
+          {
+            'userId': recipientUid,
+            'type': type,
+            'title': title,
+            'body': body,
+            'actorUserId': firebaseUser.uid,
+            'actorUsername': currentUser.username,
+            'senderUserId': firebaseUser.uid,
+            'senderUsername': currentUser.username,
+            'read': false,
+            'createdAt': FieldValue.serverTimestamp(),
+            'createdAtMillis': nowMillis,
+            ...extra,
+          },
+          SetOptions(merge: true),
+          'notifications: community bell fallback',
+        );
+      }
+
+      await batch.commit();
+    }
+    debugPrint(
+      'Community bell items created. type=$type recipients=${cleanRecipients.length}',
+    );
+  } catch (error, stack) {
+    debugPrint('Community bell fallback failed: $error');
+    debugPrint('$stack');
+  }
+}
+
+Future<void> sendCommunityPushNotificationEvent({
+  required String type,
+  required String preferenceKey,
+  required String notificationId,
+  required String title,
+  required String body,
+  Map<String, Object?> extra = const <String, Object?>{},
+}) async {
+  final recipients = await communityPushRecipientUserIds(
+    preferenceKey: preferenceKey,
+  );
+  if (recipients != null && recipients.isEmpty) {
+    debugPrint(
+      'Community push skipped because no eligible recipients were found. '
+      'type=$type notificationId=$notificationId',
+    );
+    return;
+  }
+
+  if (recipients != null) {
+    await createCommunityNotificationCenterItems(
+      recipientUserIds: recipients,
+      type: type,
+      notificationId: notificationId,
+      title: title,
+      body: body,
+      extra: extra,
+    );
+  }
+
+  final delivered = await trySendPushNotificationEvent({
+    ...extra,
+    'type': type,
+    'preferenceKey': preferenceKey,
+    // Keep the audience marker for compatible backends, but also include the
+    // concrete recipients. Direct-message pushes already use recipient ids and
+    // this prevents community events from depending on broadcast expansion.
+    'audience': 'all_users',
+    'notificationId': notificationId,
+    'title': title,
+    'body': body,
+    if (recipients != null) 'recipientUserIds': recipients,
+  });
+  if (!delivered) {
+    debugPrint('Community push was not delivered: $notificationId');
+  }
+}
+
 String spotNotificationOwnerUid(CarSpot spot) {
   final ownerUid = spot.ownerUid.trim();
   if (ownerUid.isNotEmpty) {
@@ -15464,6 +15660,7 @@ class NotificationCenterItem {
       (spotId.trim().isNotEmpty ||
           chatId.trim().isNotEmpty ||
           topicId.trim().isNotEmpty ||
+          type == 'global_chat_message' ||
           type == 'global_chat_admin' ||
           (type == 'chat_message' &&
               (actorUserId.trim().isNotEmpty ||
@@ -15533,8 +15730,10 @@ IconData notificationCenterIcon(NotificationCenterItem item) {
           ? Icons.cancel
           : Icons.check_circle,
     'spot_pending_review' => Icons.fact_check,
-    'global_chat_admin' => Icons.public,
-    'forum_topic_pending' || 'forum_reply_admin' => Icons.forum_outlined,
+    'global_chat_message' || 'global_chat_admin' => Icons.public,
+    'forum_reply' ||
+    'forum_topic_pending' ||
+    'forum_reply_admin' => Icons.forum_outlined,
     'user_report_new' => Icons.report_outlined,
     'spot_approved_by_admin' => Icons.check_circle,
     'spot_rejected_by_admin' => Icons.cancel,
@@ -15566,7 +15765,11 @@ Color notificationCenterColor(NotificationCenterItem item) {
     'spot_rejected_by_admin' => Colors.redAccent,
     'spot_approved_by_admin' => Colors.green,
     'spot_pending_review' => blue,
-    'global_chat_admin' || 'forum_topic_pending' || 'forum_reply_admin' => blue,
+    'global_chat_message' ||
+    'global_chat_admin' ||
+    'forum_reply' ||
+    'forum_topic_pending' ||
+    'forum_reply_admin' => blue,
     'user_report_new' => Colors.orangeAccent,
     'new_spot' => const Color(0xFF9B35FF),
     'temporary_event' || 'temporary_spot_today' => const Color(0xFFFF7A00),
@@ -15883,7 +16086,8 @@ NotificationCenterItem notificationCenterItemFromDocument(
     'new_spot' => 'New spots',
     'temporary_event' => 'Temporary events',
     'temporary_spot_today' => 'Temporary spot today',
-    'global_chat_admin' => 'Global chat',
+    'global_chat_message' || 'global_chat_admin' => 'Global chat',
+    'forum_reply' => pickString('title', 'Forum'),
     'forum_topic_pending' => 'Forum topic waiting for review',
     'forum_reply_admin' => 'New forum reply',
     'spot_pending_review' => 'Spot review updates',
@@ -15928,7 +16132,9 @@ NotificationCenterItem notificationCenterItemFromDocument(
         spotName.trim().isEmpty
             ? 'A temporary spot is happening today.'
             : '$spotName is happening today.',
+      'global_chat_message' ||
       'global_chat_admin' => 'New message in global chat.',
+      'forum_reply' => 'A new reply was posted in the forum.',
       'forum_topic_pending' => 'A forum topic is waiting for review.',
       'forum_reply_admin' => 'A new reply was posted in the forum.',
       'spot_review_update' =>
@@ -17118,7 +17324,7 @@ Future<void> openNotificationCenterItem(
     unawaited(markNotificationReadBestEffort(item.reference!));
   }
 
-  if (item.type == 'global_chat_admin') {
+  if (item.type == 'global_chat_message' || item.type == 'global_chat_admin') {
     Navigator.push(
       context,
       appPageRoute(builder: (_) => const ChatScreen(initialTabIndex: 3)),
@@ -17126,7 +17332,8 @@ Future<void> openNotificationCenterItem(
     return;
   }
 
-  if ((item.type == 'forum_topic_pending' ||
+  if ((item.type == 'forum_reply' ||
+          item.type == 'forum_topic_pending' ||
           item.type == 'forum_reply_admin') &&
       item.topicId.trim().isNotEmpty) {
     Navigator.push(
@@ -33810,16 +34017,23 @@ class _GlobalChatTabState extends State<GlobalChatTab>
         _scrollGlobalChatToLatestAfterSend = true;
       });
 
+      final senderUsername = currentUser.username.trim().isEmpty
+          ? 'ccs_driver'
+          : currentUser.username.trim();
+      final messagePreview = text.isEmpty ? trText('Photo') : text;
       unawaited(
-        sendPushNotificationEvent({
-          'type': 'global_chat_message',
-          'preferenceKey': 'newMessageNotifications',
-          'audience': 'all_users',
-          'notificationId': 'global_chat_${doc.id}',
-          'messageId': doc.id,
-          'senderUsername': currentUser.username,
-          'messageText': text.isEmpty ? trText('Photo') : text,
-        }),
+        sendCommunityPushNotificationEvent(
+          type: 'global_chat_message',
+          preferenceKey: 'newMessageNotifications',
+          notificationId: 'global_chat_${doc.id}',
+          title: 'Global chat',
+          body: '@$senderUsername: $messagePreview',
+          extra: {
+            'messageId': doc.id,
+            'senderUsername': senderUsername,
+            'messageText': messagePreview,
+          },
+        ),
       );
 
       unawaited(
@@ -36415,18 +36629,29 @@ class _ForumTopicPageState extends State<ForumTopicPage> {
         'lastReplyAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
 
+      final senderUsername = currentUser.username.trim().isEmpty
+          ? 'ccs_driver'
+          : currentUser.username.trim();
+      final messagePreview = text.isEmpty ? trText('Photo') : text;
       unawaited(
-        sendPushNotificationEvent({
-          'type': 'forum_reply',
-          'preferenceKey': 'newMessageNotifications',
-          'audience': 'all_users',
-          'notificationId': 'forum_${widget.topicId}_${doc.id}',
-          'topicId': widget.topicId,
-          'topicTitle': widget.title,
-          'messageId': doc.id,
-          'senderUsername': currentUser.username,
-          'messageText': text.isEmpty ? trText('Photo') : text,
-        }),
+        sendCommunityPushNotificationEvent(
+          type: 'forum_reply',
+          // The settings screen describes this switch as covering community
+          // replies, while the Messages switch is for chat conversations.
+          preferenceKey: 'commentNotifications',
+          notificationId: 'forum_${widget.topicId}_${doc.id}',
+          title: widget.title.trim().isEmpty
+              ? 'Forum'
+              : 'Forum • ${widget.title.trim()}',
+          body: '@$senderUsername: $messagePreview',
+          extra: {
+            'topicId': widget.topicId,
+            'topicTitle': widget.title,
+            'messageId': doc.id,
+            'senderUsername': senderUsername,
+            'messageText': messagePreview,
+          },
+        ),
       );
       unawaited(
         notifyStaffAboutCommunityEvent(
@@ -47042,7 +47267,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               _SettingsSwitchTile(
                 icon: Icons.mark_chat_unread,
                 title: 'Messages',
-                subtitle: 'New direct and group messages',
+                subtitle: 'New direct, group and global chat messages',
                 value: newMessageNotifications,
                 onChanged: (value) =>
                     updateSettingsSwitch(() => newMessageNotifications = value),
