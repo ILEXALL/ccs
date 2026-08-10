@@ -857,6 +857,75 @@ function recipientNotificationId(payload, fallbackBase, recipientUserId) {
   return base.endsWith(`_${recipientUserId}`) ? base : `${base}_${recipientUserId}`;
 }
 
+const GLOBAL_CHAT_PUSH_GLOBAL_COOLDOWN_MS = 10 * 60 * 1000;
+const GLOBAL_CHAT_PUSH_SENDER_COOLDOWN_MS = 60 * 60 * 1000;
+
+async function claimGlobalChatPushWindow(senderUid) {
+  const globalRef = db.collection('push_throttles').doc('global_chat');
+  const senderRef = globalRef.collection('senders').doc(senderUid);
+  const nowMillis = Date.now();
+
+  return db.runTransaction(async (transaction) => {
+    const globalSnapshot = await transaction.get(globalRef);
+    const senderSnapshot = await transaction.get(senderRef);
+
+    const globalLastPushAtMillis = Number(
+      globalSnapshot.exists ? globalSnapshot.data()?.lastPushAtMillis || 0 : 0,
+    );
+    const senderLastPushAtMillis = Number(
+      senderSnapshot.exists ? senderSnapshot.data()?.lastPushAtMillis || 0 : 0,
+    );
+
+    const globalRemainingMs =
+      globalLastPushAtMillis > 0
+        ? GLOBAL_CHAT_PUSH_GLOBAL_COOLDOWN_MS - (nowMillis - globalLastPushAtMillis)
+        : 0;
+
+    if (globalRemainingMs > 0) {
+      return {
+        allowed: false,
+        reason: 'global_10_minute_cooldown',
+        remainingMs: globalRemainingMs,
+      };
+    }
+
+    const senderRemainingMs =
+      senderLastPushAtMillis > 0
+        ? GLOBAL_CHAT_PUSH_SENDER_COOLDOWN_MS - (nowMillis - senderLastPushAtMillis)
+        : 0;
+
+    if (senderRemainingMs > 0) {
+      return {
+        allowed: false,
+        reason: 'sender_1_hour_cooldown',
+        remainingMs: senderRemainingMs,
+      };
+    }
+
+    transaction.set(
+      globalRef,
+      {
+        lastPushAtMillis: nowMillis,
+        lastPushAt: admin.firestore.FieldValue.serverTimestamp(),
+        lastSenderUid: senderUid,
+      },
+      { merge: true },
+    );
+
+    transaction.set(
+      senderRef,
+      {
+        senderUid,
+        lastPushAtMillis: nowMillis,
+        lastPushAt: admin.firestore.FieldValue.serverTimestamp(),
+      },
+      { merge: true },
+    );
+
+    return { allowed: true, reason: 'allowed', remainingMs: 0 };
+  });
+}
+
 async function handleGlobalChatMessage(userId, payload) {
   const messageId = cleanText(payload.messageId);
   if (!messageId) {
@@ -878,6 +947,17 @@ async function handleGlobalChatMessage(userId, payload) {
     (recipientUserId) => recipientUserId !== senderUid,
   );
   if (!recipientUserIds.length) {
+    return [];
+  }
+
+  const pushWindow = await claimGlobalChatPushWindow(senderUid);
+  if (!pushWindow.allowed) {
+    console.log(
+      `Global chat push suppressed: ${pushWindow.reason}; sender=${senderUid}; remainingMs=${Math.max(
+        0,
+        Math.ceil(pushWindow.remainingMs),
+      )}`,
+    );
     return [];
   }
 

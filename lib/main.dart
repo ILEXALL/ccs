@@ -37,7 +37,6 @@ const telegramAuthBaseUrls = <String>[
 ];
 const telegramAuthBaseUrl = 'https://ccs-wine.vercel.app';
 const pushNotificationUrls = <String>[
-  'https://ccs-wine.vercel.app/api/push-notification',
   'https://ccs-telegram-auth-server.vercel.app/api/push-notification',
 ];
 // Dedicated route for immediate friend live-location alerts. The server route
@@ -12103,6 +12102,7 @@ Future<void> notifyStaffAboutCommunityEvent({
   required String title,
   required String body,
   Map<String, Object?> extra = const <String, Object?>{},
+  bool sendPush = true,
 }) async {
   final senderUid = FirebaseAuth.instance.currentUser?.uid ?? currentUser.uid;
   final recipientUids = await communityModerationUserIdsExcept(
@@ -12143,6 +12143,10 @@ Future<void> notifyStaffAboutCommunityEvent({
     // not permit direct writes to admin_notifications.
     debugPrint('Community admin notification documents failed: $error');
     debugPrint('$stack');
+  }
+
+  if (!sendPush) {
+    return;
   }
 
   final delivered = await trySendPushNotificationEvent({
@@ -33458,6 +33462,9 @@ class _GroupsTabState extends State<GroupsTab>
 }
 
 const int globalChatMessagePageSize = 20;
+const Duration globalChatMessageSendCooldown = Duration(seconds: 30);
+const Duration globalChatPushGlobalCooldown = Duration(minutes: 10);
+const Duration globalChatPushSenderCooldown = Duration(hours: 1);
 
 class GlobalChatTab extends StatefulWidget {
   const GlobalChatTab({super.key});
@@ -33484,6 +33491,7 @@ class _GlobalChatTabState extends State<GlobalChatTab>
   bool isSending = false;
   bool isUploadingPhotoAttachment = false;
   String? pendingPhotoAttachmentPath;
+  int? _lastGlobalChatMessageSentAtMillis;
   bool hasGlobalChatModeratorAccess = false;
 
   @override
@@ -34013,6 +34021,109 @@ class _GlobalChatTabState extends State<GlobalChatTab>
     }
   }
 
+  Duration _localGlobalChatSendCooldownRemaining() {
+    final lastSentAtMillis = _lastGlobalChatMessageSentAtMillis;
+    if (lastSentAtMillis == null) {
+      return Duration.zero;
+    }
+
+    final elapsedMillis =
+        DateTime.now().millisecondsSinceEpoch - lastSentAtMillis;
+    final remainingMillis =
+        globalChatMessageSendCooldown.inMilliseconds - elapsedMillis;
+    return remainingMillis > 0
+        ? Duration(milliseconds: remainingMillis)
+        : Duration.zero;
+  }
+
+  void _showGlobalChatSpamWarning(Duration remaining) {
+    if (!mounted) {
+      return;
+    }
+
+    final seconds = math.max(1, (remaining.inMilliseconds / 1000).ceil());
+    final message = switch (appUiPreferences.language) {
+      AppLanguage.ru =>
+        'Не спамьте в глобальном чате. Следующее сообщение можно отправить через $seconds сек.',
+      AppLanguage.lv =>
+        'Lūdzu, nespamojiet globālajā čatā. Nākamo ziņu varēs nosūtīt pēc $seconds sek.',
+      AppLanguage.en =>
+        'Please do not spam the global chat. You can send another message in $seconds seconds.',
+    };
+
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          backgroundColor: Colors.orangeAccent,
+          content: Text(
+            message,
+            style: const TextStyle(
+              color: Colors.black,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ),
+      );
+  }
+
+  Future<int> _writeGlobalChatMessageWithCooldown({
+    required User firebaseUser,
+    required DocumentReference<Map<String, dynamic>> messageDoc,
+    required String text,
+    required String photoUrl,
+  }) async {
+    final userRef = usersCollection().doc(firebaseUser.uid);
+    final attemptAtMillis = DateTime.now().millisecondsSinceEpoch;
+
+    return FirebaseFirestore.instance.runTransaction<int>((transaction) async {
+      final userSnapshot = await transaction.debugGet(
+        userRef,
+        'global chat: rate limit user read',
+      );
+      final userData = userSnapshot.data() ?? const <String, dynamic>{};
+      final lastSentAtMillis = intFromFirebase(
+        userData['globalChatLastMessageAtMillis'],
+        0,
+      );
+      final elapsedMillis = attemptAtMillis - lastSentAtMillis;
+      final remainingMillis =
+          globalChatMessageSendCooldown.inMilliseconds - elapsedMillis;
+
+      if (lastSentAtMillis > 0 && remainingMillis > 0) {
+        return remainingMillis;
+      }
+
+      transaction.debugSet(
+        messageDoc,
+        {
+          'userId': firebaseUser.uid,
+          'username': currentUser.username.trim().isEmpty
+              ? 'ccs_driver'
+              : currentUser.username.trim(),
+          'avatarUrl': currentUser.photoUrl ?? '',
+          'text': text,
+          if (photoUrl.trim().isNotEmpty) 'photoUrl': photoUrl,
+          'timestamp': FieldValue.serverTimestamp(),
+          'type': photoUrl.trim().isNotEmpty ? 'image' : 'text',
+        },
+        null,
+        'global chat: send message',
+      );
+      transaction.debugSet(
+        userRef,
+        {
+          'globalChatLastMessageAtMillis': attemptAtMillis,
+          'globalChatLastMessageAt': FieldValue.serverTimestamp(),
+        },
+        SetOptions(merge: true),
+        'global chat: rate limit user write',
+      );
+
+      return 0;
+    });
+  }
+
   Future<void> sendMessage() async {
     final firebaseUser = FirebaseAuth.instance.currentUser;
     final text = messageController.text.trim();
@@ -34023,6 +34134,12 @@ class _GlobalChatTabState extends State<GlobalChatTab>
         (!hasPhoto && text.isEmpty) ||
         isSending ||
         isUploadingPhotoAttachment) {
+      return;
+    }
+
+    final localCooldownRemaining = _localGlobalChatSendCooldownRemaining();
+    if (localCooldownRemaining > Duration.zero) {
+      _showGlobalChatSpamWarning(localCooldownRemaining);
       return;
     }
 
@@ -34048,25 +34165,23 @@ class _GlobalChatTabState extends State<GlobalChatTab>
         return;
       }
 
-      // Only write message-owned fields. Role, verification and moderator
-      // status are authoritative user-profile data and must not be asserted by
-      // an ordinary chat-message create request. Firestore rules that use an
-      // allow-list correctly reject those privilege-bearing fields.
-      await doc.debugSet(
-        {
-          'userId': firebaseUser.uid,
-          'username': currentUser.username.trim().isEmpty
-              ? 'ccs_driver'
-              : currentUser.username.trim(),
-          'avatarUrl': currentUser.photoUrl ?? '',
-          'text': text,
-          if (photoUrl.trim().isNotEmpty) 'photoUrl': photoUrl,
-          'timestamp': FieldValue.serverTimestamp(),
-          'type': photoUrl.trim().isNotEmpty ? 'image' : 'text',
-        },
-        null,
-        'global chat: send message',
+      // Atomically enforce one Global-chat message per user every 30 seconds
+      // and create the message. Keeping the rate-limit timestamp on the user
+      // document makes the normal app flow consistent across multiple devices.
+      final cooldownRemainingMillis = await _writeGlobalChatMessageWithCooldown(
+        firebaseUser: firebaseUser,
+        messageDoc: doc,
+        text: text,
+        photoUrl: photoUrl,
       );
+      if (cooldownRemainingMillis > 0) {
+        _showGlobalChatSpamWarning(
+          Duration(milliseconds: cooldownRemainingMillis),
+        );
+        return;
+      }
+      _lastGlobalChatMessageSentAtMillis =
+          DateTime.now().millisecondsSinceEpoch;
 
       // Clear the composer only after Firestore acknowledges the write. This
       // avoids presenting a rejected local-cache write as a successful send.
@@ -34094,6 +34209,13 @@ class _GlobalChatTabState extends State<GlobalChatTab>
             'messageId': doc.id,
             'senderUsername': senderUsername,
             'messageText': messagePreview,
+            // The push backend owns the shared throttle because a client-only
+            // timer cannot coordinate different users/devices safely.
+            'globalChatPushThrottleKey': 'global_chat',
+            'globalChatPushGlobalCooldownMillis':
+                globalChatPushGlobalCooldown.inMilliseconds,
+            'globalChatPushSenderCooldownMillis':
+                globalChatPushSenderCooldown.inMilliseconds,
           },
         ),
       );
@@ -34106,6 +34228,9 @@ class _GlobalChatTabState extends State<GlobalChatTab>
           body:
               '@${currentUser.username}: ${text.isEmpty ? trText('Photo') : text}',
           extra: {'messageId': doc.id},
+          // Staff still get the moderation-center item above, but not a
+          // second unthrottled push for every Global-chat message.
+          sendPush: false,
         ),
       );
     } catch (error) {
@@ -34121,7 +34246,7 @@ class _GlobalChatTabState extends State<GlobalChatTab>
             backgroundColor: Colors.redAccent,
             content: Text(
               isFirestorePermissionDenied(error)
-                  ? 'Global chat write was blocked by Firestore rules. Update the global_chat create rule to allow authenticated users to create messages with their own userId.'
+                  ? 'Global chat write was blocked by Firestore rules. Allow authenticated users to create global_chat messages with their own userId and update globalChatLastMessageAtMillis/globalChatLastMessageAt on their own user document.'
                   : hasPhoto
                   ? 'Could not attach photo: $error'
                   : 'Could not send message: $error',
