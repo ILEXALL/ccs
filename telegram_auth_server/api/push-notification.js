@@ -869,11 +869,14 @@ async function handleGlobalChatMessage(userId, payload) {
   }
 
   const message = messageSnapshot.data() || {};
-  if (cleanText(message.userId) !== userId) {
+  const senderUid = cleanText(message.userId);
+  if (senderUid !== userId) {
     return [];
   }
 
-  const recipientUserIds = await communityRecipientIds(userId, payload);
+  const recipientUserIds = (await communityRecipientIds(userId, payload)).filter(
+    (recipientUserId) => recipientUserId !== senderUid,
+  );
   if (!recipientUserIds.length) {
     return [];
   }
@@ -905,7 +908,7 @@ async function handleGlobalChatMessage(userId, payload) {
         data: {
           type: 'global_chat_message',
           messageId,
-          senderUid: userId,
+          senderUid,
           senderUsername,
         },
       }),

@@ -4649,6 +4649,15 @@ Future<void> showForegroundSystemNotification(RemoteMessage message) async {
     return;
   }
 
+  final currentUid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
+  if (remoteMessageIsSelfAuthoredMessage(message, currentUid)) {
+    debugPrint(
+      'Foreground push skipped because it was authored by the current user. '
+      'messageId=${message.messageId}, data=${message.data}',
+    );
+    return;
+  }
+
   final notification = message.notification;
   final title = notification?.title ?? message.data['title'] ?? 'CCS';
   final body = notification?.body ?? message.data['body'] ?? '';
@@ -4668,6 +4677,40 @@ Future<void> showForegroundSystemNotification(RemoteMessage message) async {
     debugPrint('Foreground push display failed: $error');
     debugPrint('$stack');
   }
+}
+
+const selfAuthoredMessageNotificationTypes = <String>{
+  'chat_message',
+  'global_chat_message',
+  'global_chat_admin',
+  'forum_reply',
+  'forum_reply_admin',
+};
+
+bool remoteMessageIsSelfAuthoredMessage(
+  RemoteMessage message,
+  String currentUid,
+) {
+  final cleanCurrentUid = currentUid.trim();
+  if (cleanCurrentUid.isEmpty) {
+    return false;
+  }
+
+  final data = message.data;
+  final type = stringFromFirebase(data['type'], '').trim();
+  if (!selfAuthoredMessageNotificationTypes.contains(type)) {
+    return false;
+  }
+
+  final senderUid = stringFromFirebase(
+    data['senderUid'],
+    stringFromFirebase(
+      data['senderUserId'],
+      stringFromFirebase(data['actorUserId'], ''),
+    ),
+  ).trim();
+
+  return senderUid.isNotEmpty && senderUid == cleanCurrentUid;
 }
 
 Future<void> initializePushNotificationsForCurrentUser() async {
@@ -8784,10 +8827,10 @@ Future<void> sendCommunityPushNotificationEvent({
     ...extra,
     'type': type,
     'preferenceKey': preferenceKey,
-    // Keep the audience marker for compatible backends, but also include the
-    // concrete recipients. Direct-message pushes already use recipient ids and
-    // this prevents community events from depending on broadcast expansion.
-    'audience': 'all_users',
+    // Use backend audience expansion only when the client cannot read the
+    // concrete recipient list. Otherwise keep the payload recipient-only so an
+    // older endpoint cannot accidentally broadcast back to the sender.
+    if (recipients == null) 'audience': 'all_users',
     'notificationId': notificationId,
     'title': title,
     'body': body,
@@ -15677,6 +15720,21 @@ class NotificationCenterItem {
           type == 'friend_live_sharing');
 }
 
+bool notificationCenterItemIsSelfAuthoredMessage(
+  NotificationCenterItem item,
+  String currentUid,
+) {
+  final cleanCurrentUid = currentUid.trim();
+  final type = item.type.trim();
+  if (cleanCurrentUid.isEmpty ||
+      !selfAuthoredMessageNotificationTypes.contains(type)) {
+    return false;
+  }
+
+  final actorUserId = item.actorUserId.trim();
+  return actorUserId.isNotEmpty && actorUserId == cleanCurrentUid;
+}
+
 bool notificationCenterItemIsRejected(NotificationCenterItem item) {
   final status = item.status.trim().toLowerCase();
   final title = item.title.trim().toLowerCase();
@@ -16787,6 +16845,10 @@ Future<List<NotificationCenterItem>> loadNotificationCenterItems() async {
   // User-facing action notifications need a real target. Old push/history
   // copies can have only title/body, which cannot open a chat or spot.
   items.removeWhere((item) {
+    if (notificationCenterItemIsSelfAuthoredMessage(item, firebaseUser.uid)) {
+      return true;
+    }
+
     if (item.type == 'chat_message') {
       return chatIdFromNotificationItem(item).isEmpty;
     }
