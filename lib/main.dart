@@ -116,6 +116,19 @@ final notificationCenterUnreadCountsBySource = <String, int>{};
 final chatUnreadCountsByChatId = ValueNotifier<Map<String, int>>(
   const <String, int>{},
 );
+
+// Foreground push suppression needs to know whether the user is actually
+// looking at Global Chat. The GlobalChatTab itself is kept alive inside a
+// TabBarView, so its mounted state alone is not enough.
+bool appIsForegroundForNotifications = true;
+bool mainChatScreenVisibleForNotifications = false;
+bool globalChatTabSelectedForNotifications = false;
+
+bool get globalChatIsActivelyVisibleForNotifications =>
+    appIsForegroundForNotifications &&
+    mainChatScreenVisibleForNotifications &&
+    globalChatTabSelectedForNotifications;
+
 bool appIconBadgeSyncStarted = false;
 
 const bool firestoreDebugTrackerEnabled = true;
@@ -4643,8 +4656,76 @@ Future<void> unregisterPushTokenForCurrentUser() async {
   }
 }
 
+String notificationPreferenceKeyForRemoteMessage(RemoteMessage message) {
+  final explicitKey = stringFromFirebase(
+    message.data['preferenceKey'],
+    '',
+  ).trim();
+  if (explicitKey.isNotEmpty) {
+    return explicitKey;
+  }
+
+  final type = stringFromFirebase(message.data['type'], '').trim();
+  return switch (type) {
+    'spot_review_update' ||
+    'spot_approved_by_admin' ||
+    'spot_rejected_by_admin' => 'reviewNotifications',
+    'spot_like' => 'likeNotifications',
+    'spot_comment' ||
+    'forum_reply' ||
+    'forum_reply_admin' => 'commentNotifications',
+    'chat_message' ||
+    'global_chat_message' ||
+    'global_chat_admin' => 'newMessageNotifications',
+    'new_spot' ||
+    'temporary_event' ||
+    'temporary_spot_today' => 'newSpotNotifications',
+    'friend_nearby' || 'friend_at_spot' => 'friendAtSpotNotifications',
+    'friend_live_sharing' => 'friendLiveShareNotifications',
+    _ => '',
+  };
+}
+
+bool localNotificationPreferenceEnabled(String preferenceKey) {
+  final settings = userSettings.value;
+  return switch (preferenceKey.trim()) {
+    'reviewNotifications' => settings.reviewNotifications,
+    'likeNotifications' => settings.likeNotifications,
+    'commentNotifications' => settings.commentNotifications,
+    'newSpotNotifications' => settings.newSpotNotifications,
+    'newMessageNotifications' => settings.newMessageNotifications,
+    'friendAtSpotNotifications' => settings.friendAtSpotNotifications,
+    'friendLiveShareNotifications' => settings.friendLiveShareNotifications,
+    _ => true,
+  };
+}
+
+bool remoteMessageTargetsGlobalChat(RemoteMessage message) {
+  final type = stringFromFirebase(message.data['type'], '').trim();
+  return type == 'global_chat_message' || type == 'global_chat_admin';
+}
+
 Future<void> showForegroundSystemNotification(RemoteMessage message) async {
   if (!Platform.isAndroid) {
+    return;
+  }
+
+  final preferenceKey = notificationPreferenceKeyForRemoteMessage(message);
+  if (preferenceKey.isNotEmpty &&
+      !localNotificationPreferenceEnabled(preferenceKey)) {
+    debugPrint(
+      'Foreground push skipped because $preferenceKey is disabled. '
+      'messageId=${message.messageId}, data=${message.data}',
+    );
+    return;
+  }
+
+  if (remoteMessageTargetsGlobalChat(message) &&
+      globalChatIsActivelyVisibleForNotifications) {
+    debugPrint(
+      'Foreground Global Chat push skipped because Global Chat is visible. '
+      'messageId=${message.messageId}',
+    );
     return;
   }
 
@@ -7288,10 +7369,27 @@ Future<bool> trySendPushNotificationEvent(
     return true;
   }
 
-  final recipientUserIds = stringListFromFirebase(
+  var recipientUserIds = stringListFromFirebase(
     event['recipientUserIds'],
     const <String>[],
   ).where((uid) => uid.trim().isNotEmpty && uid != firebaseUser.uid).toSet();
+
+  final preferenceKey = stringFromFirebase(event['preferenceKey'], '').trim();
+  if (recipientUserIds.isNotEmpty &&
+      preferenceKey.isNotEmpty &&
+      event['preferencesAlreadyFiltered'] != true) {
+    final allowedRecipients = <String>{};
+    for (final recipientUid in recipientUserIds) {
+      if (await userNotificationPreferenceEnabled(
+        recipientUid,
+        preferenceKey,
+      )) {
+        allowedRecipients.add(recipientUid);
+      }
+    }
+    recipientUserIds = allowedRecipients;
+  }
+
   if (event.containsKey('recipientUserIds') && recipientUserIds.isEmpty) {
     _recentPushEventSentAtMillis.remove(dedupKey);
     debugPrint('Push event skipped because it has no recipients. event=$event');
@@ -8645,7 +8743,10 @@ CollectionReference<Map<String, dynamic>> userNotificationsCollection() {
 }
 
 const int maxCommunityPushRecipientUsers = 500;
-const Duration communityPushRecipientCacheDuration = Duration(minutes: 1);
+// Notification switches must take effect immediately. Caching an audience even
+// briefly can keep a user in a sender's recipient list after they turn a
+// notification category off.
+const Duration communityPushRecipientCacheDuration = Duration.zero;
 final Map<String, List<String>> _communityPushRecipientCache =
     <String, List<String>>{};
 final Map<String, int> _communityPushRecipientCacheAtMillis = <String, int>{};
@@ -8719,12 +8820,12 @@ Future<List<String>?> communityPushRecipientUserIds({
     _communityPushRecipientCacheAtMillis[preferenceKey] = nowMillis;
     return cachedRecipients.where((uid) => uid != firebaseUser.uid).toList();
   } catch (error, stack) {
-    // Fall back to the backend's audience expansion. The explicit-recipient
-    // path is preferred, but a restrictive users read rule must not disable
-    // the existing broadcast path completely.
+    // Preferences are a hard opt-out. If the client cannot verify the
+    // recipients, fail closed instead of broadcasting and risking a
+    // notification to somebody who disabled this category.
     debugPrint('Could not load community push recipients: $error');
     debugPrint('$stack');
-    return null;
+    return const <String>[];
   }
 }
 
@@ -8834,6 +8935,7 @@ Future<void> sendCommunityPushNotificationEvent({
     'title': title,
     'body': body,
     if (recipients != null) 'recipientUserIds': recipients,
+    if (recipients != null) 'preferencesAlreadyFiltered': true,
   });
   if (!delivered) {
     debugPrint('Community push was not delivered: $notificationId');
@@ -9080,6 +9182,27 @@ Future<void> createNewSpotNotificationForUsers(CarSpot spot) async {
     debugPrint('Could not create new spot notifications: $error');
     debugPrint('$stack');
   }
+}
+
+Future<void> sendNewSpotPushToEligibleUsers(CarSpot spot) async {
+  final recipients = await communityPushRecipientUserIds(
+    preferenceKey: 'newSpotNotifications',
+  );
+  if (recipients == null || recipients.isEmpty) {
+    return;
+  }
+
+  await sendPushNotificationEvent({
+    'type': spot.isTemporary ? 'temporary_event' : 'new_spot',
+    'preferenceKey': 'newSpotNotifications',
+    'notificationId':
+        '${spot.isTemporary ? 'temporary_event' : 'new_spot'}_${spot.id}',
+    'spotId': spot.id,
+    'spotName': spot.name,
+    'cityCountry': spot.cityCountry,
+    'recipientUserIds': recipients,
+    'preferencesAlreadyFiltered': true,
+  });
 }
 
 Future<void> createChatMessageNotification({
@@ -10830,6 +10953,7 @@ Future<void> sendChatMessage({
 
       await sendPushNotificationEvent({
         'type': 'chat_message',
+        'preferenceKey': 'newMessageNotifications',
         'notificationId': 'chat_${chatId}_${messageRef.id}',
         'chatId': chatId,
         'messageId': messageRef.id,
@@ -11676,6 +11800,7 @@ Future<void> notifyCurrentUserFriendsAboutSpotPresence({
   unawaited(
     sendPushNotificationEvent({
       'type': 'friend_at_spot',
+      'preferenceKey': 'friendAtSpotNotifications',
       'spotId': spot.id,
       'spotName': spot.name,
       'lat': coordinates.latitude,
@@ -12201,17 +12326,40 @@ Future<void> notifyAllUsersIfTemporarySpotIsToday(CarSpot spot) async {
     return;
   }
 
-  final delivered = await trySendPushNotificationEvent({
-    'type': 'temporary_spot_today',
-    'preferenceKey': 'newSpotNotifications',
-    'audience': 'all_users',
-    'notificationId': notificationId,
-    'title': 'Temporary spot today',
-    'body': '${spot.name} is happening today in ${spot.cityCountry}.',
+  final recipients = await communityPushRecipientUserIds(
+    preferenceKey: 'newSpotNotifications',
+  );
+  if (recipients == null || recipients.isEmpty) {
+    return;
+  }
+
+  final title = 'Temporary spot today';
+  final body = '${spot.name} is happening today in ${spot.cityCountry}.';
+  final extra = <String, Object?>{
     'spotId': spot.id,
     'spotName': spot.name,
     'cityCountry': spot.cityCountry,
     'startsAtMillis': startsAtMillis,
+  };
+
+  await createCommunityNotificationCenterItems(
+    recipientUserIds: recipients,
+    type: 'temporary_spot_today',
+    notificationId: notificationId,
+    title: title,
+    body: body,
+    extra: extra,
+  );
+
+  final delivered = await trySendPushNotificationEvent({
+    ...extra,
+    'type': 'temporary_spot_today',
+    'preferenceKey': 'newSpotNotifications',
+    'notificationId': notificationId,
+    'title': title,
+    'body': body,
+    'recipientUserIds': recipients,
+    'preferencesAlreadyFiltered': true,
   });
   if (delivered) {
     temporarySpotTodayDispatchesThisSession.add(notificationId);
@@ -13326,12 +13474,48 @@ void removeSpotFromLocalImmediateCache(CarSpot spot) {
   }
 }
 
+int _spotVersionFreshnessMillis(CarSpot spot) {
+  if (spot.updatedAtMillis > 0) {
+    return spot.updatedAtMillis;
+  }
+  return spot.createdAtMillis;
+}
+
+CarSpot _preferredSpotVersion(CarSpot existing, CarSpot candidate) {
+  final existingFreshness = _spotVersionFreshnessMillis(existing);
+  final candidateFreshness = _spotVersionFreshnessMillis(candidate);
+
+  if (candidateFreshness > existingFreshness) {
+    return candidate;
+  }
+  if (candidateFreshness < existingFreshness) {
+    return existing;
+  }
+
+  // If two sources momentarily report the same revision but disagree about a
+  // temporary reveal time, prefer the more restrictive (later) reveal. This
+  // prevents an old location from flashing on the map before the edited
+  // showOnMapAt time while listeners converge.
+  if (existing.isTemporary && candidate.isTemporary) {
+    final existingReveal = existing.effectiveShowOnMapAtMillis ?? 0;
+    final candidateReveal = candidate.effectiveShowOnMapAtMillis ?? 0;
+    if (existingReveal != candidateReveal) {
+      return candidateReveal > existingReveal ? candidate : existing;
+    }
+  }
+
+  return candidate;
+}
+
 void _publishFirebaseSpotCaches() {
   final merged = <String, CarSpot>{};
 
   for (final sourceSpots in _firebaseSpotCacheBySource.values) {
     for (final entry in sourceSpots.entries) {
-      merged[entry.key] = entry.value;
+      final existing = merged[entry.key];
+      merged[entry.key] = existing == null
+          ? entry.value
+          : _preferredSpotVersion(existing, entry.value);
     }
   }
 
@@ -14406,12 +14590,15 @@ Future<void> toggleSpotLike(
       // backend creates the notification-center item for spot likes. Creating
       // one locally as well caused duplicated notifications in the app.
       try {
+        final ownerUid = spotNotificationOwnerUid(spot);
         await sendPushNotificationEvent({
           'type': 'spot_like',
+          'preferenceKey': 'likeNotifications',
           'notificationId': 'spot_like_${likeRef.id}',
           'likeId': likeRef.id,
           'spotId': spotId,
           'spotName': spot.name,
+          if (ownerUid.isNotEmpty) 'recipientUserIds': [ownerUid],
         });
       } catch (error, stack) {
         debugPrint('Spot like notification failed: $error');
@@ -14688,12 +14875,15 @@ Future<SpotReviewData> saveSpotReview({
     // Do not also create the user_notifications document here. The push
     // backend creates the notification-center item for spot comments. Creating
     // one locally as well caused duplicated notifications in the app.
+    final ownerUid = spotNotificationOwnerUid(spot);
     await sendPushNotificationEvent({
       'type': 'spot_comment',
+      'preferenceKey': 'commentNotifications',
       'notificationId': 'spot_comment_${reviewRef.id}',
       'reviewId': reviewRef.id,
       'spotId': spotId,
       'spotName': spot.name,
+      if (ownerUid.isNotEmpty) 'recipientUserIds': [ownerUid],
     });
   } catch (error, stack) {
     debugPrint('Spot comment notification failed: $error');
@@ -15297,23 +15487,17 @@ Future<void> updateSpotStatus(
     await createNewSpotNotificationForUsers(updatedSpot);
     await notifyAllUsersIfTemporarySpotIsToday(updatedSpot);
 
-    await sendPushNotificationEvent({
-      'type': updatedSpot.isTemporary ? 'temporary_event' : 'new_spot',
-      'preferenceKey': 'newSpotNotifications',
-      'audience': 'all_users',
-      'notificationId':
-          '${updatedSpot.isTemporary ? 'temporary_event' : 'new_spot'}_${updatedSpot.id}',
-      'spotId': updatedSpot.id,
-      'spotName': updatedSpot.name,
-      'cityCountry': updatedSpot.cityCountry,
-    });
+    await sendNewSpotPushToEligibleUsers(updatedSpot);
   }
 
   if (statusChanged &&
       spot.id.isNotEmpty &&
       (status == SpotStatus.approved || status == SpotStatus.rejected)) {
+    final ownerUid = spotNotificationOwnerUid(updatedSpot);
     await sendPushNotificationEvent({
       'type': 'spot_decision',
+      'preferenceKey': 'reviewNotifications',
+      if (ownerUid.isNotEmpty) 'recipientUserIds': [ownerUid],
       'spotId': spot.id,
       'status': spotStatusName(status),
       if (cleanRejectionReason.isNotEmpty)
@@ -16625,6 +16809,22 @@ String notificationCenterActionDedupKey(NotificationCenterItem item) {
   final actorKey = item.actorUserId.trim().isNotEmpty
       ? 'uid:${item.actorUserId.trim()}'
       : 'user:${item.actorUsername.trim().toLowerCase()}';
+
+  if (type == 'global_chat_message' || type == 'global_chat_admin') {
+    final messageKey = item.messageId.trim();
+    if (messageKey.isNotEmpty) {
+      // Staff can receive both the normal Global Chat item and an admin
+      // moderation item for the same message. Backend history can add another
+      // copy. Treat all of them as one action in the bell.
+      return 'global_chat:$messageKey';
+    }
+
+    final bodyKey = notificationCenterDisplayBody(item).trim().toLowerCase();
+    if (bodyKey.isNotEmpty) {
+      final bucket = (item.createdAtMillis / 60000).floor();
+      return 'global_chat:$actorKey:$bodyKey:$bucket';
+    }
+  }
 
   if (type == 'chat_message') {
     final chatKey = chatIdFromNotificationItem(item).trim();
@@ -18501,6 +18701,8 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     index = widget.initialIndex.clamp(0, 4).toInt();
     hasOpenedMap = index == 1;
     hasOpenedChat = index == 3;
+    mainChatScreenVisibleForNotifications = index == 3;
+    appIsForegroundForNotifications = true;
     WidgetsBinding.instance.addObserver(this);
     mapFocusRequest.addListener(handleMapFocusRequest);
     if (mapFocusRequest.value != null) {
@@ -18558,6 +18760,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
         hasOpenedChat = true;
       }
       index = cleanIndex;
+      mainChatScreenVisibleForNotifications = index == 3;
     });
   }
 
@@ -18571,12 +18774,16 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
           hasOpenedChat = true;
         }
         index = previousIndex;
+        mainChatScreenVisibleForNotifications = index == 3;
       });
       return false;
     }
 
     if (index != 0) {
-      setState(() => index = 0);
+      setState(() {
+        index = 0;
+        mainChatScreenVisibleForNotifications = false;
+      });
     }
     return false;
   }
@@ -18588,10 +18795,12 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
+      appIsForegroundForNotifications = true;
       updateCurrentUserOnlinePresence(isOnline: true);
     } else if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.detached ||
         state == AppLifecycleState.inactive) {
+      appIsForegroundForNotifications = false;
       unawaited(firestoreDebugTracker.flushPersisted());
       updateCurrentUserOnlinePresence(isOnline: false);
     }
@@ -18814,6 +19023,8 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
 
   @override
   void dispose() {
+    mainChatScreenVisibleForNotifications = false;
+    appIsForegroundForNotifications = false;
     WidgetsBinding.instance.removeObserver(this);
     mapFocusRequest.removeListener(handleMapFocusRequest);
     onlinePresenceRefreshTimer?.cancel();
@@ -30694,16 +30905,7 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
         await createNewSpotNotificationForUsers(savedNewSpot);
         await notifyAllUsersIfTemporarySpotIsToday(savedNewSpot);
 
-        await sendPushNotificationEvent({
-          'type': savedNewSpot.isTemporary ? 'temporary_event' : 'new_spot',
-          'preferenceKey': 'newSpotNotifications',
-          'audience': 'all_users',
-          'notificationId':
-              '${savedNewSpot.isTemporary ? 'temporary_event' : 'new_spot'}_${savedNewSpot.id}',
-          'spotId': savedNewSpot.id,
-          'spotName': savedNewSpot.name,
-          'cityCountry': savedNewSpot.cityCountry,
-        });
+        await sendNewSpotPushToEligibleUsers(savedNewSpot);
       }
 
       if (isAdminCreatedSpot && savedNewSpot.categories.contains('Meet')) {
@@ -33051,6 +33253,7 @@ class _ChatScreenState extends State<ChatScreen>
       vsync: this,
       initialIndex: initialIndex,
     );
+    globalChatTabSelectedForNotifications = initialIndex == 2;
     tabController.addListener(handleTabChanged);
     final uid = FirebaseAuth.instance.currentUser?.uid ?? currentUser.uid;
     chatsStream = currentUserChatsQuery(
@@ -33060,6 +33263,7 @@ class _ChatScreenState extends State<ChatScreen>
 
   @override
   void dispose() {
+    globalChatTabSelectedForNotifications = false;
     appUiPreferences.removeListener(_handleLanguageChanged);
     tabController.removeListener(handleTabChanged);
     tabController.dispose();
@@ -33075,6 +33279,7 @@ class _ChatScreenState extends State<ChatScreen>
   }
 
   void handleTabChanged() {
+    globalChatTabSelectedForNotifications = tabController.index == 2;
     if (activeTabIndex != tabController.index) {
       setState(() => activeTabIndex = tabController.index);
     }
@@ -42557,6 +42762,8 @@ Future<void> saveGarageToFirebase(List<GarageCar> cars) async {
 
 Future<void> saveSettingsToFirebase(UserSettingsData settings) async {
   userSettings.value = settings;
+  _communityPushRecipientCache.clear();
+  _communityPushRecipientCacheAtMillis.clear();
 
   await saveCurrentUserFields({
     'settings': settings.toFirebase(),
@@ -50831,9 +51038,18 @@ class _AdminEditSpotScreenState extends State<AdminEditSpotScreen> {
         'updatedAt': FieldValue.serverTimestamp(),
       });
 
-      final visibleUpdatedSpot = needsEditReview
-          ? updatedSpot.copyWith(status: SpotStatus.edited)
-          : updatedSpot;
+      final localUpdatedAtMillis = DateTime.now().millisecondsSinceEpoch;
+      final visibleUpdatedSpot =
+          (needsEditReview
+                  ? updatedSpot.copyWith(status: SpotStatus.edited)
+                  : updatedSpot)
+              .copyWith(updatedAtMillis: localUpdatedAtMillis);
+
+      // Update the shared source cache immediately as well as the screen-level
+      // notifiers below. Without this, an older approved/temporary listener
+      // source can temporarily win and expose the previous coordinates before
+      // the edited reveal time.
+      upsertSpotIntoLocalImmediateCache(visibleUpdatedSpot);
 
       reviewSpots.value = reviewSpots.value
           .map(
