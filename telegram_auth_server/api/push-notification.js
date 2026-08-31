@@ -694,6 +694,71 @@ async function handleTemporaryEvent(userId, payload) {
   });
 }
 
+async function handleTemporarySpotReminder(userId, payload) {
+  await requireStaff(userId);
+
+  const spotId = cleanText(payload.spotId);
+  const spotSnapshot = await db.collection('spots').doc(spotId).get();
+  if (!spotSnapshot.exists) {
+    return [];
+  }
+
+  const spot = spotSnapshot.data() || {};
+  const startsAtMillis = timestampToMillis(spot.startsAt);
+  const nowMillis = Date.now();
+  const reminderAtMillis = startsAtMillis - 5 * 60 * 60 * 1000;
+  if (
+    spot.isTemporary !== true ||
+    spot.status !== 'approved' ||
+    !startsAtMillis ||
+    nowMillis < reminderAtMillis ||
+    nowMillis >= startsAtMillis
+  ) {
+    return [];
+  }
+
+  let recipientUserIds = cleanStringArray(payload.recipientUserIds).filter(
+    (recipientUserId) => recipientUserId !== userId,
+  );
+  if (!recipientUserIds.length) {
+    const usersSnapshot = await db.collection('users').limit(500).get();
+    recipientUserIds = usersSnapshot.docs
+      .map((doc) => doc.id)
+      .filter((recipientUserId) => recipientUserId !== userId);
+  }
+
+  const spotName = cleanText(spot.name, 'Temporary spot');
+  const cityCountry = cleanText(spot.cityCountry);
+  const locationSuffix = cityCountry ? ` in ${cityCountry}` : '';
+  const title = 'Temporary spot starts in 5 hours';
+  const body = `${spotName} starts in about 5 hours${locationSuffix}.`;
+  const notificationBaseId = cleanText(
+    payload.notificationId,
+    `temporary_spot_reminder_${spotId}_${startsAtMillis}`,
+  );
+
+  return Promise.all(
+    recipientUserIds.map((recipientUserId) =>
+      sendPushToUser({
+        userId: recipientUserId,
+        settingName: 'newSpotNotifications',
+        deliveryKey: `temporary_spot_reminder:${spotId}:${startsAtMillis}`,
+        notificationId: `${notificationBaseId}_${recipientUserId}`,
+        title,
+        body,
+        data: {
+          type: 'temporary_spot_today',
+          preferenceKey: 'newSpotNotifications',
+          spotId,
+          spotName,
+          cityCountry,
+          startsAtMillis,
+        },
+      }),
+    ),
+  );
+}
+
 async function handleSpotPendingReview(userId, payload) {
   const spotId = cleanText(payload.spotId);
   const recipientUserIds = cleanStringArray(payload.recipientUserIds).filter(
@@ -1279,6 +1344,7 @@ export default async function handler(request, response) {
       spot_pending_review: handleSpotPendingReview,
       new_spot: handleNewSpot,
       temporary_event: handleTemporaryEvent,
+      temporary_spot_today: handleTemporarySpotReminder,
       friend_at_spot: handleFriendAtSpot,
       friend_live_sharing: handleFriendLiveSharing,
       global_chat_message: handleGlobalChatMessage,
