@@ -59,7 +59,7 @@ const Duration maxTemporarySpotDuration = Duration(hours: 12);
 // Re-enable only after Firebase reads confirm this is not the overnight drain.
 const bool friendLocationNotificationPollingEnabled = false;
 const double temporarySpotHidePermanentRadiusMeters = 500;
-const double minimumPermanentSpotDistanceMeters = 500;
+const double minimumPermanentSpotDistanceMeters = 100;
 const int maxGaragePhotos = 4;
 const int r2SpotPhotoMaxLongSide = 1280;
 const int r2AvatarPhotoMaxLongSide = 768;
@@ -2335,6 +2335,13 @@ const _ruText = <String, String>{
       'Вы выйдете из группы и перестанете получать сообщения.',
   'You left the group.': 'Вы вышли из группы.',
   'Could not leave group.': 'Не удалось выйти из группы.',
+  'Reply': 'Ответить',
+  'React': 'Реакция',
+  'React with emoji': 'Реакция эмодзи',
+  'Or enter any emoji': 'Или введите любой эмодзи',
+  'Remove reaction': 'Убрать реакцию',
+  'Cancel reply': 'Отменить ответ',
+  'Could not update reaction': 'Не удалось обновить реакцию',
   'Only the group owner can delete this group.':
       'Удалить группу может только владелец.',
   'You cannot message this user.': 'Вы не можете написать этому пользователю.',
@@ -3234,6 +3241,13 @@ const _lvText = <String, String>{
       'Jūs pametīsiet grupu un vairs nesaņemsiet ziņas.',
   'You left the group.': 'Jūs pametāt grupu.',
   'Could not leave group.': 'Neizdevās pamest grupu.',
+  'Reply': 'Atbildēt',
+  'React': 'Reakcija',
+  'React with emoji': 'Reaģēt ar emocijzīmi',
+  'Or enter any emoji': 'Vai ievadiet jebkuru emocijzīmi',
+  'Remove reaction': 'Noņemt reakciju',
+  'Cancel reply': 'Atcelt atbildi',
+  'Could not update reaction': 'Neizdevās atjaunināt reakciju',
   'Only the group owner can delete this group.':
       'Grupu var dzēst tikai īpašnieks.',
   'You cannot message this user.': 'Jūs nevarat rakstīt šim lietotājam.',
@@ -8934,7 +8948,7 @@ Future<void> sendCommunityPushNotificationEvent({
     'notificationId': notificationId,
     'title': title,
     'body': body,
-    if (recipients != null) 'recipientUserIds': recipients,
+    'recipientUserIds': ?recipients,
     if (recipients != null) 'preferencesAlreadyFiltered': true,
   });
   if (!delivered) {
@@ -10065,9 +10079,8 @@ const double friendNearbyRadiusMeters = 5000;
 const double friendAtSpotRadiusMeters = 100;
 const Duration friendAtSpotNotificationDwellTime = Duration(minutes: 5);
 const Duration friendLocationNotificationCooldown = Duration(minutes: 30);
-const Duration temporarySpotTodayNotificationCheckInterval = Duration(
-  minutes: 30,
-);
+const Duration temporarySpotReminderLeadTime = Duration(hours: 5);
+const Duration temporarySpotReminderCheckInterval = Duration(minutes: 1);
 Timer? temporarySpotTodayNotificationTimer;
 final Set<String> temporarySpotTodayDispatchesThisSession = <String>{};
 
@@ -10578,6 +10591,323 @@ Widget stagedChatPhotoPreview({
   );
 }
 
+class MessageReplyPreviewData {
+  final String messageId;
+  final String username;
+  final String text;
+  final String photoUrl;
+
+  const MessageReplyPreviewData({
+    required this.messageId,
+    required this.username,
+    required this.text,
+    required this.photoUrl,
+  });
+
+  bool get hasContent =>
+      messageId.trim().isNotEmpty ||
+      username.trim().isNotEmpty ||
+      text.trim().isNotEmpty ||
+      photoUrl.trim().isNotEmpty;
+}
+
+Map<String, String> messageReactionsFromFirebase(Object? value) {
+  if (value is! Map) {
+    return const <String, String>{};
+  }
+
+  final reactions = <String, String>{};
+  for (final entry in value.entries) {
+    final uid = entry.key.toString().trim();
+    final emoji = entry.value?.toString().trim() ?? '';
+    if (uid.isNotEmpty && emoji.isNotEmpty) {
+      reactions[uid] = emoji;
+    }
+  }
+  return reactions;
+}
+
+MessageReplyPreviewData messageReplyPreviewFromFirebase(
+  Map<String, dynamic> data,
+) {
+  return MessageReplyPreviewData(
+    messageId: stringFromFirebase(data['replyToMessageId'], ''),
+    username: stringFromFirebase(data['replyToUsername'], ''),
+    text: stringFromFirebase(data['replyToText'], ''),
+    photoUrl: stringFromFirebase(data['replyToPhotoUrl'], ''),
+  );
+}
+
+Widget messageReplyPreviewCard(
+  MessageReplyPreviewData reply, {
+  VoidCallback? onTap,
+  bool compact = false,
+}) {
+  if (!reply.hasContent) {
+    return const SizedBox.shrink();
+  }
+
+  final previewText = reply.text.trim().isNotEmpty
+      ? reply.text.trim()
+      : reply.photoUrl.trim().isNotEmpty
+      ? trText('Photo')
+      : trText('Message');
+
+  final content = Container(
+    width: double.infinity,
+    padding: EdgeInsets.fromLTRB(10, compact ? 6 : 8, 10, compact ? 6 : 8),
+    decoration: BoxDecoration(
+      color: Colors.black.withValues(alpha: 0.18),
+      borderRadius: BorderRadius.circular(10),
+      border: Border(
+        left: BorderSide(color: blue.withValues(alpha: 0.9), width: 3),
+      ),
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          reply.username.trim().isEmpty
+              ? trText('Message')
+              : displayUsername(reply.username),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(
+            color: blue,
+            fontSize: 11,
+            fontWeight: FontWeight.w900,
+          ),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          previewText,
+          maxLines: compact ? 1 : 2,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(
+            color: Colors.white70,
+            fontSize: 11.5,
+            height: 1.2,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ],
+    ),
+  );
+
+  if (onTap == null) {
+    return content;
+  }
+  return InkWell(
+    onTap: onTap,
+    borderRadius: BorderRadius.circular(10),
+    child: content,
+  );
+}
+
+Map<String, int> messageReactionCounts(Map<String, String> reactions) {
+  final counts = <String, int>{};
+  for (final emoji in reactions.values) {
+    counts[emoji] = (counts[emoji] ?? 0) + 1;
+  }
+  return counts;
+}
+
+Widget messageReactionBar({
+  required Map<String, String> reactions,
+  required String currentUid,
+  required void Function(String emoji) onEmojiTap,
+}) {
+  if (reactions.isEmpty) {
+    return const SizedBox.shrink();
+  }
+
+  final counts = messageReactionCounts(reactions);
+  final myEmoji = reactions[currentUid] ?? '';
+
+  return Padding(
+    padding: const EdgeInsets.only(top: 6),
+    child: Wrap(
+      spacing: 5,
+      runSpacing: 5,
+      children: [
+        for (final entry in counts.entries)
+          InkWell(
+            onTap: () => onEmojiTap(entry.key),
+            borderRadius: BorderRadius.circular(12),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+              decoration: BoxDecoration(
+                color: myEmoji == entry.key
+                    ? blue.withValues(alpha: 0.22)
+                    : Colors.white.withValues(alpha: 0.07),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: myEmoji == entry.key
+                      ? blue.withValues(alpha: 0.72)
+                      : Colors.white12,
+                ),
+              ),
+              child: Text(
+                '${entry.key} ${entry.value}',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ),
+      ],
+    ),
+  );
+}
+
+Future<String?> showEmojiReactionPicker(
+  BuildContext context, {
+  String currentEmoji = '',
+}) async {
+  final controller = TextEditingController();
+  const quick = <String>[
+    '❤️',
+    '👍',
+    '👎',
+    '😂',
+    '🔥',
+    '😍',
+    '😮',
+    '😢',
+    '😡',
+    '👏',
+    '🎉',
+    '💯',
+  ];
+
+  final result = await showModalBottomSheet<String>(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: panelGlass,
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+    ),
+    builder: (sheetContext) {
+      return Padding(
+        padding: EdgeInsets.fromLTRB(
+          18,
+          14,
+          18,
+          18 + MediaQuery.viewInsetsOf(sheetContext).bottom,
+        ),
+        child: SafeArea(
+          top: false,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                trText('React with emoji'),
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  for (final emoji in quick)
+                    InkWell(
+                      onTap: () => Navigator.pop(sheetContext, emoji),
+                      borderRadius: BorderRadius.circular(14),
+                      child: Container(
+                        width: 46,
+                        height: 42,
+                        alignment: Alignment.center,
+                        decoration: BoxDecoration(
+                          color: currentEmoji == emoji
+                              ? blue.withValues(alpha: 0.22)
+                              : Colors.white.withValues(alpha: 0.06),
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(
+                            color: currentEmoji == emoji
+                                ? blue
+                                : Colors.white12,
+                          ),
+                        ),
+                        child: Text(
+                          emoji,
+                          style: const TextStyle(fontSize: 22),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 14),
+              TextField(
+                controller: controller,
+                autofocus: false,
+                maxLength: 32,
+                style: const TextStyle(color: Colors.white, fontSize: 20),
+                decoration: InputDecoration(
+                  hintText: trText('Or enter any emoji'),
+                  hintStyle: const TextStyle(
+                    color: Colors.white38,
+                    fontSize: 14,
+                  ),
+                  counterText: '',
+                  filled: true,
+                  fillColor: Colors.white.withValues(alpha: 0.06),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(14),
+                    borderSide: const BorderSide(color: Colors.white12),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(14),
+                    borderSide: const BorderSide(color: blue),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  if (currentEmoji.trim().isNotEmpty)
+                    TextButton.icon(
+                      onPressed: () => Navigator.pop(sheetContext, ''),
+                      icon: const Icon(Icons.close, color: Colors.redAccent),
+                      label: Text(
+                        trText('Remove reaction'),
+                        style: const TextStyle(color: Colors.redAccent),
+                      ),
+                    ),
+                  const Spacer(),
+                  ElevatedButton(
+                    onPressed: () {
+                      final value = controller.text.trim();
+                      if (value.isNotEmpty) {
+                        Navigator.pop(sheetContext, value);
+                      }
+                    },
+                    style: ElevatedButton.styleFrom(backgroundColor: blue),
+                    child: Text(
+                      trText('React'),
+                      style: const TextStyle(color: Colors.white),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      );
+    },
+  );
+
+  controller.dispose();
+  return result;
+}
+
 class ChatMessageData {
   final String id;
   final String senderUid;
@@ -10591,6 +10921,11 @@ class ChatMessageData {
   final List<String> readByUserIds;
   final bool isLocalPending;
   final bool sendFailed;
+  final String replyToMessageId;
+  final String replyToUsername;
+  final String replyToText;
+  final String replyToPhotoUrl;
+  final Map<String, String> reactions;
 
   const ChatMessageData({
     required this.id,
@@ -10605,6 +10940,11 @@ class ChatMessageData {
     this.readByUserIds = const [],
     this.isLocalPending = false,
     this.sendFailed = false,
+    this.replyToMessageId = '',
+    this.replyToUsername = '',
+    this.replyToText = '',
+    this.replyToPhotoUrl = '',
+    this.reactions = const <String, String>{},
   });
 
   factory ChatMessageData.fromFirestore(
@@ -10634,6 +10974,11 @@ class ChatMessageData {
       clientCreatedAtMillis: clientCreatedAtMillis,
       readByUserIds: stringListFromFirebase(data['readByUserIds'], const []),
       isLocalPending: doc.metadata.hasPendingWrites,
+      replyToMessageId: stringFromFirebase(data['replyToMessageId'], ''),
+      replyToUsername: stringFromFirebase(data['replyToUsername'], ''),
+      replyToText: stringFromFirebase(data['replyToText'], ''),
+      replyToPhotoUrl: stringFromFirebase(data['replyToPhotoUrl'], ''),
+      reactions: messageReactionsFromFirebase(data['reactions']),
     );
   }
 
@@ -10644,6 +10989,7 @@ class ChatMessageData {
     required String text,
     String photoUrl = '',
     required int createdAtMillis,
+    MessageReplyPreviewData? replyTo,
   }) {
     return ChatMessageData(
       id: id,
@@ -10655,8 +11001,19 @@ class ChatMessageData {
       clientCreatedAtMillis: createdAtMillis,
       readByUserIds: [senderUid],
       isLocalPending: true,
+      replyToMessageId: replyTo?.messageId ?? '',
+      replyToUsername: replyTo?.username ?? '',
+      replyToText: replyTo?.text ?? '',
+      replyToPhotoUrl: replyTo?.photoUrl ?? '',
     );
   }
+
+  MessageReplyPreviewData get replyPreview => MessageReplyPreviewData(
+    messageId: replyToMessageId,
+    username: replyToUsername,
+    text: replyToText,
+    photoUrl: replyToPhotoUrl,
+  );
 
   ChatMessageData copyWith({
     String? id,
@@ -10671,6 +11028,11 @@ class ChatMessageData {
     List<String>? readByUserIds,
     bool? isLocalPending,
     bool? sendFailed,
+    String? replyToMessageId,
+    String? replyToUsername,
+    String? replyToText,
+    String? replyToPhotoUrl,
+    Map<String, String>? reactions,
   }) {
     return ChatMessageData(
       id: id ?? this.id,
@@ -10686,6 +11048,11 @@ class ChatMessageData {
       readByUserIds: readByUserIds ?? this.readByUserIds,
       isLocalPending: isLocalPending ?? this.isLocalPending,
       sendFailed: sendFailed ?? this.sendFailed,
+      replyToMessageId: replyToMessageId ?? this.replyToMessageId,
+      replyToUsername: replyToUsername ?? this.replyToUsername,
+      replyToText: replyToText ?? this.replyToText,
+      replyToPhotoUrl: replyToPhotoUrl ?? this.replyToPhotoUrl,
+      reactions: reactions ?? this.reactions,
     );
   }
 
@@ -10873,6 +11240,7 @@ Future<void> sendChatMessage({
   ChatThreadData? chat,
   String? messageId,
   int? clientCreatedAtMillis,
+  MessageReplyPreviewData? replyTo,
 }) async {
   final firebaseUser = FirebaseAuth.instance.currentUser;
 
@@ -10898,12 +11266,18 @@ Future<void> sendChatMessage({
   final clientMillis =
       clientCreatedAtMillis ?? DateTime.now().millisecondsSinceEpoch;
 
-  // This is the only write that must succeed for the user-facing send action.
-  // Other writes below are best-effort because some Firestore rules allow a
-  // member to create messages but do not allow updating the parent chat summary
-  // or creating notification documents. Those failures should not show "Could
-  // not send message" after the message itself was accepted.
-  await messageRef.debugSet(
+  final chatMemberIds = chat?.memberIds
+      .map((uid) => uid.trim())
+      .where((uid) => uid.isNotEmpty)
+      .toList();
+  final batch = FirebaseFirestore.instance.batch();
+
+  // Commit the message and the chat-list summary together. The receiver's chat
+  // list listens to the parent chat document, so writing the message first and
+  // updating this summary in a detached Future can leave the new message hidden
+  // until another refresh causes the thread to be opened.
+  batch.debugSet(
+    messageRef,
     {
       'senderUid': firebaseUser.uid,
       'senderUsername': currentUser.username,
@@ -10912,63 +11286,67 @@ Future<void> sendChatMessage({
       if (cleanPhotoUrl.isNotEmpty) 'type': 'image',
       'clientCreatedAtMillis': clientMillis,
       'readByUserIds': [firebaseUser.uid],
+      if (replyTo != null && replyTo.hasContent) ...{
+        'replyToMessageId': replyTo.messageId,
+        'replyToUsername': replyTo.username,
+        'replyToText': replyTo.text,
+        'replyToPhotoUrl': replyTo.photoUrl,
+      },
       'createdAt': FieldValue.serverTimestamp(),
     },
     null,
     'chat: send message',
   );
-
-  unawaited(() async {
-    try {
-      final chatMemberIds = chat?.memberIds
-          .map((uid) => uid.trim())
-          .where((uid) => uid.isNotEmpty)
-          .toList();
-      await chatsCollection().doc(chatId).debugSet({
-        'lastMessage': cleanText.isEmpty ? trText('Photo') : cleanText,
-        'lastSenderUid': firebaseUser.uid,
-        'lastSenderUsername': currentUser.username,
-        if (chatMemberIds != null && chatMemberIds.isNotEmpty)
-          'hiddenForUserIds': FieldValue.arrayRemove(chatMemberIds),
-        'updatedAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
-    } catch (error, stack) {
-      debugPrint('Chat summary update skipped after message send: $error');
-      debugPrint('$stack');
-    }
-  }());
+  batch.debugSet(
+    chatsCollection().doc(chatId),
+    {
+      'lastMessage': cleanText.isEmpty ? trText('Photo') : cleanText,
+      'lastSenderUid': firebaseUser.uid,
+      'lastSenderUsername': currentUser.username,
+      if (chatMemberIds != null && chatMemberIds.isNotEmpty)
+        'hiddenForUserIds': FieldValue.arrayRemove(chatMemberIds),
+      'updatedAt': FieldValue.serverTimestamp(),
+    },
+    SetOptions(merge: true),
+    'chat: update summary after message send',
+  );
+  await batch.commit();
 
   // Do not create a local user_notifications chat row here. The push backend
   // creates the notification-center item for chat messages. Creating a local
   // row plus calling the backend caused duplicated direct-chat notifications.
-  unawaited(() async {
-    try {
-      final recipientUserIds =
-          chat?.memberIds
-              .map((uid) => uid.trim())
-              .where((uid) => uid.isNotEmpty && uid != firebaseUser.uid)
-              .toSet()
-              .toList() ??
-          const <String>[];
+  try {
+    final recipientUserIds =
+        chatMemberIds
+            ?.where((uid) => uid != firebaseUser.uid)
+            .toSet()
+            .toList() ??
+        const <String>[];
 
-      await sendPushNotificationEvent({
-        'type': 'chat_message',
-        'preferenceKey': 'newMessageNotifications',
-        'notificationId': 'chat_${chatId}_${messageRef.id}',
-        'chatId': chatId,
-        'messageId': messageRef.id,
-        'senderUsername': currentUser.username,
-        'messageText': cleanText.isEmpty ? trText('Photo') : cleanText,
-        if (chat != null) 'isGroup': chat.isGroup,
-        if (chat != null)
-          'chatTitle': chat.titleForCurrentUser(firebaseUser.uid),
-        if (recipientUserIds.isNotEmpty) 'recipientUserIds': recipientUserIds,
-      });
-    } catch (error, stack) {
-      debugPrint('Chat push notification skipped after message send: $error');
-      debugPrint('$stack');
+    final pushWasAccepted = await trySendPushNotificationEvent({
+      'type': 'chat_message',
+      'preferenceKey': 'newMessageNotifications',
+      'notificationId': 'chat_${chatId}_${messageRef.id}',
+      'chatId': chatId,
+      'messageId': messageRef.id,
+      'senderUsername': currentUser.username,
+      'messageText': cleanText.isEmpty ? trText('Photo') : cleanText,
+      if (chat != null) 'isGroup': chat.isGroup,
+      if (chat != null) 'chatTitle': chat.titleForCurrentUser(firebaseUser.uid),
+      if (recipientUserIds.isNotEmpty) 'recipientUserIds': recipientUserIds,
+    });
+    if (!pushWasAccepted) {
+      debugPrint(
+        'Chat push notification was not accepted after message send. '
+        'chatId=$chatId messageId=${messageRef.id}',
+      );
     }
-  }());
+  } catch (error, stack) {
+    // The Firestore batch already delivered the message in-app. A push-service
+    // outage must not turn a successful chat send into a failed message.
+    debugPrint('Chat push notification skipped after message send: $error');
+    debugPrint('$stack');
+  }
 }
 
 Future<void> markChatMessagesReadByCurrentUser({
@@ -11567,8 +11945,7 @@ Future<void> deleteGroupChat(ChatThreadData chat) async {
 
 Future<void> leaveGroupChat(ChatThreadData chat) async {
   final firebaseUser = FirebaseAuth.instance.currentUser;
-  final uid = firebaseUser?.uid ?? currentUser.uid;
-  if (uid.trim().isEmpty) {
+  if (firebaseUser == null || firebaseUser.uid.trim().isEmpty) {
     throw FirebaseException(
       plugin: 'cloud_firestore',
       code: 'not-logged-in',
@@ -11576,47 +11953,66 @@ Future<void> leaveGroupChat(ChatThreadData chat) async {
     );
   }
 
-  if (!chat.isGroup || !chat.memberIds.contains(uid)) {
-    return;
-  }
+  final uid = firebaseUser.uid.trim();
+  final chatRef = chatsCollection().doc(chat.id);
 
-  if (chat.isOwner(uid)) {
-    throw FirebaseException(
-      plugin: 'cloud_firestore',
-      code: 'owner-cannot-leave',
-      message: trText('Only the group owner can delete this group.'),
+  // Rebuild the parallel member arrays by index instead of arrayRemove().
+  // Usernames and photo URLs are not unique: several members can have the
+  // same value (especially an empty photo URL). arrayRemove() would remove
+  // every matching value, corrupting the parallel arrays and causing schema
+  // validation in Firestore rules to reject the leave operation.
+  await FirebaseFirestore.instance.runTransaction((transaction) async {
+    final snapshot = await transaction.debugGet(
+      chatRef,
+      'chat: leave group server verify',
     );
-  }
 
-  var username = currentUser.username;
-  var photoUrl = currentUser.photoUrl ?? '';
-  for (var index = 0; index < chat.memberIds.length; index++) {
-    if (chat.memberIds[index] != uid) {
-      continue;
+    if (!snapshot.exists) {
+      return;
     }
-    if (index < chat.memberUsernames.length) {
-      username = chat.memberUsernames[index];
-    }
-    if (index < chat.memberPhotoUrls.length) {
-      photoUrl = chat.memberPhotoUrls[index];
-    }
-    break;
-  }
 
-  await chatsCollection()
-      .doc(chat.id)
-      .debugSet(
-        {
-          'memberIds': FieldValue.arrayRemove([uid]),
-          'memberUsernames': FieldValue.arrayRemove([username]),
-          'memberPhotoUrls': FieldValue.arrayRemove([photoUrl]),
-          'moderatorIds': FieldValue.arrayRemove([uid]),
-          'hiddenForUserIds': FieldValue.arrayUnion([uid]),
-          'updatedAt': FieldValue.serverTimestamp(),
-        },
-        SetOptions(merge: true),
-        'chat: leave group',
+    final latestChat = ChatThreadData.fromFirestore(snapshot);
+    if (!latestChat.isGroup || !latestChat.memberIds.contains(uid)) {
+      return;
+    }
+
+    if (latestChat.isOwner(uid)) {
+      throw FirebaseException(
+        plugin: 'cloud_firestore',
+        code: 'owner-cannot-leave',
+        message: trText('Only the group owner can delete this group.'),
       );
+    }
+
+    final nextMemberIds = [...latestChat.memberIds];
+    final nextMemberUsernames = [...latestChat.memberUsernames];
+    final nextMemberPhotoUrls = [...latestChat.memberPhotoUrls];
+    final nextModeratorIds = [...latestChat.moderatorIds];
+
+    final memberIndex = nextMemberIds.indexOf(uid);
+    if (memberIndex < 0) {
+      return;
+    }
+
+    nextMemberIds.removeAt(memberIndex);
+    if (memberIndex < nextMemberUsernames.length) {
+      nextMemberUsernames.removeAt(memberIndex);
+    }
+    if (memberIndex < nextMemberPhotoUrls.length) {
+      nextMemberPhotoUrls.removeAt(memberIndex);
+    }
+    nextModeratorIds.removeWhere((memberUid) => memberUid == uid);
+
+    transaction.debugUpdate(chatRef, {
+      'memberIds': nextMemberIds,
+      'memberUsernames': nextMemberUsernames,
+      'memberPhotoUrls': nextMemberPhotoUrls,
+      'moderatorIds': nextModeratorIds,
+      'hiddenForUserIds': FieldValue.arrayUnion([uid]),
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, 'chat: leave group');
+  });
+
   _chatMessageSessionCache.remove(chat.id);
   _chatOldestMessageDocSessionCache.remove(chat.id);
 }
@@ -12287,15 +12683,7 @@ Future<void> notifyStaffAboutCommunityEvent({
   }
 }
 
-bool isSameLocalCalendarDay(DateTime first, DateTime second) =>
-    first.year == second.year &&
-    first.month == second.month &&
-    first.day == second.day;
-
-String localCalendarDayKey(DateTime value) =>
-    '${value.year}${twoDigits(value.month)}${twoDigits(value.day)}';
-
-bool temporarySpotStartsToday(CarSpot spot, DateTime now) {
+bool temporarySpotReminderIsDue(CarSpot spot, DateTime now) {
   if (!spot.isTemporary || spot.status != SpotStatus.approved) {
     return false;
   }
@@ -12308,20 +12696,17 @@ bool temporarySpotStartsToday(CarSpot spot, DateTime now) {
       expiresAtMillis <= now.millisecondsSinceEpoch) {
     return false;
   }
-  return isSameLocalCalendarDay(
-    DateTime.fromMillisecondsSinceEpoch(startsAtMillis),
-    now,
-  );
+  final startsAt = DateTime.fromMillisecondsSinceEpoch(startsAtMillis);
+  final reminderAt = startsAt.subtract(temporarySpotReminderLeadTime);
+  return !now.isBefore(reminderAt) && now.isBefore(startsAt);
 }
 
 Future<void> notifyAllUsersIfTemporarySpotIsToday(CarSpot spot) async {
   final now = DateTime.now();
-  if (!temporarySpotStartsToday(spot, now)) return;
+  if (!temporarySpotReminderIsDue(spot, now)) return;
 
   final startsAtMillis = spot.startsAtMillis!;
-  final startsAt = DateTime.fromMillisecondsSinceEpoch(startsAtMillis);
-  final dayKey = localCalendarDayKey(startsAt);
-  final notificationId = 'temporary_spot_today_${spot.id}_$dayKey';
+  final notificationId = 'temporary_spot_reminder_${spot.id}_$startsAtMillis';
   if (temporarySpotTodayDispatchesThisSession.contains(notificationId)) {
     return;
   }
@@ -12333,8 +12718,11 @@ Future<void> notifyAllUsersIfTemporarySpotIsToday(CarSpot spot) async {
     return;
   }
 
-  final title = 'Temporary spot today';
-  final body = '${spot.name} is happening today in ${spot.cityCountry}.';
+  final title = 'Temporary spot starts in 5 hours';
+  final locationSuffix = spot.cityCountry.trim().isEmpty
+      ? ''
+      : ' in ${spot.cityCountry.trim()}';
+  final body = '${spot.name} starts in about 5 hours$locationSuffix.';
   final extra = <String, Object?>{
     'spotId': spot.id,
     'spotName': spot.name,
@@ -12371,7 +12759,7 @@ Future<void> notifyAllUsersAboutTemporarySpotsToday(
 ) async {
   final now = DateTime.now();
   final todaySpots =
-      spots.where((spot) => temporarySpotStartsToday(spot, now)).toList()
+      spots.where((spot) => temporarySpotReminderIsDue(spot, now)).toList()
         ..sort((first, second) {
           return (first.startsAtMillis ?? 0).compareTo(
             second.startsAtMillis ?? 0,
@@ -12393,9 +12781,9 @@ void startTemporarySpotTodayNotificationScheduler() {
   temporarySpotTodayNotificationTimer?.cancel();
   temporarySpotTodayNotificationTimer = null;
 
-  // A client-only app cannot guarantee a midnight dispatch while every admin
-  // device is offline. When a staff session is active, this immediate +
-  // periodic cache check covers startup, midnight rollover, and spot changes.
+  // Dispatch when a temporary spot enters its five-hour reminder window. The
+  // immediate check catches app resume/startup; the short cache-only interval
+  // keeps an active staff session within about one minute of the target time.
   if (!userRoleIsStaff(currentUser.role) ||
       FirebaseAuth.instance.currentUser == null) {
     return;
@@ -12403,7 +12791,7 @@ void startTemporarySpotTodayNotificationScheduler() {
 
   unawaited(notifyAllUsersAboutTemporarySpotsToday(reviewSpots.value));
   temporarySpotTodayNotificationTimer = Timer.periodic(
-    temporarySpotTodayNotificationCheckInterval,
+    temporarySpotReminderCheckInterval,
     (_) => unawaited(notifyAllUsersAboutTemporarySpotsToday(reviewSpots.value)),
   );
 }
@@ -13717,7 +14105,9 @@ Future<void> refreshFirebaseSpotsFromServer() async {
 }
 
 Query<Map<String, dynamic>> currentUserChatsQuery(String uid) {
-  return chatsCollection().where('memberIds', arrayContains: uid).limit(25);
+  return chatsCollection()
+      .where('memberIds', arrayContains: uid)
+      .limit(firebaseChatsListenLimit);
 }
 
 Query<Map<String, dynamic>> latestChatMessagesQuery(String chatId) {
@@ -15898,7 +16288,9 @@ class NotificationCenterItem {
                   id.trim().startsWith('chat_'))) ||
           addedByUid.trim().isNotEmpty ||
           userId.trim().isNotEmpty ||
-          ((type == 'new_spot' || type == 'temporary_event') &&
+          ((type == 'new_spot' ||
+                  type == 'temporary_event' ||
+                  type == 'temporary_spot_today') &&
               spotName.trim().isNotEmpty) ||
           type == 'friend_request' ||
           type == 'spot_pending_review' ||
@@ -16331,7 +16723,7 @@ NotificationCenterItem notificationCenterItemFromDocument(
     'chat_message' => chatNotificationTitle(actorUsername),
     'new_spot' => 'New spots',
     'temporary_event' => 'Temporary events',
-    'temporary_spot_today' => 'Temporary spot today',
+    'temporary_spot_today' => 'Temporary spot starts in 5 hours',
     'global_chat_message' || 'global_chat_admin' => 'Global chat',
     'forum_reply' => pickString('title', 'Forum'),
     'forum_topic_pending' => 'Forum topic waiting for review',
@@ -16376,8 +16768,8 @@ NotificationCenterItem notificationCenterItemFromDocument(
             : '$spotName temporary event was added.',
       'temporary_spot_today' =>
         spotName.trim().isEmpty
-            ? 'A temporary spot is happening today.'
-            : '$spotName is happening today.',
+            ? 'A temporary spot starts in about 5 hours.'
+            : '$spotName starts in about 5 hours.',
       'global_chat_message' ||
       'global_chat_admin' => 'New message in global chat.',
       'forum_reply' => 'A new reply was posted in the forum.',
@@ -17661,10 +18053,14 @@ Future<void> openNotificationCenterItem(
     if (!context.mounted) return;
 
     if (likeSpot != null) {
-      Navigator.push(
+      final navigationResult = await Navigator.push<SpotDetailNavigationResult>(
         context,
         appPageRoute(builder: (_) => SpotDetailScreen(spot: likeSpot)),
       );
+      if (!context.mounted) return;
+      if (navigationResult == SpotDetailNavigationResult.showMap) {
+        Navigator.of(context).maybePop();
+      }
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -17754,10 +18150,14 @@ Future<void> openNotificationCenterItem(
     return;
   }
 
-  Navigator.push(
+  final navigationResult = await Navigator.push<SpotDetailNavigationResult>(
     context,
     appPageRoute(builder: (_) => SpotDetailScreen(spot: spot)),
   );
+  if (!context.mounted) return;
+  if (navigationResult == SpotDetailNavigationResult.showMap) {
+    Navigator.of(context).maybePop();
+  }
 }
 
 class NotificationCenterScreen extends StatefulWidget {
@@ -21375,6 +21775,28 @@ enum CcsMapStyle { dark, light }
 const ccsMapStylePreferenceKey = 'ccs_map_style';
 const ccsAdaptiveMapStylePreferenceKey = 'ccs_adaptive_map_style';
 
+// CARTO started requiring an API key for its public raster basemaps in
+// August 2026. Keep the key out of source control and provide it at build time:
+//   flutter run --dart-define=CCS_CARTO_BASEMAP_KEY=YOUR_KEY
+//   flutter build apk --dart-define=CCS_CARTO_BASEMAP_KEY=YOUR_KEY
+const ccsCartoBasemapKey = String.fromEnvironment('CCS_CARTO_BASEMAP_KEY');
+
+String ccsCartoTileUrl(String baseUrl) {
+  final key = ccsCartoBasemapKey.trim();
+  if (key.isEmpty) {
+    // Leaving the URL unchanged makes a missing build configuration obvious in
+    // development while avoiding a hard-coded/shared production credential.
+    debugPrint(
+      'CARTO basemap API key is missing. Build with '
+      '--dart-define=CCS_CARTO_BASEMAP_KEY=YOUR_KEY.',
+    );
+    return baseUrl;
+  }
+
+  final separator = baseUrl.contains('?') ? '&' : '?';
+  return '$baseUrl${separator}key=${Uri.encodeQueryComponent(key)}';
+}
+
 CcsMapStyle mapStyleForLocalTime(DateTime time) {
   return time.hour >= 7 && time.hour < 21
       ? CcsMapStyle.light
@@ -21403,11 +21825,15 @@ extension CcsMapStylePresentation on CcsMapStyle {
   String get tileUrl {
     switch (this) {
       case CcsMapStyle.dark:
-        return 'https://basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png';
+        return ccsCartoTileUrl(
+          'https://basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',
+        );
       case CcsMapStyle.light:
         // Gray, high-contrast light map. Voyager keeps roads/buildings clear
         // and preserves naturally blue water without washing the whole map blue.
-        return 'https://basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png?ccs=gray_v29_neutral';
+        return ccsCartoTileUrl(
+          'https://basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png?ccs=gray_v29_neutral',
+        );
     }
   }
 
@@ -26178,6 +26604,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                   uid: liveLocation.uid,
                   fallbackUsername: liveLocation.username,
                 ),
+                onRoute: () => openWazeRouteToLatLng(liveLocation.coordinates),
               ),
             ),
         ],
@@ -27261,12 +27688,14 @@ class LiveLocationMapCard extends StatelessWidget {
   final LiveLocationData location;
   final bool isFriend;
   final VoidCallback onOpen;
+  final VoidCallback onRoute;
 
   const LiveLocationMapCard({
     super.key,
     required this.location,
     required this.isFriend,
     required this.onOpen,
+    required this.onRoute,
   });
 
   FriendUserData get user {
@@ -27364,27 +27793,47 @@ class LiveLocationMapCard extends StatelessWidget {
                   ],
                 ),
                 const SizedBox(height: 12),
-                SizedBox(
-                  width: double.infinity,
-                  height: 38,
-                  child: ElevatedButton(
-                    onPressed: onOpen,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: blue,
-                      foregroundColor: Colors.white,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: SizedBox(
+                        height: 38,
+                        child: OutlinedButton.icon(
+                          onPressed: onOpen,
+                          icon: const Icon(
+                            Icons.account_circle_outlined,
+                            size: 16,
+                          ),
+                          label: const Text('Profile'),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: Colors.white70,
+                            side: const BorderSide(color: Colors.white24),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
+                        ),
                       ),
                     ),
-                    child: const Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(Icons.account_circle_outlined, size: 16),
-                        SizedBox(width: 8),
-                        Text('View Profile'),
-                      ],
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: SizedBox(
+                        height: 38,
+                        child: ElevatedButton.icon(
+                          onPressed: onRoute,
+                          icon: const Icon(Icons.navigation, size: 16),
+                          label: const Text('Waze'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: blue,
+                            foregroundColor: Colors.white,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
+                        ),
+                      ),
                     ),
-                  ),
+                  ],
                 ),
               ],
             ),
@@ -28050,6 +28499,8 @@ class _SpotPhotoGalleryScreenState extends State<SpotPhotoGalleryScreen> {
   }
 }
 
+enum SpotDetailNavigationResult { showMap }
+
 class SpotDetailScreen extends StatefulWidget {
   final CarSpot spot;
 
@@ -28127,8 +28578,10 @@ class _SpotDetailScreenState extends State<SpotDetailScreen> {
       routePreview: true,
     );
 
-    // MainScreen listens to mapFocusRequest and switches to the Map tab.
-    Navigator.of(context).maybePop();
+    // MainScreen listens to mapFocusRequest and switches to the Map tab. The
+    // result also lets NotificationCenterScreen close itself so it does not
+    // remain on top of the selected Map tab.
+    Navigator.of(context).pop(SpotDetailNavigationResult.showMap);
   }
 
   Future<void> shareSpotLink() async {
@@ -28221,8 +28674,7 @@ class _SpotDetailScreenState extends State<SpotDetailScreen> {
                   const SizedBox(height: 10),
                   Text(
                     spot.description,
-                    maxLines: 3,
-                    overflow: TextOverflow.ellipsis,
+                    softWrap: true,
                     style: const TextStyle(
                       color: Colors.white70,
                       fontSize: 13,
@@ -33681,6 +34133,7 @@ class GlobalChatTab extends StatefulWidget {
 class _GlobalChatTabState extends State<GlobalChatTab>
     with AutomaticKeepAliveClientMixin {
   final messageController = TextEditingController();
+  final messageFocusNode = FocusNode();
   final globalChatScrollController = ScrollController();
   late final Stream<QuerySnapshot<Map<String, dynamic>>> onlineUsersStream;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>?
@@ -33696,6 +34149,7 @@ class _GlobalChatTabState extends State<GlobalChatTab>
   bool isSending = false;
   bool isUploadingPhotoAttachment = false;
   String? pendingPhotoAttachmentPath;
+  QueryDocumentSnapshot<Map<String, dynamic>>? replyingToGlobalMessage;
   int? _lastGlobalChatMessageSentAtMillis;
   bool hasGlobalChatModeratorAccess = false;
 
@@ -33729,6 +34183,7 @@ class _GlobalChatTabState extends State<GlobalChatTab>
     _globalMessagesSubscription?.cancel();
     globalChatScrollController.removeListener(_onGlobalChatScroll);
     globalChatScrollController.dispose();
+    messageFocusNode.dispose();
     messageController.dispose();
     super.dispose();
   }
@@ -34000,6 +34455,50 @@ class _GlobalChatTabState extends State<GlobalChatTab>
     }
   }
 
+  Future<void> reactToGlobalMessage(
+    QueryDocumentSnapshot<Map<String, dynamic>> doc, {
+    String? preferredEmoji,
+  }) async {
+    final uid = FirebaseAuth.instance.currentUser?.uid ?? currentUser.uid;
+    if (uid.trim().isEmpty) return;
+
+    final reactions = messageReactionsFromFirebase(doc.data()['reactions']);
+    final currentEmoji = reactions[uid] ?? '';
+    String? selected = preferredEmoji;
+    if (selected != null && selected == currentEmoji) {
+      selected = '';
+    } else {
+      selected ??= await showEmojiReactionPicker(
+        context,
+        currentEmoji: currentEmoji,
+      );
+    }
+    if (!mounted || selected == null) return;
+
+    try {
+      await globalChatCollection.doc(doc.id).debugUpdate({
+        'reactions.$uid': selected.trim().isEmpty
+            ? FieldValue.delete()
+            : selected.trim(),
+      }, 'global chat: react to message');
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: Colors.redAccent,
+            content: Text(
+              '${trText('Could not update reaction')}: $error',
+              style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        );
+      }
+    }
+  }
+
   Future<void> showGlobalMessageActions(
     QueryDocumentSnapshot<Map<String, dynamic>> doc,
   ) async {
@@ -34007,10 +34506,6 @@ class _GlobalChatTabState extends State<GlobalChatTab>
     final data = doc.data();
     final mine = stringFromFirebase(data['userId'], '') == firebaseUser?.uid;
     final canDelete = mine || canModerateGlobalChat;
-
-    if (!mine && !canDelete) {
-      return;
-    }
 
     final action = await showModalBottomSheet<String>(
       context: context,
@@ -34025,6 +34520,28 @@ class _GlobalChatTabState extends State<GlobalChatTab>
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
+                ListTile(
+                  leading: const Icon(Icons.reply_rounded, color: blue),
+                  title: Text(
+                    trText('Reply'),
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  onTap: () => Navigator.pop(context, 'reply'),
+                ),
+                ListTile(
+                  leading: const Icon(Icons.add_reaction_outlined, color: blue),
+                  title: Text(
+                    trText('React'),
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  onTap: () => Navigator.pop(context, 'react'),
+                ),
                 if (mine)
                   ListTile(
                     leading: const Icon(Icons.edit, color: blue),
@@ -34063,7 +34580,16 @@ class _GlobalChatTabState extends State<GlobalChatTab>
       return;
     }
 
-    if (action == 'edit') {
+    if (action == 'reply') {
+      setState(() => replyingToGlobalMessage = doc);
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          messageFocusNode.requestFocus();
+        }
+      });
+    } else if (action == 'react') {
+      await reactToGlobalMessage(doc);
+    } else if (action == 'edit') {
       await showEditGlobalMessageDialog(doc);
     } else if (action == 'delete') {
       await confirmDeleteGlobalMessage(doc);
@@ -34277,6 +34803,7 @@ class _GlobalChatTabState extends State<GlobalChatTab>
     required DocumentReference<Map<String, dynamic>> messageDoc,
     required String text,
     required String photoUrl,
+    MessageReplyPreviewData? replyTo,
   }) async {
     final userRef = usersCollection().doc(firebaseUser.uid);
     final attemptAtMillis = DateTime.now().millisecondsSinceEpoch;
@@ -34309,6 +34836,12 @@ class _GlobalChatTabState extends State<GlobalChatTab>
           'avatarUrl': currentUser.photoUrl ?? '',
           'text': text,
           if (photoUrl.trim().isNotEmpty) 'photoUrl': photoUrl,
+          if (replyTo != null && replyTo.hasContent) ...{
+            'replyToMessageId': replyTo.messageId,
+            'replyToUsername': replyTo.username,
+            'replyToText': replyTo.text,
+            'replyToPhotoUrl': replyTo.photoUrl,
+          },
           'timestamp': FieldValue.serverTimestamp(),
           'type': photoUrl.trim().isNotEmpty ? 'image' : 'text',
         },
@@ -34334,6 +34867,19 @@ class _GlobalChatTabState extends State<GlobalChatTab>
     final text = messageController.text.trim();
     final localPhotoPath = pendingPhotoAttachmentPath?.trim() ?? '';
     final hasPhoto = localPhotoPath.isNotEmpty;
+    final replyDoc = replyingToGlobalMessage;
+    final replyData = replyDoc?.data();
+    final replyTo = replyDoc == null || replyData == null
+        ? null
+        : MessageReplyPreviewData(
+            messageId: replyDoc.id,
+            username: stringFromFirebase(replyData['username'], 'ccs_driver'),
+            text: stringFromFirebase(replyData['text'], ''),
+            photoUrl: stringFromFirebase(
+              replyData['photoUrl'],
+              stringFromFirebase(replyData['imageUrl'], ''),
+            ),
+          );
 
     if (firebaseUser == null ||
         (!hasPhoto && text.isEmpty) ||
@@ -34378,6 +34924,7 @@ class _GlobalChatTabState extends State<GlobalChatTab>
         messageDoc: doc,
         text: text,
         photoUrl: photoUrl,
+        replyTo: replyTo,
       );
       if (cooldownRemainingMillis > 0) {
         _showGlobalChatSpamWarning(
@@ -34396,6 +34943,7 @@ class _GlobalChatTabState extends State<GlobalChatTab>
       messageController.clear();
       setState(() {
         pendingPhotoAttachmentPath = null;
+        replyingToGlobalMessage = null;
         _scrollGlobalChatToLatestAfterSend = true;
       });
 
@@ -34504,7 +35052,10 @@ class _GlobalChatTabState extends State<GlobalChatTab>
     final time = formatChatMessageTime(
       timestampMillisFromFirebase(data['timestamp']),
     );
-    final canActOnMessage = mine || canModerateGlobalChat;
+    final replyPreview = messageReplyPreviewFromFirebase(data);
+    final reactions = messageReactionsFromFirebase(data['reactions']);
+    final currentUid = firebaseUser?.uid ?? currentUser.uid;
+    final canActOnMessage = true;
 
     void openAuthorProfile() {
       if (userId.trim().isEmpty) {
@@ -34614,6 +35165,10 @@ class _GlobalChatTabState extends State<GlobalChatTab>
                 ),
                 const SizedBox(height: 7),
               ],
+              if (replyPreview.hasContent) ...[
+                messageReplyPreviewCard(replyPreview),
+                const SizedBox(height: 8),
+              ],
               if (photoUrl.trim().isNotEmpty) ...[
                 ChatAttachmentImage(imageUrl: photoUrl, mine: mine),
                 if (text.trim().isNotEmpty) const SizedBox(height: 8),
@@ -34676,6 +35231,12 @@ class _GlobalChatTabState extends State<GlobalChatTab>
                   ],
                 ),
               ],
+              messageReactionBar(
+                reactions: reactions,
+                currentUid: currentUid,
+                onEmojiTap: (emoji) =>
+                    unawaited(reactToGlobalMessage(doc, preferredEmoji: emoji)),
+              ),
             ],
           ),
         ),
@@ -34692,6 +35253,8 @@ class _GlobalChatTabState extends State<GlobalChatTab>
     }
 
     return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () => showGlobalMessageActions(doc),
       onLongPress: () => showGlobalMessageActions(doc),
       child: message,
     );
@@ -34911,6 +35474,7 @@ class _GlobalChatTabState extends State<GlobalChatTab>
                     Expanded(
                       child: TextField(
                         controller: messageController,
+                        focusNode: messageFocusNode,
                         minLines: 1,
                         maxLines: 3,
                         keyboardType: TextInputType.multiline,
@@ -36888,9 +37452,11 @@ class ForumTopicPage extends StatefulWidget {
 
 class _ForumTopicPageState extends State<ForumTopicPage> {
   final replyController = TextEditingController();
+  final replyFocusNode = FocusNode();
   bool isSending = false;
   bool isUploadingPhotoAttachment = false;
   String? pendingPhotoAttachmentPath;
+  QueryDocumentSnapshot<Map<String, dynamic>>? replyingToForumReply;
   bool hasCommunityModerationAccess = false;
 
   DocumentReference<Map<String, dynamic>> get topicDocument =>
@@ -36910,6 +37476,7 @@ class _ForumTopicPageState extends State<ForumTopicPage> {
 
   @override
   void dispose() {
+    replyFocusNode.dispose();
     replyController.dispose();
     super.dispose();
   }
@@ -36965,6 +37532,19 @@ class _ForumTopicPageState extends State<ForumTopicPage> {
     final text = replyController.text.trim();
     final localPhotoPath = pendingPhotoAttachmentPath?.trim() ?? '';
     final hasPhoto = localPhotoPath.isNotEmpty;
+    final replyDoc = replyingToForumReply;
+    final replyData = replyDoc?.data();
+    final replyTo = replyDoc == null || replyData == null
+        ? null
+        : MessageReplyPreviewData(
+            messageId: replyDoc.id,
+            username: stringFromFirebase(replyData['username'], 'ccs_driver'),
+            text: stringFromFirebase(replyData['text'], ''),
+            photoUrl: stringFromFirebase(
+              replyData['photoUrl'],
+              stringFromFirebase(replyData['imageUrl'], ''),
+            ),
+          );
 
     if (firebaseUser == null ||
         (!hasPhoto && text.isEmpty) ||
@@ -36996,7 +37576,10 @@ class _ForumTopicPageState extends State<ForumTopicPage> {
       }
 
       replyController.clear();
-      setState(() => pendingPhotoAttachmentPath = null);
+      setState(() {
+        pendingPhotoAttachmentPath = null;
+        replyingToForumReply = null;
+      });
 
       await doc.debugSet(
         {
@@ -37009,6 +37592,12 @@ class _ForumTopicPageState extends State<ForumTopicPage> {
           'globalModerator': currentUser.globalChatModerator,
           'text': text,
           if (photoUrl.trim().isNotEmpty) 'photoUrl': photoUrl,
+          if (replyTo != null && replyTo.hasContent) ...{
+            'replyToMessageId': replyTo.messageId,
+            'replyToUsername': replyTo.username,
+            'replyToText': replyTo.text,
+            'replyToPhotoUrl': replyTo.photoUrl,
+          },
           if (photoUrl.trim().isNotEmpty) 'type': 'image',
           'timestamp': FieldValue.serverTimestamp(),
         },
@@ -37288,6 +37877,50 @@ class _ForumTopicPageState extends State<ForumTopicPage> {
     }
   }
 
+  Future<void> reactToForumReply(
+    QueryDocumentSnapshot<Map<String, dynamic>> doc, {
+    String? preferredEmoji,
+  }) async {
+    final uid = FirebaseAuth.instance.currentUser?.uid ?? currentUser.uid;
+    if (uid.trim().isEmpty) return;
+
+    final reactions = messageReactionsFromFirebase(doc.data()['reactions']);
+    final currentEmoji = reactions[uid] ?? '';
+    String? selected = preferredEmoji;
+    if (selected != null && selected == currentEmoji) {
+      selected = '';
+    } else {
+      selected ??= await showEmojiReactionPicker(
+        context,
+        currentEmoji: currentEmoji,
+      );
+    }
+    if (!mounted || selected == null) return;
+
+    try {
+      await topicRepliesCollection.doc(doc.id).debugUpdate({
+        'reactions.$uid': selected.trim().isEmpty
+            ? FieldValue.delete()
+            : selected.trim(),
+      }, 'forum: react to reply');
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: Colors.redAccent,
+            content: Text(
+              '${trText('Could not update reaction')}: $error',
+              style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        );
+      }
+    }
+  }
+
   Future<void> showForumReplyActions(
     QueryDocumentSnapshot<Map<String, dynamic>> doc,
   ) async {
@@ -37295,10 +37928,6 @@ class _ForumTopicPageState extends State<ForumTopicPage> {
     final data = doc.data();
     final mine = stringFromFirebase(data['userId'], '') == firebaseUser?.uid;
     final canDelete = mine || canModerateForumTopic;
-
-    if (!mine && !canDelete) {
-      return;
-    }
 
     final action = await showModalBottomSheet<String>(
       context: context,
@@ -37313,6 +37942,28 @@ class _ForumTopicPageState extends State<ForumTopicPage> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
+                ListTile(
+                  leading: const Icon(Icons.reply_rounded, color: blue),
+                  title: Text(
+                    trText('Reply'),
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  onTap: () => Navigator.pop(context, 'reply'),
+                ),
+                ListTile(
+                  leading: const Icon(Icons.add_reaction_outlined, color: blue),
+                  title: Text(
+                    trText('React'),
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  onTap: () => Navigator.pop(context, 'react'),
+                ),
                 if (mine)
                   ListTile(
                     leading: const Icon(Icons.edit, color: blue),
@@ -37351,7 +38002,16 @@ class _ForumTopicPageState extends State<ForumTopicPage> {
       return;
     }
 
-    if (action == 'edit') {
+    if (action == 'reply') {
+      setState(() => replyingToForumReply = doc);
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          replyFocusNode.requestFocus();
+        }
+      });
+    } else if (action == 'react') {
+      await reactToForumReply(doc);
+    } else if (action == 'edit') {
       await showEditForumReplyDialog(doc);
     } else if (action == 'delete') {
       await confirmDeleteForumReply(doc);
@@ -37647,7 +38307,9 @@ class _ForumTopicPageState extends State<ForumTopicPage> {
     final time = formatChatMessageTime(
       timestampMillisFromFirebase(data['timestamp']),
     );
-    final canActOnReply = userId == currentUid || canModerateForumTopic;
+    final replyPreview = messageReplyPreviewFromFirebase(data);
+    final reactions = messageReactionsFromFirebase(data['reactions']);
+    final canActOnReply = true;
 
     void openReplyAuthorProfile() {
       if (userId.trim().isEmpty) {
@@ -37734,6 +38396,10 @@ class _ForumTopicPageState extends State<ForumTopicPage> {
             ),
             const SizedBox(height: 8),
           ],
+          if (replyPreview.hasContent) ...[
+            messageReplyPreviewCard(replyPreview),
+            const SizedBox(height: 8),
+          ],
           if (photoUrl.trim().isNotEmpty) ...[
             ChatAttachmentImage(imageUrl: photoUrl),
             if (text.trim().isNotEmpty) const SizedBox(height: 8),
@@ -37793,6 +38459,12 @@ class _ForumTopicPageState extends State<ForumTopicPage> {
               ],
             ),
           ],
+          messageReactionBar(
+            reactions: reactions,
+            currentUid: currentUid,
+            onEmojiTap: (emoji) =>
+                unawaited(reactToForumReply(doc, preferredEmoji: emoji)),
+          ),
         ],
       ),
     );
@@ -37802,6 +38474,8 @@ class _ForumTopicPageState extends State<ForumTopicPage> {
     }
 
     return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () => showForumReplyActions(doc),
       onLongPress: () => showForumReplyActions(doc),
       child: tile,
     );
@@ -37909,6 +38583,38 @@ class _ForumTopicPageState extends State<ForumTopicPage> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
+                  if (replyingToForumReply != null) ...[
+                    messageReplyPreviewCard(
+                      MessageReplyPreviewData(
+                        messageId: replyingToForumReply!.id,
+                        username: stringFromFirebase(
+                          replyingToForumReply!.data()['username'],
+                          'ccs_driver',
+                        ),
+                        text: stringFromFirebase(
+                          replyingToForumReply!.data()['text'],
+                          '',
+                        ),
+                        photoUrl: stringFromFirebase(
+                          replyingToForumReply!.data()['photoUrl'],
+                          stringFromFirebase(
+                            replyingToForumReply!.data()['imageUrl'],
+                            '',
+                          ),
+                        ),
+                      ),
+                      compact: true,
+                    ),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: TextButton.icon(
+                        onPressed: () =>
+                            setState(() => replyingToForumReply = null),
+                        icon: const Icon(Icons.close, size: 16),
+                        label: Text(trText('Cancel reply')),
+                      ),
+                    ),
+                  ],
                   if (pendingPhotoAttachmentPath != null)
                     stagedChatPhotoPreview(
                       localPhotoPath: pendingPhotoAttachmentPath!,
@@ -37941,6 +38647,7 @@ class _ForumTopicPageState extends State<ForumTopicPage> {
                       Expanded(
                         child: TextField(
                           controller: replyController,
+                          focusNode: replyFocusNode,
                           minLines: 1,
                           maxLines: 3,
                           keyboardType: TextInputType.multiline,
@@ -40734,6 +41441,7 @@ class ChatConversationScreen extends StatefulWidget {
 
 class _ChatConversationScreenState extends State<ChatConversationScreen> {
   final messageController = TextEditingController();
+  final messageFocusNode = FocusNode();
   final chatScrollController = ScrollController();
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>?
   _newMessagesSubscription;
@@ -40742,6 +41450,7 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
   bool isSharingChatLocation = false;
   bool isUploadingPhotoAttachment = false;
   String? pendingPhotoAttachmentPath;
+  ChatMessageData? replyingToMessage;
   bool hasScrolledToLatestMessage = false;
   bool scrollToLatestAfterNextMessage = false;
   int renderedMessageCount = 0;
@@ -40758,9 +41467,7 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
   @override
   void initState() {
     super.initState();
-    if (widget.chat.isGroup) {
-      _chatMembersFuture = loadChatMembers(widget.chat);
-    }
+    _chatMembersFuture = loadChatMembers(widget.chat);
     chatScrollController.addListener(_onScroll);
     markCurrentChatNotificationsRead();
     unawaited(_loadInitialMessages());
@@ -40771,9 +41478,7 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.chat.id != widget.chat.id ||
         oldWidget.chat.memberIds.join('|') != widget.chat.memberIds.join('|')) {
-      _chatMembersFuture = widget.chat.isGroup
-          ? loadChatMembers(widget.chat)
-          : null;
+      _chatMembersFuture = loadChatMembers(widget.chat);
     }
   }
 
@@ -40782,6 +41487,7 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
     _markMessagesReadDebounce?.cancel();
     _newMessagesSubscription?.cancel();
     chatScrollController.removeListener(_onScroll);
+    messageFocusNode.dispose();
     messageController.dispose();
     chatScrollController.dispose();
     super.dispose();
@@ -41160,6 +41866,15 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
     final text = messageController.text.trim();
     final localPhotoPath = pendingPhotoAttachmentPath?.trim() ?? '';
     final hasPhoto = localPhotoPath.isNotEmpty;
+    final replyMessage = replyingToMessage;
+    final replyTo = replyMessage == null
+        ? null
+        : MessageReplyPreviewData(
+            messageId: replyMessage.id,
+            username: replyMessage.senderUsername,
+            text: replyMessage.text,
+            photoUrl: replyMessage.photoUrl,
+          );
 
     if ((!hasPhoto && text.isEmpty) || isUploadingPhotoAttachment) {
       return;
@@ -41208,11 +41923,13 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
         text: text,
         photoUrl: photoUrl,
         createdAtMillis: createdAtMillis,
+        replyTo: replyTo,
       );
 
       messageController.clear();
       setState(() {
         pendingPhotoAttachmentPath = null;
+        replyingToMessage = null;
         _mergeMessages([pendingMessage]);
         scrollToLatestAfterNextMessage = true;
       });
@@ -41225,6 +41942,7 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
         chat: widget.chat,
         messageId: messageId,
         clientCreatedAtMillis: createdAtMillis,
+        replyTo: replyTo,
       );
 
       if (!mounted) {
@@ -41369,6 +42087,49 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
     }
   }
 
+  Future<void> reactToChatMessage(
+    ChatMessageData message, {
+    String? preferredEmoji,
+  }) async {
+    final uid = FirebaseAuth.instance.currentUser?.uid ?? currentUser.uid;
+    if (uid.trim().isEmpty || message.isLocalPending) return;
+
+    final currentEmoji = message.reactions[uid] ?? '';
+    String? selected = preferredEmoji;
+    if (selected != null && selected == currentEmoji) {
+      selected = '';
+    } else {
+      selected ??= await showEmojiReactionPicker(
+        context,
+        currentEmoji: currentEmoji,
+      );
+    }
+    if (!mounted || selected == null) return;
+
+    try {
+      await chatMessagesCollection(widget.chat.id).doc(message.id).debugUpdate({
+        'reactions.$uid': selected.trim().isEmpty
+            ? FieldValue.delete()
+            : selected.trim(),
+      }, 'chat: react to message');
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: Colors.redAccent,
+            content: Text(
+              '${trText('Could not update reaction')}: $error',
+              style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        );
+      }
+    }
+  }
+
   Future<void> showOwnMessageActions(ChatMessageData message) async {
     final currentUid =
         FirebaseAuth.instance.currentUser?.uid ?? currentUser.uid;
@@ -41376,7 +42137,7 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
     final canModerate = await currentUserCanModerateChat(widget.chat.id);
     final canDelete = mine || canModerate;
 
-    if (!mine && !canDelete) {
+    if (message.isLocalPending) {
       return;
     }
 
@@ -41393,6 +42154,28 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
+                ListTile(
+                  leading: const Icon(Icons.reply_rounded, color: blue),
+                  title: Text(
+                    trText('Reply'),
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  onTap: () => Navigator.pop(context, 'reply'),
+                ),
+                ListTile(
+                  leading: const Icon(Icons.add_reaction_outlined, color: blue),
+                  title: Text(
+                    trText('React'),
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  onTap: () => Navigator.pop(context, 'react'),
+                ),
                 if (mine)
                   ListTile(
                     leading: const Icon(Icons.edit, color: blue),
@@ -41431,7 +42214,16 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
       return;
     }
 
-    if (action == 'edit') {
+    if (action == 'reply') {
+      setState(() => replyingToMessage = message);
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          messageFocusNode.requestFocus();
+        }
+      });
+    } else if (action == 'react') {
+      await reactToChatMessage(message);
+    } else if (action == 'edit') {
       await showEditMessageDialog(message);
     } else if (action == 'delete') {
       await deleteMessageImmediately(message);
@@ -41757,8 +42549,7 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
             currentUser.globalChatModerator ||
             widget.chat.ownerUid == currentUid ||
             widget.chat.moderatorIds.contains(currentUid));
-    final canActOnMessage =
-        !message.isLocalPending && (mine || canDeleteMessage);
+    final canActOnMessage = !message.isLocalPending;
     final sender =
         usersById[message.senderUid] ?? fallbackMessageSender(message);
     final receiptState = mine
@@ -41864,6 +42655,10 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
                 ),
                 const SizedBox(height: 7),
               ],
+              if (message.replyPreview.hasContent) ...[
+                messageReplyPreviewCard(message.replyPreview),
+                const SizedBox(height: 8),
+              ],
               if (message.photoUrl.trim().isNotEmpty) ...[
                 ChatAttachmentImage(imageUrl: message.photoUrl, mine: mine),
                 if (message.text.trim().isNotEmpty) const SizedBox(height: 8),
@@ -41935,6 +42730,13 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
                   ],
                 ],
               ),
+              messageReactionBar(
+                reactions: message.reactions,
+                currentUid: currentUid,
+                onEmojiTap: (emoji) => unawaited(
+                  reactToChatMessage(message, preferredEmoji: emoji),
+                ),
+              ),
             ],
           ),
         ),
@@ -41951,6 +42753,8 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
     }
 
     return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () => showOwnMessageActions(message),
       onLongPress: () => showOwnMessageActions(message),
       child: alignedMessage,
     );
@@ -42150,10 +42954,6 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
                     );
                   }
 
-                  if (!widget.chat.isGroup) {
-                    return listWithUsers(const <String, FriendUserData>{});
-                  }
-
                   return FutureBuilder<List<FriendUserData>>(
                     future: _chatMembersFuture,
                     builder: (context, usersSnapshot) {
@@ -42186,6 +42986,26 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
+                  if (replyingToMessage != null) ...[
+                    messageReplyPreviewCard(
+                      MessageReplyPreviewData(
+                        messageId: replyingToMessage!.id,
+                        username: replyingToMessage!.senderUsername,
+                        text: replyingToMessage!.text,
+                        photoUrl: replyingToMessage!.photoUrl,
+                      ),
+                      compact: true,
+                    ),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: TextButton.icon(
+                        onPressed: () =>
+                            setState(() => replyingToMessage = null),
+                        icon: const Icon(Icons.close, size: 16),
+                        label: Text(trText('Cancel reply')),
+                      ),
+                    ),
+                  ],
                   if (pendingPhotoAttachmentPath != null)
                     stagedChatPhotoPreview(
                       localPhotoPath: pendingPhotoAttachmentPath!,
@@ -42236,6 +43056,7 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
                       Expanded(
                         child: TextField(
                           controller: messageController,
+                          focusNode: messageFocusNode,
                           minLines: 1,
                           maxLines: 3,
                           keyboardType: TextInputType.multiline,
