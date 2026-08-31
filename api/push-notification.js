@@ -922,48 +922,27 @@ function recipientNotificationId(payload, fallbackBase, recipientUserId) {
   return base.endsWith(`_${recipientUserId}`) ? base : `${base}_${recipientUserId}`;
 }
 
-const GLOBAL_CHAT_PUSH_GLOBAL_COOLDOWN_MS = 10 * 60 * 1000;
-const GLOBAL_CHAT_PUSH_SENDER_COOLDOWN_MS = 60 * 60 * 1000;
+const GLOBAL_CHAT_DAILY_PUSH_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 
-async function claimGlobalChatPushWindow(senderUid) {
+async function claimGlobalChatDailyPushWindow(senderUid, messageId) {
   const globalRef = db.collection('push_throttles').doc('global_chat');
-  const senderRef = globalRef.collection('senders').doc(senderUid);
   const nowMillis = Date.now();
 
   return db.runTransaction(async (transaction) => {
     const globalSnapshot = await transaction.get(globalRef);
-    const senderSnapshot = await transaction.get(senderRef);
-
     const globalLastPushAtMillis = Number(
       globalSnapshot.exists ? globalSnapshot.data()?.lastPushAtMillis || 0 : 0,
     );
-    const senderLastPushAtMillis = Number(
-      senderSnapshot.exists ? senderSnapshot.data()?.lastPushAtMillis || 0 : 0,
-    );
-
     const globalRemainingMs =
       globalLastPushAtMillis > 0
-        ? GLOBAL_CHAT_PUSH_GLOBAL_COOLDOWN_MS - (nowMillis - globalLastPushAtMillis)
+        ? GLOBAL_CHAT_DAILY_PUSH_COOLDOWN_MS - (nowMillis - globalLastPushAtMillis)
         : 0;
 
     if (globalRemainingMs > 0) {
       return {
         allowed: false,
-        reason: 'global_10_minute_cooldown',
+        reason: 'global_24_hour_cooldown',
         remainingMs: globalRemainingMs,
-      };
-    }
-
-    const senderRemainingMs =
-      senderLastPushAtMillis > 0
-        ? GLOBAL_CHAT_PUSH_SENDER_COOLDOWN_MS - (nowMillis - senderLastPushAtMillis)
-        : 0;
-
-    if (senderRemainingMs > 0) {
-      return {
-        allowed: false,
-        reason: 'sender_1_hour_cooldown',
-        remainingMs: senderRemainingMs,
       };
     }
 
@@ -973,22 +952,35 @@ async function claimGlobalChatPushWindow(senderUid) {
         lastPushAtMillis: nowMillis,
         lastPushAt: admin.firestore.FieldValue.serverTimestamp(),
         lastSenderUid: senderUid,
-      },
-      { merge: true },
-    );
-
-    transaction.set(
-      senderRef,
-      {
-        senderUid,
-        lastPushAtMillis: nowMillis,
-        lastPushAt: admin.firestore.FieldValue.serverTimestamp(),
+        lastMessageId: messageId,
       },
       { merge: true },
     );
 
     return { allowed: true, reason: 'allowed', remainingMs: 0 };
   });
+}
+
+async function globalChatReplyTarget(message, senderUid) {
+  const replyToMessageId = cleanText(message.replyToMessageId);
+  if (!replyToMessageId) {
+    return null;
+  }
+
+  const originalSnapshot = await db
+    .collection('global_chat')
+    .doc(replyToMessageId)
+    .get();
+  if (!originalSnapshot.exists) {
+    return null;
+  }
+
+  const recipientUserId = cleanText(originalSnapshot.data()?.userId);
+  if (!recipientUserId || recipientUserId === senderUid) {
+    return null;
+  }
+
+  return { recipientUserId, replyToMessageId };
 }
 
 async function handleGlobalChatMessage(userId, payload) {
@@ -1008,24 +1000,6 @@ async function handleGlobalChatMessage(userId, payload) {
     return [];
   }
 
-  const recipientUserIds = (await communityRecipientIds(userId, payload)).filter(
-    (recipientUserId) => recipientUserId !== senderUid,
-  );
-  if (!recipientUserIds.length) {
-    return [];
-  }
-
-  const pushWindow = await claimGlobalChatPushWindow(senderUid);
-  if (!pushWindow.allowed) {
-    console.log(
-      `Global chat push suppressed: ${pushWindow.reason}; sender=${senderUid}; remainingMs=${Math.max(
-        0,
-        Math.ceil(pushWindow.remainingMs),
-      )}`,
-    );
-    return [];
-  }
-
   const senderUsername = cleanText(
     message.username,
     cleanText(payload.senderUsername, 'driver'),
@@ -1037,7 +1011,58 @@ async function handleGlobalChatMessage(userId, payload) {
   const title = 'Global chat';
   const body = `@${senderUsername}: ${messageText}`;
 
-  return Promise.all(
+  const results = [];
+  const replyTarget = await globalChatReplyTarget(message, senderUid);
+  if (replyTarget) {
+    try {
+      results.push(
+        await sendPushToUser({
+          userId: replyTarget.recipientUserId,
+          settingName: 'newMessageNotifications',
+          deliveryKey: `global_chat_reply:${messageId}`,
+          notificationId: recipientNotificationId(
+            payload,
+            `global_chat_${messageId}`,
+            replyTarget.recipientUserId,
+          ),
+          title: 'Reply in Global chat',
+          body: `@${senderUsername} replied: ${messageText}`,
+          data: {
+            type: 'global_chat_message',
+            notificationKind: 'global_chat_reply',
+            messageId,
+            replyToMessageId: replyTarget.replyToMessageId,
+            senderUid,
+            senderUsername,
+          },
+        }),
+      );
+    } catch (error) {
+      console.error('Global chat reply push failed:', error?.message || error);
+    }
+  }
+
+  const recipientUserIds = (await communityRecipientIds(userId, payload)).filter(
+    (recipientUserId) =>
+      recipientUserId !== senderUid &&
+      recipientUserId !== replyTarget?.recipientUserId,
+  );
+  if (!recipientUserIds.length) {
+    return results;
+  }
+
+  const pushWindow = await claimGlobalChatDailyPushWindow(senderUid, messageId);
+  if (!pushWindow.allowed) {
+    console.log(
+      `Global chat daily push suppressed: ${pushWindow.reason}; sender=${senderUid}; remainingMs=${Math.max(
+        0,
+        Math.ceil(pushWindow.remainingMs),
+      )}`,
+    );
+    return results;
+  }
+
+  const broadcastResults = await Promise.all(
     recipientUserIds.map((recipientUserId) =>
       sendPushToUser({
         userId: recipientUserId,
@@ -1059,6 +1084,7 @@ async function handleGlobalChatMessage(userId, payload) {
       }),
     ),
   );
+  return [...results, ...broadcastResults];
 }
 
 async function handleForumReply(userId, payload) {

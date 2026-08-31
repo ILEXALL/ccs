@@ -211,6 +211,49 @@ service cloud.firestore {
       ];
     }
 
+    function validGlobalChatCooldownUpdate(userId) {
+      return isOwner(userId)
+        && isActiveUser()
+        && userProtectedFieldsUnchanged()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'globalChatLastMessageAtMillis',
+          'globalChatLastMessageAt'
+        ])
+        && request.resource.data.globalChatLastMessageAtMillis is int
+        && request.resource.data.globalChatLastMessageAtMillis > 0
+        && request.resource.data.globalChatLastMessageAt == request.time
+        && (
+          !resource.data.keys().hasAny(['globalChatLastMessageAt'])
+          || (
+            resource.data.globalChatLastMessageAt is timestamp
+            && request.time >= resource.data.globalChatLastMessageAt
+              + duration.value(30, 's')
+          )
+        );
+    }
+
+    function validGlobalChatReplyMetadata() {
+      let replyKeys = [
+        'replyToMessageId',
+        'replyToUsername',
+        'replyToText',
+        'replyToPhotoUrl'
+      ];
+      return !request.resource.data.keys().hasAny(replyKeys)
+        || (
+          request.resource.data.keys().hasAll(replyKeys)
+          && request.resource.data.replyToMessageId is string
+          && request.resource.data.replyToMessageId.size() >= 1
+          && request.resource.data.replyToMessageId.size() <= 200
+          && request.resource.data.replyToUsername is string
+          && request.resource.data.replyToUsername.size() <= 40
+          && request.resource.data.replyToText is string
+          && request.resource.data.replyToText.size() <= 1000
+          && request.resource.data.replyToPhotoUrl is string
+          && request.resource.data.replyToPhotoUrl.size() <= 1500
+        );
+    }
+
     function userProtectedFieldsUnchanged() {
       return request.resource.data.get('role', 'user')
           == resource.data.get('role', 'user')
@@ -1022,7 +1065,9 @@ service cloud.firestore {
         && selfUsernameValidOrUnchanged()
         && request.resource.data.diff(resource.data).affectedKeys()
           .hasOnly(selfUserEditableKeys())
-      ) || isAdmin() || moderatorCanUpdateUser();
+      ) || validGlobalChatCooldownUpdate(userId)
+        || isAdmin()
+        || moderatorCanUpdateUser();
       allow delete: if isAdmin();
     }
 
@@ -1568,6 +1613,10 @@ service cloud.firestore {
           'text',
           'photoUrl',
           'imageUrl',
+          'replyToMessageId',
+          'replyToUsername',
+          'replyToText',
+          'replyToPhotoUrl',
           'timestamp',
           'type'
         ])
@@ -1592,6 +1641,7 @@ service cloud.firestore {
             && request.resource.data.get('photoUrl', request.resource.data.get('imageUrl', '')).size() <= 1500
           )
         )
+        && validGlobalChatReplyMetadata()
         && request.resource.data.timestamp == request.time;
       allow update: if false;
       allow delete: if isGlobalModerator()

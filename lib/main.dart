@@ -6171,8 +6171,11 @@ void startCurrentUserDocumentWatcher() {
           }
 
           final wasBanActive = currentUser.banActive;
+          final hadVerifiedOnlySpotAccess = currentUserCanUseVerifiedOnlySpots;
           final nextUser = appUserFromCurrentUserDocument(snapshot);
           setCurrentUser(nextUser);
+          final verifiedOnlySpotAccessChanged =
+              hadVerifiedOnlySpotAccess != currentUserCanUseVerifiedOnlySpots;
           startTemporarySpotTodayNotificationScheduler();
 
           if (nextUser.banActive) {
@@ -6182,6 +6185,13 @@ void startCurrentUserDocumentWatcher() {
             unawaited(startCurrentUserLikedSpotsSync());
             unawaited(initializePushNotificationsForCurrentUser());
             startNotificationCenterUnreadWatcher();
+          } else if (verifiedOnlySpotAccessChanged) {
+            // Approved-spot queries are constructed from the user's current
+            // verified/staff access. Rebuild them when that access changes so
+            // a cached unverified startup state cannot leave the public-only
+            // query running for an already verified user. Force a full sync
+            // because older verified-only spots may predate the delta cursor.
+            startFirebaseSpotSync(forceFullRefresh: true);
           }
         },
         onError: (Object error) {
@@ -14010,8 +14020,18 @@ void startAdminReviewSpotSync() {
 }
 
 bool _spotSyncInProgress = false;
+bool _spotSyncRestartRequested = false;
+bool _spotSyncForceFullRefreshRequested = false;
 
-void startFirebaseSpotSync() {
+void startFirebaseSpotSync({bool forceFullRefresh = false}) {
+  if (forceFullRefresh) {
+    _spotSyncForceFullRefreshRequested = true;
+  }
+  if (_spotSyncInProgress) {
+    _spotSyncRestartRequested = true;
+    return;
+  }
+
   for (final subscription in spotSyncSubscriptions) {
     subscription.cancel();
   }
@@ -14025,11 +14045,22 @@ void startFirebaseSpotSync() {
 
 Future<void> _startCachedSpotSync() async {
   if (_spotSyncInProgress) {
+    _spotSyncRestartRequested = true;
     return;
   }
 
   _spotSyncInProgress = true;
   try {
+    final forceFullRefresh = _spotSyncForceFullRefreshRequested;
+    _spotSyncForceFullRefreshRequested = false;
+    if (forceFullRefresh) {
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.remove(approvedSpotCacheStorageKey);
+        await prefs.remove(approvedSpotLastSyncStorageKey);
+      } catch (_) {}
+    }
+
     // Load cached approved spots first. This creates zero Firestore reads and
     // makes repeated app launches cheap while still showing content instantly.
     await loadApprovedSpotsFromLocalCache();
@@ -14061,6 +14092,14 @@ Future<void> _startCachedSpotSync() async {
     }
   } finally {
     _spotSyncInProgress = false;
+    if (_spotSyncRestartRequested &&
+        FirebaseAuth.instance.currentUser != null &&
+        !currentUser.banActive) {
+      _spotSyncRestartRequested = false;
+      startFirebaseSpotSync();
+    } else {
+      _spotSyncRestartRequested = false;
+    }
   }
 }
 
@@ -33733,6 +33772,10 @@ class _ChatScreenState extends State<ChatScreen>
   void handleTabChanged() {
     globalChatTabSelectedForNotifications = tabController.index == 2;
     if (activeTabIndex != tabController.index) {
+      // A composer can retain focus because every tab stays mounted inside the
+      // TabBarView. Explicitly release it whenever the user changes chat tabs
+      // so the keyboard does not cover the newly selected screen.
+      FocusManager.instance.primaryFocus?.unfocus();
       setState(() => activeTabIndex = tabController.index);
     }
   }
@@ -34120,8 +34163,6 @@ class _GroupsTabState extends State<GroupsTab>
 
 const int globalChatMessagePageSize = 20;
 const Duration globalChatMessageSendCooldown = Duration(seconds: 30);
-const Duration globalChatPushGlobalCooldown = Duration(minutes: 10);
-const Duration globalChatPushSenderCooldown = Duration(hours: 1);
 
 class GlobalChatTab extends StatefulWidget {
   const GlobalChatTab({super.key});
@@ -34962,13 +35003,6 @@ class _GlobalChatTabState extends State<GlobalChatTab>
             'messageId': doc.id,
             'senderUsername': senderUsername,
             'messageText': messagePreview,
-            // The push backend owns the shared throttle because a client-only
-            // timer cannot coordinate different users/devices safely.
-            'globalChatPushThrottleKey': 'global_chat',
-            'globalChatPushGlobalCooldownMillis':
-                globalChatPushGlobalCooldown.inMilliseconds,
-            'globalChatPushSenderCooldownMillis':
-                globalChatPushSenderCooldown.inMilliseconds,
           },
         ),
       );
