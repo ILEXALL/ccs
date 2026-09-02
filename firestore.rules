@@ -1,3 +1,8 @@
+// Notification delivery note:
+// FCM fan-out is performed by the authenticated push-notification backend.
+// Firestore clients may update their own FCM tokens and notification settings
+// through the existing /users/{userId} rules below. No public token reads are allowed.
+
 rules_version = '2';
 
 service cloud.firestore {
@@ -16,6 +21,30 @@ service cloud.firestore {
 
     function currentUserData() {
       return userDoc(currentUid()).data;
+    }
+
+    function regionalFeaturesAllowed() {
+      let configPath = /databases/$(database)/documents/app_config/main;
+      let country = currentUserData().get('country', '');
+      return !exists(configPath)
+        || !(country is string
+          && country.lower() in get(configPath).data.get('bannedCountryKeys', []));
+    }
+
+    function validRegionalLiveLocationPresence() {
+      return regionalFeaturesAllowed()
+        || !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+          'isSharingLiveLocation',
+          'liveLocationExpiresAt',
+          'liveLocationShareDurationMinutes',
+          'liveLocationVisibleToUserIds'
+        ])
+        || request.resource.data.get('isSharingLiveLocation', false) != true;
+    }
+
+    function validRegionalCountryChange() {
+      return regionalFeaturesAllowed()
+        || request.resource.data.get('country', '') == resource.data.get('country', '');
     }
 
     function isNotBanned() {
@@ -84,6 +113,39 @@ service cloud.firestore {
         && data.get('banned', false) != true;
     }
 
+    function isRegionalModeratorForCountryUid(userId, countryCode) {
+      let data = userDoc(userId).data;
+      return countryCode is string
+        && countryCode.size() == 2
+        && data.get('role', 'user') == 'moderator'
+        && data.get('deleted', false) != true
+        && data.get('banned', false) != true
+        && data.get('moderatorCountryCodes', []) is list
+        && countryCode in data.get('moderatorCountryCodes', []);
+    }
+
+    function moderatorCanManageExistingSpot() {
+      let countryCode = resource.data.get('countryCode', '');
+      return isModerator()
+        && countryCode is string
+        && countryCode.size() == 2
+        && countryCode in currentUserData().get('moderatorCountryCodes', []);
+    }
+
+    function moderatorCanUpdateSpot() {
+      return moderatorCanManageExistingSpot()
+        && request.resource.data.get('countryCode', '')
+          == resource.data.get('countryCode', '');
+    }
+
+    function moderatorCanCreateSpot() {
+      let countryCode = request.resource.data.get('countryCode', '');
+      return isModerator()
+        && countryCode is string
+        && countryCode.size() == 2
+        && countryCode in currentUserData().get('moderatorCountryCodes', []);
+    }
+
     function validUsername(username) {
       return username is string
         && username.size() >= 3
@@ -141,7 +203,9 @@ service cloud.firestore {
           'maintenanceMessage',
           'allowAdminBypass',
           'minimumAppVersion',
-          'updateContact'
+          'updateContact',
+          'bannedCountryCodes',
+          'bannedCountryKeys'
         ])
         && request.resource.data.maintenanceEnabled is bool
         && request.resource.data.maintenanceTitle is string
@@ -162,6 +226,20 @@ service cloud.firestore {
             request.resource.data.updateContact is string
             && request.resource.data.updateContact.size() <= 200
           )
+        )
+        && (
+          !request.resource.data.keys().hasAny(['bannedCountryCodes'])
+          || (
+            request.resource.data.bannedCountryCodes is list
+            && request.resource.data.bannedCountryCodes.size() <= 250
+          )
+        )
+        && (
+          !request.resource.data.keys().hasAny(['bannedCountryKeys'])
+          || (
+            request.resource.data.bannedCountryKeys is list
+            && request.resource.data.bannedCountryKeys.size() <= 1000
+          )
         );
     }
 
@@ -177,6 +255,8 @@ service cloud.firestore {
         'avatarPath',
         'city',
         'country',
+        'spotCountryFilters',
+        'spotCountryFiltersUpdatedAt',
         'settings',
         'garage',
         'provider',
@@ -207,8 +287,24 @@ service cloud.firestore {
         'liveLocationShareDurationMinutes',
         'liveLocationVisibleToUserIds',
         'blockedUserIds',
+        'lastFriendLiveShareNotificationAtMillis',
+        'lastFriendLiveShareNotificationAt',
+        'friendLiveShareNotificationClaimAtMillis',
+        'friendLiveShareNotificationClaimAt',
         'updatedAt'
       ];
+    }
+
+    function userProtectedFieldsUnchanged() {
+      return request.resource.data.get('role', 'user')
+          == resource.data.get('role', 'user')
+        && request.resource.data.get('verified', false)
+          == resource.data.get('verified', false)
+        && request.resource.data.get('banned', false)
+          == resource.data.get('banned', false)
+        && request.resource.data.get('deleted', false)
+          == resource.data.get('deleted', false)
+        && request.resource.data.uid == resource.data.uid;
     }
 
     function validGlobalChatCooldownUpdate(userId) {
@@ -230,40 +326,6 @@ service cloud.firestore {
               + duration.value(30, 's')
           )
         );
-    }
-
-    function validGlobalChatReplyMetadata() {
-      let replyKeys = [
-        'replyToMessageId',
-        'replyToUsername',
-        'replyToText',
-        'replyToPhotoUrl'
-      ];
-      return !request.resource.data.keys().hasAny(replyKeys)
-        || (
-          request.resource.data.keys().hasAll(replyKeys)
-          && request.resource.data.replyToMessageId is string
-          && request.resource.data.replyToMessageId.size() >= 1
-          && request.resource.data.replyToMessageId.size() <= 200
-          && request.resource.data.replyToUsername is string
-          && request.resource.data.replyToUsername.size() <= 40
-          && request.resource.data.replyToText is string
-          && request.resource.data.replyToText.size() <= 1000
-          && request.resource.data.replyToPhotoUrl is string
-          && request.resource.data.replyToPhotoUrl.size() <= 1500
-        );
-    }
-
-    function userProtectedFieldsUnchanged() {
-      return request.resource.data.get('role', 'user')
-          == resource.data.get('role', 'user')
-        && request.resource.data.get('verified', false)
-          == resource.data.get('verified', false)
-        && request.resource.data.get('banned', false)
-          == resource.data.get('banned', false)
-        && request.resource.data.get('deleted', false)
-          == resource.data.get('deleted', false)
-        && request.resource.data.uid == resource.data.uid;
     }
 
     function validNewUser(userId) {
@@ -355,11 +417,23 @@ service cloud.firestore {
         && resource.data.get('role', 'user') == 'user'
         && request.resource.data.get('role', 'user')
           == resource.data.get('role', 'user')
-        && request.resource.data.get('verified', false)
-          == resource.data.get('verified', false)
+        && request.resource.data.get('verified', false) is bool
         && request.resource.data.get('deleted', false)
           == resource.data.get('deleted', false)
         && request.resource.data.uid == resource.data.uid
+        && (
+          !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+            'verified',
+            'verifiedUpdatedByUid',
+            'verifiedUpdatedBy',
+            'verifiedUpdatedAt'
+          ])
+          || (
+            request.resource.data.verifiedUpdatedByUid == currentUid()
+            && request.resource.data.verifiedUpdatedBy is string
+            && request.resource.data.verifiedUpdatedAt == request.time
+          )
+        )
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           'banned',
           'bannedUntil',
@@ -370,6 +444,10 @@ service cloud.firestore {
           'unbannedByUid',
           'unbannedBy',
           'unbannedAt',
+          'verified',
+          'verifiedUpdatedByUid',
+          'verifiedUpdatedBy',
+          'verifiedUpdatedAt',
           'updatedAt'
         ]);
     }
@@ -377,7 +455,8 @@ service cloud.firestore {
     function canReadSpot() {
       return isActiveUser()
         && (
-          isStaff()
+          isAdmin()
+          || moderatorCanManageExistingSpot()
           || resource.data.addedByUid == currentUid()
           || (
             resource.data.status == 'approved'
@@ -394,17 +473,26 @@ service cloud.firestore {
         && request.resource.data.name is string
         && request.resource.data.cityCountry is string
         && request.resource.data.categories is list
+        && (
+          request.resource.data.get('countryCode', '') == ''
+          || (
+            request.resource.data.countryCode is string
+            && request.resource.data.countryCode.matches('^[A-Z]{2}$')
+          )
+        )
         && request.resource.data.status in ['pending', 'approved']
         && (
           request.resource.data.status == 'pending'
-          || isStaff()
+          || isAdmin()
+          || moderatorCanCreateSpot()
         )
         && (
           request.resource.data.get('verifiedOnly', false) != true
           || isVerifiedOrStaff()
         )
         && (
-          isStaff()
+          isAdmin()
+          || moderatorCanCreateSpot()
           || (
             request.resource.data.get('ownerUid', '') == ''
             && request.resource.data.get('ownerUsername', '') == ''
@@ -425,6 +513,7 @@ service cloud.firestore {
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           'name',
           'cityCountry',
+          'countryCode',
           'description',
           'lat',
           'lng',
@@ -449,7 +538,15 @@ service cloud.firestore {
           'editedByUid',
           'editedAt',
           'updatedAt'
-        ]);
+        ])
+        && (
+          request.resource.data.get('countryCode', '')
+            == resource.data.get('countryCode', '')
+          || (
+            request.resource.data.get('countryCode', '') is string
+            && request.resource.data.get('countryCode', '').matches('^[A-Z]{2}$')
+          )
+        );
     }
 
     function businessOwnerCanEditSpot() {
@@ -797,9 +894,11 @@ service cloud.firestore {
     }
 
     function currentUserLeavesGroupOnly(chatId) {
+      let oldOwnerUid = chatOwnerUid(chatId);
+      let leavingOwner = currentUid() == oldOwnerUid;
+      let nextOwnerUid = request.resource.data.get('ownerUid', oldOwnerUid);
       return resource.data.get('isGroup', false) == true
         && request.resource.data.get('isGroup', false) == true
-        && currentUid() != chatOwnerUid(chatId)
         && currentUid() in resource.data.memberIds
         && !(currentUid() in request.resource.data.memberIds)
         && request.resource.data.memberIds is list
@@ -810,11 +909,36 @@ service cloud.firestore {
           .difference(request.resource.data.memberIds.toSet()).hasOnly([
             currentUid()
           ])
+        && (
+          (
+            leavingOwner
+            && nextOwnerUid in request.resource.data.memberIds
+          )
+          || (
+            !leavingOwner
+            && nextOwnerUid == oldOwnerUid
+          )
+        )
+        && request.resource.data.get('moderatorIds', []) is list
+        && request.resource.data.memberIds.hasAll(
+          request.resource.data.get('moderatorIds', [])
+        )
+        // Leaving the group also hides it for the departing user. The previous
+        // rule rejected that legitimate hiddenForUserIds change, which caused
+        // cloud_firestore/permission-denied even though memberIds was valid.
+        && request.resource.data.get('hiddenForUserIds', []) is list
+        && resource.data.get('hiddenForUserIds', []) is list
+        && listAddedOnlyByCurrentUser(
+          resource.data.get('hiddenForUserIds', []),
+          request.resource.data.get('hiddenForUserIds', [])
+        )
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'ownerUid',
           'memberIds',
           'memberUsernames',
           'memberPhotoUrls',
           'moderatorIds',
+          'hiddenForUserIds',
           'updatedAt'
         ]);
     }
@@ -838,6 +962,26 @@ service cloud.firestore {
       let data = chatData(chatId);
       return data.get('isGroup', false) != true
         && directMemberIdsBlocked(data.memberIds);
+    }
+
+    function messageReactionUpdateOnly() {
+      let before = resource.data.get('reactions', {});
+      let after = request.resource.data.get('reactions', {});
+      return isActiveUser()
+        && before is map
+        && after is map
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'reactions'
+        ])
+        && after.diff(before).affectedKeys().hasOnly([currentUid()])
+        && (
+          !after.keys().hasAny([currentUid()])
+          || (
+            after[currentUid()] is string
+            && after[currentUid()].size() >= 1
+            && after[currentUid()].size() <= 32
+          )
+        );
     }
 
     function chatMessageReadReceiptUpdateOnly() {
@@ -1063,6 +1207,8 @@ service cloud.firestore {
         && isActiveUser()
         && userProtectedFieldsUnchanged()
         && selfUsernameValidOrUnchanged()
+        && validRegionalLiveLocationPresence()
+        && validRegionalCountryChange()
         && request.resource.data.diff(resource.data).affectedKeys()
           .hasOnly(selfUserEditableKeys())
       ) || validGlobalChatCooldownUpdate(userId)
@@ -1117,13 +1263,16 @@ service cloud.firestore {
 
     match /spots/{spotId} {
       allow read: if canReadSpot();
-      allow create: if isActiveUser() && validNewSpot();
-      allow update: if isStaff()
+      allow create: if isActiveUser()
+        && regionalFeaturesAllowed()
+        && validNewSpot();
+      allow update: if isAdmin()
+        || moderatorCanUpdateSpot()
         || ownerCanEditSpot()
         || businessOwnerCanEditSpot()
         || signedInUserCanRefreshSpotRating()
         || signedInUserCanUpdateSpotCounters();
-      allow delete: if isStaff();
+      allow delete: if isAdmin() || moderatorCanManageExistingSpot();
     }
 
     match /spot_reviews/{reviewId} {
@@ -1286,6 +1435,7 @@ service cloud.firestore {
         );
       allow create, update: if isOwner(userId)
         && isActiveUser()
+        && regionalFeaturesAllowed()
         && request.resource.data.uid == currentUid()
         && request.resource.data.username is string
         && request.resource.data.lat is number
@@ -1323,7 +1473,22 @@ service cloud.firestore {
       allow create: if (
           isActiveUser()
           && request.resource.data.userId is string
-          && isAdminUid(request.resource.data.userId)
+          && (
+            (
+              request.resource.data.type == 'spot_pending_review'
+              && (
+                isAdminUid(request.resource.data.userId)
+                || isRegionalModeratorForCountryUid(
+                  request.resource.data.userId,
+                  request.resource.data.get('countryCode', '')
+                )
+              )
+            )
+            || (
+              request.resource.data.type != 'spot_pending_review'
+              && isStaffUid(request.resource.data.userId)
+            )
+          )
           && request.resource.data.type is string
           && request.resource.data.spotId is string
           && request.resource.data.spotName is string
@@ -1591,6 +1756,7 @@ service cloud.firestore {
               ])
             )
             || chatMessageReadReceiptUpdateOnly()
+            || messageReactionUpdateOnly()
           );
         allow delete: if (
           isChatMember(chatId)
@@ -1613,12 +1779,12 @@ service cloud.firestore {
           'text',
           'photoUrl',
           'imageUrl',
+          'timestamp',
+          'type',
           'replyToMessageId',
           'replyToUsername',
           'replyToText',
-          'replyToPhotoUrl',
-          'timestamp',
-          'type'
+          'replyToPhotoUrl'
         ])
         && request.resource.data.userId == currentUid()
         && request.resource.data.username is string
@@ -1641,9 +1807,39 @@ service cloud.firestore {
             && request.resource.data.get('photoUrl', request.resource.data.get('imageUrl', '')).size() <= 1500
           )
         )
-        && validGlobalChatReplyMetadata()
+        && (
+          !request.resource.data.keys().hasAny(['replyToMessageId'])
+          || (
+            request.resource.data.replyToMessageId is string
+            && request.resource.data.replyToMessageId.size() >= 1
+            && request.resource.data.replyToMessageId.size() <= 200
+            && request.resource.data.get('replyToUsername', '') is string
+            && request.resource.data.get('replyToUsername', '').size() <= 80
+            && request.resource.data.get('replyToText', '') is string
+            && request.resource.data.get('replyToText', '').size() <= 1000
+            && request.resource.data.get('replyToPhotoUrl', '') is string
+            && request.resource.data.get('replyToPhotoUrl', '').size() <= 1500
+          )
+        )
         && request.resource.data.timestamp == request.time;
-      allow update: if false;
+      allow update: if isActiveUser()
+        && (
+          messageReactionUpdateOnly()
+          || (
+            resource.data.userId == currentUid()
+            && request.resource.data.userId == resource.data.userId
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+              'text',
+              'edited',
+              'updatedAt'
+            ])
+            && request.resource.data.text is string
+            && request.resource.data.text.size() >= 1
+            && request.resource.data.text.size() <= 1000
+            && request.resource.data.edited == true
+            && request.resource.data.updatedAt == request.time
+          )
+        );
       allow delete: if isGlobalModerator()
         || (
           isActiveUser()
@@ -1835,7 +2031,8 @@ service cloud.firestore {
           )
           && request.resource.data.timestamp == request.time;
 
-        allow update: if isStaff()
+        allow update: if messageReactionUpdateOnly()
+          || isStaff()
           || isGlobalModerator()
           || forumTopicData(topicId).authorId == currentUid()
           || (

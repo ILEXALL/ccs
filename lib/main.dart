@@ -1443,6 +1443,7 @@ class MaintenanceModeConfig {
   final bool allowAdminBypass;
   final String minimumAppVersion;
   final String updateContact;
+  final Set<String> bannedCountryCodes;
 
   const MaintenanceModeConfig({
     required this.maintenanceEnabled,
@@ -1451,6 +1452,7 @@ class MaintenanceModeConfig {
     required this.allowAdminBypass,
     required this.minimumAppVersion,
     required this.updateContact,
+    required this.bannedCountryCodes,
   });
 
   static const disabled = MaintenanceModeConfig(
@@ -1460,6 +1462,7 @@ class MaintenanceModeConfig {
     allowAdminBypass: false,
     minimumAppVersion: '',
     updateContact: '@ccs',
+    bannedCountryCodes: <String>{},
   );
 
   factory MaintenanceModeConfig.fromSnapshot(
@@ -1483,6 +1486,11 @@ class MaintenanceModeConfig {
       allowAdminBypass: data['allowAdminBypass'] == true,
       minimumAppVersion: stringFromFirebase(data['minimumAppVersion'], ''),
       updateContact: stringFromFirebase(data['updateContact'], '@ccs'),
+      bannedCountryCodes:
+          stringListFromFirebase(data['bannedCountryCodes'], const <String>[])
+              .map((code) => code.trim().toUpperCase())
+              .where((code) => code.isNotEmpty)
+              .toSet(),
     );
   }
 }
@@ -1684,6 +1692,22 @@ const _ruText = <String, String>{
   'Approved car spots': 'Одобренные автомобильные споты',
   'Filters': 'Фильтры',
   'Explore filters': 'Фильтры спотов',
+  'Spot filters': 'Фильтры спотов',
+  'Countries with spots': 'Страны со спотами',
+  'Not available in your region': 'Недоступно в вашем регионе',
+  'This feature is not yet available in your region.':
+      'Эта функция пока недоступна в вашем регионе.',
+  'Regional restrictions': 'Региональные ограничения',
+  'Restrict Add Spot and live-location sharing by country':
+      'Ограничить добавление спотов и передачу геопозиции по странам',
+  'Users in selected countries can use CCS, but cannot add spots or share live location.':
+      'Пользователи в выбранных странах могут пользоваться CCS, но не могут добавлять споты или делиться геопозицией.',
+  'Search countries': 'Поиск стран',
+  'restricted countries': 'ограниченных стран',
+  'Save restrictions': 'Сохранить ограничения',
+  'Regional restrictions updated.': 'Региональные ограничения обновлены.',
+  'Could not update regional restrictions':
+      'Не удалось обновить региональные ограничения',
   'All categories enabled': 'Включены все категории',
   'Select all': 'Выбрать все',
   'Clear': 'Очистить',
@@ -1919,6 +1943,22 @@ const _ruText = <String, String>{
   'Unban': 'Снять блокировку',
   'Make moderator': 'Назначить модератором',
   'Remove moderator': 'Убрать модератора',
+  'Assign moderator countries': 'Назначить страны модератору',
+  'Edit moderator countries': 'Изменить страны модератора',
+  'This moderator can review spots only in the selected countries.':
+      'Этот модератор может проверять споты только в выбранных странах.',
+  'assigned countries': 'назначенных стран',
+  'Select at least one country for the moderator.':
+      'Выберите хотя бы одну страну для модератора.',
+  'A moderator can be assigned to up to 30 countries.':
+      'Модератору можно назначить не более 30 стран.',
+  'Save assignment': 'Сохранить назначение',
+  'No countries assigned': 'Страны не назначены',
+  'Your assigned countries': 'Назначенные вам страны',
+  'This spot is outside your assigned countries':
+      'Этот спот находится вне назначенных вам стран',
+  'Regional moderators cannot move spots to another country.':
+      'Региональные модераторы не могут переносить споты в другую страну.',
   'Moderator assigned.': 'Модератор назначен.',
   'Moderator removed.': 'Модератор снят.',
   'member': 'участник',
@@ -2033,6 +2073,7 @@ const _ruText = <String, String>{
   'Edit comment': 'Редактировать комментарий',
   'Edit message': 'Редактировать сообщение',
   'Edit spot': 'Редактировать спот',
+  'Edit all spot information': 'Редактировать все данные спота',
   'End time must be after start time.':
       'Время окончания должно быть позже времени начала.',
   'End time must be in the future.': 'Время окончания должно быть в будущем.',
@@ -2592,6 +2633,22 @@ const _lvText = <String, String>{
   'Approved car spots': 'Apstiprinātas auto vietas',
   'Filters': 'Filtri',
   'Explore filters': 'Vietu filtri',
+  'Spot filters': 'Vietu filtri',
+  'Countries with spots': 'Valstis ar vietām',
+  'Not available in your region': 'Nav pieejams jūsu reģionā',
+  'This feature is not yet available in your region.':
+      'Šī funkcija jūsu reģionā vēl nav pieejama.',
+  'Regional restrictions': 'Reģionālie ierobežojumi',
+  'Restrict Add Spot and live-location sharing by country':
+      'Ierobežot vietu pievienošanu un tiešās atrašanās vietas kopīgošanu pēc valsts',
+  'Users in selected countries can use CCS, but cannot add spots or share live location.':
+      'Lietotāji atlasītajās valstīs var izmantot CCS, bet nevar pievienot vietas vai kopīgot tiešo atrašanās vietu.',
+  'Search countries': 'Meklēt valstis',
+  'restricted countries': 'ierobežotas valstis',
+  'Save restrictions': 'Saglabāt ierobežojumus',
+  'Regional restrictions updated.': 'Reģionālie ierobežojumi atjaunināti.',
+  'Could not update regional restrictions':
+      'Neizdevās atjaunināt reģionālos ierobežojumus',
   'All categories enabled': 'Ieslēgtas visas kategorijas',
   'Select all': 'Izvēlēties visu',
   'Clear': 'Notīrīt',
@@ -2829,6 +2886,22 @@ const _lvText = <String, String>{
   'Unban': 'Atbloķēt',
   'Make moderator': 'Iecelt par moderatoru',
   'Remove moderator': 'Noņemt moderatoru',
+  'Assign moderator countries': 'Piešķirt moderatoram valstis',
+  'Edit moderator countries': 'Mainīt moderatora valstis',
+  'This moderator can review spots only in the selected countries.':
+      'Šis moderators var pārskatīt vietas tikai atlasītajās valstīs.',
+  'assigned countries': 'piešķirtas valstis',
+  'Select at least one country for the moderator.':
+      'Izvēlieties moderatoram vismaz vienu valsti.',
+  'A moderator can be assigned to up to 30 countries.':
+      'Moderatoram var piešķirt ne vairāk kā 30 valstis.',
+  'Save assignment': 'Saglabāt piešķīrumu',
+  'No countries assigned': 'Nav piešķirtu valstu',
+  'Your assigned countries': 'Jums piešķirtās valstis',
+  'This spot is outside your assigned countries':
+      'Šī vieta ir ārpus jums piešķirtajām valstīm',
+  'Regional moderators cannot move spots to another country.':
+      'Reģionālie moderatori nevar pārvietot vietas uz citu valsti.',
   'Moderator assigned.': 'Moderators piešķirts.',
   'Moderator removed.': 'Moderators noņemts.',
   'member': 'dalībnieks',
@@ -2941,6 +3014,7 @@ const _lvText = <String, String>{
   'Edit comment': 'Rediģēt komentāru',
   'Edit message': 'Rediģēt ziņu',
   'Edit spot': 'Rediģēt vietu',
+  'Edit all spot information': 'Rediģēt visu vietas informāciju',
   'End time must be after start time.': 'Beigu laikam jābūt pēc sākuma laika.',
   'End time must be in the future.': 'Beigu laikam jābūt nākotnē.',
   'Enter valid latitude and longitude.': 'Ievadiet derīgas koordinātas.',
@@ -3761,6 +3835,7 @@ Future<void> main() async {
 
     final appUser = await loadCurrentFirebaseUser();
     if (appUser != null) {
+      await initializeSpotCountryFiltersForUser(appUser);
       startCurrentUserDocumentWatcher();
       if (!appUser.banActive) {
         startFirebaseSpotSync();
@@ -4574,6 +4649,7 @@ const liveLocationBackgroundChannel = MethodChannel(
 const systemNotificationsChannel = MethodChannel('ccs/system_notifications');
 const appBadgeChannel = MethodChannel('ccs/app_badge');
 const spotCategoryFiltersKey = 'spot_category_filters';
+const spotCountryFiltersKeyPrefix = 'spot_country_filters_v1';
 
 void startAppIconBadgeSync() {
   if (appIconBadgeSyncStarted) {
@@ -5129,8 +5205,636 @@ final mapFocusRequest = ValueNotifier<MapFocusRequest?>(null);
 final spotCategoryFilters = ValueNotifier<Set<String>>({
   ...spotCategoryOptions,
 });
+final spotCountryFilters = ValueNotifier<Set<String>>(<String>{});
 const savedSpotsKey = 'saved_spot_ids_v1';
 Set<String> savedSpotIds = {};
+
+String spotCountryFromCityCountry(String value) {
+  final parts = value
+      .split(',')
+      .map((part) => part.trim())
+      .where((part) => part.isNotEmpty)
+      .toList(growable: false);
+  return parts.isEmpty ? '' : parts.last;
+}
+
+String _normalizedCountryName(String value) => value.trim().toLowerCase();
+
+// Country values can be written by geocoders in the device language. Keeping
+// all three app-language names behind one ISO identity prevents Latvia,
+// Латвия and Latvija (for example) from appearing as separate filters.
+const Map<String, List<String>> _countryNamesByIso = <String, List<String>>{
+  'AL': ['Albania', 'Албания', 'Albānija'],
+  'AM': ['Armenia', 'Армения', 'Armēnija'],
+  'AU': ['Australia', 'Австралия', 'Austrālija'],
+  'AT': ['Austria', 'Австрия', 'Austrija'],
+  'AZ': ['Azerbaijan', 'Азербайджан', 'Azerbaidžāna'],
+  'BY': ['Belarus', 'Беларусь', 'Baltkrievija'],
+  'BE': ['Belgium', 'Бельгия', 'Beļģija'],
+  'BA': [
+    'Bosnia and Herzegovina',
+    'Босния и Герцеговина',
+    'Bosnija un Hercegovina',
+  ],
+  'BR': ['Brazil', 'Бразилия', 'Brazīlija'],
+  'BG': ['Bulgaria', 'Болгария', 'Bulgārija'],
+  'CA': ['Canada', 'Канада', 'Kanāda'],
+  'CN': ['China', 'Китай', 'Ķīna'],
+  'HR': ['Croatia', 'Хорватия', 'Horvātija'],
+  'CY': ['Cyprus', 'Кипр', 'Kipra'],
+  'CZ': ['Czechia', 'Чехия', 'Čehija'],
+  'DK': ['Denmark', 'Дания', 'Dānija'],
+  'EE': ['Estonia', 'Эстония', 'Igaunija'],
+  'FI': ['Finland', 'Финляндия', 'Somija'],
+  'FR': ['France', 'Франция', 'Francija'],
+  'GE': ['Georgia', 'Грузия', 'Gruzija'],
+  'DE': ['Germany', 'Германия', 'Vācija'],
+  'GR': ['Greece', 'Греция', 'Grieķija'],
+  'HU': ['Hungary', 'Венгрия', 'Ungārija'],
+  'IS': ['Iceland', 'Исландия', 'Islande'],
+  'IN': ['India', 'Индия', 'Indija'],
+  'IE': ['Ireland', 'Ирландия', 'Īrija'],
+  'IT': ['Italy', 'Италия', 'Itālija'],
+  'JP': ['Japan', 'Япония', 'Japāna'],
+  'LV': ['Latvia', 'Латвия', 'Latvija'],
+  'LT': ['Lithuania', 'Литва', 'Lietuva'],
+  'LU': ['Luxembourg', 'Люксембург', 'Luksemburga'],
+  'MT': ['Malta', 'Мальта', 'Malta'],
+  'MX': ['Mexico', 'Мексика', 'Meksika'],
+  'MD': ['Moldova', 'Молдова', 'Moldova'],
+  'ME': ['Montenegro', 'Черногория', 'Melnkalne'],
+  'NL': ['Netherlands', 'Нидерланды', 'Nīderlande'],
+  'NZ': ['New Zealand', 'Новая Зеландия', 'Jaunzēlande'],
+  'MK': ['North Macedonia', 'Северная Македония', 'Ziemeļmaķedonija'],
+  'NO': ['Norway', 'Норвегия', 'Norvēģija'],
+  'PL': ['Poland', 'Польша', 'Polija'],
+  'PT': ['Portugal', 'Португалия', 'Portugāle'],
+  'RO': ['Romania', 'Румыния', 'Rumānija'],
+  'RU': ['Russia', 'Россия', 'Krievija'],
+  'RS': ['Serbia', 'Сербия', 'Serbija'],
+  'SK': ['Slovakia', 'Словакия', 'Slovākija'],
+  'SI': ['Slovenia', 'Словения', 'Slovēnija'],
+  'KR': ['South Korea', 'Южная Корея', 'Dienvidkoreja'],
+  'ES': ['Spain', 'Испания', 'Spānija'],
+  'SE': ['Sweden', 'Швеция', 'Zviedrija'],
+  'CH': ['Switzerland', 'Швейцария', 'Šveice'],
+  'TR': ['Turkey', 'Турция', 'Turcija'],
+  'UA': ['Ukraine', 'Украина', 'Ukraina'],
+  'AE': [
+    'United Arab Emirates',
+    'Объединённые Арабские Эмираты',
+    'Apvienotie Arābu Emirāti',
+  ],
+  'GB': ['United Kingdom', 'Великобритания', 'Apvienotā Karaliste'],
+  'US': ['United States', 'США', 'Amerikas Savienotās Valstis'],
+};
+
+final Map<String, String> _countryAliasesToIso = () {
+  final aliases = <String, String>{};
+  for (final entry in _countryNamesByIso.entries) {
+    aliases[_normalizedCountryName(entry.key)] = entry.key;
+    for (final name in entry.value) {
+      aliases[_normalizedCountryName(name)] = entry.key;
+    }
+  }
+  aliases.addAll(const <String, String>{
+    'czech republic': 'CZ',
+    'чешская республика': 'CZ',
+    'čehijas republika': 'CZ',
+    'uk': 'GB',
+    'great britain': 'GB',
+    'россия': 'RU',
+    'usa': 'US',
+    'соединенные штаты': 'US',
+    'соединённые штаты': 'US',
+    'asv': 'US',
+    'uae': 'AE',
+    'оаэ': 'AE',
+    'aae': 'AE',
+  });
+  return aliases;
+}();
+
+String? countryIsoCode(String value) =>
+    _countryAliasesToIso[_normalizedCountryName(value)];
+
+Set<String> moderatorCountryCodesFromFirebase(Object? value) {
+  if (value is! Iterable) {
+    return <String>{};
+  }
+
+  return value
+      .whereType<String>()
+      .map((code) => code.trim().toUpperCase())
+      .where(_countryNamesByIso.containsKey)
+      .toSet();
+}
+
+String spotCountryKey(String value) =>
+    countryIsoCode(value) ?? _normalizedCountryName(value);
+
+String canonicalSpotCountryName(String value) {
+  final isoCode = countryIsoCode(value);
+  return isoCode == null ? value.trim() : _countryNamesByIso[isoCode]!.first;
+}
+
+String localizedCountryName(String value, {AppLanguage? language}) {
+  final isoCode = countryIsoCode(value);
+  final names = isoCode == null ? null : _countryNamesByIso[isoCode];
+  if (names == null) {
+    return value.trim();
+  }
+  return names[switch (language ?? appUiPreferences.language) {
+    AppLanguage.en => 0,
+    AppLanguage.ru => 1,
+    AppLanguage.lv => 2,
+  }];
+}
+
+String localizedSpotFilterSummary({
+  required int selectedCategories,
+  required int totalCategories,
+  required int selectedCountries,
+}) {
+  return switch (appUiPreferences.language) {
+    AppLanguage.en =>
+      'Categories: $selectedCategories/$totalCategories • Countries: $selectedCountries',
+    AppLanguage.ru =>
+      'Категории: $selectedCategories/$totalCategories • Страны: $selectedCountries',
+    AppLanguage.lv =>
+      'Kategorijas: $selectedCategories/$totalCategories • Valstis: $selectedCountries',
+  };
+}
+
+Widget spotFilterColumns({
+  required BuildContext context,
+  required Set<String> enabledCategories,
+  required Set<String> enabledCountries,
+  required List<String> countries,
+  required VoidCallback onChanged,
+}) {
+  Widget panel({required Widget child}) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.16),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: Colors.white12),
+      ),
+      child: child,
+    );
+  }
+
+  return SizedBox(
+    height: math.min(430.0, MediaQuery.sizeOf(context).height * 0.48),
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Expanded(
+          child: panel(
+            child: Column(
+              children: [
+                SizedBox(
+                  height: 56,
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(12, 6, 4, 4),
+                    child: Row(
+                      children: [
+                        const Expanded(
+                          child: Text(
+                            'Categories',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 15,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                        ),
+                        IconButton(
+                          visualDensity: VisualDensity.compact,
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints.tightFor(
+                            width: 30,
+                            height: 30,
+                          ),
+                          tooltip: trText('Select all'),
+                          onPressed: () {
+                            enabledCategories
+                              ..clear()
+                              ..addAll(spotCategoryOptions);
+                            onChanged();
+                          },
+                          icon: const Icon(
+                            Icons.done_all,
+                            color: blue,
+                            size: 19,
+                          ),
+                        ),
+                        IconButton(
+                          visualDensity: VisualDensity.compact,
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints.tightFor(
+                            width: 30,
+                            height: 30,
+                          ),
+                          tooltip: trText('Clear'),
+                          onPressed: () {
+                            enabledCategories.clear();
+                            onChanged();
+                          },
+                          icon: const Icon(
+                            Icons.clear_all,
+                            color: Colors.white54,
+                            size: 19,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const Divider(color: Colors.white12, height: 1),
+                Expanded(
+                  child: ListView.builder(
+                    padding: const EdgeInsets.symmetric(vertical: 5),
+                    itemCount: spotCategoryOptions.length,
+                    itemBuilder: (context, index) {
+                      final category = spotCategoryOptions[index];
+                      return CheckboxListTile(
+                        value: enabledCategories.contains(category),
+                        onChanged: (enabled) {
+                          if (enabled == true) {
+                            enabledCategories.add(category);
+                          } else {
+                            enabledCategories.remove(category);
+                          }
+                          onChanged();
+                        },
+                        dense: true,
+                        visualDensity: VisualDensity.compact,
+                        activeColor: spotColorForCategory(category),
+                        checkColor: Colors.black,
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 6,
+                        ),
+                        controlAffinity: ListTileControlAffinity.leading,
+                        title: Row(
+                          children: [
+                            Container(
+                              width: 8,
+                              height: 8,
+                              decoration: BoxDecoration(
+                                color: spotColorForCategory(category),
+                                shape: BoxShape.circle,
+                              ),
+                            ),
+                            const SizedBox(width: 7),
+                            Expanded(
+                              child: Text(
+                                category,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 12.5,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: panel(
+            child: Column(
+              children: [
+                const SizedBox(
+                  height: 56,
+                  child: Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 12),
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        'Countries with spots',
+                        maxLines: 2,
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 13.5,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                const Divider(color: Colors.white12, height: 1),
+                Expanded(
+                  child: ListView.builder(
+                    padding: const EdgeInsets.symmetric(vertical: 5),
+                    itemCount: countries.length,
+                    itemBuilder: (context, index) {
+                      final country = countries[index];
+                      final selected = enabledCountries
+                          .map(spotCountryKey)
+                          .contains(spotCountryKey(country));
+                      return CheckboxListTile(
+                        value: selected,
+                        onChanged: (enabled) {
+                          enabledCountries.removeWhere(
+                            (value) =>
+                                spotCountryKey(value) ==
+                                spotCountryKey(country),
+                          );
+                          if (enabled == true) {
+                            enabledCountries.add(country);
+                          } else if (enabledCountries.isEmpty) {
+                            enabledCountries.add(country);
+                          }
+                          onChanged();
+                        },
+                        dense: true,
+                        visualDensity: VisualDensity.compact,
+                        activeColor: blue,
+                        checkColor: Colors.black,
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 6,
+                        ),
+                        controlAffinity: ListTileControlAffinity.leading,
+                        title: Text(
+                          '${countryFlagEmoji(country)}  ${localizedCountryName(country)}',
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 12.5,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+bool get currentUserRegionIsRestricted {
+  final countryCode = countryIsoCode(currentUser.country);
+  return countryCode != null &&
+      maintenanceModeConfig.value.bannedCountryCodes.contains(countryCode);
+}
+
+List<String> allSupportedCountryNames() {
+  final countries = _countryNamesByIso.values
+      .map((names) => names.first)
+      .toList(growable: false);
+  countries.sort(
+    (first, second) => localizedCountryName(
+      first,
+    ).toLowerCase().compareTo(localizedCountryName(second).toLowerCase()),
+  );
+  return countries;
+}
+
+List<String> countryRestrictionKeys(Set<String> countryCodes) {
+  final keys = <String>{};
+  for (final code in countryCodes) {
+    final cleanCode = code.trim().toUpperCase();
+    final names = _countryNamesByIso[cleanCode];
+    if (names == null) continue;
+    keys.add(cleanCode.toLowerCase());
+    keys.addAll(names.map(_normalizedCountryName));
+    if (cleanCode == 'GB') keys.addAll(const ['uk', 'great britain']);
+    if (cleanCode == 'US') keys.addAll(const ['usa', 'сша', 'asv']);
+    if (cleanCode == 'AE') keys.addAll(const ['uae', 'оаэ', 'aae']);
+    if (cleanCode == 'CZ') {
+      keys.addAll(const [
+        'czech republic',
+        'чешская республика',
+        'čehijas republika',
+      ]);
+    }
+  }
+  final sorted = keys.toList(growable: false)..sort();
+  return sorted;
+}
+
+Future<void> showRegionFeatureUnavailableDialog(BuildContext context) async {
+  if (!context.mounted) return;
+  await showDialog<void>(
+    context: context,
+    builder: (dialogContext) => AlertDialog(
+      backgroundColor: panelGlass,
+      title: const Text(
+        'Not available in your region',
+        style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900),
+      ),
+      content: const Text(
+        'This feature is not yet available in your region.',
+        style: TextStyle(color: Colors.white70, height: 1.35),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(dialogContext),
+          child: const Text('OK'),
+        ),
+      ],
+    ),
+  );
+}
+
+String countryFlagEmoji(String country) {
+  final isoCode = countryIsoCode(country);
+  if (isoCode == null || isoCode.length != 2) {
+    return '🌍';
+  }
+  return String.fromCharCodes(isoCode.codeUnits.map((unit) => unit + 127397));
+}
+
+Set<String> cleanSpotCountries(Iterable<String> countries) {
+  final byKey = <String, String>{};
+  for (final country in countries) {
+    final cleanCountry = canonicalSpotCountryName(country);
+    final key = spotCountryKey(cleanCountry);
+    if (key.isNotEmpty) {
+      byKey[key] = cleanCountry;
+    }
+  }
+  return byKey.values.toSet();
+}
+
+Set<String> spotCountryFiltersFromUserData(Map<String, dynamic> data) {
+  final rawFilters = data['spotCountryFilters'];
+  final selected = rawFilters is Iterable
+      ? cleanSpotCountries(rawFilters.whereType<String>())
+      : <String>{};
+  if (selected.isNotEmpty) {
+    return selected;
+  }
+
+  final userCountry = stringFromFirebase(data['country'], '').trim();
+  return userCountry.isEmpty
+      ? <String>{}
+      : cleanSpotCountries(<String>{userCountry});
+}
+
+bool spotMatchesSelectedCountries(CarSpot spot) {
+  final selectedKeys = spotCountryFilters.value
+      .map(spotCountryKey)
+      .where((key) => key.isNotEmpty)
+      .toSet();
+  if (selectedKeys.isEmpty) {
+    return false;
+  }
+  return selectedKeys.contains(
+    spotCountryKey(spotCountryFromCityCountry(spot.cityCountry)),
+  );
+}
+
+bool userDataAllowsSpotCountry(Map<String, dynamic> data, String spotCountry) {
+  final countryKey = spotCountryKey(spotCountry);
+  if (countryKey.isEmpty) {
+    return true;
+  }
+  if (roleFromFirebase(data['role']) == UserRole.moderator) {
+    return moderatorCountryCodesFromFirebase(
+      data['moderatorCountryCodes'],
+    ).contains(countryKey.toUpperCase());
+  }
+  final selected = spotCountryFiltersFromUserData(data);
+  if (selected.isEmpty) {
+    // Preserve delivery for legacy/incomplete profiles that have no country.
+    return true;
+  }
+  return selected.map(spotCountryKey).contains(countryKey);
+}
+
+List<String> availableSpotCountries() {
+  final countriesByKey = <String, String>{};
+
+  void addCountry(String value) {
+    final country = canonicalSpotCountryName(value);
+    final key = spotCountryKey(country);
+    if (key.isNotEmpty) {
+      countriesByKey[key] = country;
+    }
+  }
+
+  // The user's own country must remain selectable even before its first spot
+  // is loaded, because it is the default for a new account.
+  addCountry(currentUser.country);
+  for (final spot in approvedPublicSpots()) {
+    if (!spot.isExpired) {
+      addCountry(spotCountryFromCityCountry(spot.cityCountry));
+    }
+  }
+
+  final countries = countriesByKey.values.toList(growable: false);
+  countries.sort(
+    (first, second) => localizedCountryName(
+      first,
+    ).toLowerCase().compareTo(localizedCountryName(second).toLowerCase()),
+  );
+  return countries;
+}
+
+String spotCountryPreferenceKey(String uid) =>
+    '${spotCountryFiltersKeyPrefix}_${uid.trim()}';
+
+Future<void> saveSpotCountryFiltersPreference(
+  String uid,
+  Set<String> countries,
+) async {
+  if (uid.trim().isEmpty) return;
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList(
+      spotCountryPreferenceKey(uid),
+      countries.toList()..sort(),
+    );
+  } catch (_) {}
+}
+
+Future<void> initializeSpotCountryFiltersForUser(AppUser user) async {
+  final uid = user.uid.trim();
+  if (uid.isEmpty) {
+    spotCountryFilters.value = <String>{};
+    return;
+  }
+
+  Set<String> localFilters = <String>{};
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    localFilters = cleanSpotCountries(
+      prefs.getStringList(spotCountryPreferenceKey(uid)) ?? const <String>[],
+    );
+  } catch (_) {}
+
+  Set<String> remoteFilters = <String>{};
+  try {
+    final snapshot = await usersCollection().doc(uid).debugGet();
+    final data = snapshot.data();
+    if (data != null && data['spotCountryFilters'] is Iterable) {
+      remoteFilters = cleanSpotCountries(
+        (data['spotCountryFilters'] as Iterable).whereType<String>(),
+      );
+    }
+  } catch (_) {}
+
+  final ownCountry = canonicalSpotCountryName(user.country);
+  final selected = remoteFilters.isNotEmpty
+      ? remoteFilters
+      : localFilters.isNotEmpty
+      ? localFilters
+      : ownCountry.isEmpty
+      ? <String>{}
+      : cleanSpotCountries(<String>{ownCountry});
+  spotCountryFilters.value = selected;
+  await saveSpotCountryFiltersPreference(uid, selected);
+
+  if (remoteFilters.isEmpty && selected.isNotEmpty) {
+    try {
+      await usersCollection().doc(uid).debugSet({
+        'spotCountryFilters': selected.toList()..sort(),
+        'spotCountryFiltersUpdatedAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    } catch (error) {
+      debugPrint('Could not initialize spot country filters: $error');
+    }
+  }
+}
+
+Future<void> updateSpotCountryFilters(Set<String> countries) async {
+  final uid = currentUser.uid.trim();
+  var selected = cleanSpotCountries(countries);
+  if (selected.isEmpty && currentUser.country.trim().isNotEmpty) {
+    selected = cleanSpotCountries(<String>{currentUser.country});
+  }
+  spotCountryFilters.value = selected;
+  await saveSpotCountryFiltersPreference(uid, selected);
+  if (uid.isEmpty) return;
+
+  try {
+    await usersCollection().doc(uid).debugSet({
+      'spotCountryFilters': selected.toList()..sort(),
+      'spotCountryFiltersUpdatedAt': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+  } catch (error) {
+    debugPrint('Could not save spot country filters: $error');
+  }
+}
 
 Set<String> sanitizedSpotCategoryFilters(Iterable<String> categories) {
   final validCategories = spotCategoryOptions.toSet();
@@ -5826,6 +6530,7 @@ class AppUser {
   final UserRole role;
   final bool verified;
   final bool globalChatModerator;
+  final Set<String> moderatorCountryCodes;
   final String city;
   final String country;
   final bool banned;
@@ -5843,6 +6548,7 @@ class AppUser {
     required this.role,
     this.verified = false,
     this.globalChatModerator = false,
+    this.moderatorCountryCodes = const <String>{},
     required this.city,
     required this.country,
     this.banned = false,
@@ -5907,6 +6613,21 @@ bool userRoleIsModerator(UserRole role) {
 
 bool userRoleIsStaff(UserRole role) {
   return role == UserRole.admin || role == UserRole.moderator;
+}
+
+bool currentUserCanModerateSpot(CarSpot spot) {
+  if (currentUser.role == UserRole.admin) {
+    return true;
+  }
+  if (currentUser.role != UserRole.moderator) {
+    return false;
+  }
+
+  // Regional moderation is based on the canonical country code stored on the
+  // spot. Legacy spots are backfilled by an admin before moderators see them.
+  final storedCode = spot.countryCode.trim().toUpperCase();
+  return storedCode.isNotEmpty &&
+      currentUser.moderatorCountryCodes.contains(storedCode);
 }
 
 bool userDataHasCommunityModerationAccess(Map<String, dynamic>? data) {
@@ -6119,6 +6840,9 @@ AppUser appUserFromCurrentUserDocument(
     role: role,
     verified: userRoleIsStaff(role) || data['verified'] == true,
     globalChatModerator: userDataHasCommunityModerationAccess(data),
+    moderatorCountryCodes: moderatorCountryCodesFromFirebase(
+      data['moderatorCountryCodes'],
+    ),
     city: stringFromFirebase(data['city'], currentUser.city),
     country: stringFromFirebase(data['country'], currentUser.country),
     banned: data['banned'] == true,
@@ -6135,6 +6859,7 @@ Future<void> stopCurrentUserAppServicesForAccessBlock() async {
   spotSyncSubscriptions.clear();
   await adminReviewSpotSubscription?.cancel();
   adminReviewSpotSubscription = null;
+  adminReviewSpotSyncRequested = false;
   _firebaseSpotCacheBySource.clear();
   await notificationCenterUnreadSubscription?.cancel();
   notificationCenterUnreadSubscription = null;
@@ -6172,10 +6897,43 @@ void startCurrentUserDocumentWatcher() {
 
           final wasBanActive = currentUser.banActive;
           final hadVerifiedOnlySpotAccess = currentUserCanUseVerifiedOnlySpots;
+          final previousRole = currentUser.role;
+          final previousModeratorCountries = currentUser.moderatorCountryCodes;
           final nextUser = appUserFromCurrentUserDocument(snapshot);
           setCurrentUser(nextUser);
+          final snapshotData = snapshot.data();
+          if (snapshotData != null &&
+              snapshotData['spotCountryFilters'] is Iterable) {
+            final remoteCountryFilters = spotCountryFiltersFromUserData(
+              snapshotData,
+            );
+            final currentKeys = spotCountryFilters.value
+                .map(spotCountryKey)
+                .toSet();
+            final remoteKeys = remoteCountryFilters.map(spotCountryKey).toSet();
+            if (currentKeys.length != remoteKeys.length ||
+                !currentKeys.containsAll(remoteKeys)) {
+              spotCountryFilters.value = remoteCountryFilters;
+              unawaited(
+                saveSpotCountryFiltersPreference(
+                  nextUser.uid,
+                  remoteCountryFilters,
+                ),
+              );
+            }
+          }
           final verifiedOnlySpotAccessChanged =
               hadVerifiedOnlySpotAccess != currentUserCanUseVerifiedOnlySpots;
+          final moderatorScopeChanged =
+              previousRole != nextUser.role ||
+              previousModeratorCountries.length !=
+                  nextUser.moderatorCountryCodes.length ||
+              !previousModeratorCountries.containsAll(
+                nextUser.moderatorCountryCodes,
+              );
+          if (moderatorScopeChanged && adminReviewSpotSyncRequested) {
+            startAdminReviewSpotSync();
+          }
           startTemporarySpotTodayNotificationScheduler();
 
           if (nextUser.banActive) {
@@ -6214,6 +6972,7 @@ Future<void> signOutCurrentAccount() async {
   spotSyncSubscriptions.clear();
   await adminReviewSpotSubscription?.cancel();
   adminReviewSpotSubscription = null;
+  adminReviewSpotSyncRequested = false;
   _firebaseSpotCacheBySource.clear();
   await notificationCenterUnreadSubscription?.cancel();
   notificationCenterUnreadSubscription = null;
@@ -6262,6 +7021,7 @@ Future<void> signOutCurrentAccount() async {
   reviewSpots.value = [];
   submittedSpots.value = [];
   savedSpots.value = [];
+  spotCountryFilters.value = <String>{};
   unawaited(saveSavedSpotIds());
   userSettings.value = defaultUserSettings();
   garageCars.value = const [];
@@ -6687,6 +7447,9 @@ Future<AppUser> saveFirebaseUser(
       : null;
   final verified = data?['verified'] == true;
   final globalChatModerator = userDataHasCommunityModerationAccess(data);
+  final moderatorCountryCodes = moderatorCountryCodesFromFirebase(
+    data?['moderatorCountryCodes'],
+  );
   final settings = UserSettingsData.fromFirebase(data?['settings']);
   final garage = garageCarsFromFirebase(data?['garage']);
   final effectiveProvider = !isNewUser && provider == 'firebase'
@@ -6708,6 +7471,7 @@ Future<AppUser> saveFirebaseUser(
       role: role,
       verified: verified,
       globalChatModerator: globalChatModerator,
+      moderatorCountryCodes: moderatorCountryCodes,
       city: city,
       country: country,
       banned: true,
@@ -6777,6 +7541,7 @@ Future<AppUser> saveFirebaseUser(
     role: role,
     verified: verified,
     globalChatModerator: globalChatModerator,
+    moderatorCountryCodes: moderatorCountryCodes,
     city: city,
     country: country,
     banned: data?['banned'] == true,
@@ -7009,6 +7774,7 @@ Future<AppUser> signInWithTelegramAndSaveUser({
       telegramUsername: fallbackUsername,
     ),
   );
+  await initializeSpotCountryFiltersForUser(currentUser);
   startCurrentUserDocumentWatcher();
   if (!currentUser.banActive) {
     startFirebaseSpotSync();
@@ -7606,6 +8372,7 @@ Future<AppUser> signInWithGoogleAndSaveUser({
       usernameOverride: newUserUsernameOverride,
     ),
   );
+  await initializeSpotCountryFiltersForUser(currentUser);
   startCurrentUserDocumentWatcher();
   if (!currentUser.banActive) {
     startFirebaseSpotSync();
@@ -7789,6 +8556,7 @@ class CarSpot {
   final String id;
   final String name;
   final String cityCountry;
+  final String countryCode;
   final LatLng coordinates;
   final String description;
   final List<String> categories;
@@ -7830,6 +8598,7 @@ class CarSpot {
     this.id = '',
     required this.name,
     required this.cityCountry,
+    this.countryCode = '',
     required this.coordinates,
     required this.description,
     required this.categories,
@@ -7872,6 +8641,7 @@ class CarSpot {
     String? id,
     String? name,
     String? cityCountry,
+    String? countryCode,
     LatLng? coordinates,
     String? description,
     List<String>? categories,
@@ -7915,6 +8685,7 @@ class CarSpot {
       id: id ?? this.id,
       name: name ?? this.name,
       cityCountry: cityCountry ?? this.cityCountry,
+      countryCode: countryCode ?? this.countryCode,
       coordinates: coordinates ?? this.coordinates,
       description: description ?? this.description,
       categories: categories ?? this.categories,
@@ -7962,6 +8733,14 @@ class CarSpot {
 
   bool get hasTemporaryWindow =>
       isTemporary && startsAtMillis != null && expiresAtMillis != null;
+
+  String get effectiveCountryCode {
+    final storedCode = countryCode.trim().toUpperCase();
+    if (_countryNamesByIso.containsKey(storedCode)) {
+      return storedCode;
+    }
+    return countryIsoCode(spotCountryFromCityCountry(cityCountry)) ?? '';
+  }
 
   bool get supportsContacts => categories.any(spotCategorySupportsContacts);
 
@@ -8121,6 +8900,7 @@ class CarSpot {
       id: doc.id,
       name: stringFromFirebase(data['name'], 'Untitled spot'),
       cityCountry: stringFromFirebase(data['cityCountry'], 'Riga, Latvia'),
+      countryCode: stringFromFirebase(data['countryCode'], ''),
       coordinates: coordinates,
       description: stringFromFirebase(
         data['description'],
@@ -8802,6 +9582,7 @@ bool userDataHasActiveBan(Map<String, dynamic> data, int nowMillis) {
 
 Future<List<String>?> communityPushRecipientUserIds({
   required String preferenceKey,
+  String spotCountry = '',
 }) async {
   final firebaseUser = FirebaseAuth.instance.currentUser;
   if (firebaseUser == null) {
@@ -8809,8 +9590,9 @@ Future<List<String>?> communityPushRecipientUserIds({
   }
 
   final nowMillis = DateTime.now().millisecondsSinceEpoch;
-  final cachedAtMillis = _communityPushRecipientCacheAtMillis[preferenceKey];
-  final cached = _communityPushRecipientCache[preferenceKey];
+  final cacheKey = '$preferenceKey|${spotCountryKey(spotCountry)}';
+  final cachedAtMillis = _communityPushRecipientCacheAtMillis[cacheKey];
+  final cached = _communityPushRecipientCache[cacheKey];
   if (cachedAtMillis != null &&
       cached != null &&
       nowMillis - cachedAtMillis <
@@ -8833,15 +9615,16 @@ Future<List<String>?> communityPushRecipientUserIds({
       if (uid.isEmpty ||
           data['deleted'] == true ||
           userDataHasActiveBan(data, nowMillis) ||
-          !notificationPreferenceEnabledInUserData(data, preferenceKey)) {
+          !notificationPreferenceEnabledInUserData(data, preferenceKey) ||
+          !userDataAllowsSpotCountry(data, spotCountry)) {
         continue;
       }
       recipients.add(uid);
     }
 
     final cachedRecipients = recipients.toList(growable: false);
-    _communityPushRecipientCache[preferenceKey] = cachedRecipients;
-    _communityPushRecipientCacheAtMillis[preferenceKey] = nowMillis;
+    _communityPushRecipientCache[cacheKey] = cachedRecipients;
+    _communityPushRecipientCacheAtMillis[cacheKey] = nowMillis;
     return cachedRecipients.where((uid) => uid != firebaseUser.uid).toList();
   } catch (error, stack) {
     // Preferences are a hard opt-out. If the client cannot verify the
@@ -9155,6 +9938,7 @@ Future<void> createNewSpotNotificationForUsers(CarSpot spot) async {
   final body = spot.isTemporary
       ? '${spot.name} event was added in ${spot.cityCountry}.'
       : '${spot.name} was added in ${spot.cityCountry}.';
+  final spotCountry = spotCountryFromCityCountry(spot.cityCountry);
 
   try {
     final usersSnapshot = await usersCollection()
@@ -9175,6 +9959,9 @@ Future<void> createNewSpotNotificationForUsers(CarSpot spot) async {
           ? data['newSpotNotifications'] == true
           : boolFromFirebase(nestedSettings['newSpotNotifications'], true);
       if (!enabled) {
+        continue;
+      }
+      if (!userDataAllowsSpotCountry(data, spotCountry)) {
         continue;
       }
 
@@ -9211,6 +9998,7 @@ Future<void> createNewSpotNotificationForUsers(CarSpot spot) async {
 Future<void> sendNewSpotPushToEligibleUsers(CarSpot spot) async {
   final recipients = await communityPushRecipientUserIds(
     preferenceKey: 'newSpotNotifications',
+    spotCountry: spotCountryFromCityCountry(spot.cityCountry),
   );
   if (recipients == null || recipients.isEmpty) {
     return;
@@ -11670,6 +12458,11 @@ Future<void> shareChatLiveLocation(
     return;
   }
 
+  if (currentUserRegionIsRestricted) {
+    await showRegionFeatureUnavailableDialog(context);
+    return;
+  }
+
   final otherDirectUserId = chat.memberIds.firstWhere(
     (uid) => uid.trim().isNotEmpty && uid != firebaseUser.uid,
     orElse: () => '',
@@ -11986,11 +12779,12 @@ Future<void> leaveGroupChat(ChatThreadData chat) async {
       return;
     }
 
-    if (latestChat.isOwner(uid)) {
+    final leavingOwner = latestChat.isOwner(uid);
+    if (latestChat.memberIds.length <= 1) {
       throw FirebaseException(
         plugin: 'cloud_firestore',
-        code: 'owner-cannot-leave',
-        message: trText('Only the group owner can delete this group.'),
+        code: 'last-member-cannot-leave',
+        message: trText('You are the only member. Delete the group instead.'),
       );
     }
 
@@ -12013,7 +12807,15 @@ Future<void> leaveGroupChat(ChatThreadData chat) async {
     }
     nextModeratorIds.removeWhere((memberUid) => memberUid == uid);
 
+    final nextOwnerUid = leavingOwner
+        ? nextModeratorIds.firstWhere(
+            nextMemberIds.contains,
+            orElse: () => nextMemberIds.first,
+          )
+        : latestChat.effectiveOwnerUid();
+
     transaction.debugUpdate(chatRef, {
+      'ownerUid': nextOwnerUid,
       'memberIds': nextMemberIds,
       'memberUsernames': nextMemberUsernames,
       'memberPhotoUrls': nextMemberPhotoUrls,
@@ -12309,7 +13111,9 @@ bool get currentUserCanUseVerifiedOnlySpots {
 
 bool currentUserCanManageSpotBusiness(CarSpot spot) {
   return spot.supportsContacts &&
-      (userRoleIsStaff(currentUser.role) ||
+      (currentUser.role == UserRole.admin ||
+          (currentUser.role == UserRole.moderator &&
+              currentUserCanModerateSpot(spot)) ||
           (spot.ownerUid.isNotEmpty && spot.ownerUid == currentUser.uid));
 }
 
@@ -12568,6 +13372,50 @@ Future<List<String>> staffUserIdsExcept({String? excludedUid}) async {
   return ids.toList();
 }
 
+Future<List<String>> spotReviewStaffUserIdsExcept(
+  CarSpot spot, {
+  String? excludedUid,
+}) async {
+  final countryCode = spot.effectiveCountryCode;
+  final adminSnapshot = await usersCollection()
+      .where('role', isEqualTo: 'admin')
+      .debugGet(null, 'users: spot review admin ids query');
+  final moderatorSnapshot = await usersCollection()
+      .where('role', isEqualTo: 'moderator')
+      .debugGet(null, 'users: regional spot moderator ids query');
+
+  final ids = <String>{};
+  for (final doc in adminSnapshot.docs) {
+    final data = doc.data();
+    final uid = stringFromFirebase(data['uid'], doc.id).trim();
+    if (uid.isNotEmpty &&
+        uid != excludedUid &&
+        data['deleted'] != true &&
+        data['banned'] != true) {
+      ids.add(uid);
+    }
+  }
+
+  if (countryCode.isNotEmpty) {
+    for (final doc in moderatorSnapshot.docs) {
+      final data = doc.data();
+      final uid = stringFromFirebase(data['uid'], doc.id).trim();
+      final assignedCountries = moderatorCountryCodesFromFirebase(
+        data['moderatorCountryCodes'],
+      );
+      if (uid.isNotEmpty &&
+          uid != excludedUid &&
+          data['deleted'] != true &&
+          data['banned'] != true &&
+          assignedCountries.contains(countryCode)) {
+        ids.add(uid);
+      }
+    }
+  }
+
+  return ids.toList(growable: false);
+}
+
 Future<List<String>> communityModerationUserIdsExcept({
   String? excludedUid,
 }) async {
@@ -12634,46 +13482,49 @@ Future<void> notifyStaffAboutCommunityEvent({
   required String body,
   Map<String, Object?> extra = const <String, Object?>{},
   bool sendPush = true,
+  bool resolveRecipientsOnServer = false,
 }) async {
   final senderUid = FirebaseAuth.instance.currentUser?.uid ?? currentUser.uid;
-  final recipientUids = await communityModerationUserIdsExcept(
-    excludedUid: senderUid,
-  );
-  if (recipientUids.isEmpty) {
+  final recipientUids = resolveRecipientsOnServer
+      ? const <String>[]
+      : await communityModerationUserIdsExcept(excludedUid: senderUid);
+  if (recipientUids.isEmpty && !resolveRecipientsOnServer) {
     debugPrint(
       'Community moderation notification skipped because no recipients were found.',
     );
     return;
   }
 
-  final nowMillis = DateTime.now().millisecondsSinceEpoch;
-  try {
-    final batch = FirebaseFirestore.instance.batch();
-    for (final recipientUid in recipientUids) {
-      batch.debugSet(
-        adminNotificationsCollection().doc('${notificationId}_$recipientUid'),
-        {
-          'userId': recipientUid,
-          'type': type,
-          'title': title,
-          'body': body,
-          'actorUserId': senderUid,
-          'actorUsername': currentUser.username,
-          'read': false,
-          'createdAt': FieldValue.serverTimestamp(),
-          'createdAtMillis': nowMillis,
-          ...extra,
-        },
-        SetOptions(merge: true),
-        'admin notifications: community event',
-      );
+  if (recipientUids.isNotEmpty) {
+    final nowMillis = DateTime.now().millisecondsSinceEpoch;
+    try {
+      final batch = FirebaseFirestore.instance.batch();
+      for (final recipientUid in recipientUids) {
+        batch.debugSet(
+          adminNotificationsCollection().doc('${notificationId}_$recipientUid'),
+          {
+            'userId': recipientUid,
+            'type': type,
+            'title': title,
+            'body': body,
+            'actorUserId': senderUid,
+            'actorUsername': currentUser.username,
+            'read': false,
+            'createdAt': FieldValue.serverTimestamp(),
+            'createdAtMillis': nowMillis,
+            ...extra,
+          },
+          SetOptions(merge: true),
+          'admin notifications: community event',
+        );
+      }
+      await batch.commit();
+    } catch (error, stack) {
+      // The push endpoint may still be able to deliver even when client rules do
+      // not permit direct writes to admin_notifications.
+      debugPrint('Community admin notification documents failed: $error');
+      debugPrint('$stack');
     }
-    await batch.commit();
-  } catch (error, stack) {
-    // The push endpoint may still be able to deliver even when client rules do
-    // not permit direct writes to admin_notifications.
-    debugPrint('Community admin notification documents failed: $error');
-    debugPrint('$stack');
   }
 
   if (!sendPush) {
@@ -12683,7 +13534,7 @@ Future<void> notifyStaffAboutCommunityEvent({
   final delivered = await trySendPushNotificationEvent({
     'type': type,
     'notificationId': notificationId,
-    'recipientUserIds': recipientUids,
+    if (recipientUids.isNotEmpty) 'recipientUserIds': recipientUids,
     'title': title,
     'body': body,
     ...extra,
@@ -12723,6 +13574,7 @@ Future<void> notifyAllUsersIfTemporarySpotIsToday(CarSpot spot) async {
 
   final recipients = await communityPushRecipientUserIds(
     preferenceKey: 'newSpotNotifications',
+    spotCountry: spotCountryFromCityCountry(spot.cityCountry),
   );
   if (recipients == null || recipients.isEmpty) {
     return;
@@ -12896,7 +13748,10 @@ Future<void> createAdminSpotReviewNotification(CarSpot spot) async {
     return;
   }
 
-  final staffUids = await staffUserIdsExcept(excludedUid: spot.addedByUid);
+  final staffUids = await spotReviewStaffUserIdsExcept(
+    spot,
+    excludedUid: spot.addedByUid,
+  );
 
   if (staffUids.isEmpty) {
     return;
@@ -12918,6 +13773,7 @@ Future<void> createAdminSpotReviewNotification(CarSpot spot) async {
         'spotId': spot.id,
         'spotName': spot.name,
         'cityCountry': spot.cityCountry,
+        'countryCode': spot.effectiveCountryCode,
         'addedBy': spot.addedBy,
         'addedByUid': spot.addedByUid,
         'read': false,
@@ -12944,6 +13800,7 @@ Future<void> createAdminSpotReviewNotification(CarSpot spot) async {
     'spotId': spot.id,
     'spotName': spot.name,
     'cityCountry': spot.cityCountry,
+    'countryCode': spot.effectiveCountryCode,
     'addedBy': spot.addedBy,
     'addedByUid': spot.addedByUid,
     'recipientUserIds': staffUids,
@@ -12965,7 +13822,10 @@ Future<void> createAdminSpotDecisionNotification(
     return;
   }
 
-  final adminUids = await adminUserIdsExcept(excludedUid: currentUser.uid);
+  final adminUids = await spotReviewStaffUserIdsExcept(
+    spot,
+    excludedUid: currentUser.uid,
+  );
 
   if (adminUids.isEmpty) {
     return;
@@ -12995,6 +13855,7 @@ Future<void> createAdminSpotDecisionNotification(
       'spotId': spot.id,
       'spotName': spot.name,
       'cityCountry': spot.cityCountry,
+      'countryCode': spot.effectiveCountryCode,
       'status': statusName,
       'reviewedBy': currentUser.username,
       'reviewedByUid': currentUser.uid,
@@ -13456,6 +14317,7 @@ Map<String, Object?> spotToFirestoreData(
   final data = <String, Object?>{
     'name': spot.name,
     'cityCountry': spot.cityCountry,
+    'countryCode': spot.effectiveCountryCode,
     'lat': spot.coordinates.latitude,
     'lng': spot.coordinates.longitude,
     'coordinates': GeoPoint(
@@ -13528,6 +14390,7 @@ Map<String, Object?> carSpotToLocalCacheData(CarSpot spot) {
     'id': spot.id,
     'name': spot.name,
     'cityCountry': spot.cityCountry,
+    'countryCode': spot.effectiveCountryCode,
     'lat': spot.coordinates.latitude,
     'lng': spot.coordinates.longitude,
     'description': spot.description,
@@ -13584,6 +14447,7 @@ CarSpot? carSpotFromLocalCacheData(Object? value) {
       id: id,
       name: stringFromFirebase(data['name'], 'Untitled spot'),
       cityCountry: stringFromFirebase(data['cityCountry'], 'Riga, Latvia'),
+      countryCode: stringFromFirebase(data['countryCode'], ''),
       coordinates: coordinates,
       description: stringFromFirebase(
         data['description'],
@@ -13814,6 +14678,7 @@ final List<StreamSubscription<QuerySnapshot<Map<String, dynamic>>>>
 spotSyncSubscriptions = [];
 StreamSubscription<QuerySnapshot<Map<String, dynamic>>>?
 adminReviewSpotSubscription;
+bool adminReviewSpotSyncRequested = false;
 final Map<String, Map<String, CarSpot>> _firebaseSpotCacheBySource = {};
 
 String _spotCacheKey(CarSpot spot) {
@@ -13975,10 +14840,52 @@ void startApprovedSpotsLiveSync() {
 }
 
 Future<void> stopAdminReviewSpotSync() async {
+  adminReviewSpotSyncRequested = false;
   await adminReviewSpotSubscription?.cancel();
   adminReviewSpotSubscription = null;
   _firebaseSpotCacheBySource.remove('admin review');
   _publishFirebaseSpotCaches();
+}
+
+final Set<String> _spotCountryCodeBackfillsThisSession = <String>{};
+
+Future<void> _backfillLegacySpotCountryCodes(Iterable<CarSpot> spots) async {
+  if (currentUser.role != UserRole.admin) {
+    return;
+  }
+
+  final missing = spots
+      .where(
+        (spot) =>
+            spot.id.isNotEmpty &&
+            spot.countryCode.trim().isEmpty &&
+            spot.effectiveCountryCode.isNotEmpty &&
+            !_spotCountryCodeBackfillsThisSession.contains(spot.id),
+      )
+      .take(400)
+      .toList(growable: false);
+  if (missing.isEmpty) {
+    return;
+  }
+
+  _spotCountryCodeBackfillsThisSession.addAll(missing.map((spot) => spot.id));
+  try {
+    final batch = FirebaseFirestore.instance.batch();
+    for (final spot in missing) {
+      batch.debugUpdate(
+        spotsCollection().doc(spot.id),
+        {'countryCode': spot.effectiveCountryCode},
+        'admin: legacy spot country code backfill',
+      );
+    }
+    await batch.commit();
+  } catch (error, stack) {
+    _spotCountryCodeBackfillsThisSession.removeAll(
+      missing.map((spot) => spot.id),
+    );
+    debugPrint('Legacy spot country-code backfill failed: $error');
+    debugPrint('$stack');
+  }
 }
 
 void startAdminReviewSpotSync() {
@@ -13986,6 +14893,8 @@ void startAdminReviewSpotSync() {
     unawaited(stopAdminReviewSpotSync());
     return;
   }
+
+  adminReviewSpotSyncRequested = true;
 
   unawaited(adminReviewSpotSubscription?.cancel());
 
@@ -13996,21 +14905,47 @@ void startAdminReviewSpotSync() {
     'rejected',
   ];
 
+  Query<Map<String, dynamic>> reviewQuery;
+  if (currentUser.role == UserRole.admin) {
+    reviewQuery = spotsCollection().where(
+      'status',
+      whereIn: adminReviewStatuses,
+    );
+  } else {
+    final assignedCountries = currentUser.moderatorCountryCodes.toList()
+      ..sort();
+    if (assignedCountries.isEmpty) {
+      adminReviewSpotSubscription = null;
+      _firebaseSpotCacheBySource['admin review'] = <String, CarSpot>{};
+      _publishFirebaseSpotCaches();
+      return;
+    }
+    reviewQuery = spotsCollection().where(
+      'countryCode',
+      whereIn: assignedCountries.take(30).toList(growable: false),
+    );
+  }
+
   adminReviewSpotSubscription =
       trackedQuerySnapshots(
         'spots listener: admin review',
-        spotsCollection()
-            .where('status', whereIn: adminReviewStatuses)
-            .limit(firebaseAdminReviewSpotsListenLimit),
+        reviewQuery.limit(firebaseAdminReviewSpotsListenLimit),
       ).listen(
         (snapshot) {
+          final parsedSpots = snapshot.docs
+              .map(CarSpot.fromFirestore)
+              .where(
+                (spot) =>
+                    adminReviewStatuses.contains(spotStatusName(spot.status)),
+              )
+              .toList(growable: false);
           _firebaseSpotCacheBySource['admin review'] = {
-            for (final doc in snapshot.docs)
-              _spotCacheKey(CarSpot.fromFirestore(doc)): CarSpot.fromFirestore(
-                doc,
-              ),
+            for (final spot in parsedSpots) _spotCacheKey(spot): spot,
           };
           _publishFirebaseSpotCaches();
+          if (currentUser.role == UserRole.admin) {
+            unawaited(_backfillLegacySpotCountryCodes(parsedSpots));
+          }
         },
         onError: (Object error, StackTrace stack) {
           debugPrint('Admin review spot listener failed: $error');
@@ -15836,6 +16771,13 @@ Future<void> updateSpotStatus(
   SpotStatus status, {
   String rejectionReason = '',
 }) async {
+  if (!currentUserCanModerateSpot(spot)) {
+    throw FirebaseException(
+      plugin: 'cloud_firestore',
+      code: 'regional-moderator-scope',
+      message: 'This spot is outside your assigned countries.',
+    );
+  }
   final statusChanged = spot.status != status;
   final cleanRejectionReason = status == SpotStatus.rejected
       ? rejectionReason.trim()
@@ -17257,6 +18199,22 @@ String notificationCenterActionDedupKey(NotificationCenterItem item) {
     }
   }
 
+  if (type == 'forum_reply' || type == 'forum_reply_admin') {
+    final topicKey = item.topicId.trim();
+    final messageKey = item.messageId.trim();
+    if (topicKey.isNotEmpty && messageKey.isNotEmpty) {
+      // Older senders created both a normal reply row and a staff-only row.
+      // They represent the same forum message in the bell and app badge.
+      return 'forum_reply:$topicKey:$messageKey';
+    }
+
+    final bodyKey = notificationCenterDisplayBody(item).trim().toLowerCase();
+    if (topicKey.isNotEmpty && bodyKey.isNotEmpty) {
+      final bucket = (item.createdAtMillis / 60000).floor();
+      return 'forum_reply:$topicKey:$actorKey:$bodyKey:$bucket';
+    }
+  }
+
   if (type == 'chat_message') {
     final chatKey = chatIdFromNotificationItem(item).trim();
     final messageKey = item.messageId.trim().isNotEmpty
@@ -17438,6 +18396,22 @@ Future<List<NotificationCenterItem>> loadNotificationCenterItems() async {
         label,
       );
       for (final doc in snapshot.docs) {
+        final data = doc.data();
+        if (currentUser.role == UserRole.moderator &&
+            data['type'] == 'spot_pending_review') {
+          final countryCode = stringFromFirebase(
+            data['countryCode'],
+            countryIsoCode(
+                  spotCountryFromCityCountry(
+                    stringFromFirebase(data['cityCountry'], ''),
+                  ),
+                ) ??
+                '',
+          ).toUpperCase();
+          if (!currentUser.moderatorCountryCodes.contains(countryCode)) {
+            continue;
+          }
+        }
         items.add(notificationCenterItemFromDocument(doc));
       }
     } catch (error, stack) {
@@ -19181,6 +20155,10 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
 
   void selectBottomTab(int nextIndex) {
     final cleanIndex = nextIndex.clamp(0, 4).toInt();
+    if (cleanIndex == 2 && currentUserRegionIsRestricted) {
+      unawaited(showRegionFeatureUnavailableDialog(context));
+      return;
+    }
     if (cleanIndex == index) {
       return;
     }
@@ -19235,6 +20213,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       appIsForegroundForNotifications = true;
+      unawaited(setAppIconBadgeCount(notificationCenterUnreadCount.value));
       updateCurrentUserOnlinePresence(isOnline: true);
     } else if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.detached ||
@@ -19740,6 +20719,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
     spotCardScrollController = ScrollController();
     savedSpots.addListener(refreshSavedFilter);
     spotCategoryFilters.addListener(refreshSpotCategoryFilters);
+    spotCountryFilters.addListener(refreshSpotCategoryFilters);
     appUiPreferences.addListener(refreshLanguageLabels);
     // Temporary spots can expire or reveal their location without a Firestore
     // update. Refresh the Spots tab so the temporary card removes expired spots
@@ -19759,6 +20739,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
     spotCardScrollController.dispose();
     savedSpots.removeListener(refreshSavedFilter);
     spotCategoryFilters.removeListener(refreshSpotCategoryFilters);
+    spotCountryFilters.removeListener(refreshSpotCategoryFilters);
     appUiPreferences.removeListener(refreshLanguageLabels);
     super.dispose();
   }
@@ -19879,6 +20860,9 @@ class _ExploreScreenState extends State<ExploreScreen> {
     final query = searchQuery.trim().toLowerCase();
 
     return approvedPublicSpots().where((spot) {
+      if (!spotMatchesSelectedCountries(spot)) {
+        return false;
+      }
       if (spot.isExpired) {
         return false;
       }
@@ -19921,6 +20905,9 @@ class _ExploreScreenState extends State<ExploreScreen> {
   List<CarSpot> upcomingTemporarySpots() {
     final query = searchQuery.trim().toLowerCase();
     final spots = approvedPublicSpots().where((spot) {
+      if (!spotMatchesSelectedCountries(spot)) {
+        return false;
+      }
       if (!spot.hasTemporaryWindow || spot.isExpired) {
         return false;
       }
@@ -20051,6 +21038,15 @@ class _ExploreScreenState extends State<ExploreScreen> {
 
   Future<void> showExploreCategoryFilterSheet() async {
     final nextEnabledCategories = Set<String>.from(spotCategoryFilters.value);
+    final availableCountries = availableSpotCountries();
+    final nextEnabledCountries = Set<String>.from(spotCountryFilters.value);
+    if (nextEnabledCountries.isEmpty && availableCountries.isNotEmpty) {
+      nextEnabledCountries.add(
+        currentUser.country.trim().isNotEmpty
+            ? currentUser.country.trim()
+            : availableCountries.first,
+      );
+    }
 
     await showModalBottomSheet<void>(
       context: context,
@@ -20063,18 +21059,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
         return StatefulBuilder(
           builder: (context, setSheetState) {
             final selectedCount = nextEnabledCategories.length;
-
-            void selectAll() {
-              setSheetState(() {
-                nextEnabledCategories
-                  ..clear()
-                  ..addAll(spotCategoryOptions);
-              });
-            }
-
-            void clearAll() {
-              setSheetState(nextEnabledCategories.clear);
-            }
+            final selectedCountryCount = nextEnabledCountries.length;
 
             return SafeArea(
               child: Padding(
@@ -20103,74 +21088,20 @@ class _ExploreScreenState extends State<ExploreScreen> {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      selectedCount == spotCategoryOptions.length
-                          ? 'All categories enabled'
-                          : '$selectedCount of ${spotCategoryOptions.length} categories enabled',
+                      localizedSpotFilterSummary(
+                        selectedCategories: selectedCount,
+                        totalCategories: spotCategoryOptions.length,
+                        selectedCountries: selectedCountryCount,
+                      ),
                       style: const TextStyle(color: Colors.white54),
                     ),
                     const SizedBox(height: 14),
-                    Row(
-                      children: [
-                        TextButton.icon(
-                          onPressed: selectAll,
-                          icon: const Icon(Icons.done_all),
-                          label: const Text('Select all'),
-                        ),
-                        const SizedBox(width: 8),
-                        TextButton.icon(
-                          onPressed: clearAll,
-                          icon: const Icon(Icons.clear_all),
-                          label: const Text('Clear'),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    Flexible(
-                      child: SingleChildScrollView(
-                        child: Column(
-                          children: [
-                            for (final category in spotCategoryOptions)
-                              CheckboxListTile(
-                                value: nextEnabledCategories.contains(category),
-                                onChanged: (enabled) {
-                                  setSheetState(() {
-                                    if (enabled == true) {
-                                      nextEnabledCategories.add(category);
-                                    } else {
-                                      nextEnabledCategories.remove(category);
-                                    }
-                                  });
-                                },
-                                dense: true,
-                                activeColor: spotColorForCategory(category),
-                                checkColor: Colors.black,
-                                contentPadding: EdgeInsets.zero,
-                                controlAffinity:
-                                    ListTileControlAffinity.leading,
-                                title: Row(
-                                  children: [
-                                    Container(
-                                      width: 10,
-                                      height: 10,
-                                      decoration: BoxDecoration(
-                                        color: spotColorForCategory(category),
-                                        shape: BoxShape.circle,
-                                      ),
-                                    ),
-                                    const SizedBox(width: 10),
-                                    Text(
-                                      category,
-                                      style: const TextStyle(
-                                        color: Colors.white,
-                                        fontWeight: FontWeight.w800,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                          ],
-                        ),
-                      ),
+                    spotFilterColumns(
+                      context: context,
+                      enabledCategories: nextEnabledCategories,
+                      enabledCountries: nextEnabledCountries,
+                      countries: availableCountries,
+                      onChanged: () => setSheetState(() {}),
                     ),
                     const SizedBox(height: 14),
                     SizedBox(
@@ -20179,6 +21110,9 @@ class _ExploreScreenState extends State<ExploreScreen> {
                       child: ElevatedButton.icon(
                         onPressed: () {
                           updateSpotCategoryFilters(nextEnabledCategories);
+                          unawaited(
+                            updateSpotCountryFilters(nextEnabledCountries),
+                          );
                           Navigator.pop(context);
                         },
                         style: ElevatedButton.styleFrom(
@@ -20354,6 +21288,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
             .where(
               (spot) =>
                   !spot.isExpired &&
+                  spotMatchesSelectedCountries(spot) &&
                   !spot.hasTemporaryWindow &&
                   spot.categories.contains(category) &&
                   (!showSavedOnly ||
@@ -20753,7 +21688,14 @@ class _ExploreScreenState extends State<ExploreScreen> {
             title: const CcsAppBarLogo(),
             backgroundColor: Colors.transparent,
             foregroundColor: blue,
-            actions: ccsAppBarActions(),
+            actions: [
+              IconButton(
+                onPressed: showExploreCategoryFilterSheet,
+                tooltip: trText('Spot filters'),
+                icon: const Icon(Icons.tune),
+              ),
+              ...ccsAppBarActions(),
+            ],
           ),
           body: MediaQuery.removeViewInsets(
             context: context,
@@ -21071,15 +22013,25 @@ class UpcomingTemporarySpotNewsCard extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(height: 3),
-                  Text(
-                    spot.name,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 15,
-                      fontWeight: FontWeight.w900,
-                    ),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          spot.name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 15,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                      ),
+                      if (spotCountryFilters.value.length > 1) ...[
+                        const SizedBox(width: 6),
+                        SpotCountryFlagBadge(spot: spot),
+                      ],
+                    ],
                   ),
                   if (spot.isTemporaryLocationAvailableNow) ...[
                     const SizedBox(height: 2),
@@ -21277,6 +22229,10 @@ class ExploreSpotCard extends StatelessWidget {
                               const SizedBox(width: 5),
                               const _VerifiedSpotBadge(size: 14),
                             ],
+                            if (spotCountryFilters.value.length > 1) ...[
+                              const SizedBox(width: 5),
+                              SpotCountryFlagBadge(spot: spot),
+                            ],
                           ],
                         ),
                       ),
@@ -21347,6 +22303,36 @@ class ExploreSpotCard extends StatelessWidget {
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+class SpotCountryFlagBadge extends StatelessWidget {
+  final CarSpot spot;
+
+  const SpotCountryFlagBadge({super.key, required this.spot});
+
+  @override
+  Widget build(BuildContext context) {
+    final country = spotCountryFromCityCountry(spot.cityCountry);
+    if (country.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    return Tooltip(
+      message: localizedCountryName(country),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: 0.08),
+          borderRadius: BorderRadius.circular(7),
+          border: Border.all(color: Colors.white12),
+        ),
+        child: Text(
+          countryFlagEmoji(country),
+          style: const TextStyle(fontSize: 12, height: 1),
         ),
       ),
     );
@@ -22167,6 +23153,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     )..repeat(reverse: true);
     reviewSpots.addListener(refreshMap);
     spotCategoryFilters.addListener(refreshMap);
+    spotCountryFilters.addListener(refreshMap);
     mapFocusRequest.addListener(handleMapFocusRequest);
 
     // Temporary spots can become visible or expire just because time passes.
@@ -22365,6 +23352,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
       if (!routePreviewMode &&
           spot != null &&
           (!spot.isVisibleOnMapNow ||
+              !spotMatchesSelectedCountries(spot) ||
               !spot.categories.any(spotCategoryFilters.value.contains))) {
         selectedSpot = null;
       }
@@ -22405,14 +23393,16 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     }
 
     final enabledCategoryFilters = spotCategoryFilters.value;
+    final enabledCountryFilters = spotCountryFilters.value;
 
-    if (enabledCategoryFilters.isEmpty) {
+    if (enabledCategoryFilters.isEmpty || enabledCountryFilters.isEmpty) {
       return const [];
     }
 
     final candidates = <MapEntry<CarSpot, double>>[];
     for (final spot in approvedPublicSpots()) {
       if (spot.status != SpotStatus.approved ||
+          !spotMatchesSelectedCountries(spot) ||
           !spot.categories.any(enabledCategoryFilters.contains) ||
           !spot.isVisibleOnMapNow) {
         continue;
@@ -22467,6 +23457,15 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
 
   Future<void> showMapCategoryFilterSheet() async {
     final nextEnabledCategories = Set<String>.from(spotCategoryFilters.value);
+    final availableCountries = availableSpotCountries();
+    final nextEnabledCountries = Set<String>.from(spotCountryFilters.value);
+    if (nextEnabledCountries.isEmpty && availableCountries.isNotEmpty) {
+      nextEnabledCountries.add(
+        currentUser.country.trim().isNotEmpty
+            ? currentUser.country.trim()
+            : availableCountries.first,
+      );
+    }
 
     await showModalBottomSheet<void>(
       context: context,
@@ -22479,18 +23478,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
         return StatefulBuilder(
           builder: (context, setSheetState) {
             final selectedCount = nextEnabledCategories.length;
-
-            void selectAll() {
-              setSheetState(() {
-                nextEnabledCategories
-                  ..clear()
-                  ..addAll(spotCategoryOptions);
-              });
-            }
-
-            void clearAll() {
-              setSheetState(nextEnabledCategories.clear);
-            }
+            final selectedCountryCount = nextEnabledCountries.length;
 
             return SafeArea(
               child: Padding(
@@ -22519,74 +23507,20 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      selectedCount == spotCategoryOptions.length
-                          ? 'All categories enabled'
-                          : '$selectedCount of ${spotCategoryOptions.length} categories enabled',
+                      localizedSpotFilterSummary(
+                        selectedCategories: selectedCount,
+                        totalCategories: spotCategoryOptions.length,
+                        selectedCountries: selectedCountryCount,
+                      ),
                       style: const TextStyle(color: Colors.white54),
                     ),
                     const SizedBox(height: 14),
-                    Row(
-                      children: [
-                        TextButton.icon(
-                          onPressed: selectAll,
-                          icon: const Icon(Icons.done_all),
-                          label: const Text('Select all'),
-                        ),
-                        const SizedBox(width: 8),
-                        TextButton.icon(
-                          onPressed: clearAll,
-                          icon: const Icon(Icons.clear_all),
-                          label: const Text('Clear'),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    Flexible(
-                      child: SingleChildScrollView(
-                        child: Column(
-                          children: [
-                            for (final category in spotCategoryOptions)
-                              CheckboxListTile(
-                                value: nextEnabledCategories.contains(category),
-                                onChanged: (enabled) {
-                                  setSheetState(() {
-                                    if (enabled == true) {
-                                      nextEnabledCategories.add(category);
-                                    } else {
-                                      nextEnabledCategories.remove(category);
-                                    }
-                                  });
-                                },
-                                dense: true,
-                                activeColor: spotColorForCategory(category),
-                                checkColor: Colors.black,
-                                contentPadding: EdgeInsets.zero,
-                                controlAffinity:
-                                    ListTileControlAffinity.leading,
-                                title: Row(
-                                  children: [
-                                    Container(
-                                      width: 10,
-                                      height: 10,
-                                      decoration: BoxDecoration(
-                                        color: spotColorForCategory(category),
-                                        shape: BoxShape.circle,
-                                      ),
-                                    ),
-                                    const SizedBox(width: 10),
-                                    Text(
-                                      category,
-                                      style: const TextStyle(
-                                        color: Colors.white,
-                                        fontWeight: FontWeight.w800,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                          ],
-                        ),
-                      ),
+                    spotFilterColumns(
+                      context: context,
+                      enabledCategories: nextEnabledCategories,
+                      enabledCountries: nextEnabledCountries,
+                      countries: availableCountries,
+                      onChanged: () => setSheetState(() {}),
                     ),
                     const SizedBox(height: 14),
                     SizedBox(
@@ -22595,6 +23529,9 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                       child: ElevatedButton.icon(
                         onPressed: () {
                           updateSpotCategoryFilters(nextEnabledCategories);
+                          unawaited(
+                            updateSpotCountryFilters(nextEnabledCountries),
+                          );
                           setState(() {
                             selectedSpot = null;
                             selectedLiveLocation = null;
@@ -25412,6 +26349,10 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
 
   Future<void> toggleLiveLocationSharing(bool enabled) async {
     if (enabled) {
+      if (currentUserRegionIsRestricted) {
+        await showRegionFeatureUnavailableDialog(context);
+        return;
+      }
       await startLiveLocationSharing();
     } else {
       await stopLiveLocationSharing();
@@ -25449,6 +26390,10 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
   }
 
   Future<void> startLiveLocationSharing() async {
+    if (currentUserRegionIsRestricted) {
+      await showRegionFeatureUnavailableDialog(context);
+      return;
+    }
     if (isTogglingLiveLocation) {
       return;
     }
@@ -25952,6 +26897,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     navigationPredictionTimer?.cancel();
     reviewSpots.removeListener(refreshMap);
     spotCategoryFilters.removeListener(refreshMap);
+    spotCountryFilters.removeListener(refreshMap);
     mapFocusRequest.removeListener(handleMapFocusRequest);
     mapAlertPulseController.dispose();
     mapController.dispose();
@@ -26510,27 +27456,27 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                     adaptiveEnabled: adaptiveMapStyleEnabled,
                     onSelected: setMapStyle,
                     onAdaptiveChanged: setAdaptiveMapStyle,
+                    filterEnabledCount:
+                        spotCategoryFilters.value.length +
+                        spotCountryFilters.value.length,
+                    filterTotalCount:
+                        spotCategoryOptions.length +
+                        availableSpotCountries().length,
+                    onFilterTap: showMapCategoryFilterSheet,
                   ),
                 ),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  child: Align(
-                    alignment: routePreviewMode
-                        ? Alignment.center
-                        : Alignment.centerRight,
-                    child: routePreviewMode
-                        ? SpotRouteDistanceBadge(
-                            spotName: routePreviewSpot?.name ?? '',
-                            distanceLabel: routePreviewDistanceLabel(),
-                            isLoading: routePreviewLocating,
-                          )
-                        : MapFilterButton(
-                            enabledCount: spotCategoryFilters.value.length,
-                            totalCount: spotCategoryOptions.length,
-                            onTap: showMapCategoryFilterSheet,
-                          ),
+                if (routePreviewMode)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: Align(
+                      alignment: Alignment.center,
+                      child: SpotRouteDistanceBadge(
+                        spotName: routePreviewSpot?.name ?? '',
+                        distanceLabel: routePreviewDistanceLabel(),
+                        isLoading: routePreviewLocating,
+                      ),
+                    ),
                   ),
-                ),
               ],
             ),
           ),
@@ -26657,6 +27603,9 @@ class MapStyleSelector extends StatelessWidget {
   final bool adaptiveEnabled;
   final ValueChanged<CcsMapStyle> onSelected;
   final ValueChanged<bool> onAdaptiveChanged;
+  final int filterEnabledCount;
+  final int filterTotalCount;
+  final VoidCallback onFilterTap;
 
   const MapStyleSelector({
     super.key,
@@ -26664,6 +27613,9 @@ class MapStyleSelector extends StatelessWidget {
     required this.adaptiveEnabled,
     required this.onSelected,
     required this.onAdaptiveChanged,
+    required this.filterEnabledCount,
+    required this.filterTotalCount,
+    required this.onFilterTap,
   });
 
   @override
@@ -26770,6 +27722,17 @@ class MapStyleSelector extends StatelessWidget {
               ],
             ),
           ),
+          Container(
+            width: 1,
+            height: 24,
+            margin: const EdgeInsets.symmetric(horizontal: 3),
+            color: Colors.white12,
+          ),
+          MapFilterButton(
+            enabledCount: filterEnabledCount,
+            totalCount: filterTotalCount,
+            onTap: onFilterTap,
+          ),
         ],
       ),
     );
@@ -26791,47 +27754,40 @@ class MapFilterButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final allEnabled = enabledCount == totalCount;
-    final label = allEnabled ? 'Filters' : 'Filters $enabledCount/$totalCount';
 
-    return Material(
-      color: panelGlass,
-      borderRadius: BorderRadius.circular(18),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(18),
-        child: Container(
-          height: 42,
-          padding: const EdgeInsets.symmetric(horizontal: 14),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(18),
-            border: Border.all(
-              color: allEnabled ? Colors.white12 : blue.withValues(alpha: 0.75),
-            ),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.22),
-                blurRadius: 14,
-                offset: const Offset(0, 6),
-              ),
-            ],
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                Icons.tune,
-                color: allEnabled ? Colors.white70 : blue,
-                size: 19,
-              ),
-              const SizedBox(width: 8),
-              Text(
-                label,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w800,
+    return Tooltip(
+      message: trText('Map filters'),
+      child: Material(
+        color: Colors.transparent,
+        borderRadius: BorderRadius.circular(7),
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(7),
+          child: SizedBox(
+            width: 38,
+            height: double.infinity,
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                Icon(
+                  Icons.tune,
+                  color: allEnabled ? Colors.white70 : blue,
+                  size: 19,
                 ),
-              ),
-            ],
+                if (!allEnabled)
+                  const Positioned(
+                    right: 5,
+                    top: 5,
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: blue,
+                        shape: BoxShape.circle,
+                      ),
+                      child: SizedBox(width: 6, height: 6),
+                    ),
+                  ),
+              ],
+            ),
           ),
         ),
       ),
@@ -31062,6 +32018,11 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
       return;
     }
 
+    if (currentUserRegionIsRestricted) {
+      await showRegionFeatureUnavailableDialog(context);
+      return;
+    }
+
     final firebaseUser = FirebaseAuth.instance.currentUser;
 
     if (firebaseUser == null) {
@@ -31292,12 +32253,23 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
 
     final categories = [selectedCategory];
     final supportsContacts = spotCategorySupportsContacts(selectedCategory);
-    final owner = supportsContacts && userRoleIsStaff(currentUser.role)
+    final cityCountry =
+        detectedCityCountry.trim().isEmpty ||
+            detectedCityCountry == 'Choose location to detect city/country' ||
+            detectedCityCountry == 'Detecting city/country...'
+        ? 'Unknown location'
+        : detectedCityCountry.trim();
+    final countryCode =
+        countryIsoCode(spotCountryFromCityCountry(cityCountry)) ?? '';
+    final canCreateApprovedSpot =
+        currentUser.role == UserRole.admin ||
+        (currentUser.role == UserRole.moderator &&
+            currentUser.moderatorCountryCodes.contains(countryCode));
+    final owner = supportsContacts && canCreateApprovedSpot
         ? selectedOwner
         : null;
 
-    final isAdminCreatedSpot = userRoleIsStaff(currentUser.role);
-    final initialStatus = isAdminCreatedSpot
+    final initialStatus = canCreateApprovedSpot
         ? SpotStatus.approved
         : SpotStatus.pending;
     final spotRef = spotsCollection().doc();
@@ -31305,16 +32277,12 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
     var newSpot = CarSpot(
       id: spotRef.id,
       name: cleanSpotName,
-      cityCountry:
-          detectedCityCountry.trim().isEmpty ||
-              detectedCityCountry == 'Choose location to detect city/country' ||
-              detectedCityCountry == 'Detecting city/country...'
-          ? 'Unknown location'
-          : detectedCityCountry.trim(),
+      cityCountry: cityCountry,
+      countryCode: countryCode,
       coordinates: location,
       description: cleanDescription,
       categories: categories,
-      rating: isAdminCreatedSpot ? 4.5 : 0,
+      rating: canCreateApprovedSpot ? 4.5 : 0,
       photoUrl: '',
       localPhotoPath: selectedPhotoPaths.isEmpty
           ? null
@@ -31392,18 +32360,18 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
       final savedNewSpot = CarSpot.fromFirestore(savedSpot);
       upsertSpotIntoLocalImmediateCache(savedNewSpot);
 
-      if (isAdminCreatedSpot) {
+      if (canCreateApprovedSpot) {
         await createNewSpotNotificationForUsers(savedNewSpot);
         await notifyAllUsersIfTemporarySpotIsToday(savedNewSpot);
 
         await sendNewSpotPushToEligibleUsers(savedNewSpot);
       }
 
-      if (isAdminCreatedSpot && savedNewSpot.categories.contains('Meet')) {
+      if (canCreateApprovedSpot && savedNewSpot.categories.contains('Meet')) {
         await createMeetSpotNotificationsForNearbyUsers(savedNewSpot);
       }
 
-      if (!isAdminCreatedSpot) {
+      if (!canCreateApprovedSpot) {
         try {
           await createAdminSpotReviewNotification(savedNewSpot);
         } catch (error, stack) {
@@ -31418,7 +32386,7 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
 
       resetSpotFormAfterSubmit();
 
-      final message = isAdminCreatedSpot
+      final message = canCreateApprovedSpot
           ? 'Admin spot added. It is live now.'
           : 'Spot submitted for review. Admins have been notified.';
 
@@ -35645,18 +36613,17 @@ Future<String> createForumTopic({
         });
 
     if (topicStatus == 'pending') {
-      unawaited(
-        notifyStaffAboutCommunityEvent(
-          type: 'forum_topic_pending',
-          notificationId: 'forum_topic_pending_${docRef.id}',
-          title: 'Forum topic waiting for review',
-          body: '$title was submitted by @$username.',
-          extra: {
-            'topicId': docRef.id,
-            'topicTitle': title,
-            'categoryId': categoryId,
-          },
-        ),
+      await notifyStaffAboutCommunityEvent(
+        type: 'forum_topic_pending',
+        notificationId: 'forum_topic_pending_${docRef.id}',
+        title: 'Forum topic waiting for review',
+        body: '$title was submitted by @$username.',
+        extra: {
+          'topicId': docRef.id,
+          'topicTitle': title,
+          'categoryId': categoryId,
+        },
+        resolveRecipientsOnServer: true,
       );
     }
 
@@ -35863,19 +36830,18 @@ Future<void> ensureTemporarySpotForumTopic(
     forumTopicsRefreshTick.value++;
 
     if (topicStatus == 'pending') {
-      unawaited(
-        notifyStaffAboutCommunityEvent(
-          type: 'forum_topic_pending',
-          notificationId: 'forum_topic_pending_${topicRef.id}',
-          title: 'Forum topic waiting for review',
-          body: '${spot.name} was submitted by @$authorName.',
-          extra: {
-            'topicId': topicRef.id,
-            'topicTitle': spot.name,
-            'categoryId': 'meets_events',
-            'spotId': spot.id,
-          },
-        ),
+      await notifyStaffAboutCommunityEvent(
+        type: 'forum_topic_pending',
+        notificationId: 'forum_topic_pending_${topicRef.id}',
+        title: 'Forum topic waiting for review',
+        body: '${spot.name} was submitted by @$authorName.',
+        extra: {
+          'topicId': topicRef.id,
+          'topicTitle': spot.name,
+          'categoryId': 'meets_events',
+          'spotId': spot.id,
+        },
+        resolveRecipientsOnServer: true,
       );
     }
   } catch (error, stack) {
@@ -37668,20 +38634,6 @@ class _ForumTopicPageState extends State<ForumTopicPage> {
           },
         ),
       );
-      unawaited(
-        notifyStaffAboutCommunityEvent(
-          type: 'forum_reply_admin',
-          notificationId: 'forum_reply_admin_${widget.topicId}_${doc.id}',
-          title: 'New forum reply',
-          body:
-              '@${currentUser.username}: ${text.isEmpty ? trText('Photo') : text}',
-          extra: {
-            'topicId': widget.topicId,
-            'topicTitle': widget.title,
-            'messageId': doc.id,
-          },
-        ),
-      );
     } catch (error) {
       if (mounted) {
         if (replyController.text.trim().isEmpty) {
@@ -39213,76 +40165,104 @@ class LiveUserSmallAvatar extends StatelessWidget {
   }
 }
 
-bool currentUserCanDeleteGroupChat(ChatThreadData chat) {
+bool currentUserOwnsGroupChat(ChatThreadData chat) {
   final uid = FirebaseAuth.instance.currentUser?.uid ?? currentUser.uid;
-  return chat.isGroup &&
-      (chat.isOwner(uid) || userRoleIsStaff(currentUser.role));
+  return chat.isGroup && chat.isOwner(uid);
 }
 
-String chatRemovalTitle(ChatThreadData chat) {
+bool currentUserCanLeaveGroupChat(ChatThreadData chat) {
+  final uid = FirebaseAuth.instance.currentUser?.uid ?? currentUser.uid;
+  return chat.isGroup &&
+      chat.memberIds.contains(uid) &&
+      chat.memberIds.length > 1;
+}
+
+bool currentUserCanDeleteGroupChat(ChatThreadData chat) {
+  // The default removal action leaves a populated group, even for its owner.
+  // A separate explicit delete button remains available in group settings.
+  return currentUserOwnsGroupChat(chat) && !currentUserCanLeaveGroupChat(chat);
+}
+
+String chatRemovalTitle(ChatThreadData chat, {bool forceDeleteGroup = false}) {
   if (!chat.isGroup) {
     return 'Delete chat?';
   }
 
-  return currentUserCanDeleteGroupChat(chat) ? 'Delete group?' : 'Leave group?';
+  return forceDeleteGroup || currentUserCanDeleteGroupChat(chat)
+      ? 'Delete group?'
+      : 'Leave group?';
 }
 
-String chatRemovalBody(ChatThreadData chat) {
+String chatRemovalBody(ChatThreadData chat, {bool forceDeleteGroup = false}) {
   if (!chat.isGroup) {
     return 'This chat will be removed from your list. New messages will bring it back.';
   }
 
-  return currentUserCanDeleteGroupChat(chat)
+  return forceDeleteGroup || currentUserCanDeleteGroupChat(chat)
       ? 'This group will be deleted for all members.'
+      : currentUserOwnsGroupChat(chat)
+      ? 'You will leave this group. Ownership will transfer to another member.'
       : 'You will leave this group and stop receiving messages.';
 }
 
-String chatRemovalButtonLabel(ChatThreadData chat) {
+String chatRemovalButtonLabel(
+  ChatThreadData chat, {
+  bool forceDeleteGroup = false,
+}) {
   if (!chat.isGroup) {
     return 'Delete chat';
   }
 
-  return currentUserCanDeleteGroupChat(chat) ? 'Delete group' : 'Leave group';
+  return forceDeleteGroup || currentUserCanDeleteGroupChat(chat)
+      ? 'Delete group'
+      : 'Leave group';
 }
 
-String chatRemovalSuccessLabel(ChatThreadData chat) {
+String chatRemovalSuccessLabel(
+  ChatThreadData chat, {
+  bool forceDeleteGroup = false,
+}) {
   if (!chat.isGroup) {
     return 'Chat deleted.';
   }
 
-  return currentUserCanDeleteGroupChat(chat)
+  return forceDeleteGroup || currentUserCanDeleteGroupChat(chat)
       ? 'Group deleted.'
       : 'You left the group.';
 }
 
-String chatRemovalErrorLabel(ChatThreadData chat) {
+String chatRemovalErrorLabel(
+  ChatThreadData chat, {
+  bool forceDeleteGroup = false,
+}) {
   if (!chat.isGroup) {
     return 'Could not delete chat.';
   }
 
-  return currentUserCanDeleteGroupChat(chat)
+  return forceDeleteGroup || currentUserCanDeleteGroupChat(chat)
       ? 'Could not delete group.'
       : 'Could not leave group.';
 }
 
 Future<bool> confirmAndRemoveChat(
   BuildContext context,
-  ChatThreadData chat,
-) async {
+  ChatThreadData chat, {
+  bool forceDeleteGroup = false,
+}) async {
   final confirmed = await showDialog<bool>(
     context: context,
     builder: (dialogContext) {
       return AlertDialog(
         backgroundColor: panelGlass,
         title: Text(
-          chatRemovalTitle(chat),
+          chatRemovalTitle(chat, forceDeleteGroup: forceDeleteGroup),
           style: const TextStyle(
             color: Colors.white,
             fontWeight: FontWeight.w900,
           ),
         ),
         content: Text(
-          chatRemovalBody(chat),
+          chatRemovalBody(chat, forceDeleteGroup: forceDeleteGroup),
           style: const TextStyle(color: Colors.white70),
         ),
         actions: [
@@ -39294,7 +40274,7 @@ Future<bool> confirmAndRemoveChat(
             onPressed: () => Navigator.pop(dialogContext, true),
             style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
             child: Text(
-              chatRemovalButtonLabel(chat),
+              chatRemovalButtonLabel(chat, forceDeleteGroup: forceDeleteGroup),
               style: const TextStyle(color: Colors.white),
             ),
           ),
@@ -39307,13 +40287,19 @@ Future<bool> confirmAndRemoveChat(
     return false;
   }
 
-  final successLabel = chatRemovalSuccessLabel(chat);
-  final errorLabel = chatRemovalErrorLabel(chat);
+  final successLabel = chatRemovalSuccessLabel(
+    chat,
+    forceDeleteGroup: forceDeleteGroup,
+  );
+  final errorLabel = chatRemovalErrorLabel(
+    chat,
+    forceDeleteGroup: forceDeleteGroup,
+  );
 
   try {
     if (!chat.isGroup) {
       await hideChatForCurrentUser(chat);
-    } else if (currentUserCanDeleteGroupChat(chat)) {
+    } else if (forceDeleteGroup || currentUserCanDeleteGroupChat(chat)) {
       await deleteGroupChat(chat);
     } else {
       await leaveGroupChat(chat);
@@ -40881,7 +41867,22 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
       return;
     }
 
-    final removed = await confirmAndRemoveChat(context, widget.chat);
+    final removed = await confirmAndRemoveChat(context, localChatData);
+    if (removed && mounted) {
+      Navigator.pop(context, true);
+    }
+  }
+
+  Future<void> deleteGroupExplicitly() async {
+    if (isSaving || !currentUserOwnsGroupChat(localChatData)) {
+      return;
+    }
+
+    final removed = await confirmAndRemoveChat(
+      context,
+      localChatData,
+      forceDeleteGroup: true,
+    );
     if (removed && mounted) {
       Navigator.pop(context, true);
     }
@@ -41204,25 +42205,43 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
             ),
             const SizedBox(height: 12),
           ],
-          SizedBox(
-            height: 50,
-            child: OutlinedButton.icon(
-              onPressed: isSaving ? null : removeGroupOrLeave,
-              icon: Icon(
-                currentUserCanDeleteGroupChat(widget.chat)
-                    ? Icons.delete_outline
-                    : Icons.logout,
-              ),
-              label: Text(chatRemovalButtonLabel(widget.chat)),
-              style: OutlinedButton.styleFrom(
-                foregroundColor: Colors.redAccent,
-                side: const BorderSide(color: Colors.redAccent),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(18),
+          if (currentUserCanLeaveGroupChat(localChatData)) ...[
+            SizedBox(
+              height: 50,
+              child: OutlinedButton.icon(
+                onPressed: isSaving ? null : removeGroupOrLeave,
+                icon: const Icon(Icons.logout),
+                label: Text(chatRemovalButtonLabel(localChatData)),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: Colors.redAccent,
+                  side: const BorderSide(color: Colors.redAccent),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(18),
+                  ),
                 ),
               ),
             ),
-          ),
+            if (currentUserOwnsGroupChat(localChatData))
+              const SizedBox(height: 12),
+          ],
+          if (currentUserOwnsGroupChat(localChatData))
+            SizedBox(
+              height: 50,
+              child: OutlinedButton.icon(
+                onPressed: isSaving ? null : deleteGroupExplicitly,
+                icon: const Icon(Icons.delete_outline),
+                label: Text(
+                  chatRemovalButtonLabel(localChatData, forceDeleteGroup: true),
+                ),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: Colors.redAccent,
+                  side: const BorderSide(color: Colors.redAccent),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(18),
+                  ),
+                ),
+              ),
+            ),
         ],
       ),
     );
@@ -43376,13 +44395,15 @@ class PublicUserProfileData {
   }
 
   bool get canCurrentUserView {
+    if (userRoleIsStaff(currentUser.role)) {
+      return true;
+    }
+
     if (currentViewerIsBlocked) {
       return false;
     }
 
-    return userRoleIsStaff(currentUser.role) ||
-        currentUser.uid == uid ||
-        settings.publicProfile;
+    return currentUser.uid == uid || settings.publicProfile;
   }
 
   bool get appearsOnline => userAppearsOnlineFromPresence(
@@ -43540,6 +44561,7 @@ Future<void> saveProfileToFirebase(UserProfileData profile) async {
       role: currentUser.role,
       verified: currentUser.verified,
       globalChatModerator: currentUser.globalChatModerator,
+      moderatorCountryCodes: currentUser.moderatorCountryCodes,
       city: cityCountry[0],
       country: cityCountry[1],
     ),
@@ -44987,6 +46009,63 @@ class _PublicProfileActionsState extends State<PublicProfileActions> {
   }
 }
 
+Future<void> setProfileVerifiedStatus(
+  BuildContext context,
+  PublicUserProfileData profile,
+  bool verified,
+) async {
+  if (!userRoleIsStaff(currentUser.role)) {
+    showAdminActionError(
+      context,
+      message: 'Only admins and moderators can change verified status',
+      error: 'not-staff',
+    );
+    return;
+  }
+
+  if (profile.uid == currentUser.uid || profile.role != UserRole.user) {
+    showAdminActionError(
+      context,
+      message: 'This account verification cannot be changed here',
+      error: 'protected-user',
+    );
+    return;
+  }
+
+  try {
+    await usersCollection().doc(profile.uid).debugSet({
+      'verified': verified,
+      'verifiedUpdatedByUid': currentUser.uid,
+      'verifiedUpdatedBy': currentUser.username,
+      'verifiedUpdatedAt': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: blue,
+          content: Text(
+            verified
+                ? 'User verification granted.'
+                : 'User verification removed.',
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+      );
+    }
+  } catch (error) {
+    showAdminActionError(
+      context,
+      message: 'Could not update verified status',
+      error: error,
+    );
+  }
+}
+
 class PublicUserProfileScreen extends StatelessWidget {
   final String userId;
   final String fallbackUsername;
@@ -45425,6 +46504,45 @@ class PublicUserProfileScreen extends StatelessWidget {
       children: [
         profileHeader(context, profile),
         const SizedBox(height: 12),
+        if (userRoleIsStaff(currentUser.role) &&
+            profile.uid != currentUser.uid &&
+            profile.role == UserRole.user) ...[
+          Container(
+            decoration: BoxDecoration(
+              color: panelGlass,
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(
+                color: profile.verified
+                    ? blue.withValues(alpha: 0.55)
+                    : Colors.white12,
+              ),
+            ),
+            child: SwitchListTile.adaptive(
+              value: profile.verified,
+              activeThumbColor: blue,
+              secondary: Icon(
+                profile.verified
+                    ? Icons.verified_rounded
+                    : Icons.verified_outlined,
+                color: profile.verified ? blue : Colors.white54,
+              ),
+              title: Text(
+                profile.verified ? 'Verified user' : 'User not verified',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              subtitle: const Text(
+                'Allow this user to create and see verified-only spots.',
+                style: TextStyle(color: Colors.white54),
+              ),
+              onChanged: (value) =>
+                  setProfileVerifiedStatus(context, profile, value),
+            ),
+          ),
+          const SizedBox(height: 12),
+        ],
         if (visibleGarage.isEmpty)
           const EmptyStateCard(
             icon: Icons.directions_car,
@@ -45486,7 +46604,8 @@ class PublicUserProfileScreen extends StatelessWidget {
             );
           }
 
-          if (profile.currentViewerIsBlocked) {
+          if (profile.currentViewerIsBlocked &&
+              !userRoleIsStaff(currentUser.role)) {
             return blockedProfileBody(context, profile);
           }
 
@@ -48639,6 +49758,7 @@ class AdminUserData {
   final String banReason;
   final List<String> deviceIds;
   final bool globalChatModerator;
+  final Set<String> moderatorCountryCodes;
   final bool deleted;
   final bool isOnline;
   final int lastSeenAtMillis;
@@ -48655,6 +49775,7 @@ class AdminUserData {
     this.banReason = '',
     this.deviceIds = const [],
     this.globalChatModerator = false,
+    this.moderatorCountryCodes = const <String>{},
     required this.deleted,
     this.isOnline = false,
     this.lastSeenAtMillis = 0,
@@ -48718,6 +49839,9 @@ class AdminUserData {
       globalChatModerator:
           data['globalChatModerator'] == true ||
           data['globalModerator'] == true,
+      moderatorCountryCodes: moderatorCountryCodesFromFirebase(
+        data['moderatorCountryCodes'],
+      ),
       deleted: data['deleted'] == true,
       isOnline: data['isOnline'] == true,
       lastSeenAtMillis: timestampMillisFromFirebase(data['lastSeenAt']),
@@ -48732,198 +49856,6 @@ class AdminBanInput {
   const AdminBanInput({required this.days, required this.reason});
 }
 
-class AdminVerifiedUsersScreen extends StatelessWidget {
-  const AdminVerifiedUsersScreen({super.key});
-
-  Future<void> setVerifiedStatus(
-    BuildContext context,
-    AdminUserData user,
-    bool verified,
-  ) async {
-    if (currentUser.role != UserRole.admin) {
-      showAdminActionError(
-        context,
-        message: 'Only admins can change verified status',
-        error: 'not-admin',
-      );
-      return;
-    }
-
-    try {
-      await usersCollection().doc(user.uid).debugSet({
-        'verified': verified,
-        'verifiedUpdatedByUid': currentUser.uid,
-        'verifiedUpdatedBy': currentUser.username,
-        'verifiedUpdatedAt': FieldValue.serverTimestamp(),
-        'updatedAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
-
-      if (user.uid == currentUser.uid) {
-        setCurrentUser(
-          AppUser(
-            uid: currentUser.uid,
-            name: currentUser.name,
-            username: currentUser.username,
-            email: currentUser.email,
-            photoUrl: currentUser.photoUrl,
-            bio: currentUser.bio,
-            avatarPath: currentUser.avatarPath,
-            role: currentUser.role,
-            verified: verified || userRoleIsStaff(currentUser.role),
-            globalChatModerator: currentUser.globalChatModerator,
-            city: currentUser.city,
-            country: currentUser.country,
-          ),
-        );
-      }
-    } catch (error) {
-      showAdminActionError(
-        context,
-        message: 'Could not update verified status',
-        error: error,
-      );
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.transparent,
-      appBar: AppBar(
-        title: const Text('Verified Users'),
-        backgroundColor: Colors.transparent,
-        foregroundColor: blue,
-      ),
-      body: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-        stream: usersCollection()
-            .orderBy('usernameKey')
-            .limit(200)
-            .debugSnapshots('admin: verified users list listener'),
-        builder: (context, snapshot) {
-          final users =
-              snapshot.data?.docs
-                  .map((doc) => AdminUserData.fromFirestore(doc))
-                  .where((user) => !user.deleted)
-                  .toList() ??
-              const <AdminUserData>[];
-
-          return ListView(
-            padding: const EdgeInsets.fromLTRB(12, 18, 12, 28),
-            children: [
-              const Text(
-                'Grant verified status',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 30,
-                  fontWeight: FontWeight.w900,
-                ),
-              ),
-              const SizedBox(height: 6),
-              const Text(
-                'Verified users can create and see verified-only spots.',
-                style: TextStyle(color: Colors.white54, height: 1.35),
-              ),
-              const SizedBox(height: 18),
-              if (users.isEmpty)
-                const EmptyStateCard(
-                  icon: Icons.verified_user,
-                  title: 'No users yet',
-                  text: 'Users will appear here after they sign in.',
-                )
-              else
-                for (final user in users) ...[
-                  Container(
-                    padding: const EdgeInsets.all(14),
-                    decoration: BoxDecoration(
-                      color: panelGlass,
-                      borderRadius: BorderRadius.circular(18),
-                      border: Border.all(color: Colors.white12),
-                    ),
-                    child: Row(
-                      children: [
-                        Container(
-                          width: 42,
-                          height: 42,
-                          decoration: BoxDecoration(
-                            color: user.verified
-                                ? blue.withValues(alpha: 0.16)
-                                : Colors.white.withValues(alpha: 0.06),
-                            shape: BoxShape.circle,
-                          ),
-                          child: Icon(
-                            user.verified
-                                ? Icons.verified
-                                : Icons.person_outline,
-                            color: user.verified ? blue : Colors.white54,
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                children: [
-                                  Flexible(
-                                    child: Text(
-                                      user.username,
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: const TextStyle(
-                                        color: Colors.white,
-                                        fontWeight: FontWeight.w900,
-                                      ),
-                                    ),
-                                  ),
-                                  if (primaryUserBadgeKind(
-                                        role: user.role,
-                                        verified: user.verified,
-                                        globalChatModerator:
-                                            user.globalChatModerator,
-                                      ) !=
-                                      null) ...[
-                                    const SizedBox(width: 4),
-                                    UserPrimaryBadge(
-                                      role: user.role,
-                                      verified: user.verified,
-                                      globalChatModerator:
-                                          user.globalChatModerator,
-                                      compact: true,
-                                    ),
-                                  ],
-                                ],
-                              ),
-                              const SizedBox(height: 3),
-                              Text(
-                                user.email.isEmpty ? user.name : user.email,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(color: Colors.white54),
-                              ),
-                            ],
-                          ),
-                        ),
-                        Switch(
-                          value: user.verified,
-                          activeThumbColor: blue,
-                          onChanged: user.role == UserRole.admin
-                              ? null
-                              : (value) =>
-                                    setVerifiedStatus(context, user, value),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                ],
-            ],
-          );
-        },
-      ),
-    );
-  }
-}
-
 class AdminUsersScreen extends StatefulWidget {
   final bool initialBannedOnly;
 
@@ -48933,13 +49865,149 @@ class AdminUsersScreen extends StatefulWidget {
   State<AdminUsersScreen> createState() => _AdminUsersScreenState();
 }
 
+enum AdminUserSortMode { recent, alphabetical }
+
 class _AdminUsersScreenState extends State<AdminUsersScreen> {
+  static const int usersPerPage = 25;
+
   late bool bannedOnly;
+  final searchController = TextEditingController();
+  final searchFocusNode = FocusNode();
+  final pageStartDocuments = <DocumentSnapshot<Map<String, dynamic>>?>[null];
+  Timer? searchDebounce;
+  Future<List<AdminUserData>>? searchFuture;
+  String searchText = '';
+  int pageIndex = 0;
+  AdminUserSortMode sortMode = AdminUserSortMode.recent;
 
   @override
   void initState() {
     super.initState();
     bannedOnly = widget.initialBannedOnly && currentUser.role == UserRole.admin;
+  }
+
+  @override
+  void dispose() {
+    searchDebounce?.cancel();
+    searchController.dispose();
+    searchFocusNode.dispose();
+    super.dispose();
+  }
+
+  void resetUserPages() {
+    pageIndex = 0;
+    pageStartDocuments
+      ..clear()
+      ..add(null);
+  }
+
+  void setBannedOnly(bool value) {
+    if (bannedOnly == value) {
+      return;
+    }
+
+    setState(() {
+      bannedOnly = value;
+      resetUserPages();
+      if (searchText.isNotEmpty) {
+        searchFuture = searchAdminUsers(searchText);
+      }
+    });
+  }
+
+  void setSortMode(AdminUserSortMode value) {
+    if (sortMode == value) {
+      return;
+    }
+
+    setState(() {
+      sortMode = value;
+      resetUserPages();
+      if (searchText.isNotEmpty) {
+        searchFuture = searchAdminUsers(searchText);
+      }
+    });
+  }
+
+  int compareAdminUsers(AdminUserData first, AdminUserData second) {
+    if (sortMode == AdminUserSortMode.recent) {
+      if (first.appearsOnline != second.appearsOnline) {
+        return first.appearsOnline ? -1 : 1;
+      }
+
+      final lastSeenCompare = second.lastSeenAtMillis.compareTo(
+        first.lastSeenAtMillis,
+      );
+      if (lastSeenCompare != 0) {
+        return lastSeenCompare;
+      }
+    }
+
+    return first.username.toLowerCase().compareTo(
+      second.username.toLowerCase(),
+    );
+  }
+
+  Query<Map<String, dynamic>> usersPageQuery() {
+    Query<Map<String, dynamic>> query = usersCollection();
+    if (bannedOnly) {
+      query = query.where('banned', isEqualTo: true);
+    }
+    query = sortMode == AdminUserSortMode.recent
+        ? query.orderBy('lastSeenAt', descending: true)
+        : query.orderBy('usernameKey');
+
+    final startDocument = pageStartDocuments[pageIndex];
+    if (startDocument != null) {
+      query = query.startAfterDocument(startDocument);
+    }
+
+    // One extra document tells us whether a next page exists.
+    return query.limit(usersPerPage + 1);
+  }
+
+  void queueAdminUserSearch(String value) {
+    final nextSearchText = usernameKey(value);
+    searchDebounce?.cancel();
+
+    setState(() {
+      searchText = nextSearchText;
+      searchFuture = null;
+    });
+
+    if (nextSearchText.isEmpty) {
+      return;
+    }
+
+    searchDebounce = Timer(const Duration(milliseconds: 250), () {
+      if (!mounted || searchText != nextSearchText) {
+        return;
+      }
+
+      setState(() {
+        searchFuture = searchAdminUsers(nextSearchText);
+      });
+    });
+  }
+
+  Future<List<AdminUserData>> searchAdminUsers(String queryText) async {
+    Query<Map<String, dynamic>> query = usersCollection();
+    if (bannedOnly) {
+      query = query.where('banned', isEqualTo: true);
+    }
+
+    final snapshot = await query
+        .orderBy('usernameKey')
+        .startAt([queryText])
+        .endAt(['$queryText\uf8ff'])
+        .limit(12)
+        .debugGet(null, 'admin: user prefix search');
+    final users = snapshot.docs
+        .map(AdminUserData.fromFirestore)
+        .where((user) => !user.deleted)
+        .toList();
+    users.sort(compareAdminUsers);
+    return users;
   }
 
   Future<bool> canManageUser(BuildContext context, AdminUserData user) async {
@@ -48995,6 +50063,198 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
         user.role != UserRole.moderator;
   }
 
+  Future<Set<String>?> requestModeratorCountryCodes(
+    BuildContext context,
+    AdminUserData user,
+  ) async {
+    final searchController = TextEditingController();
+    final selectedCodes = <String>{...user.moderatorCountryCodes};
+    String searchQuery = '';
+    String? errorText;
+
+    try {
+      return await showDialog<Set<String>>(
+        context: context,
+        builder: (dialogContext) => StatefulBuilder(
+          builder: (context, setDialogState) {
+            final query = searchQuery.trim().toLowerCase();
+            final countries = allSupportedCountryNames()
+                .where(
+                  (country) =>
+                      query.isEmpty ||
+                      localizedCountryName(
+                        country,
+                      ).toLowerCase().contains(query) ||
+                      country.toLowerCase().contains(query),
+                )
+                .toList(growable: false);
+
+            void toggleCountry(String code) {
+              setDialogState(() {
+                errorText = null;
+                if (!selectedCodes.remove(code)) {
+                  if (selectedCodes.length >= 30) {
+                    errorText = trText(
+                      'A moderator can be assigned to up to 30 countries.',
+                    );
+                    return;
+                  }
+                  selectedCodes.add(code);
+                }
+              });
+            }
+
+            return AlertDialog(
+              backgroundColor: panelGlass,
+              title: Text(trText('Assign moderator countries')),
+              content: SizedBox(
+                width: 620,
+                height: math.min(540, MediaQuery.sizeOf(context).height * 0.7),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      trText(
+                        'This moderator can review spots only in the selected countries.',
+                      ),
+                      style: const TextStyle(
+                        color: Colors.white70,
+                        height: 1.35,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: searchController,
+                      onChanged: (value) =>
+                          setDialogState(() => searchQuery = value),
+                      style: const TextStyle(color: Colors.white),
+                      decoration: InputDecoration(
+                        hintText: trText('Search countries'),
+                        prefixIcon: const Icon(
+                          Icons.search,
+                          color: Colors.white54,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    Text(
+                      '${selectedCodes.length} ${trText('assigned countries')}',
+                      style: const TextStyle(
+                        color: blue,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    if (errorText != null) ...[
+                      const SizedBox(height: 6),
+                      Text(
+                        errorText!,
+                        style: const TextStyle(
+                          color: Colors.redAccent,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 8),
+                    Expanded(
+                      child: GridView.builder(
+                        itemCount: countries.length,
+                        gridDelegate:
+                            const SliverGridDelegateWithMaxCrossAxisExtent(
+                              maxCrossAxisExtent: 260,
+                              mainAxisExtent: 52,
+                              crossAxisSpacing: 8,
+                              mainAxisSpacing: 8,
+                            ),
+                        itemBuilder: (context, index) {
+                          final country = countries[index];
+                          final code = countryIsoCode(country)!;
+                          final selected = selectedCodes.contains(code);
+                          return Material(
+                            color: selected
+                                ? blue.withValues(alpha: 0.14)
+                                : Colors.white.withValues(alpha: 0.04),
+                            borderRadius: BorderRadius.circular(12),
+                            child: InkWell(
+                              onTap: () => toggleCountry(code),
+                              borderRadius: BorderRadius.circular(12),
+                              child: Container(
+                                padding: const EdgeInsets.only(right: 8),
+                                decoration: BoxDecoration(
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(
+                                    color: selected ? blue : Colors.white12,
+                                  ),
+                                ),
+                                child: Row(
+                                  children: [
+                                    Checkbox(
+                                      value: selected,
+                                      activeColor: blue,
+                                      visualDensity: VisualDensity.compact,
+                                      onChanged: (_) => toggleCountry(code),
+                                    ),
+                                    Text(
+                                      countryFlagEmoji(code),
+                                      style: const TextStyle(fontSize: 18),
+                                    ),
+                                    const SizedBox(width: 7),
+                                    Expanded(
+                                      child: Text(
+                                        localizedCountryName(code),
+                                        maxLines: 2,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 12.5,
+                                          fontWeight: FontWeight.w800,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogContext),
+                  child: Text(trText('Cancel')),
+                ),
+                ElevatedButton.icon(
+                  onPressed: () {
+                    if (selectedCodes.isEmpty) {
+                      setDialogState(
+                        () => errorText = trText(
+                          'Select at least one country for the moderator.',
+                        ),
+                      );
+                      return;
+                    }
+                    Navigator.pop(dialogContext, <String>{...selectedCodes});
+                  },
+                  icon: const Icon(Icons.save_outlined),
+                  label: Text(trText('Save assignment')),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: blue,
+                    foregroundColor: Colors.white,
+                  ),
+                ),
+              ],
+            );
+          },
+        ),
+      );
+    } finally {
+      searchController.dispose();
+    }
+  }
+
   Future<void> setModeratorStatus(
     BuildContext context,
     AdminUserData user,
@@ -49018,9 +50278,20 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
       return;
     }
 
+    Set<String> assignedCountryCodes = const <String>{};
+    if (makeModerator) {
+      final selection = await requestModeratorCountryCodes(context, user);
+      if (selection == null || !context.mounted) {
+        return;
+      }
+      assignedCountryCodes = selection;
+    }
+
     try {
       await usersCollection().doc(user.uid).debugSet({
         'role': makeModerator ? 'moderator' : 'user',
+        'moderatorCountryCodes': assignedCountryCodes.toList(growable: false)
+          ..sort(),
         'roleUpdatedByUid': currentUser.uid,
         'roleUpdatedBy': currentUser.username,
         'roleUpdatedAt': FieldValue.serverTimestamp(),
@@ -49508,10 +50779,13 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
         unbanUser(context, user);
         break;
       case 'make_moderator':
-        setModeratorStatus(context, user, true);
+        unawaited(setModeratorStatus(context, user, true));
+        break;
+      case 'edit_moderator_countries':
+        unawaited(setModeratorStatus(context, user, true));
         break;
       case 'remove_moderator':
-        setModeratorStatus(context, user, false);
+        unawaited(setModeratorStatus(context, user, false));
         break;
       case 'make_community_moderator':
         setCommunityModeratorStatus(context, user, true);
@@ -49616,6 +50890,26 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
                         fontWeight: FontWeight.w800,
                       ),
                     ),
+                    if (user.role == UserRole.moderator) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        user.moderatorCountryCodes.isEmpty
+                            ? trText('No countries assigned')
+                            : user.moderatorCountryCodes
+                                  .map(
+                                    (code) =>
+                                        '${countryFlagEmoji(code)} ${localizedCountryName(code)}',
+                                  )
+                                  .join(' • '),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Colors.white54,
+                          fontSize: 11.5,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
                     if (user.banActive && user.banReason.isNotEmpty) ...[
                       const SizedBox(height: 3),
                       Text(
@@ -49664,6 +50958,11 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
                   ),
                 if (user.role == UserRole.moderator)
                   PopupMenuItem(
+                    value: 'edit_moderator_countries',
+                    child: Text(trText('Edit moderator countries')),
+                  ),
+                if (user.role == UserRole.moderator)
+                  PopupMenuItem(
                     value: 'remove_moderator',
                     child: Text(trText('Remove moderator')),
                   ),
@@ -49693,6 +50992,127 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
     );
   }
 
+  Widget adminUserSearchField() {
+    return TextField(
+      controller: searchController,
+      focusNode: searchFocusNode,
+      onChanged: queueAdminUserSearch,
+      textInputAction: TextInputAction.search,
+      style: const TextStyle(color: Colors.white),
+      decoration: InputDecoration(
+        hintText: 'Search username',
+        prefixIcon: const Icon(Icons.search, color: blue),
+        suffixIcon: searchText.isEmpty
+            ? null
+            : IconButton(
+                tooltip: 'Clear search',
+                onPressed: () {
+                  searchController.clear();
+                  queueAdminUserSearch('');
+                  searchFocusNode.requestFocus();
+                },
+                icon: const Icon(Icons.close, color: Colors.white54),
+              ),
+      ),
+    );
+  }
+
+  Widget adminUserSearchResults() {
+    final future = searchFuture;
+    if (future == null) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: 24),
+        child: Center(child: CircularProgressIndicator(color: blue)),
+      );
+    }
+
+    return FutureBuilder<List<AdminUserData>>(
+      future: future,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Padding(
+            padding: EdgeInsets.symmetric(vertical: 24),
+            child: Center(child: CircularProgressIndicator(color: blue)),
+          );
+        }
+
+        if (snapshot.hasError) {
+          return EmptyStateCard(
+            icon: Icons.search_off,
+            title: 'Search failed',
+            text: '${snapshot.error}',
+          );
+        }
+
+        final users = snapshot.data ?? const <AdminUserData>[];
+        if (users.isEmpty) {
+          return const EmptyStateCard(
+            icon: Icons.person_search,
+            title: 'No users found',
+            text: 'Try another username.',
+          );
+        }
+
+        return Column(
+          children: [
+            for (final user in users) ...[
+              userTile(context, user),
+              const SizedBox(height: 10),
+            ],
+          ],
+        );
+      },
+    );
+  }
+
+  Widget userPageControls({
+    required List<QueryDocumentSnapshot<Map<String, dynamic>>> documents,
+    required bool hasNextPage,
+  }) {
+    return Row(
+      children: [
+        Expanded(
+          child: OutlinedButton.icon(
+            onPressed: pageIndex == 0
+                ? null
+                : () => setState(() => pageIndex--),
+            icon: const Icon(Icons.chevron_left),
+            label: const Text('Previous'),
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14),
+          child: Text(
+            'Page ${pageIndex + 1}',
+            style: const TextStyle(
+              color: Colors.white70,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+        ),
+        Expanded(
+          child: ElevatedButton.icon(
+            onPressed: !hasNextPage || documents.isEmpty
+                ? null
+                : () {
+                    final nextPageStart = documents.last;
+                    setState(() {
+                      if (pageStartDocuments.length == pageIndex + 1) {
+                        pageStartDocuments.add(nextPageStart);
+                      } else {
+                        pageStartDocuments[pageIndex + 1] = nextPageStart;
+                      }
+                      pageIndex++;
+                    });
+                  },
+            icon: const Icon(Icons.chevron_right),
+            label: const Text('Next'),
+          ),
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -49703,38 +51123,24 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
         foregroundColor: blue,
       ),
       body: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-        stream: usersCollection()
-            .orderBy('usernameKey')
-            .limit(200)
-            .debugSnapshots('admin: users management list listener'),
+        stream: usersPageQuery().debugSnapshots(
+          'admin: ${sortMode.name} users page ${pageIndex + 1}',
+        ),
         builder: (context, snapshot) {
-          final allUsers =
-              snapshot.data?.docs
-                  .map((doc) => AdminUserData.fromFirestore(doc))
-                  .where((user) => !user.deleted)
-                  .toList() ??
-              <AdminUserData>[];
+          final fetchedDocuments =
+              snapshot.data?.docs ??
+              const <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+          final hasNextPage = fetchedDocuments.length > usersPerPage;
+          final pageDocuments = fetchedDocuments.take(usersPerPage).toList();
+          final allUsers = pageDocuments
+              .map(AdminUserData.fromFirestore)
+              .where((user) => !user.deleted)
+              .toList();
           final canUseBannedList = currentUser.role == UserRole.admin;
           final users = bannedOnly
               ? allUsers.where((user) => user.banned).toList()
               : allUsers;
-          users.sort((a, b) {
-            final onlineCompare = b.appearsOnline.toString().compareTo(
-              a.appearsOnline.toString(),
-            );
-            if (onlineCompare != 0) {
-              return onlineCompare;
-            }
-
-            final recentCompare = b.lastSeenAtMillis.compareTo(
-              a.lastSeenAtMillis,
-            );
-            if (recentCompare != 0) {
-              return recentCompare;
-            }
-
-            return a.username.toLowerCase().compareTo(b.username.toLowerCase());
-          });
+          users.sort(compareAdminUsers);
 
           return ListView(
             padding: const EdgeInsets.fromLTRB(12, 18, 12, 28),
@@ -49749,11 +51155,13 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
               ),
               const SizedBox(height: 6),
               Text(
-                users.isEmpty
+                searchText.isNotEmpty
+                    ? 'Suggestions appear as you type.'
+                    : users.isEmpty
                     ? bannedOnly
                           ? trText('No banned users')
                           : 'No users yet.'
-                    : '${users.length} user${users.length == 1 ? '' : 's'} in Firebase.',
+                    : '${users.length} user${users.length == 1 ? '' : 's'} on page ${pageIndex + 1}, sorted ${sortMode == AdminUserSortMode.recent ? 'by online and last seen' : 'alphabetically'}.',
                 style: const TextStyle(color: Colors.white54, height: 1.35),
               ),
               if (canUseBannedList) ...[
@@ -49774,7 +51182,7 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
                           color: !bannedOnly ? Colors.white : Colors.white70,
                           fontWeight: FontWeight.w800,
                         ),
-                        onSelected: (_) => setState(() => bannedOnly = false),
+                        onSelected: (_) => setBannedOnly(false),
                       ),
                     ),
                     const SizedBox(width: 10),
@@ -49792,14 +51200,92 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
                           color: bannedOnly ? Colors.white : Colors.white70,
                           fontWeight: FontWeight.w800,
                         ),
-                        onSelected: (_) => setState(() => bannedOnly = true),
+                        onSelected: (_) => setBannedOnly(true),
                       ),
                     ),
                   ],
                 ),
               ],
+              const SizedBox(height: 16),
+              const Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  'Sort users by',
+                  style: TextStyle(
+                    color: Colors.white70,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                    child: ChoiceChip(
+                      avatar: const Icon(Icons.schedule, size: 18),
+                      label: const Text('Online / recent'),
+                      selected: sortMode == AdminUserSortMode.recent,
+                      showCheckmark: false,
+                      selectedColor: blue,
+                      backgroundColor: Colors.white.withValues(alpha: 0.07),
+                      side: BorderSide(
+                        color: sortMode == AdminUserSortMode.recent
+                            ? blue
+                            : Colors.white12,
+                      ),
+                      labelStyle: TextStyle(
+                        color: sortMode == AdminUserSortMode.recent
+                            ? Colors.white
+                            : Colors.white70,
+                        fontWeight: FontWeight.w800,
+                      ),
+                      onSelected: (_) => setSortMode(AdminUserSortMode.recent),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: ChoiceChip(
+                      avatar: const Icon(Icons.sort_by_alpha, size: 18),
+                      label: const Text('Alphabetical'),
+                      selected: sortMode == AdminUserSortMode.alphabetical,
+                      showCheckmark: false,
+                      selectedColor: blue,
+                      backgroundColor: Colors.white.withValues(alpha: 0.07),
+                      side: BorderSide(
+                        color: sortMode == AdminUserSortMode.alphabetical
+                            ? blue
+                            : Colors.white12,
+                      ),
+                      labelStyle: TextStyle(
+                        color: sortMode == AdminUserSortMode.alphabetical
+                            ? Colors.white
+                            : Colors.white70,
+                        fontWeight: FontWeight.w800,
+                      ),
+                      onSelected: (_) =>
+                          setSortMode(AdminUserSortMode.alphabetical),
+                    ),
+                  ),
+                ],
+              ),
               const SizedBox(height: 18),
-              if (users.isEmpty)
+              adminUserSearchField(),
+              const SizedBox(height: 18),
+              if (searchText.isNotEmpty)
+                adminUserSearchResults()
+              else if (snapshot.connectionState == ConnectionState.waiting &&
+                  snapshot.data == null)
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 30),
+                  child: Center(child: CircularProgressIndicator(color: blue)),
+                )
+              else if (snapshot.hasError)
+                EmptyStateCard(
+                  icon: Icons.error_outline,
+                  title: 'Could not load users',
+                  text: '${snapshot.error}',
+                )
+              else if (users.isEmpty)
                 EmptyStateCard(
                   icon: bannedOnly ? Icons.block : Icons.people_outline,
                   title: bannedOnly ? 'No banned users' : 'No users yet',
@@ -49812,6 +51298,13 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
                   userTile(context, user),
                   const SizedBox(height: 10),
                 ],
+              if (searchText.isEmpty && !snapshot.hasError) ...[
+                const SizedBox(height: 8),
+                userPageControls(
+                  documents: pageDocuments,
+                  hasNextPage: hasNextPage,
+                ),
+              ],
             ],
           );
         },
@@ -50173,24 +51666,27 @@ String adminSpotFilterLabel(AdminSpotFilter filter) {
 }
 
 List<CarSpot> adminSpotsForFilter(AdminSpotFilter filter) {
+  final manageableSpots = currentUser.role == UserRole.admin
+      ? reviewSpots.value
+      : reviewSpots.value.where(currentUserCanModerateSpot).toList();
   final spots = switch (filter) {
     AdminSpotFilter.pending =>
-      reviewSpots.value
+      manageableSpots
           .where((spot) => spot.status == SpotStatus.pending)
           .toList(),
     AdminSpotFilter.edited =>
-      reviewSpots.value
+      manageableSpots
           .where((spot) => spot.status == SpotStatus.edited)
           .toList(),
     AdminSpotFilter.approved =>
-      reviewSpots.value
+      manageableSpots
           .where((spot) => spot.status == SpotStatus.approved)
           .toList(),
     AdminSpotFilter.rejected =>
-      reviewSpots.value
+      manageableSpots
           .where((spot) => spot.status == SpotStatus.rejected)
           .toList(),
-    AdminSpotFilter.all => [...reviewSpots.value],
+    AdminSpotFilter.all => [...manageableSpots],
   };
 
   int latestAdminSortMillis(CarSpot spot) {
@@ -50308,6 +51804,15 @@ Future<void> deleteAdminSpot(
   CarSpot spot, {
   bool popAfterDelete = false,
 }) async {
+  if (!currentUserCanModerateSpot(spot)) {
+    showAdminActionError(
+      context,
+      message: trText('This spot is outside your assigned countries'),
+      error: 'regional-moderator-scope',
+    );
+    return;
+  }
+
   final confirmed = await confirmDeleteSpot(context, spot);
 
   if (!confirmed) {
@@ -50700,6 +52205,250 @@ class ForumModerationScreen extends StatelessWidget {
   }
 }
 
+class AdminRegionalRestrictionsScreen extends StatefulWidget {
+  const AdminRegionalRestrictionsScreen({super.key});
+
+  @override
+  State<AdminRegionalRestrictionsScreen> createState() =>
+      _AdminRegionalRestrictionsScreenState();
+}
+
+class _AdminRegionalRestrictionsScreenState
+    extends State<AdminRegionalRestrictionsScreen> {
+  late Set<String> selectedCountryCodes;
+  String searchQuery = '';
+  bool isSaving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    selectedCountryCodes = {...maintenanceModeConfig.value.bannedCountryCodes};
+  }
+
+  Future<void> saveRestrictions() async {
+    if (isSaving || currentUser.role != UserRole.admin) return;
+    setState(() => isSaving = true);
+
+    try {
+      final config = maintenanceModeConfig.value;
+      final codes = selectedCountryCodes.toList(growable: false)..sort();
+      await maintenanceModeDocument().debugSet({
+        'maintenanceEnabled': config.maintenanceEnabled,
+        'maintenanceTitle': config.maintenanceTitle,
+        'maintenanceMessage': config.maintenanceMessage,
+        'allowAdminBypass': config.allowAdminBypass,
+        'minimumAppVersion': config.minimumAppVersion,
+        'updateContact': config.updateContact,
+        'bannedCountryCodes': codes,
+        'bannedCountryKeys': countryRestrictionKeys(selectedCountryCodes),
+      }, SetOptions(merge: true));
+      await refreshMaintenanceMode();
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          backgroundColor: blue,
+          content: Text(
+            'Regional restrictions updated.',
+            style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800),
+          ),
+        ),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: Colors.redAccent,
+          content: Text(
+            '${trText('Could not update regional restrictions')}: $error',
+          ),
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => isSaving = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (currentUser.role != UserRole.admin) {
+      return const Scaffold(
+        backgroundColor: Colors.transparent,
+        body: Center(
+          child: Text('No access', style: TextStyle(color: Colors.white)),
+        ),
+      );
+    }
+
+    final query = searchQuery.trim().toLowerCase();
+    final countries = allSupportedCountryNames()
+        .where((country) {
+          if (query.isEmpty) return true;
+          return localizedCountryName(country).toLowerCase().contains(query) ||
+              country.toLowerCase().contains(query);
+        })
+        .toList(growable: false);
+
+    return Scaffold(
+      backgroundColor: Colors.transparent,
+      appBar: AppBar(
+        title: const Text('Regional restrictions'),
+        backgroundColor: Colors.transparent,
+        foregroundColor: blue,
+      ),
+      body: Padding(
+        padding: const EdgeInsets.fromLTRB(14, 10, 14, 14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: panelGlass,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: Colors.white12),
+              ),
+              child: const Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(Icons.info_outline, color: blue),
+                  SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      'Users in selected countries can use CCS, but cannot add spots or share live location.',
+                      style: TextStyle(color: Colors.white70, height: 1.35),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              onChanged: (value) => setState(() => searchQuery = value),
+              style: const TextStyle(color: Colors.white),
+              decoration: InputDecoration(
+                hintText: trText('Search countries'),
+                prefixIcon: const Icon(Icons.search, color: Colors.white54),
+                filled: true,
+                fillColor: Colors.white.withValues(alpha: 0.05),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(14),
+                  borderSide: const BorderSide(color: Colors.white12),
+                ),
+              ),
+            ),
+            const SizedBox(height: 10),
+            Text(
+              '${selectedCountryCodes.length} ${trText('restricted countries')}',
+              style: const TextStyle(
+                color: Colors.white60,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Expanded(
+              child: GridView.builder(
+                itemCount: countries.length,
+                gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+                  maxCrossAxisExtent: 280,
+                  mainAxisExtent: 54,
+                  crossAxisSpacing: 8,
+                  mainAxisSpacing: 8,
+                ),
+                itemBuilder: (context, index) {
+                  final country = countries[index];
+                  final code = countryIsoCode(country)!;
+                  final selected = selectedCountryCodes.contains(code);
+                  return Material(
+                    color: selected
+                        ? Colors.redAccent.withValues(alpha: 0.14)
+                        : panelGlass,
+                    borderRadius: BorderRadius.circular(12),
+                    child: InkWell(
+                      onTap: () => setState(() {
+                        if (!selectedCountryCodes.add(code)) {
+                          selectedCountryCodes.remove(code);
+                        }
+                      }),
+                      borderRadius: BorderRadius.circular(12),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: selected ? Colors.redAccent : Colors.white12,
+                          ),
+                        ),
+                        child: Row(
+                          children: [
+                            Checkbox(
+                              value: selected,
+                              activeColor: Colors.redAccent,
+                              visualDensity: VisualDensity.compact,
+                              onChanged: (_) => setState(() {
+                                if (!selectedCountryCodes.add(code)) {
+                                  selectedCountryCodes.remove(code);
+                                }
+                              }),
+                            ),
+                            Text(
+                              countryFlagEmoji(country),
+                              style: const TextStyle(fontSize: 18),
+                            ),
+                            const SizedBox(width: 7),
+                            Expanded(
+                              child: Text(
+                                localizedCountryName(country),
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 12.5,
+                                  fontWeight: selected
+                                      ? FontWeight.w900
+                                      : FontWeight.w700,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+            const SizedBox(height: 10),
+            SizedBox(
+              width: double.infinity,
+              height: 52,
+              child: ElevatedButton.icon(
+                onPressed: isSaving ? null : saveRestrictions,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: blue,
+                  foregroundColor: Colors.white,
+                ),
+                icon: isSaving
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      )
+                    : const Icon(Icons.save_outlined),
+                label: Text(isSaving ? 'Saving...' : 'Save restrictions'),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class AdminReviewScreen extends StatefulWidget {
   const AdminReviewScreen({super.key});
 
@@ -50783,6 +52532,28 @@ class _AdminReviewScreenState extends State<AdminReviewScreen> {
                     : '${filteredSpots.length} $label spot${filteredSpots.length == 1 ? '' : 's'} in Firebase.',
                 style: const TextStyle(color: Colors.white54, height: 1.35),
               ),
+              if (currentUser.role == UserRole.moderator) ...[
+                const SizedBox(height: 12),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: blue.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: blue.withValues(alpha: 0.35)),
+                  ),
+                  child: Text(
+                    currentUser.moderatorCountryCodes.isEmpty
+                        ? trText('No countries assigned')
+                        : '${trText('Your assigned countries')}: ${currentUser.moderatorCountryCodes.map((code) => '${countryFlagEmoji(code)} ${localizedCountryName(code)}').join(' • ')}',
+                    style: const TextStyle(
+                      color: Colors.white70,
+                      fontWeight: FontWeight.w800,
+                      height: 1.35,
+                    ),
+                  ),
+                ),
+              ],
               const SizedBox(height: 16),
               ValueListenableBuilder<bool>(
                 valueListenable: firestoreDebugButtonVisible,
@@ -50823,7 +52594,8 @@ class _AdminReviewScreenState extends State<AdminReviewScreen> {
               _ProfileActionTile(
                 icon: Icons.people_alt,
                 title: 'Users',
-                subtitle: 'Open profiles, ban, unban, or delete users',
+                subtitle:
+                    'Search profiles, verify users, ban, unban, or delete',
                 onTap: () {
                   Navigator.push(
                     context,
@@ -50876,14 +52648,16 @@ class _AdminReviewScreenState extends State<AdminReviewScreen> {
                 ),
                 const SizedBox(height: 10),
                 _ProfileActionTile(
-                  icon: Icons.verified_user,
-                  title: 'Verified Users',
-                  subtitle: 'Grant or remove verified status',
+                  icon: Icons.public_off_outlined,
+                  title: 'Regional restrictions',
+                  subtitle:
+                      'Restrict Add Spot and live-location sharing by country',
+                  color: Colors.orangeAccent,
                   onTap: () {
                     Navigator.push(
                       context,
                       appPageRoute(
-                        builder: (_) => const AdminVerifiedUsersScreen(),
+                        builder: (_) => const AdminRegionalRestrictionsScreen(),
                       ),
                     );
                   },
@@ -51095,6 +52869,16 @@ Future<void> openAdminEditSpot(
   CarSpot spot, {
   bool popAfterSave = false,
 }) async {
+  if (currentUser.role == UserRole.moderator &&
+      !currentUserCanModerateSpot(spot)) {
+    showAdminActionError(
+      context,
+      message: trText('This spot is outside your assigned countries'),
+      error: 'regional-moderator-scope',
+    );
+    return;
+  }
+
   final saved = await Navigator.push<bool>(
     context,
     appPageRoute(builder: (_) => AdminEditSpotScreen(spot: spot)),
@@ -51610,6 +53394,15 @@ class _AdminEditSpotScreenState extends State<AdminEditSpotScreen> {
       );
       return;
     }
+    if (currentUser.role == UserRole.moderator &&
+        !currentUserCanModerateSpot(widget.spot)) {
+      showAdminActionError(
+        context,
+        message: trText('This spot is outside your assigned countries'),
+        error: 'regional-moderator-scope',
+      );
+      return;
+    }
 
     final cleanName = nameController.text.trim();
     final cleanCity = cityController.text.trim();
@@ -51774,9 +53567,37 @@ class _AdminEditSpotScreenState extends State<AdminEditSpotScreen> {
         finalPhotoUrls.add(uploadedUrl);
       }
 
+      final updatedCityCountry = cleanCity.isEmpty
+          ? widget.spot.cityCountry
+          : cleanCity;
+      final updatedCountryCode =
+          countryIsoCode(spotCountryFromCityCountry(updatedCityCountry)) ??
+          widget.spot.effectiveCountryCode;
+      if (currentUser.role == UserRole.moderator &&
+          updatedCountryCode != widget.spot.effectiveCountryCode) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              backgroundColor: Colors.redAccent,
+              content: Text(
+                trText(
+                  'Regional moderators cannot move spots to another country.',
+                ),
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          );
+        }
+        return;
+      }
+
       final updatedSpot = widget.spot.copyWith(
         name: cleanName,
-        cityCountry: cleanCity.isEmpty ? widget.spot.cityCountry : cleanCity,
+        cityCountry: updatedCityCountry,
+        countryCode: updatedCountryCode,
         description: cleanDescription,
         coordinates: safeLatLng(editedLatitude, editedLongitude),
         categories: [selectedCategory],
@@ -51852,6 +53673,7 @@ class _AdminEditSpotScreenState extends State<AdminEditSpotScreen> {
       await spotsCollection().doc(widget.spot.id).debugUpdate({
         'name': updatedSpot.name,
         'cityCountry': updatedSpot.cityCountry,
+        'countryCode': updatedSpot.effectiveCountryCode,
         'description': updatedSpot.description,
         'lat': updatedSpot.coordinates.latitude,
         'lng': updatedSpot.coordinates.longitude,
@@ -52723,6 +54545,23 @@ class AdminSpotReviewScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (!currentUserCanModerateSpot(spot)) {
+      return Scaffold(
+        backgroundColor: Colors.transparent,
+        appBar: AppBar(
+          title: Text(trText('Manage Spot')),
+          backgroundColor: Colors.transparent,
+          foregroundColor: blue,
+        ),
+        body: Center(
+          child: Text(
+            trText('This spot is outside your assigned countries'),
+            style: const TextStyle(color: Colors.white70),
+          ),
+        ),
+      );
+    }
+
     return Scaffold(
       backgroundColor: Colors.transparent,
       appBar: AppBar(
@@ -52847,6 +54686,24 @@ class AdminSpotReviewScreen extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 22),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: () =>
+                  openAdminEditSpot(context, spot, popAfterSave: true),
+              icon: const Icon(Icons.edit_outlined),
+              label: Text(trText('Edit all spot information')),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: blue.withValues(alpha: 0.18),
+                foregroundColor: blue,
+                minimumSize: const Size.fromHeight(52),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
           SizedBox(
             width: double.infinity,
             child: OutlinedButton.icon(
