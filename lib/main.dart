@@ -5665,12 +5665,31 @@ Set<String> cleanSpotCountries(Iterable<String> countries) {
   final byKey = <String, String>{};
   for (final country in countries) {
     final cleanCountry = canonicalSpotCountryName(country);
+    if (!isSelectableSpotCountry(cleanCountry)) {
+      continue;
+    }
     final key = spotCountryKey(cleanCountry);
     if (key.isNotEmpty) {
       byKey[key] = cleanCountry;
     }
   }
   return byKey.values.toSet();
+}
+
+bool isSelectableSpotCountry(String value) {
+  final normalized = value
+      .trim()
+      .toLowerCase()
+      .replaceAll('…', '...')
+      .replaceAll(RegExp(r'\s+'), ' ');
+  if (normalized.isEmpty || normalized == 'unknown location') {
+    return false;
+  }
+
+  return !normalized.startsWith('finding address') &&
+      !normalized.startsWith('detecting city/country') &&
+      !normalized.startsWith('getting current location') &&
+      !normalized.startsWith('choose location to detect city/country');
 }
 
 Set<String> spotCountryFiltersFromUserData(Map<String, dynamic> data) {
@@ -5724,6 +5743,9 @@ List<String> availableSpotCountries() {
 
   void addCountry(String value) {
     final country = canonicalSpotCountryName(value);
+    if (!isSelectableSpotCountry(country)) {
+      return;
+    }
     final key = spotCountryKey(country);
     if (key.isNotEmpty) {
       countriesByKey[key] = country;
@@ -21039,12 +21061,11 @@ class _ExploreScreenState extends State<ExploreScreen> {
   Future<void> showExploreCategoryFilterSheet() async {
     final nextEnabledCategories = Set<String>.from(spotCategoryFilters.value);
     final availableCountries = availableSpotCountries();
-    final nextEnabledCountries = Set<String>.from(spotCountryFilters.value);
+    final nextEnabledCountries = cleanSpotCountries(spotCountryFilters.value);
     if (nextEnabledCountries.isEmpty && availableCountries.isNotEmpty) {
+      final ownCountry = cleanSpotCountries(<String>{currentUser.country});
       nextEnabledCountries.add(
-        currentUser.country.trim().isNotEmpty
-            ? currentUser.country.trim()
-            : availableCountries.first,
+        ownCountry.isNotEmpty ? ownCountry.first : availableCountries.first,
       );
     }
 
@@ -23458,12 +23479,11 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
   Future<void> showMapCategoryFilterSheet() async {
     final nextEnabledCategories = Set<String>.from(spotCategoryFilters.value);
     final availableCountries = availableSpotCountries();
-    final nextEnabledCountries = Set<String>.from(spotCountryFilters.value);
+    final nextEnabledCountries = cleanSpotCountries(spotCountryFilters.value);
     if (nextEnabledCountries.isEmpty && availableCountries.isNotEmpty) {
+      final ownCountry = cleanSpotCountries(<String>{currentUser.country});
       nextEnabledCountries.add(
-        currentUser.country.trim().isNotEmpty
-            ? currentUser.country.trim()
-            : availableCountries.first,
+        ownCountry.isNotEmpty ? ownCountry.first : availableCountries.first,
       );
     }
 
@@ -31638,6 +31658,8 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
       return;
     }
 
+    final previousDetectedCityCountry = detectedCityCountry;
+
     try {
       setState(() {
         detectedCityCountry = 'Finding address...';
@@ -31654,7 +31676,7 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
         setState(() {
           detectedCityCountry = selectedLocation == null
               ? 'Choose location to detect city/country'
-              : detectedCityCountry;
+              : previousDetectedCityCountry;
           isDetectingCityCountry = false;
         });
 
@@ -31683,7 +31705,7 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
       setState(() {
         detectedCityCountry = selectedLocation == null
             ? 'Choose location to detect city/country'
-            : detectedCityCountry;
+            : previousDetectedCityCountry;
         isDetectingCityCountry = false;
       });
 
@@ -32083,6 +32105,19 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
       return;
     }
 
+    if (isDetectingCityCountry || isUsingCurrentLocation) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          backgroundColor: Colors.orangeAccent,
+          content: Text(
+            'Wait for the location address to finish loading.',
+            style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+          ),
+        ),
+      );
+      return;
+    }
+
     if (cleanDescription.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -32253,12 +32288,13 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
 
     final categories = [selectedCategory];
     final supportsContacts = spotCategorySupportsContacts(selectedCategory);
+    final cleanDetectedCityCountry = detectedCityCountry.trim();
     final cityCountry =
-        detectedCityCountry.trim().isEmpty ||
-            detectedCityCountry == 'Choose location to detect city/country' ||
-            detectedCityCountry == 'Detecting city/country...'
-        ? 'Unknown location'
-        : detectedCityCountry.trim();
+        isSelectableSpotCountry(
+          spotCountryFromCityCountry(cleanDetectedCityCountry),
+        )
+        ? cleanDetectedCityCountry
+        : 'Unknown location';
     final countryCode =
         countryIsoCode(spotCountryFromCityCountry(cityCountry)) ?? '';
     final canCreateApprovedSpot =
@@ -35518,6 +35554,8 @@ class _GlobalChatTabState extends State<GlobalChatTab>
 
     final action = await showModalBottomSheet<String>(
       context: context,
+      isDismissible: true,
+      enableDrag: true,
       backgroundColor: panelGlass,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
@@ -36129,11 +36167,6 @@ class _GlobalChatTabState extends State<GlobalChatTab>
       child: ConstrainedBox(
         constraints: const BoxConstraints(minWidth: 54, maxWidth: 292),
         child: Container(
-          margin: EdgeInsets.only(
-            left: mine ? 46 : 0,
-            right: mine ? 0 : 46,
-            bottom: showAuthorHeader ? 8 : 4,
-          ),
           padding: EdgeInsets.fromLTRB(11, showAuthorHeader ? 10 : 8, 11, 8),
           decoration: BoxDecoration(
             color: mine ? blue : const Color(0xFF171717),
@@ -36245,20 +36278,25 @@ class _GlobalChatTabState extends State<GlobalChatTab>
       ),
     );
 
-    final message = Align(
+    final interactiveCard = canActOnMessage
+        ? GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: () => showGlobalMessageActions(doc),
+            onLongPress: () => showGlobalMessageActions(doc),
+            child: card,
+          )
+        : card;
+
+    return Align(
       alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
-      child: card,
-    );
-
-    if (!canActOnMessage) {
-      return message;
-    }
-
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTap: () => showGlobalMessageActions(doc),
-      onLongPress: () => showGlobalMessageActions(doc),
-      child: message,
+      child: Padding(
+        padding: EdgeInsets.only(
+          left: mine ? 46 : 0,
+          right: mine ? 0 : 46,
+          bottom: showAuthorHeader ? 8 : 4,
+        ),
+        child: interactiveCard,
+      ),
     );
   }
 
@@ -38917,6 +38955,8 @@ class _ForumTopicPageState extends State<ForumTopicPage> {
 
     final action = await showModalBottomSheet<String>(
       context: context,
+      isDismissible: true,
+      enableDrag: true,
       backgroundColor: panelGlass,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
@@ -43196,6 +43236,8 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
 
     final action = await showModalBottomSheet<String>(
       context: context,
+      isDismissible: true,
+      enableDrag: true,
       backgroundColor: panelGlass,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
@@ -43670,11 +43712,6 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
       child: ConstrainedBox(
         constraints: const BoxConstraints(minWidth: 58, maxWidth: 292),
         child: Container(
-          margin: EdgeInsets.only(
-            left: mine ? 44 : 0,
-            right: mine ? 0 : 44,
-            bottom: showAuthorHeader ? 8 : 4,
-          ),
           padding: EdgeInsets.fromLTRB(11, showAuthorHeader ? 10 : 8, 11, 8),
           decoration: BoxDecoration(
             color: mine
@@ -43796,20 +43833,25 @@ class _ChatConversationScreenState extends State<ChatConversationScreen> {
       ),
     );
 
-    final alignedMessage = Align(
+    final interactiveCard = canActOnMessage
+        ? GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: () => showOwnMessageActions(message),
+            onLongPress: () => showOwnMessageActions(message),
+            child: card,
+          )
+        : card;
+
+    return Align(
       alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
-      child: card,
-    );
-
-    if (!canActOnMessage) {
-      return alignedMessage;
-    }
-
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTap: () => showOwnMessageActions(message),
-      onLongPress: () => showOwnMessageActions(message),
-      child: alignedMessage,
+      child: Padding(
+        padding: EdgeInsets.only(
+          left: mine ? 44 : 0,
+          right: mine ? 0 : 44,
+          bottom: showAuthorHeader ? 8 : 4,
+        ),
+        child: interactiveCard,
+      ),
     );
   }
 
