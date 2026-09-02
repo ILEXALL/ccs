@@ -1,12 +1,7 @@
 ﻿name: ccs_app
 description: "A new Flutter project."
 publish_to: 'none'
-<<<<<<< HEAD
-version: 1.0.6+2
-=======
 version: 1.0.6+3
-
->>>>>>> zhena-ui
 environment:
   sdk: ^3.12.0
 
