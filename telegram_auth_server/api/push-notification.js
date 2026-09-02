@@ -60,6 +60,76 @@ function cleanStringArray(value, limit = 500) {
   ].slice(0, limit);
 }
 
+function countryFromCityCountry(value) {
+  const parts = cleanText(value)
+    .split(',')
+    .map((part) => part.trim())
+    .filter(Boolean);
+  return parts.length ? parts[parts.length - 1] : '';
+}
+
+const supportedCountryIsoCodes = [
+  'AL', 'AM', 'AU', 'AT', 'AZ', 'BY', 'BE', 'BA', 'BR', 'BG', 'CA', 'CN',
+  'HR', 'CY', 'CZ', 'DK', 'EE', 'FI', 'FR', 'GE', 'DE', 'GR', 'HU', 'IS',
+  'IN', 'IE', 'IT', 'JP', 'LV', 'LT', 'LU', 'MT', 'MX', 'MD', 'ME', 'NL',
+  'NZ', 'MK', 'NO', 'PL', 'PT', 'RO', 'RU', 'RS', 'SK', 'SI', 'KR', 'ES',
+  'SE', 'CH', 'TR', 'UA', 'AE', 'GB', 'US',
+];
+
+const countryAliasesToIso = (() => {
+  const aliases = new Map();
+  for (const locale of ['en', 'ru', 'lv']) {
+    const displayNames = new Intl.DisplayNames([locale], { type: 'region' });
+    for (const isoCode of supportedCountryIsoCodes) {
+      const name = displayNames.of(isoCode);
+      if (name) {
+        aliases.set(name.trim().toLocaleLowerCase('en-US'), isoCode);
+      }
+      aliases.set(isoCode.toLocaleLowerCase('en-US'), isoCode);
+    }
+  }
+  aliases.set('uk', 'GB');
+  aliases.set('great britain', 'GB');
+  aliases.set('usa', 'US');
+  aliases.set('сша', 'US');
+  aliases.set('asv', 'US');
+  aliases.set('uae', 'AE');
+  aliases.set('оаэ', 'AE');
+  aliases.set('aae', 'AE');
+  aliases.set('czech republic', 'CZ');
+  return aliases;
+})();
+
+function countryKey(value) {
+  const normalized = cleanText(value).toLocaleLowerCase('en-US');
+  return countryAliasesToIso.get(normalized) || normalized;
+}
+
+function userAllowsSpotCountry(user, spotCountry) {
+  const targetCountry = countryKey(spotCountry);
+  if (!targetCountry) {
+    return true;
+  }
+
+  if (cleanText(user.role) === 'moderator') {
+    return cleanStringArray(user.moderatorCountryCodes)
+      .map(countryKey)
+      .includes(targetCountry);
+  }
+
+  const selectedCountries = cleanStringArray(user.spotCountryFilters)
+    .map(countryKey)
+    .filter(Boolean);
+  if (selectedCountries.length) {
+    return selectedCountries.includes(targetCountry);
+  }
+
+  // Existing users who have not opened the new filter yet default to the
+  // country already stored on their profile.
+  const profileCountry = countryKey(user.country);
+  return profileCountry ? profileCountry === targetCountry : true;
+}
+
 function settingEnabled(user, settingName) {
   const settings = user.settings || {};
   const fallback = defaultNotificationSettings[settingName] === true;
@@ -124,6 +194,24 @@ function userIsStaff(user = {}) {
   return role === 'admin' || role === 'moderator';
 }
 
+function userCanModerateSpotCountry(user = {}, spotCountryCode = '') {
+  const role = cleanText(user.role);
+  if (role === 'admin') {
+    return true;
+  }
+  if (role !== 'moderator') {
+    return false;
+  }
+
+  const countryCode = countryKey(spotCountryCode);
+  if (!countryCode) {
+    return false;
+  }
+  return cleanStringArray(user.moderatorCountryCodes)
+    .map(countryKey)
+    .includes(countryCode);
+}
+
 async function friendshipAccepted(firstUid, secondUid) {
   if (!firstUid || !secondUid || firstUid === secondUid) {
     return false;
@@ -170,31 +258,10 @@ async function claimDelivery(deliveryKey, userId) {
   }
 }
 
-async function unreadNotificationCount(userId) {
-  const userSnapshot = await db
-    .collection('user_notifications')
-    .where('userId', '==', userId)
-    .where('read', '==', false)
-    .get();
-  let adminUnreadCount = 0;
-
-  try {
-    const adminSnapshot = await db
-      .collection('admin_notifications')
-      .where('userId', '==', userId)
-      .where('read', '==', false)
-      .get();
-    adminUnreadCount = adminSnapshot.size;
-  } catch (error) {
-    console.warn('Admin unread count skipped:', error?.message || error);
-  }
-
-  return userSnapshot.size + adminUnreadCount;
-}
-
 async function sendPushToUser({
   userId,
   settingName,
+  spotCountry = '',
   deliveryKey,
   notificationId,
   notificationCollection = 'user_notifications',
@@ -218,7 +285,8 @@ async function sendPushToUser({
   if (
     user.deleted === true ||
     userHasActiveBan(user) ||
-    !settingEnabled(user, settingName)
+    !settingEnabled(user, settingName) ||
+    !userAllowsSpotCountry(user, spotCountry)
   ) {
     return 0;
   }
@@ -245,7 +313,9 @@ async function sendPushToUser({
     },
     { merge: true },
   );
-  const badgeCount = Math.max(1, await unreadNotificationCount(userId));
+  // Notification history can contain legacy duplicates and items hidden only
+  // on a particular device. It is not a reliable source for the OS badge.
+  const badgeCount = 1;
 
   const tokens = userTokens(user);
   if (!tokens.length) {
@@ -412,6 +482,7 @@ async function notifyUsersAboutNewSpot({
   const ownerUid = spotNotificationOwnerUid(spot);
   const spotName = cleanText(spot.name, 'New car spot');
   const cityCountry = cleanText(spot.cityCountry);
+  const spotCountry = countryFromCityCountry(cityCountry);
   const locationSuffix = cityCountry ? ` in ${cityCountry}` : '';
   const isTemporary = notificationType === 'temporary_event' || spot.isTemporary === true;
   const title = isTemporary ? 'New CCS event' : 'New CCS spot';
@@ -427,6 +498,7 @@ async function notifyUsersAboutNewSpot({
         sendPushToUser({
           userId: doc.id,
           settingName: 'newSpotNotifications',
+          spotCountry,
           deliveryKey,
           notificationId: `${notificationType}_${spotId}_${doc.id}`,
           title,
@@ -729,6 +801,7 @@ async function handleTemporarySpotReminder(userId, payload) {
 
   const spotName = cleanText(spot.name, 'Temporary spot');
   const cityCountry = cleanText(spot.cityCountry);
+  const spotCountry = countryFromCityCountry(cityCountry);
   const locationSuffix = cityCountry ? ` in ${cityCountry}` : '';
   const title = 'Temporary spot starts in 5 hours';
   const body = `${spotName} starts in about 5 hours${locationSuffix}.`;
@@ -742,6 +815,7 @@ async function handleTemporarySpotReminder(userId, payload) {
       sendPushToUser({
         userId: recipientUserId,
         settingName: 'newSpotNotifications',
+        spotCountry,
         deliveryKey: `temporary_spot_reminder:${spotId}:${startsAtMillis}`,
         notificationId: `${notificationBaseId}_${recipientUserId}`,
         title,
@@ -778,13 +852,22 @@ async function handleSpotPendingReview(userId, payload) {
 
   const spotName = cleanText(spot.name, cleanText(payload.spotName, 'New spot'));
   const addedBy = cleanText(spot.addedBy, cleanText(payload.addedBy, 'driver'));
+  const cityCountry = cleanText(spot.cityCountry, cleanText(payload.cityCountry));
+  const spotCountryCode = countryKey(
+    cleanText(spot.countryCode, cleanText(payload.countryCode, countryFromCityCountry(cityCountry))),
+  );
 
   return Promise.all(
     recipientUserIds.map(async (recipientUserId) => {
       const staffSnapshot = await db.collection('users').doc(recipientUserId).get();
       const staff = staffSnapshot.exists ? staffSnapshot.data() || {} : {};
 
-      if (!staffSnapshot.exists || staff.deleted === true || staff.banned === true || !userIsStaff(staff)) {
+      if (
+        !staffSnapshot.exists ||
+        staff.deleted === true ||
+        staff.banned === true ||
+        !userCanModerateSpotCountry(staff, spotCountryCode)
+      ) {
         return 0;
       }
 
@@ -800,7 +883,8 @@ async function handleSpotPendingReview(userId, payload) {
           type: 'spot_pending_review',
           spotId,
           spotName,
-          cityCountry: cleanText(spot.cityCountry, cleanText(payload.cityCountry)),
+          cityCountry,
+          countryCode: spotCountryCode,
           addedBy,
           addedByUid: userId,
         },
@@ -1204,6 +1288,30 @@ async function verifiedCommunityModeratorIds(userId, payload) {
     .map((snapshot) => snapshot.id);
 }
 
+async function activeStaffUserIdsExcept(userId) {
+  const [adminSnapshot, moderatorSnapshot] = await Promise.all([
+    db.collection('users').where('role', '==', 'admin').get(),
+    db.collection('users').where('role', '==', 'moderator').get(),
+  ]);
+  const recipientUserIds = new Set();
+
+  for (const snapshot of [adminSnapshot, moderatorSnapshot]) {
+    for (const document of snapshot.docs) {
+      const recipient = document.data() || {};
+      if (
+        document.id !== userId &&
+        recipient.deleted !== true &&
+        !userHasActiveBan(recipient) &&
+        userIsStaff(recipient)
+      ) {
+        recipientUserIds.add(document.id);
+      }
+    }
+  }
+
+  return [...recipientUserIds];
+}
+
 async function sendCommunityModeratorPush({
   userId,
   payload,
@@ -1213,6 +1321,8 @@ async function sendCommunityModeratorPush({
   fallbackTitle,
   fallbackBody,
   data,
+  settingName = 'reviewNotifications',
+  notificationCollection = 'admin_notifications',
 }) {
   const title = fallbackTitle;
   const body = fallbackBody;
@@ -1221,20 +1331,66 @@ async function sendCommunityModeratorPush({
     recipientUserIds.map((recipientUserId) =>
       sendPushToUser({
         userId: recipientUserId,
-        settingName: 'reviewNotifications',
+        settingName,
         deliveryKey,
         notificationId: recipientNotificationId(
           payload,
           fallbackNotificationId,
           recipientUserId,
         ),
-        notificationCollection: 'admin_notifications',
+        notificationCollection,
         title,
         body,
         data,
       }),
     ),
   );
+}
+
+async function handleForumTopicPending(userId, payload) {
+  const topicId = cleanText(payload.topicId);
+  if (!topicId) {
+    return [];
+  }
+
+  const topicSnapshot = await db.collection('forum_topics').doc(topicId).get();
+  if (!topicSnapshot.exists) {
+    return [];
+  }
+
+  const topic = topicSnapshot.data() || {};
+  if (cleanText(topic.authorId) !== userId || cleanText(topic.status) !== 'pending') {
+    return [];
+  }
+
+  const recipientUserIds = await activeStaffUserIdsExcept(userId);
+  if (!recipientUserIds.length) {
+    return [];
+  }
+
+  const topicTitle = cleanText(topic.title, 'Forum topic');
+  const authorName = cleanText(topic.authorName, 'driver');
+  const categoryId = cleanText(topic.categoryId, cleanText(topic.category));
+  const spotId = cleanText(topic.spotId, cleanText(topic.temporarySpotId));
+
+  return sendCommunityModeratorPush({
+    userId,
+    payload,
+    recipientUserIds,
+    deliveryKey: `forum_topic_pending:${topicId}`,
+    fallbackNotificationId: `forum_topic_pending_${topicId}`,
+    fallbackTitle: 'Forum topic waiting for review',
+    fallbackBody: `${topicTitle} was submitted by @${authorName}.`,
+    data: {
+      type: 'forum_topic_pending',
+      topicId,
+      topicTitle,
+      categoryId,
+      spotId,
+      senderUid: userId,
+      senderUsername: authorName,
+    },
+  });
 }
 
 async function handleGlobalChatAdmin(userId, payload) {
@@ -1312,12 +1468,16 @@ async function handleForumReplyAdmin(userId, payload) {
     userId,
     payload,
     recipientUserIds,
-    deliveryKey: `forum_reply_admin:${topicId}:${messageId}`,
-    fallbackNotificationId: `forum_reply_admin_${topicId}_${messageId}`,
-    fallbackTitle: 'New forum reply',
+    // Older app versions also send this staff-only event. Share the normal
+    // forum-reply delivery claim so staff receive exactly one notification.
+    deliveryKey: `forum_reply:${topicId}:${messageId}`,
+    fallbackNotificationId: `forum_${topicId}_${messageId}`,
+    fallbackTitle: `Forum: ${topicTitle}`,
     fallbackBody: `@${senderUsername}: ${messageText}`,
+    settingName: 'commentNotifications',
+    notificationCollection: 'user_notifications',
     data: {
-      type: 'forum_reply_admin',
+      type: 'forum_reply',
       topicId,
       topicTitle,
       messageId,
@@ -1376,6 +1536,7 @@ export default async function handler(request, response) {
       global_chat_message: handleGlobalChatMessage,
       global_chat_admin: handleGlobalChatAdmin,
       forum_reply: handleForumReply,
+      forum_topic_pending: handleForumTopicPending,
       forum_reply_admin: handleForumReplyAdmin,
     };
     const handler = handlers[type];
