@@ -51,6 +51,10 @@ const liveLocationPushNotificationUrls = <String>[
 const pushNotificationUrl = '$telegramAuthBaseUrl/api/push-notification';
 const firestoreUsageUrl = '$telegramAuthBaseUrl/api/firestore-usage';
 const moderationActionUrl = '$telegramAuthBaseUrl/api/moderation-action';
+const xpSyncUrls = <String>[
+  '$telegramAuthBaseUrl/api/xp-sync',
+  'https://ccs-telegram-auth-server.vercel.app/api/xp-sync',
+];
 const r2PresignUploadUrl =
     'https://ccs-telegram-auth-server.vercel.app/api/r2-presign-upload';
 const int maxSpotGalleryPhotos = 4;
@@ -8067,6 +8071,41 @@ Future<Map<String, dynamic>> sendModerationAction(
     body,
     headers: {HttpHeaders.authorizationHeader: 'Bearer $idToken'},
   );
+}
+
+Future<void> syncXpWithServer(Map<String, Object?> body) async {
+  final firebaseUser = FirebaseAuth.instance.currentUser;
+
+  if (firebaseUser == null) {
+    return;
+  }
+
+  final idToken = await firebaseUser.getIdToken();
+  if (idToken == null || idToken.trim().isEmpty) {
+    return;
+  }
+
+  Object? lastError;
+  StackTrace? lastStack;
+
+  for (final url in xpSyncUrls) {
+    try {
+      await postJsonToUrl(
+        url,
+        body,
+        headers: {HttpHeaders.authorizationHeader: 'Bearer $idToken'},
+      );
+      return;
+    } catch (error, stack) {
+      lastError = error;
+      lastStack = stack;
+    }
+  }
+
+  debugPrint('XP sync failed: $lastError');
+  if (lastStack != null) {
+    debugPrint('$lastStack');
+  }
 }
 
 Future<bool> currentUserHasCommunityModerationAccess() async {
@@ -16881,6 +16920,18 @@ Future<void> updateSpotStatus(
     await notifyAllUsersIfTemporarySpotIsToday(updatedSpot);
 
     await sendNewSpotPushToEligibleUsers(updatedSpot);
+  }
+
+  if (statusChanged &&
+      status == SpotStatus.approved &&
+      !updatedSpot.isTemporary &&
+      updatedSpot.id.isNotEmpty) {
+    unawaited(
+      syncXpWithServer({
+        'action': 'sync_spot',
+        'spotId': updatedSpot.id,
+      }),
+    );
   }
 
   if (statusChanged &&
@@ -32407,6 +32458,15 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
         await createMeetSpotNotificationsForNearbyUsers(savedNewSpot);
       }
 
+      if (canCreateApprovedSpot && !savedNewSpot.isTemporary) {
+        unawaited(
+          syncXpWithServer({
+            'action': 'sync_spot',
+            'spotId': savedNewSpot.id,
+          }),
+        );
+      }
+
       if (!canCreateApprovedSpot) {
         try {
           await createAdminSpotReviewNotification(savedNewSpot);
@@ -44629,6 +44689,8 @@ Future<void> saveProfileToFirebase(UserProfileData profile) async {
     'tiktok': nextSettings.tiktok.trim(),
     'telegram': nextSettings.telegram.trim(),
   });
+
+  unawaited(syncXpWithServer({'action': 'sync_me'}));
 }
 
 Future<void> saveGarageToFirebase(List<GarageCar> cars) async {
@@ -44677,6 +44739,7 @@ Future<void> saveGarageToFirebase(List<GarageCar> cars) async {
   // garage state consistent when a delete/edit upload fails and the UI rolls
   // back to the previous list.
   garageCars.value = uploadedCars;
+  unawaited(syncXpWithServer({'action': 'sync_me'}));
 }
 
 Future<void> saveSettingsToFirebase(UserSettingsData settings) async {
@@ -44701,6 +44764,8 @@ Future<void> saveSettingsToFirebase(UserSettingsData settings) async {
     'publicProfile': settings.publicProfile,
     'showGarage': settings.showGarage,
   });
+
+  unawaited(syncXpWithServer({'action': 'sync_me'}));
 }
 
 Widget profileMessageButton(BuildContext context, FriendUserData user) {

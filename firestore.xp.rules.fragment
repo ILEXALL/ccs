@@ -1,0 +1,60 @@
+// CCS XP System v1.0 additions.
+// Paste these blocks inside:
+//
+// service cloud.firestore {
+//   match /databases/{database}/documents {
+//     ...
+//   }
+// }
+//
+// Do not replace existing rules. Add this near the other helper functions:
+
+function validXpConfig() {
+  return request.resource.data.keys().hasOnly([
+      'levels_enabled',
+      'xp_awards_enabled',
+      'weeklyLimit',
+      'timezone',
+      'rulesVersion',
+      'createdAt',
+      'updatedAt'
+    ])
+    && request.resource.data.levels_enabled is bool
+    && request.resource.data.xp_awards_enabled is bool
+    && request.resource.data.weeklyLimit is int
+    && request.resource.data.weeklyLimit >= 0
+    && request.resource.data.weeklyLimit <= 3000
+    && request.resource.data.timezone == 'Europe/Riga'
+    && request.resource.data.rulesVersion == 'ccs-xp-v1.0'
+    && request.resource.data.updatedAt == request.time
+    && (
+      !request.resource.data.keys().hasAny(['createdAt'])
+      || request.resource.data.createdAt is timestamp
+    );
+}
+
+// Add these match blocks near the other top-level collection rules:
+
+match /app_config/xp {
+  allow read: if true;
+  allow create, update: if isAdmin() && validXpConfig();
+  allow delete: if false;
+}
+
+match /xp_user_stats/{userId} {
+  allow read: if isActiveUser()
+    && (userId == currentUid() || isStaff());
+  allow create, update, delete: if false;
+}
+
+match /xp_transactions/{transactionId} {
+  allow read: if isActiveUser()
+    && (resource.data.userId == currentUid() || isStaff());
+  allow create, update, delete: if false;
+}
+
+match /xp_user_weeks/{weekId} {
+  allow read: if isActiveUser()
+    && (resource.data.userId == currentUid() || isStaff());
+  allow create, update, delete: if false;
+}

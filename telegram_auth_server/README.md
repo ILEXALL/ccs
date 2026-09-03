@@ -46,3 +46,33 @@ Example:
 ```dart
 const telegramAuthBaseUrl = 'https://ccs-telegram-auth.vercel.app';
 ```
+
+## XP Stage 1
+
+The backend includes `api/xp-sync.js` for CCS XP System v1.0.
+
+Supported actions:
+
+- `ensure_config`: admin-only; creates `app_config/xp` with XP disabled by default.
+- `sync_me`: authenticated user; evaluates profile and first garage car awards.
+- `sync_user`: staff-only; evaluates another user's profile and first garage car.
+- `sync_spot`: spot author or staff; evaluates approved permanent spot awards.
+
+The client never sends XP amounts. It only requests a sync, and the backend reads
+Firestore with Firebase Admin SDK before writing `xp_transactions`,
+`xp_user_weeks`, and `xp_user_stats/{uid}`.
+
+Default `app_config/xp`:
+
+```json
+{
+  "levels_enabled": false,
+  "xp_awards_enabled": false,
+  "weeklyLimit": 3000,
+  "timezone": "Europe/Riga",
+  "rulesVersion": "ccs-xp-v1.0"
+}
+```
+
+Keep both flags disabled during deployment. Enable them only after the Vercel
+route and Firestore rules/indexes are deployed.
