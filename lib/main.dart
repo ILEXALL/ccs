@@ -1758,6 +1758,38 @@ const _ruText = <String, String>{
   'XP locked': 'XP заблокирован',
   'XP is being calculated': 'XP рассчитывается',
   'Level': 'Уровень',
+  'History': 'История',
+  'XP History': 'История XP',
+  'Recent XP activity': 'Последние начисления XP',
+  'No XP history yet': 'Истории XP пока нет',
+  'Earn XP by completing your profile, garage, or approved spots.':
+      'Получайте XP за заполнение профиля, гараж и одобренные споты.',
+  'Could not load XP history.': 'Не удалось загрузить историю XP.',
+  'Confirmed': 'Подтверждено',
+  'Blocked': 'Заблокировано',
+  'Revoked': 'Отменено',
+  'Profile avatar': 'Аватар профиля',
+  'Profile bio': 'Описание профиля',
+  'Profile city': 'Город профиля',
+  'Profile socials': 'Соцсети профиля',
+  'Full profile': 'Полный профиль',
+  'First garage car': 'Первый автомобиль в гараже',
+  'First car photo': 'Фото первого автомобиля',
+  'First car description': 'Описание первого автомобиля',
+  'First car gallery': 'Галерея первого автомобиля',
+  'Complete first car': 'Полная карточка первого автомобиля',
+  'Spot approved': 'Спот одобрен',
+  'Spot description': 'Описание спота',
+  'Spot photo': 'Фото спота',
+  'Spot media bundle': 'Медиа спота',
+  'Garage build': 'Гараж',
+  'Weekly limit reached': 'Достигнут недельный лимит',
+  'Blocked by XP settings': 'Заблокировано настройками XP',
+  'Tester is not enabled': 'Тестер не включён',
+  'Duplicate transaction': 'Повторная операция',
+  'User blocked or deleted': 'Пользователь заблокирован или удалён',
+  'User profile not found': 'Профиль пользователя не найден',
+  'Partially limited by weekly cap': 'Частично ограничено недельным лимитом',
   'Public profile': 'Публичный профиль',
   'Let other drivers see your profile':
       'Разрешить другим водителям видеть профиль',
@@ -2708,6 +2740,38 @@ const _lvText = <String, String>{
   'XP locked': 'XP bloķēts',
   'XP is being calculated': 'XP tiek aprēķināts',
   'Level': 'Līmenis',
+  'History': 'Vēsture',
+  'XP History': 'XP vēsture',
+  'Recent XP activity': 'Pēdējās XP aktivitātes',
+  'No XP history yet': 'XP vēstures vēl nav',
+  'Earn XP by completing your profile, garage, or approved spots.':
+      'Iegūstiet XP par profilu, garāžu un apstiprinātām vietām.',
+  'Could not load XP history.': 'Neizdevās ielādēt XP vēsturi.',
+  'Confirmed': 'Apstiprināts',
+  'Blocked': 'Bloķēts',
+  'Revoked': 'Atsaukts',
+  'Profile avatar': 'Profila avatārs',
+  'Profile bio': 'Profila apraksts',
+  'Profile city': 'Profila pilsēta',
+  'Profile socials': 'Profila sociālie tīkli',
+  'Full profile': 'Pilns profils',
+  'First garage car': 'Pirmais auto garāžā',
+  'First car photo': 'Pirmā auto foto',
+  'First car description': 'Pirmā auto apraksts',
+  'First car gallery': 'Pirmā auto galerija',
+  'Complete first car': 'Pilna pirmā auto kartīte',
+  'Spot approved': 'Vieta apstiprināta',
+  'Spot description': 'Vietas apraksts',
+  'Spot photo': 'Vietas foto',
+  'Spot media bundle': 'Vietas mediji',
+  'Garage build': 'Garāža',
+  'Weekly limit reached': 'Sasniegts nedēļas limits',
+  'Blocked by XP settings': 'Bloķēts XP iestatījumos',
+  'Tester is not enabled': 'Testētājs nav iespējots',
+  'Duplicate transaction': 'Atkārtota darbība',
+  'User blocked or deleted': 'Lietotājs bloķēts vai dzēsts',
+  'User profile not found': 'Lietotāja profils nav atrasts',
+  'Partially limited by weekly cap': 'Daļēji ierobežots ar nedēļas limitu',
   'Public profile': 'Publisks profils',
   'Let other drivers see your profile':
       'Ļaut citiem autovadītājiem redzēt profilu',
@@ -9272,6 +9336,10 @@ CollectionReference<Map<String, dynamic>> usersCollection() {
 
 CollectionReference<Map<String, dynamic>> xpUserStatsCollection() {
   return FirebaseFirestore.instance.collection('xp_user_stats');
+}
+
+CollectionReference<Map<String, dynamic>> xpTransactionsCollection() {
+  return FirebaseFirestore.instance.collection('xp_transactions');
 }
 
 CollectionReference<Map<String, dynamic>> userReportsCollection() {
@@ -44600,6 +44668,210 @@ class XpUserStats {
   }
 }
 
+class XpTransactionData {
+  final String id;
+  final String userId;
+  final String action;
+  final String objectType;
+  final String objectId;
+  final String stage;
+  final String status;
+  final String reason;
+  final String weekKey;
+  final int amount;
+  final int requestedAmount;
+  final int createdAtMillis;
+  final Map<String, dynamic> metadata;
+
+  const XpTransactionData({
+    required this.id,
+    required this.userId,
+    required this.action,
+    required this.objectType,
+    required this.objectId,
+    required this.stage,
+    required this.status,
+    required this.reason,
+    required this.weekKey,
+    required this.amount,
+    required this.requestedAmount,
+    required this.createdAtMillis,
+    required this.metadata,
+  });
+
+  factory XpTransactionData.fromFirestore(
+    QueryDocumentSnapshot<Map<String, dynamic>> doc,
+  ) {
+    final data = doc.data();
+    final createdAt = timestampMillisFromFirebase(data['createdAt']);
+
+    return XpTransactionData(
+      id: stringFromFirebase(data['transactionId'], doc.id),
+      userId: stringFromFirebase(data['userId'], ''),
+      action: stringFromFirebase(data['action'], ''),
+      objectType: stringFromFirebase(data['objectType'], ''),
+      objectId: stringFromFirebase(data['objectId'], ''),
+      stage: stringFromFirebase(data['stage'], ''),
+      status: stringFromFirebase(data['status'], 'pending').toLowerCase(),
+      reason: stringFromFirebase(data['reason'], ''),
+      weekKey: stringFromFirebase(data['weekKey'], ''),
+      amount: intFromFirebase(data['amount'], 0),
+      requestedAmount: intFromFirebase(data['requestedAmount'], 0),
+      createdAtMillis: createdAt > 0
+          ? createdAt
+          : intFromFirebase(data['createdAtMillis'], 0),
+      metadata: mapFromFirebase(data['metadata']),
+    );
+  }
+
+  bool get isPositive => status == 'confirmed' && amount > 0;
+
+  String get title => xpTransactionActionLabel(action);
+
+  String get category => xpTransactionObjectTypeLabel(objectType);
+
+  String get statusLabel => xpTransactionStatusLabel(status);
+
+  String get reasonLabel => xpTransactionReasonLabel(reason);
+
+  String get createdAtLabel {
+    if (createdAtMillis <= 0) {
+      return '';
+    }
+
+    return formatShortDateTime(
+      DateTime.fromMillisecondsSinceEpoch(createdAtMillis),
+    );
+  }
+
+  String get amountLabel {
+    if (amount > 0) {
+      return '+${formatXpValue(amount)} XP';
+    }
+
+    if (amount < 0) {
+      return '-${formatXpValue(amount.abs())} XP';
+    }
+
+    return '0 XP';
+  }
+}
+
+String xpTransactionActionLabel(String action) {
+  switch (action.trim().toLowerCase()) {
+    case 'profile.avatar':
+      return 'Profile avatar';
+    case 'profile.bio':
+      return 'Profile bio';
+    case 'profile.city':
+      return 'Profile city';
+    case 'profile.social':
+      return 'Profile socials';
+    case 'profile.full':
+      return 'Full profile';
+    case 'garage.first_car':
+      return 'First garage car';
+    case 'garage.first_car_photo':
+      return 'First car photo';
+    case 'garage.first_car_description':
+      return 'First car description';
+    case 'garage.first_car_gallery':
+      return 'First car gallery';
+    case 'garage.first_car_full':
+      return 'Complete first car';
+    case 'spot.approved':
+      return 'Spot approved';
+    case 'spot.description':
+      return 'Spot description';
+    case 'spot.photo':
+      return 'Spot photo';
+    case 'spot.media_bundle':
+      return 'Spot media bundle';
+  }
+
+  return action.trim().isEmpty ? 'XP' : action.trim();
+}
+
+String xpTransactionObjectTypeLabel(String objectType) {
+  switch (objectType.trim().toLowerCase()) {
+    case 'profile':
+      return 'Profile';
+    case 'garage_car':
+      return 'Garage build';
+    case 'spot':
+      return 'Spot';
+  }
+
+  return objectType.trim().isEmpty ? 'XP' : objectType.trim();
+}
+
+String xpTransactionStatusLabel(String status) {
+  switch (status.trim().toLowerCase()) {
+    case 'confirmed':
+      return 'Confirmed';
+    case 'blocked':
+      return 'Blocked';
+    case 'pending':
+      return 'Pending';
+    case 'rejected':
+      return 'Rejected';
+    case 'revoked':
+      return 'Revoked';
+  }
+
+  return status.trim().isEmpty ? 'Pending' : status.trim();
+}
+
+String xpTransactionReasonLabel(String reason) {
+  switch (reason.trim().toUpperCase()) {
+    case 'WEEKLY_LIMIT_REACHED':
+      return 'Weekly limit reached';
+    case 'XP_DISABLED_BY_CONFIG':
+      return 'Blocked by XP settings';
+    case 'XP_USER_NOT_ENABLED':
+      return 'Tester is not enabled';
+    case 'DUPLICATE_XP_TRANSACTION':
+      return 'Duplicate transaction';
+    case 'USER_BLOCKED_OR_DELETED':
+      return 'User blocked or deleted';
+    case 'USER_NOT_FOUND':
+      return 'User profile not found';
+    case 'WEEKLY_LIMIT_PARTIAL':
+      return 'Partially limited by weekly cap';
+  }
+
+  return reason.trim();
+}
+
+IconData xpTransactionIcon(String objectType) {
+  switch (objectType.trim().toLowerCase()) {
+    case 'profile':
+      return Icons.person_outline;
+    case 'garage_car':
+      return Icons.directions_car_outlined;
+    case 'spot':
+      return Icons.add_location_alt_outlined;
+  }
+
+  return Icons.bolt_rounded;
+}
+
+Color xpTransactionStatusColor(String status) {
+  switch (status.trim().toLowerCase()) {
+    case 'confirmed':
+      return blue;
+    case 'blocked':
+    case 'rejected':
+      return Colors.redAccent;
+    case 'pending':
+      return Colors.orangeAccent;
+    case 'revoked':
+      return Colors.white54;
+  }
+
+  return Colors.white54;
+}
+
 class PublicUserProfileData {
   final String uid;
   final String username;
@@ -45172,6 +45444,20 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
+  void openXpHistory() {
+    final uid =
+        FirebaseAuth.instance.currentUser?.uid.trim() ?? currentUser.uid.trim();
+
+    if (uid.isEmpty || !canReadXpStatsForUser(uid)) {
+      return;
+    }
+
+    Navigator.push(
+      context,
+      appPageRoute(builder: (_) => XpHistoryScreen(userId: uid)),
+    );
+  }
+
   void openBlacklist() {
     Navigator.push(
       context,
@@ -45284,7 +45570,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 onEdit: editProfile,
               ),
               const SizedBox(height: 12),
-              XpSummaryCard(userId: currentUser.uid),
+              XpSummaryCard(userId: currentUser.uid, onTap: openXpHistory),
               const SizedBox(height: 12),
               if (cars.isEmpty) ...[
                 _EmptyGarageCard(onAdd: addCar),
@@ -46769,7 +47055,17 @@ class PublicUserProfileScreen extends StatelessWidget {
         profileHeader(context, profile),
         if (canReadXpStatsForUser(profile.uid)) ...[
           const SizedBox(height: 12),
-          XpSummaryCard(userId: profile.uid),
+          XpSummaryCard(
+            userId: profile.uid,
+            onTap: () {
+              Navigator.push(
+                context,
+                appPageRoute(
+                  builder: (_) => XpHistoryScreen(userId: profile.uid),
+                ),
+              );
+            },
+          ),
         ],
         const SizedBox(height: 12),
         if (userRoleIsStaff(currentUser.role) &&
@@ -47957,8 +48253,9 @@ class _ProfileHeader extends StatelessWidget {
 
 class XpSummaryCard extends StatelessWidget {
   final String userId;
+  final VoidCallback? onTap;
 
-  const XpSummaryCard({super.key, required this.userId});
+  const XpSummaryCard({super.key, required this.userId, this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -47985,6 +48282,7 @@ class XpSummaryCard extends StatelessWidget {
           stats: stats,
           loading: loading,
           unavailable: snapshot.hasError,
+          onTap: onTap,
         );
       },
     );
@@ -47995,11 +48293,13 @@ class _XpSummaryContent extends StatelessWidget {
   final XpUserStats stats;
   final bool loading;
   final bool unavailable;
+  final VoidCallback? onTap;
 
   const _XpSummaryContent({
     required this.stats,
     required this.loading,
     required this.unavailable,
+    required this.onTap,
   });
 
   @override
@@ -48023,7 +48323,7 @@ class _XpSummaryContent extends StatelessWidget {
         ? null
         : stats.progressToNextLevel;
 
-    return Container(
+    final card = Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: panelGlass,
@@ -48153,7 +48453,51 @@ class _XpSummaryContent extends StatelessWidget {
               _XpSummaryMetric(label: 'Next level', value: nextLabel),
             ],
           ),
+          if (onTap != null) ...[
+            const SizedBox(height: 12),
+            Align(
+              alignment: Alignment.centerRight,
+              child: Container(
+                height: 32,
+                padding: const EdgeInsets.symmetric(horizontal: 11),
+                decoration: BoxDecoration(
+                  color: blue.withValues(alpha: 0.13),
+                  borderRadius: BorderRadius.circular(999),
+                  border: Border.all(color: blue.withValues(alpha: 0.32)),
+                ),
+                child: const Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.history, color: blue, size: 15),
+                    SizedBox(width: 6),
+                    Text(
+                      'History',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
         ],
+      ),
+    );
+
+    if (onTap == null) {
+      return card;
+    }
+
+    return Material(
+      color: Colors.transparent,
+      borderRadius: BorderRadius.circular(18),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(18),
+        child: card,
       ),
     );
   }
@@ -48193,6 +48537,237 @@ class _XpSummaryMetric extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class XpHistoryScreen extends StatelessWidget {
+  final String userId;
+
+  const XpHistoryScreen({super.key, required this.userId});
+
+  @override
+  Widget build(BuildContext context) {
+    final cleanUserId = userId.trim();
+
+    return Scaffold(
+      backgroundColor: Colors.transparent,
+      appBar: AppBar(
+        title: const Text('XP History'),
+        backgroundColor: Colors.transparent,
+        foregroundColor: blue,
+        actions: ccsAppBarActions(),
+      ),
+      body: !canReadXpStatsForUser(cleanUserId)
+          ? const Padding(
+              padding: EdgeInsets.all(16),
+              child: EmptyStateCard(
+                icon: Icons.lock_outline,
+                title: 'Could not load XP history.',
+                text: 'XP is being calculated',
+              ),
+            )
+          : StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+              stream: xpTransactionsCollection()
+                  .where('userId', isEqualTo: cleanUserId)
+                  .orderBy('createdAt', descending: true)
+                  .limit(50)
+                  .debugSnapshots('profile: xp history listener'),
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting &&
+                    !snapshot.hasData) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+
+                if (snapshot.hasError) {
+                  return const Padding(
+                    padding: EdgeInsets.all(16),
+                    child: EmptyStateCard(
+                      icon: Icons.warning_amber_rounded,
+                      title: 'Could not load XP history.',
+                      text: 'XP is being calculated',
+                    ),
+                  );
+                }
+
+                final transactions = snapshot.data?.docs
+                        .map(XpTransactionData.fromFirestore)
+                        .toList() ??
+                    const <XpTransactionData>[];
+
+                if (transactions.isEmpty) {
+                  return ListView(
+                    padding: const EdgeInsets.fromLTRB(16, 14, 16, 28),
+                    children: const [
+                      EmptyStateCard(
+                        icon: Icons.history,
+                        title: 'No XP history yet',
+                        text:
+                            'Earn XP by completing your profile, garage, or approved spots.',
+                      ),
+                    ],
+                  );
+                }
+
+                return ListView(
+                  padding: const EdgeInsets.fromLTRB(16, 14, 16, 28),
+                  children: [
+                    const Text(
+                      'Recent XP activity',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 22,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    for (final transaction in transactions)
+                      XpTransactionTile(transaction: transaction),
+                  ],
+                );
+              },
+            ),
+    );
+  }
+}
+
+class XpTransactionTile extends StatelessWidget {
+  final XpTransactionData transaction;
+
+  const XpTransactionTile({super.key, required this.transaction});
+
+  @override
+  Widget build(BuildContext context) {
+    final statusColor = xpTransactionStatusColor(transaction.status);
+    final amountColor = transaction.amount > 0 ? blue : statusColor;
+    final reasonLabel = transaction.reasonLabel;
+    final createdAtLabel = transaction.createdAtLabel;
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(13),
+      decoration: BoxDecoration(
+        color: panelGlass,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.white12),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 42,
+            height: 42,
+            decoration: BoxDecoration(
+              color: statusColor.withValues(alpha: 0.14),
+              shape: BoxShape.circle,
+              border: Border.all(color: statusColor.withValues(alpha: 0.38)),
+            ),
+            child: Icon(
+              xpTransactionIcon(transaction.objectType),
+              color: statusColor,
+              size: 21,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  transaction.title,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 15.5,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(height: 7),
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: [
+                    _XpHistoryBadge(
+                      label: transaction.category,
+                      color: Colors.white54,
+                    ),
+                    _XpHistoryBadge(
+                      label: transaction.statusLabel,
+                      color: statusColor,
+                    ),
+                    if (reasonLabel.isNotEmpty)
+                      _XpHistoryBadge(
+                        label: reasonLabel,
+                        color: Colors.orangeAccent,
+                      ),
+                  ],
+                ),
+                if (createdAtLabel.isNotEmpty) ...[
+                  const SizedBox(height: 7),
+                  Text(
+                    createdAtLabel,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Colors.white38,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          const SizedBox(width: 10),
+          ConstrainedBox(
+            constraints: const BoxConstraints(minWidth: 56, maxWidth: 92),
+            child: Text(
+              transaction.amountLabel,
+              textAlign: TextAlign.right,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: amountColor,
+                fontSize: 14,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _XpHistoryBadge extends StatelessWidget {
+  final String label;
+  final Color color;
+
+  const _XpHistoryBadge({required this.label, required this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: color.withValues(alpha: 0.26)),
+      ),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 220),
+        child: Text(
+          label,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+            color: color == Colors.white54 ? Colors.white60 : color,
+            fontSize: 10.5,
+            fontWeight: FontWeight.w900,
+          ),
+        ),
       ),
     );
   }
