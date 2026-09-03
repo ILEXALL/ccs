@@ -68,11 +68,14 @@ Default `app_config/xp`:
 {
   "levels_enabled": false,
   "xp_awards_enabled": false,
+  "enabledUserIds": [],
   "weeklyLimit": 3000,
   "timezone": "Europe/Riga",
   "rulesVersion": "ccs-xp-v1.0"
 }
 ```
 
-Keep both flags disabled during deployment. Enable them only after the Vercel
-route and Firestore rules/indexes are deployed.
+Keep both flags disabled during deployment. For tester-only rollout, add Firebase
+Auth user IDs to `enabledUserIds`. Use `["*"]` only when XP should be available
+to everyone. Enable both flags only after the Vercel route and Firestore
+rules/indexes are deployed.

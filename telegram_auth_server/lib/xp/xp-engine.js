@@ -79,6 +79,7 @@ function defaultXpConfig() {
   return {
     levelsEnabled: false,
     awardsEnabled: false,
+    enabledUserIds: [],
     weeklyLimit: WEEKLY_XP_LIMIT,
     timeZone: XP_TIME_ZONE,
     rulesVersion: XP_RULES_VERSION,

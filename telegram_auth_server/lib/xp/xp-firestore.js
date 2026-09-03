@@ -57,6 +57,15 @@ async function awardXp(input, options = {}) {
       );
     }
 
+    if (!userEnabledForXp(normalized.userId, config)) {
+      return blockedResult(
+        normalized,
+        transactionId,
+        weekKey,
+        'XP_USER_NOT_ENABLED',
+      );
+    }
+
     if (!userSnapshot.exists) {
       return blockedResult(normalized, transactionId, weekKey, 'USER_NOT_FOUND');
     }
@@ -215,6 +224,7 @@ async function ensureXpConfig() {
   await configRef.set({
     levels_enabled: defaults.levelsEnabled,
     xp_awards_enabled: defaults.awardsEnabled,
+    enabledUserIds: defaults.enabledUserIds,
     weeklyLimit: defaults.weeklyLimit,
     timezone: defaults.timeZone,
     rulesVersion: defaults.rulesVersion,
@@ -239,10 +249,16 @@ function xpConfigFromDocument(data) {
   return {
     levelsEnabled: data.levels_enabled === true,
     awardsEnabled: data.xp_awards_enabled === true,
+    enabledUserIds: stringArray(data.enabledUserIds, 500),
     weeklyLimit: weeklyLimit > 0 ? weeklyLimit : defaults.weeklyLimit,
     timeZone: stringValue(data.timezone) || defaults.timeZone,
     rulesVersion: stringValue(data.rulesVersion) || XP_RULES_VERSION,
   };
+}
+
+function userEnabledForXp(userId, config) {
+  const enabledUserIds = config.enabledUserIds || [];
+  return enabledUserIds.includes('*') || enabledUserIds.includes(userId);
 }
 
 function transactionData(input, transactionId, uniqueKey, weekKey, result) {
@@ -301,6 +317,21 @@ function numberValue(value) {
 
 function stringValue(value) {
   return typeof value === 'string' ? value.trim() : '';
+}
+
+function stringArray(value, limit = 500) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return [
+    ...new Set(
+      value
+        .filter((item) => typeof item === 'string')
+        .map((item) => item.trim())
+        .filter(Boolean),
+    ),
+  ].slice(0, limit);
 }
 
 module.exports = {

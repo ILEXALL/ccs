@@ -247,6 +247,7 @@ service cloud.firestore {
       return request.resource.data.keys().hasOnly([
           'levels_enabled',
           'xp_awards_enabled',
+          'enabledUserIds',
           'weeklyLimit',
           'timezone',
           'rulesVersion',
@@ -261,6 +262,13 @@ service cloud.firestore {
         && request.resource.data.timezone == 'Europe/Riga'
         && request.resource.data.rulesVersion == 'ccs-xp-v1.0'
         && request.resource.data.updatedAt == request.time
+        && (
+          !request.resource.data.keys().hasAny(['enabledUserIds'])
+          || (
+            request.resource.data.enabledUserIds is list
+            && request.resource.data.enabledUserIds.size() <= 500
+          )
+        )
         && (
           !request.resource.data.keys().hasAny(['createdAt'])
           || request.resource.data.createdAt is timestamp
