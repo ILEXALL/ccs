@@ -1,7 +1,7 @@
 ﻿name: ccs_app
 description: "A new Flutter project."
 publish_to: 'none'
-version: 1.0.6+6
+version: 1.0.6+7
 environment:
   sdk: ^3.12.0
 

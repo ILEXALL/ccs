@@ -1749,6 +1749,15 @@ const _ruText = <String, String>{
   'Friends sharing location': 'Друзья делятся геопозицией',
   'When a friend starts sharing live location':
       'Когда друг начинает делиться геопозицией',
+  'Driver XP': 'XP водителя',
+  'Total XP': 'Всего XP',
+  'This week XP': 'XP за неделю',
+  'Next level': 'До следующего уровня',
+  'Max level': 'Максимальный уровень',
+  'No XP yet': 'XP пока нет',
+  'XP locked': 'XP заблокирован',
+  'XP is being calculated': 'XP рассчитывается',
+  'Level': 'Уровень',
   'Public profile': 'Публичный профиль',
   'Let other drivers see your profile':
       'Разрешить другим водителям видеть профиль',
@@ -2690,6 +2699,15 @@ const _lvText = <String, String>{
   'Friends sharing location': 'Draugi kopīgo atrašanās vietu',
   'When a friend starts sharing live location':
       'Kad draugs sāk kopīgot atrašanās vietu',
+  'Driver XP': 'Vadītāja XP',
+  'Total XP': 'Kopējais XP',
+  'This week XP': 'XP šonedēļ',
+  'Next level': 'Līdz nākamajam līmenim',
+  'Max level': 'Maksimālais līmenis',
+  'No XP yet': 'XP vēl nav',
+  'XP locked': 'XP bloķēts',
+  'XP is being calculated': 'XP tiek aprēķināts',
+  'Level': 'Līmenis',
   'Public profile': 'Publisks profils',
   'Let other drivers see your profile':
       'Ļaut citiem autovadītājiem redzēt profilu',
@@ -9250,6 +9268,10 @@ bool localFileExists(String? path) {
 
 CollectionReference<Map<String, dynamic>> usersCollection() {
   return FirebaseFirestore.instance.collection('users');
+}
+
+CollectionReference<Map<String, dynamic>> xpUserStatsCollection() {
+  return FirebaseFirestore.instance.collection('xp_user_stats');
 }
 
 CollectionReference<Map<String, dynamic>> userReportsCollection() {
@@ -44445,6 +44467,139 @@ List<GarageCar> garageCarsFromFirebase(Object? value) {
   return const [];
 }
 
+const int xpMaxLevel = 100;
+
+int xpRequiredForLevel(int level) {
+  final safeLevel = math.min(xpMaxLevel, math.max(1, level)).toInt();
+  return 25 * math.pow(safeLevel - 1, 2).round();
+}
+
+int xpLevelFromTotal(int totalXp) {
+  if (totalXp <= 0) {
+    return 1;
+  }
+
+  return math
+      .min(xpMaxLevel, math.max(1, math.sqrt(totalXp / 25).floor() + 1))
+      .toInt();
+}
+
+String formatXpValue(int value) {
+  final safeValue = math.max(0, value);
+
+  if (safeValue >= 1000000) {
+    final formatted = (safeValue / 1000000).toStringAsFixed(
+      safeValue >= 10000000 ? 0 : 1,
+    );
+    return '${formatted.replaceAll('.0', '')}M';
+  }
+
+  if (safeValue >= 10000) {
+    return '${(safeValue / 1000).round()}K';
+  }
+
+  if (safeValue >= 1000) {
+    final formatted = (safeValue / 1000).toStringAsFixed(1);
+    return '${formatted.replaceAll('.0', '')}K';
+  }
+
+  return '$safeValue';
+}
+
+bool canReadXpStatsForUser(String userId) {
+  final cleanUserId = userId.trim();
+  final currentUid =
+      FirebaseAuth.instance.currentUser?.uid.trim() ?? currentUser.uid.trim();
+
+  return cleanUserId.isNotEmpty &&
+      currentUid.isNotEmpty &&
+      (cleanUserId == currentUid || userRoleIsStaff(currentUser.role));
+}
+
+class XpUserStats {
+  final String userId;
+  final int xpTotal;
+  final int level;
+  final int weeklyXp;
+  final String weeklyXpWeek;
+  final bool xpBlocked;
+  final String xpLastTransactionId;
+
+  const XpUserStats({
+    required this.userId,
+    required this.xpTotal,
+    required this.level,
+    required this.weeklyXp,
+    required this.weeklyXpWeek,
+    required this.xpBlocked,
+    required this.xpLastTransactionId,
+  });
+
+  factory XpUserStats.empty(String userId) {
+    return XpUserStats(
+      userId: userId,
+      xpTotal: 0,
+      level: 1,
+      weeklyXp: 0,
+      weeklyXpWeek: '',
+      xpBlocked: false,
+      xpLastTransactionId: '',
+    );
+  }
+
+  factory XpUserStats.fromFirestore(
+    DocumentSnapshot<Map<String, dynamic>> doc,
+  ) {
+    final data = doc.data() ?? {};
+    final xpTotal = math.max(0, intFromFirebase(data['xpTotal'], 0));
+    final rawLevel = intFromFirebase(data['level'], xpLevelFromTotal(xpTotal));
+
+    return XpUserStats(
+      userId: stringFromFirebase(data['userId'], doc.id),
+      xpTotal: xpTotal,
+      level: rawLevel.clamp(1, xpMaxLevel).toInt(),
+      weeklyXp: math.max(0, intFromFirebase(data['weeklyXp'], 0)),
+      weeklyXpWeek: stringFromFirebase(data['weeklyXpWeek'], ''),
+      xpBlocked: data['xpBlocked'] == true,
+      xpLastTransactionId: stringFromFirebase(
+        data['xpLastTransactionId'],
+        '',
+      ),
+    );
+  }
+
+  bool get hasXp => xpTotal > 0 || weeklyXp > 0;
+
+  int get currentLevelXp => xpRequiredForLevel(level);
+
+  int get nextLevel => level >= xpMaxLevel ? xpMaxLevel : level + 1;
+
+  int get nextLevelXp => xpRequiredForLevel(nextLevel);
+
+  int get remainingToNextLevel {
+    if (level >= xpMaxLevel) {
+      return 0;
+    }
+
+    return math.max(0, nextLevelXp - xpTotal);
+  }
+
+  double get progressToNextLevel {
+    if (level >= xpMaxLevel) {
+      return 1;
+    }
+
+    final levelRange = nextLevelXp - currentLevelXp;
+    if (levelRange <= 0) {
+      return 0;
+    }
+
+    return ((xpTotal - currentLevelXp) / levelRange)
+        .clamp(0.0, 1.0)
+        .toDouble();
+  }
+}
+
 class PublicUserProfileData {
   final String uid;
   final String username;
@@ -45128,6 +45283,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 spotsValue: '${spots.length} spots',
                 onEdit: editProfile,
               ),
+              const SizedBox(height: 12),
+              XpSummaryCard(userId: currentUser.uid),
               const SizedBox(height: 12),
               if (cars.isEmpty) ...[
                 _EmptyGarageCard(onAdd: addCar),
@@ -46610,6 +46767,10 @@ class PublicUserProfileScreen extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(14, 12, 14, 24),
       children: [
         profileHeader(context, profile),
+        if (canReadXpStatsForUser(profile.uid)) ...[
+          const SizedBox(height: 12),
+          XpSummaryCard(userId: profile.uid),
+        ],
         const SizedBox(height: 12),
         if (userRoleIsStaff(currentUser.role) &&
             profile.uid != currentUser.uid &&
@@ -47786,6 +47947,249 @@ class _ProfileHeader extends StatelessWidget {
                   borderRadius: BorderRadius.circular(9),
                 ),
               ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class XpSummaryCard extends StatelessWidget {
+  final String userId;
+
+  const XpSummaryCard({super.key, required this.userId});
+
+  @override
+  Widget build(BuildContext context) {
+    final cleanUserId = userId.trim();
+
+    if (!canReadXpStatsForUser(cleanUserId)) {
+      return const SizedBox.shrink();
+    }
+
+    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      stream: xpUserStatsCollection()
+          .doc(cleanUserId)
+          .debugSnapshots('profile: xp user stats listener'),
+      builder: (context, snapshot) {
+        final doc = snapshot.data;
+        final loading =
+            snapshot.connectionState == ConnectionState.waiting &&
+            !snapshot.hasData;
+        final stats = doc != null && doc.exists
+            ? XpUserStats.fromFirestore(doc)
+            : XpUserStats.empty(cleanUserId);
+
+        return _XpSummaryContent(
+          stats: stats,
+          loading: loading,
+          unavailable: snapshot.hasError,
+        );
+      },
+    );
+  }
+}
+
+class _XpSummaryContent extends StatelessWidget {
+  final XpUserStats stats;
+  final bool loading;
+  final bool unavailable;
+
+  const _XpSummaryContent({
+    required this.stats,
+    required this.loading,
+    required this.unavailable,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final totalLabel = loading ? '...' : '${formatXpValue(stats.xpTotal)} XP';
+    final weeklyLabel = loading ? '...' : '${formatXpValue(stats.weeklyXp)} XP';
+    final levelLabel = loading ? '...' : '${stats.level}';
+    final nextLabel = loading
+        ? '...'
+        : stats.level >= xpMaxLevel
+        ? trText('Max level')
+        : '${formatXpValue(stats.remainingToNextLevel)} XP';
+    final footerLabel = unavailable
+        ? 'XP is being calculated'
+        : stats.xpBlocked
+        ? 'XP locked'
+        : stats.hasXp
+        ? 'Next level'
+        : 'No XP yet';
+    final progressValue = loading || unavailable
+        ? null
+        : stats.progressToNextLevel;
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: panelGlass,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: Colors.white12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 42,
+                height: 42,
+                decoration: BoxDecoration(
+                  color: blue.withValues(alpha: 0.16),
+                  shape: BoxShape.circle,
+                  border: Border.all(color: blue.withValues(alpha: 0.42)),
+                ),
+                child: const Icon(Icons.bolt_rounded, color: blue, size: 24),
+              ),
+              const SizedBox(width: 11),
+              const Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Driver XP',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    SizedBox(height: 2),
+                    Text(
+                      'Level',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: Colors.white54,
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 10),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Text(
+                    totalLabel,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 18,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    '${trText('Level')} $levelLabel',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: blue,
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(999),
+            child: LinearProgressIndicator(
+              value: progressValue,
+              minHeight: 8,
+              backgroundColor: Colors.white10,
+              valueColor: AlwaysStoppedAnimation<Color>(
+                stats.xpBlocked ? Colors.redAccent : blue,
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  footerLabel,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: stats.xpBlocked ? Colors.redAccent : Colors.white54,
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+              if (!unavailable && !stats.xpBlocked && stats.hasXp)
+                Text(
+                  nextLabel,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Colors.white70,
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              _XpSummaryMetric(label: 'This week XP', value: weeklyLabel),
+              const SizedBox(width: 10),
+              _XpSummaryMetric(label: 'Total XP', value: totalLabel),
+              const SizedBox(width: 10),
+              _XpSummaryMetric(label: 'Next level', value: nextLabel),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _XpSummaryMetric extends StatelessWidget {
+  final String label;
+  final String value;
+
+  const _XpSummaryMetric({required this.label, required this.value});
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              color: Colors.white38,
+              fontSize: 10.5,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 3),
+          Text(
+            value,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 13,
+              fontWeight: FontWeight.w900,
             ),
           ),
         ],
