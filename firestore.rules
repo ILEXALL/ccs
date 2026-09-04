@@ -243,6 +243,38 @@ service cloud.firestore {
         );
     }
 
+    function validXpConfig() {
+      return request.resource.data.keys().hasOnly([
+          'levels_enabled',
+          'xp_awards_enabled',
+          'enabledUserIds',
+          'weeklyLimit',
+          'timezone',
+          'rulesVersion',
+          'createdAt',
+          'updatedAt'
+        ])
+        && request.resource.data.levels_enabled is bool
+        && request.resource.data.xp_awards_enabled is bool
+        && request.resource.data.weeklyLimit is int
+        && request.resource.data.weeklyLimit >= 0
+        && request.resource.data.weeklyLimit <= 3000
+        && request.resource.data.timezone == 'Europe/Riga'
+        && request.resource.data.rulesVersion == 'ccs-xp-v1.0'
+        && request.resource.data.updatedAt == request.time
+        && (
+          !request.resource.data.keys().hasAny(['enabledUserIds'])
+          || (
+            request.resource.data.enabledUserIds is list
+            && request.resource.data.enabledUserIds.size() <= 500
+          )
+        )
+        && (
+          !request.resource.data.keys().hasAny(['createdAt'])
+          || request.resource.data.createdAt is timestamp
+        );
+    }
+
     function selfUserEditableKeys() {
       return [
         'uid',
@@ -1199,6 +1231,12 @@ service cloud.firestore {
       allow delete: if configId in ['main', 'global_chat'] && isAdmin();
     }
 
+    match /app_config/xp {
+      allow read: if true;
+      allow create, update: if isAdmin() && validXpConfig();
+      allow delete: if false;
+    }
+
     match /users/{userId} {
       allow read: if isSignedIn();
       allow create: if isOwner(userId) && validNewUser(userId);
@@ -1215,6 +1253,24 @@ service cloud.firestore {
         || isAdmin()
         || moderatorCanUpdateUser();
       allow delete: if isAdmin();
+    }
+
+    match /xp_user_stats/{userId} {
+      allow read: if isActiveUser()
+        && (userId == currentUid() || isStaff());
+      allow create, update, delete: if false;
+    }
+
+    match /xp_transactions/{transactionId} {
+      allow read: if isActiveUser()
+        && (resource.data.userId == currentUid() || isStaff());
+      allow create, update, delete: if false;
+    }
+
+    match /xp_user_weeks/{weekId} {
+      allow read: if isActiveUser()
+        && (resource.data.userId == currentUid() || isStaff());
+      allow create, update, delete: if false;
     }
 
     match /device_bans/{deviceId} {
@@ -1261,18 +1317,45 @@ service cloud.firestore {
         || (isActiveUser() && resource.data.uid == currentUid());
     }
 
+    // Server-issued review sessions; phone clocks cannot extend ownership.
+    function spotReviewLocked(spotId) {
+      let path = /databases/$(database)/documents/spot_review_locks/$(spotId);
+      return exists(path) && get(path).data.expiresAt > request.time;
+    }
+
+    function spotReviewEditorAllowed(spotId) {
+      let path = /databases/$(database)/documents/spot_review_locks/$(spotId);
+      let token = request.resource.data.get('reviewSessionId', '');
+      return (token == '' && !spotReviewLocked(spotId))
+        || (spotReviewLocked(spotId)
+          && get(path).data.reviewerUid == currentUid()
+          && get(path).data.sessionId == token);
+    }
+
+    function spotReviewDecisionUnchanged() {
+      return request.resource.data.status == resource.data.status
+        && !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+          'reviewedBy', 'reviewedByUid', 'reviewedAt', 'rejectionReason', 'editReviewStatus'
+        ]);
+    }
+
+    match /spot_review_locks/{spotId} {
+      allow read, write: if false;
+    }
+
     match /spots/{spotId} {
       allow read: if canReadSpot();
       allow create: if isActiveUser()
         && regionalFeaturesAllowed()
         && validNewSpot();
-      allow update: if isAdmin()
-        || moderatorCanUpdateSpot()
-        || ownerCanEditSpot()
-        || businessOwnerCanEditSpot()
+      allow update: if ((isAdmin() || moderatorCanUpdateSpot())
+          && spotReviewDecisionUnchanged() && spotReviewEditorAllowed(spotId))
+        || (!spotReviewLocked(spotId) && (ownerCanEditSpot() || businessOwnerCanEditSpot()))
         || signedInUserCanRefreshSpotRating()
         || signedInUserCanUpdateSpotCounters();
-      allow delete: if isAdmin() || moderatorCanManageExistingSpot();
+      allow delete: if (isAdmin() || moderatorCanManageExistingSpot())
+        && (!spotReviewLocked(spotId)
+          || get(/databases/$(database)/documents/spot_review_locks/$(spotId)).data.reviewerUid == currentUid());
     }
 
     match /spot_reviews/{reviewId} {

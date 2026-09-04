@@ -1,4 +1,5 @@
 const { admin, db } = require('../lib/firebase-admin');
+const { spotReviewAction } = require('../lib/spot-review');
 
 function cleanString(value, fallback = '') {
   return typeof value === 'string' && value.trim() ? value.trim() : fallback;
@@ -521,6 +522,7 @@ async function deleteForumReply({ actor, body }) {
 }
 
 const handlers = {
+  spot_review: spotReviewAction,
   set_chat_moderator: setChatModerator,
   remove_chat_member: removeChatMember,
   add_chat_members: addChatMembers,
@@ -553,8 +555,8 @@ module.exports = async function handler(req, res) {
       return res.status(400).json({ ok: false, error: 'Unknown action' });
     }
 
-    await actionHandler({ actor, body: req.body || {} });
-    return res.status(200).json({ ok: true });
+    const result = await actionHandler({ actor, body: req.body || {} });
+    return res.status(200).json({ ok: true, ...(result || {}) });
   } catch (error) {
     return res.status(403).json({
       ok: false,

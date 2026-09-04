@@ -766,6 +766,40 @@ async function handleTemporaryEvent(userId, payload) {
   });
 }
 
+// Claim the whole reminder before scanning users, not just each recipient after
+// the scan. Shared by all staff devices, including older client builds.
+async function runTemporaryReminderOnce(eventKey, dispatch) {
+  const ref = db.collection('push_dispatches').doc(deliveryId(eventKey, 'event'));
+  const token = crypto.randomUUID();
+  const claim = await db.runTransaction(async (transaction) => {
+    const snapshot = await transaction.get(ref);
+    const data = snapshot.data() || {};
+    if (data.status === 'complete') return 'complete';
+    if (Number(data.retryAfterMillis || 0) > Date.now()) return 'busy';
+    transaction.set(ref, {
+      eventKey, token, status: 'processing',
+      retryAfterMillis: Date.now() + 5 * 60 * 1000,
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+    return 'claimed';
+  });
+  if (claim === 'complete') return [];
+  // Non-success lets the app retry later if the original process crashes.
+  if (claim === 'busy') throw new Error('Reminder dispatch in progress; retry later.');
+  // On failure retain the cooldown. Existing per-user delivery keys protect
+  // completed recipients when a later request retries the interrupted dispatch.
+  const results = await dispatch();
+  await db.runTransaction(async (transaction) => {
+    const snapshot = await transaction.get(ref);
+    if (snapshot.data()?.token === token) {
+      transaction.update(ref, {
+        status: 'complete', updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+    }
+  });
+  return results;
+}
+
 async function handleTemporarySpotReminder(userId, payload) {
   await requireStaff(userId);
 
@@ -789,72 +823,89 @@ async function handleTemporarySpotReminder(userId, payload) {
     return [];
   }
 
-  let recipientUserIds = cleanStringArray(payload.recipientUserIds).filter(
-    (recipientUserId) => recipientUserId !== userId,
-  );
-  if (!recipientUserIds.length) {
-    const usersSnapshot = await db.collection('users').limit(500).get();
-    recipientUserIds = usersSnapshot.docs
-      .map((doc) => doc.id)
-      .filter((recipientUserId) => recipientUserId !== userId);
-  }
+  return runTemporaryReminderOnce(
+    `temporary_spot_reminder:${spotId}:${startsAtMillis}`,
+    async () => {
+      let recipientUserIds = cleanStringArray(payload.recipientUserIds).filter(
+        (recipientUserId) => recipientUserId !== userId,
+      );
+      if (!recipientUserIds.length) {
+        const usersSnapshot = await db.collection('users').limit(500).get();
+        recipientUserIds = usersSnapshot.docs
+          .map((doc) => doc.id)
+          .filter((recipientUserId) => recipientUserId !== userId);
+      }
 
-  const spotName = cleanText(spot.name, 'Temporary spot');
-  const cityCountry = cleanText(spot.cityCountry);
-  const spotCountry = countryFromCityCountry(cityCountry);
-  const locationSuffix = cityCountry ? ` in ${cityCountry}` : '';
-  const title = 'Temporary spot starts in 5 hours';
-  const body = `${spotName} starts in about 5 hours${locationSuffix}.`;
-  const notificationBaseId = cleanText(
-    payload.notificationId,
-    `temporary_spot_reminder_${spotId}_${startsAtMillis}`,
-  );
+      const spotName = cleanText(spot.name, 'Temporary spot');
+      const cityCountry = cleanText(spot.cityCountry);
+      const spotCountry = countryFromCityCountry(cityCountry);
+      const locationSuffix = cityCountry ? ` in ${cityCountry}` : '';
+      const title = 'Temporary spot starts in 5 hours';
+      const body = `${spotName} starts in about 5 hours${locationSuffix}.`;
+      const notificationBaseId = `temporary_spot_reminder_${spotId}_${startsAtMillis}`;
 
-  return Promise.all(
-    recipientUserIds.map((recipientUserId) =>
-      sendPushToUser({
-        userId: recipientUserId,
-        settingName: 'newSpotNotifications',
-        spotCountry,
-        deliveryKey: `temporary_spot_reminder:${spotId}:${startsAtMillis}`,
-        notificationId: `${notificationBaseId}_${recipientUserId}`,
-        title,
-        body,
-        data: {
-          type: 'temporary_spot_today',
-          preferenceKey: 'newSpotNotifications',
-          spotId,
-          spotName,
-          cityCountry,
-          startsAtMillis,
-        },
-      }),
-    ),
+      const outcomes = await Promise.allSettled(
+        recipientUserIds.map((recipientUserId) =>
+          sendPushToUser({
+            userId: recipientUserId,
+            settingName: 'newSpotNotifications',
+            spotCountry,
+            deliveryKey: `temporary_spot_reminder:${spotId}:${startsAtMillis}`,
+            notificationId: `${notificationBaseId}_${recipientUserId}`,
+            title,
+            body,
+            data: {
+              type: 'temporary_spot_today',
+              preferenceKey: 'newSpotNotifications',
+              spotId,
+              spotName,
+              cityCountry,
+              startsAtMillis,
+            },
+          }),
+        ),
+      );
+      const failure = outcomes.find((outcome) => outcome.status === 'rejected');
+      if (failure) throw failure.reason;
+      return outcomes.map((outcome) => outcome.value);
+    },
   );
 }
 
 async function handleSpotPendingReview(userId, payload) {
   const spotId = cleanText(payload.spotId);
-  const recipientUserIds = cleanStringArray(payload.recipientUserIds).filter(
-    (recipientUserId) => recipientUserId !== userId,
-  );
+  if (!spotId) return [];
   const spotSnapshot = await db.collection('spots').doc(spotId).get();
 
-  if (!spotSnapshot.exists || !recipientUserIds.length) {
+  if (!spotSnapshot.exists) {
     return [];
   }
 
   const spot = spotSnapshot.data();
 
-  if (spot.status !== 'pending' || spot.addedByUid !== userId) {
+  const isEdited = spot.status === 'edited' && spot.editReviewStatus === 'pending';
+  if (
+    spot.addedByUid !== userId ||
+    (spot.status !== 'pending' && !isEdited) ||
+    (payload.reviewKind === 'edited' && !isEdited) ||
+    (isEdited && spot.editedByUid !== userId)
+  ) {
     return [];
   }
+
+  // Use the saved edit timestamp, never a caller-provided notification ID.
+  // Counters can update updatedAt independently, so editedAt identifies review.
+  const editRevision = isEdited ? timestampToMillis(spot.editedAt) : 0;
+  if (isEdited && !editRevision) return [];
+  const recipientUserIds = isEdited
+    ? await activeStaffUserIdsExcept(userId)
+    : cleanStringArray(payload.recipientUserIds).filter(id => id !== userId);
 
   const spotName = cleanText(spot.name, cleanText(payload.spotName, 'New spot'));
   const addedBy = cleanText(spot.addedBy, cleanText(payload.addedBy, 'driver'));
   const cityCountry = cleanText(spot.cityCountry, cleanText(payload.cityCountry));
   const spotCountryCode = countryKey(
-    cleanText(spot.countryCode, cleanText(payload.countryCode, countryFromCityCountry(cityCountry))),
+    cleanText(spot.countryCode, countryFromCityCountry(spot.cityCountry)),
   );
 
   return Promise.all(
@@ -865,7 +916,7 @@ async function handleSpotPendingReview(userId, payload) {
       if (
         !staffSnapshot.exists ||
         staff.deleted === true ||
-        staff.banned === true ||
+        userHasActiveBan(staff) ||
         !userCanModerateSpotCountry(staff, spotCountryCode)
       ) {
         return 0;
@@ -874,13 +925,23 @@ async function handleSpotPendingReview(userId, payload) {
       return sendPushToUser({
         userId: recipientUserId,
         settingName: 'reviewNotifications',
-        deliveryKey: `spot_pending_review:${spotId}:${recipientUserId}`,
-        notificationId: `admin_${spotId}_review_${recipientUserId}`,
+        deliveryKey: isEdited
+          ? `spot_edit_review:${spotId}:${editRevision}:${recipientUserId}`
+          : `spot_pending_review:${spotId}:${recipientUserId}`,
+        notificationId: isEdited
+          ? `admin_${spotId}_edit_${editRevision}_${recipientUserId}`
+          : `admin_${spotId}_review_${recipientUserId}`,
         notificationCollection: 'admin_notifications',
-        title: 'Spot review updates',
-        body: `${spotName} is waiting for review.`,
+        title: isEdited ? 'Spot edited — approval required' : 'Spot review updates',
+        body: isEdited
+          ? `@${addedBy} edited ${spotName}. Please review and approve it again.`
+          : `${spotName} is waiting for review.`,
         data: {
           type: 'spot_pending_review',
+          reviewKind: isEdited ? 'edited' : 'new',
+          status: spot.status,
+          editRevision,
+          preferenceKey: 'reviewNotifications',
           spotId,
           spotName,
           cityCountry,
