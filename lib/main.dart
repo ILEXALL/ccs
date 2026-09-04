@@ -55,6 +55,10 @@ const xpSyncUrls = <String>[
   '$telegramAuthBaseUrl/api/xp-sync',
   'https://ccs-telegram-auth-server.vercel.app/api/xp-sync',
 ];
+const xpLeaderboardUrls = <String>[
+  '$telegramAuthBaseUrl/api/xp-leaderboard',
+  'https://ccs-telegram-auth-server.vercel.app/api/xp-leaderboard',
+];
 const r2PresignUploadUrl =
     'https://ccs-telegram-auth-server.vercel.app/api/r2-presign-upload';
 const int maxSpotGalleryPhotos = 4;
@@ -1760,6 +1764,17 @@ const _ruText = <String, String>{
   'Level': 'Уровень',
   'History': 'История',
   'XP History': 'История XP',
+  'XP Leaderboard': 'Рейтинг XP',
+  'Top drivers': 'Лучшие водители',
+  'Top 100 drivers by XP': 'Топ-100 водителей по XP',
+  'View top drivers by XP': 'Посмотреть топ водителей по XP',
+  'No leaderboard yet': 'Рейтинга пока нет',
+  'Earn XP to appear in the Top 100.': 'Получайте XP, чтобы попасть в топ-100.',
+  'Could not load XP leaderboard.': 'Не удалось загрузить рейтинг XP.',
+  'This leaderboard shows public profiles only.':
+      'В рейтинге показываются только публичные профили.',
+  'Rank': 'Место',
+  'Weekly XP': 'XP за неделю',
   'Recent XP activity': 'Последние начисления XP',
   'No XP history yet': 'Истории XP пока нет',
   'Earn XP by completing your profile, garage, or approved spots.':
@@ -2742,6 +2757,17 @@ const _lvText = <String, String>{
   'Level': 'Līmenis',
   'History': 'Vēsture',
   'XP History': 'XP vēsture',
+  'XP Leaderboard': 'XP reitings',
+  'Top drivers': 'Labākie braucēji',
+  'Top 100 drivers by XP': 'Top 100 braucēji pēc XP',
+  'View top drivers by XP': 'Skatīt braucēju XP topu',
+  'No leaderboard yet': 'Reitinga vēl nav',
+  'Earn XP to appear in the Top 100.': 'Iegūstiet XP, lai nonāktu Top 100.',
+  'Could not load XP leaderboard.': 'Neizdevās ielādēt XP reitingu.',
+  'This leaderboard shows public profiles only.':
+      'Reitingā tiek rādīti tikai publiski profili.',
+  'Rank': 'Vieta',
+  'Weekly XP': 'Nedēļas XP',
   'Recent XP activity': 'Pēdējās XP aktivitātes',
   'No XP history yet': 'XP vēstures vēl nav',
   'Earn XP by completing your profile, garage, or approved spots.':
@@ -8188,6 +8214,68 @@ Future<void> syncXpWithServer(Map<String, Object?> body) async {
   if (lastStack != null) {
     debugPrint('$lastStack');
   }
+}
+
+Future<List<XpLeaderboardEntry>> loadXpLeaderboardEntries() async {
+  final firebaseUser = FirebaseAuth.instance.currentUser;
+
+  if (firebaseUser == null) {
+    throw FirebaseException(
+      plugin: 'firebase_auth',
+      code: 'not-logged-in',
+      message: 'Log in before opening XP leaderboard.',
+    );
+  }
+
+  final idToken = await firebaseUser.getIdToken();
+  if (idToken == null || idToken.trim().isEmpty) {
+    throw FirebaseException(
+      plugin: 'firebase_auth',
+      code: 'empty-id-token',
+      message: 'Could not verify this XP leaderboard request.',
+    );
+  }
+
+  Object? lastError;
+  StackTrace? lastStack;
+
+  for (final url in xpLeaderboardUrls) {
+    try {
+      final response = await postJsonToUrl(
+        url,
+        {'limit': 100},
+        headers: {HttpHeaders.authorizationHeader: 'Bearer $idToken'},
+      );
+      final result = mapFromFirebase(response['result']);
+      final rawEntries = result['entries'];
+
+      if (rawEntries is List) {
+        return rawEntries
+            .asMap()
+            .entries
+            .map((entry) {
+              return XpLeaderboardEntry.fromJson(
+                mapFromFirebase(entry.value),
+                fallbackRank: entry.key + 1,
+              );
+            })
+            .where((entry) => entry.userId.trim().isNotEmpty)
+            .toList();
+      }
+
+      throw Exception('Backend returned invalid XP leaderboard data.');
+    } catch (error, stack) {
+      lastError = error;
+      lastStack = stack;
+    }
+  }
+
+  debugPrint('XP leaderboard failed: $lastError');
+  if (lastStack != null) {
+    debugPrint('$lastStack');
+  }
+
+  throw Exception('Could not load XP leaderboard.');
 }
 
 Future<bool> currentUserHasCommunityModerationAccess() async {
@@ -44668,6 +44756,80 @@ class XpUserStats {
   }
 }
 
+class XpLeaderboardEntry {
+  final int rank;
+  final String userId;
+  final String username;
+  final String name;
+  final String photoUrl;
+  final String avatarPath;
+  final String city;
+  final String country;
+  final bool verified;
+  final int xpTotal;
+  final int weeklyXp;
+  final int level;
+
+  const XpLeaderboardEntry({
+    required this.rank,
+    required this.userId,
+    required this.username,
+    required this.name,
+    required this.photoUrl,
+    required this.avatarPath,
+    required this.city,
+    required this.country,
+    required this.verified,
+    required this.xpTotal,
+    required this.weeklyXp,
+    required this.level,
+  });
+
+  factory XpLeaderboardEntry.fromJson(
+    Map<String, dynamic> data, {
+    required int fallbackRank,
+  }) {
+    return XpLeaderboardEntry(
+      rank: math.max(1, intFromFirebase(data['rank'], fallbackRank)),
+      userId: stringFromFirebase(data['userId'], ''),
+      username: stringFromFirebase(data['username'], 'ccs_driver'),
+      name: stringFromFirebase(data['name'], ''),
+      photoUrl: stringFromFirebase(data['photoUrl'], ''),
+      avatarPath: stringFromFirebase(data['avatarPath'], ''),
+      city: stringFromFirebase(data['city'], ''),
+      country: stringFromFirebase(data['country'], ''),
+      verified: boolFromFirebase(data['verified'], false),
+      xpTotal: math.max(0, intFromFirebase(data['xpTotal'], 0)),
+      weeklyXp: math.max(0, intFromFirebase(data['weeklyXp'], 0)),
+      level: intFromFirebase(data['level'], 1).clamp(1, xpMaxLevel).toInt(),
+    );
+  }
+
+  String get displayName {
+    final handle = displayUsername(username);
+    if (handle.isNotEmpty) {
+      return handle;
+    }
+
+    return name.trim().isEmpty ? 'ccs_driver' : name.trim();
+  }
+
+  String get locationLabel {
+    final cleanCity = city.trim();
+    final cleanCountry = country.trim();
+
+    if (cleanCity.isEmpty) {
+      return cleanCountry;
+    }
+
+    if (cleanCountry.isEmpty) {
+      return cleanCity;
+    }
+
+    return '$cleanCity, $cleanCountry';
+  }
+}
+
 class XpTransactionData {
   final String id;
   final String userId;
@@ -45458,6 +45620,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
+  void openXpLeaderboard() {
+    Navigator.push(
+      context,
+      appPageRoute(builder: (_) => const XpLeaderboardScreen()),
+    );
+  }
+
   void openBlacklist() {
     Navigator.push(
       context,
@@ -45571,6 +45740,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
               ),
               const SizedBox(height: 12),
               XpSummaryCard(userId: currentUser.uid, onTap: openXpHistory),
+              const SizedBox(height: 12),
+              _ProfileActionTile(
+                icon: Icons.emoji_events_outlined,
+                title: 'XP Leaderboard',
+                subtitle: 'Top 100 drivers by XP',
+                onTap: openXpLeaderboard,
+              ),
               const SizedBox(height: 12),
               if (cars.isEmpty) ...[
                 _EmptyGarageCard(onAdd: addCar),
@@ -48772,6 +48948,294 @@ class _XpHistoryBadge extends StatelessWidget {
             fontSize: 10.5,
             fontWeight: FontWeight.w900,
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class XpLeaderboardScreen extends StatefulWidget {
+  const XpLeaderboardScreen({super.key});
+
+  @override
+  State<XpLeaderboardScreen> createState() => _XpLeaderboardScreenState();
+}
+
+class _XpLeaderboardScreenState extends State<XpLeaderboardScreen> {
+  late Future<List<XpLeaderboardEntry>> entriesFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    entriesFuture = loadXpLeaderboardEntries();
+  }
+
+  Future<void> refresh() async {
+    final nextFuture = loadXpLeaderboardEntries();
+    setState(() => entriesFuture = nextFuture);
+    await nextFuture;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.transparent,
+      appBar: AppBar(
+        title: const Text('XP Leaderboard'),
+        backgroundColor: Colors.transparent,
+        foregroundColor: blue,
+        actions: ccsAppBarActions(),
+      ),
+      body: FutureBuilder<List<XpLeaderboardEntry>>(
+        future: entriesFuture,
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting &&
+              !snapshot.hasData) {
+            return const Center(child: CircularProgressIndicator());
+          }
+
+          if (snapshot.hasError) {
+            return RefreshIndicator(
+              color: blue,
+              backgroundColor: panelGlass,
+              onRefresh: refresh,
+              child: ListView(
+                padding: const EdgeInsets.fromLTRB(16, 14, 16, 28),
+                children: const [
+                  EmptyStateCard(
+                    icon: Icons.warning_amber_rounded,
+                    title: 'Could not load XP leaderboard.',
+                    text: 'XP is being calculated',
+                  ),
+                ],
+              ),
+            );
+          }
+
+          final entries = snapshot.data ?? const <XpLeaderboardEntry>[];
+
+          if (entries.isEmpty) {
+            return RefreshIndicator(
+              color: blue,
+              backgroundColor: panelGlass,
+              onRefresh: refresh,
+              child: ListView(
+                padding: const EdgeInsets.fromLTRB(16, 14, 16, 28),
+                children: const [
+                  EmptyStateCard(
+                    icon: Icons.emoji_events_outlined,
+                    title: 'No leaderboard yet',
+                    text: 'Earn XP to appear in the Top 100.',
+                  ),
+                ],
+              ),
+            );
+          }
+
+          return RefreshIndicator(
+            color: blue,
+            backgroundColor: panelGlass,
+            onRefresh: refresh,
+            child: ListView(
+              padding: const EdgeInsets.fromLTRB(16, 14, 16, 28),
+              children: [
+                const Text(
+                  'Top drivers',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 24,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(height: 5),
+                const Text(
+                  'This leaderboard shows public profiles only.',
+                  style: TextStyle(
+                    color: Colors.white54,
+                    fontSize: 12.5,
+                    height: 1.35,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 14),
+                for (final entry in entries)
+                  XpLeaderboardTile(entry: entry),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+class XpLeaderboardTile extends StatelessWidget {
+  final XpLeaderboardEntry entry;
+
+  const XpLeaderboardTile({super.key, required this.entry});
+
+  Color get rankColor {
+    switch (entry.rank) {
+      case 1:
+        return const Color(0xFFFFC857);
+      case 2:
+        return const Color(0xFFC9D1D9);
+      case 3:
+        return const Color(0xFFCD7F32);
+    }
+
+    return blue;
+  }
+
+  Widget avatar() {
+    final imageUrl = isNetworkUrl(entry.photoUrl)
+        ? entry.photoUrl
+        : isNetworkUrl(entry.avatarPath)
+        ? entry.avatarPath
+        : '';
+    final initial = entry.displayName.trim().isEmpty
+        ? 'C'
+        : entry.displayName.trim()[0].toUpperCase();
+
+    Widget fallback() {
+      return Center(
+        child: Text(
+          initial,
+          style: const TextStyle(
+            color: blue,
+            fontSize: 18,
+            fontWeight: FontWeight.w900,
+          ),
+        ),
+      );
+    }
+
+    return Container(
+      width: 48,
+      height: 48,
+      decoration: BoxDecoration(
+        color: blue.withValues(alpha: 0.14),
+        shape: BoxShape.circle,
+        border: Border.all(color: blue.withValues(alpha: 0.36)),
+      ),
+      child: ClipOval(
+        child: imageUrl.isNotEmpty
+            ? Image.network(
+                imageUrl,
+                fit: BoxFit.cover,
+                errorBuilder: (_, _, _) => fallback(),
+              )
+            : fallback(),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: () => openUserProfile(
+        context,
+        uid: entry.userId,
+        fallbackUsername: entry.displayName,
+      ),
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 10),
+        padding: const EdgeInsets.all(13),
+        decoration: BoxDecoration(
+          color: panelGlass,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: Colors.white12),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              width: 34,
+              height: 48,
+              alignment: Alignment.center,
+              child: Text(
+                '#${entry.rank}',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: rankColor,
+                  fontSize: entry.rank <= 3 ? 15 : 13,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            avatar(),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Flexible(
+                        child: Text(
+                          entry.displayName,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 16,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                      ),
+                      if (entry.verified) ...[
+                        const SizedBox(width: 5),
+                        const Icon(
+                          Icons.verified_rounded,
+                          color: blue,
+                          size: 15,
+                        ),
+                      ],
+                    ],
+                  ),
+                  if (entry.locationLabel.isNotEmpty) ...[
+                    const SizedBox(height: 3),
+                    Text(
+                      entry.locationLabel,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Colors.white54,
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 6,
+                    children: [
+                      _XpHistoryBadge(
+                        label: '${trText('Level')} ${entry.level}',
+                        color: blue,
+                      ),
+                      _XpHistoryBadge(
+                        label:
+                            '${formatXpValue(entry.xpTotal)} ${trText('Total XP')}',
+                        color: Colors.white54,
+                      ),
+                      _XpHistoryBadge(
+                        label:
+                            '${formatXpValue(entry.weeklyXp)} ${trText('Weekly XP')}',
+                        color: Colors.white54,
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            const Icon(Icons.chevron_right, color: Colors.white38),
+          ],
         ),
       ),
     );
