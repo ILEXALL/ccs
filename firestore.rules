@@ -1318,18 +1318,45 @@ service cloud.firestore {
         || (isActiveUser() && resource.data.uid == currentUid());
     }
 
+    // Server-issued review sessions; phone clocks cannot extend ownership.
+    function spotReviewLocked(spotId) {
+      let path = /databases/$(database)/documents/spot_review_locks/$(spotId);
+      return exists(path) && get(path).data.expiresAt > request.time;
+    }
+
+    function spotReviewEditorAllowed(spotId) {
+      let path = /databases/$(database)/documents/spot_review_locks/$(spotId);
+      let token = request.resource.data.get('reviewSessionId', '');
+      return (token == '' && !spotReviewLocked(spotId))
+        || (spotReviewLocked(spotId)
+          && get(path).data.reviewerUid == currentUid()
+          && get(path).data.sessionId == token);
+    }
+
+    function spotReviewDecisionUnchanged() {
+      return request.resource.data.status == resource.data.status
+        && !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+          'reviewedBy', 'reviewedByUid', 'reviewedAt', 'rejectionReason', 'editReviewStatus'
+        ]);
+    }
+
+    match /spot_review_locks/{spotId} {
+      allow read, write: if false;
+    }
+
     match /spots/{spotId} {
       allow read: if canReadSpot();
       allow create: if isActiveUser()
         && regionalFeaturesAllowed()
         && validNewSpot();
-      allow update: if isAdmin()
-        || moderatorCanUpdateSpot()
-        || ownerCanEditSpot()
-        || businessOwnerCanEditSpot()
+      allow update: if ((isAdmin() || moderatorCanUpdateSpot())
+          && spotReviewDecisionUnchanged() && spotReviewEditorAllowed(spotId))
+        || (!spotReviewLocked(spotId) && (ownerCanEditSpot() || businessOwnerCanEditSpot()))
         || signedInUserCanRefreshSpotRating()
         || signedInUserCanUpdateSpotCounters();
-      allow delete: if isAdmin() || moderatorCanManageExistingSpot();
+      allow delete: if (isAdmin() || moderatorCanManageExistingSpot())
+        && (!spotReviewLocked(spotId)
+          || get(/databases/$(database)/documents/spot_review_locks/$(spotId)).data.reviewerUid == currentUid());
     }
 
     match /spot_reviews/{reviewId} {
