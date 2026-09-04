@@ -1340,6 +1340,61 @@ service cloud.firestore {
         ]);
     }
 
+    function spotReviewLockOwnerAllowed(spotId) {
+      let path = /databases/$(database)/documents/spot_review_locks/$(spotId);
+      return !spotReviewLocked(spotId)
+        || get(path).data.reviewerUid == currentUid();
+    }
+
+    function spotReviewDecisionUpdateAllowed(spotId) {
+      return spotReviewLockOwnerAllowed(spotId)
+        && resource.data.status in ['pending', 'edited']
+        && request.resource.data.status in ['approved', 'rejected']
+        && request.resource.data.reviewedByUid == currentUid()
+        && request.resource.data.reviewedBy is string
+        && request.resource.data.reviewedBy.size() <= 80
+        && request.resource.data.reviewedAt == request.time
+        && request.resource.data.updatedAt == request.time
+        && request.resource.data.rejectionReason is string
+        && request.resource.data.rejectionReason.size() <= 1000
+        && (
+          (
+            request.resource.data.status == 'approved'
+            && request.resource.data.rejectionReason == ''
+          )
+          || (
+            request.resource.data.status == 'rejected'
+            && request.resource.data.rejectionReason.size() >= 1
+          )
+        )
+        && (
+          (
+            request.resource.data.status == 'approved'
+            && request.resource.data.rating is number
+            && (
+              request.resource.data.rating == resource.data.get('rating', 0)
+              || (
+                resource.data.get('rating', 0) == 0
+                && request.resource.data.rating == 4.5
+              )
+            )
+          )
+          || (
+            request.resource.data.status == 'rejected'
+            && request.resource.data.rating == resource.data.get('rating', 0)
+          )
+        )
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'status',
+          'rating',
+          'reviewedBy',
+          'reviewedByUid',
+          'reviewedAt',
+          'rejectionReason',
+          'updatedAt'
+        ]);
+    }
+
     match /spot_review_locks/{spotId} {
       allow read, write: if false;
     }
@@ -1350,7 +1405,10 @@ service cloud.firestore {
         && regionalFeaturesAllowed()
         && validNewSpot();
       allow update: if ((isAdmin() || moderatorCanUpdateSpot())
-          && spotReviewDecisionUnchanged() && spotReviewEditorAllowed(spotId))
+          && (
+            spotReviewDecisionUpdateAllowed(spotId)
+            || (spotReviewDecisionUnchanged() && spotReviewEditorAllowed(spotId))
+          ))
         || (!spotReviewLocked(spotId) && (ownerCanEditSpot() || businessOwnerCanEditSpot()))
         || signedInUserCanRefreshSpotRating()
         || signedInUserCanUpdateSpotCounters();
