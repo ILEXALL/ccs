@@ -1770,11 +1770,16 @@ const _ruText = <String, String>{
   'History': 'История',
   'XP History': 'История XP',
   'XP Leaderboard': 'Рейтинг XP',
+  'All time': 'За всё время',
   'Top drivers': 'Лучшие водители',
+  'Top this week': 'Лучшие за неделю',
   'Top 100 drivers by XP': 'Топ-100 водителей по XP',
   'View top drivers by XP': 'Посмотреть топ водителей по XP',
   'No leaderboard yet': 'Рейтинга пока нет',
   'Earn XP to appear in the Top 100.': 'Получайте XP, чтобы попасть в топ-100.',
+  'No weekly leaderboard yet': 'Недельного рейтинга пока нет',
+  'Earn XP this week to appear in the weekly Top 100.':
+      'Получайте XP на этой неделе, чтобы попасть в недельный топ-100.',
   'Could not load XP leaderboard.': 'Не удалось загрузить рейтинг XP.',
   'This leaderboard shows public profiles only.':
       'В рейтинге показываются только публичные профили.',
@@ -2768,11 +2773,16 @@ const _lvText = <String, String>{
   'History': 'Vēsture',
   'XP History': 'XP vēsture',
   'XP Leaderboard': 'XP reitings',
+  'All time': 'Visu laiku',
   'Top drivers': 'Labākie braucēji',
+  'Top this week': 'Labākie šonedēļ',
   'Top 100 drivers by XP': 'Top 100 braucēji pēc XP',
   'View top drivers by XP': 'Skatīt braucēju XP topu',
   'No leaderboard yet': 'Reitinga vēl nav',
   'Earn XP to appear in the Top 100.': 'Iegūstiet XP, lai nonāktu Top 100.',
+  'No weekly leaderboard yet': 'Nedēļas reitinga vēl nav',
+  'Earn XP this week to appear in the weekly Top 100.':
+      'Iegūstiet XP šonedēļ, lai nonāktu nedēļas Top 100.',
   'Could not load XP leaderboard.': 'Neizdevās ielādēt XP reitingu.',
   'This leaderboard shows public profiles only.':
       'Reitingā tiek rādīti tikai publiski profili.',
@@ -8229,7 +8239,9 @@ Future<void> syncXpWithServer(Map<String, Object?> body) async {
   }
 }
 
-Future<List<XpLeaderboardEntry>> loadXpLeaderboardEntries() async {
+Future<List<XpLeaderboardEntry>> loadXpLeaderboardEntries({
+  XpLeaderboardPeriod period = XpLeaderboardPeriod.allTime,
+}) async {
   final firebaseUser = FirebaseAuth.instance.currentUser;
 
   if (firebaseUser == null) {
@@ -8256,7 +8268,10 @@ Future<List<XpLeaderboardEntry>> loadXpLeaderboardEntries() async {
     try {
       final response = await postJsonToUrl(
         url,
-        {'limit': 100},
+        {
+          'limit': 100,
+          'period': xpLeaderboardPeriodValue(period),
+        },
         headers: {HttpHeaders.authorizationHeader: 'Bearer $idToken'},
       );
       final result = mapFromFirebase(response['result']);
@@ -8289,6 +8304,44 @@ Future<List<XpLeaderboardEntry>> loadXpLeaderboardEntries() async {
   }
 
   throw Exception('Could not load XP leaderboard.');
+}
+
+enum XpLeaderboardPeriod { allTime, week }
+
+String xpLeaderboardPeriodValue(XpLeaderboardPeriod period) {
+  return switch (period) {
+    XpLeaderboardPeriod.allTime => 'all_time',
+    XpLeaderboardPeriod.week => 'weekly',
+  };
+}
+
+String xpLeaderboardPeriodLabel(XpLeaderboardPeriod period) {
+  return switch (period) {
+    XpLeaderboardPeriod.allTime => 'All time',
+    XpLeaderboardPeriod.week => 'This week',
+  };
+}
+
+String xpLeaderboardTitle(XpLeaderboardPeriod period) {
+  return switch (period) {
+    XpLeaderboardPeriod.allTime => 'Top drivers',
+    XpLeaderboardPeriod.week => 'Top this week',
+  };
+}
+
+String xpLeaderboardEmptyTitle(XpLeaderboardPeriod period) {
+  return switch (period) {
+    XpLeaderboardPeriod.allTime => 'No leaderboard yet',
+    XpLeaderboardPeriod.week => 'No weekly leaderboard yet',
+  };
+}
+
+String xpLeaderboardEmptyText(XpLeaderboardPeriod period) {
+  return switch (period) {
+    XpLeaderboardPeriod.allTime => 'Earn XP to appear in the Top 100.',
+    XpLeaderboardPeriod.week =>
+      'Earn XP this week to appear in the weekly Top 100.',
+  };
 }
 
 Future<bool> currentUserHasCommunityModerationAccess() async {
@@ -49113,18 +49166,35 @@ class XpLeaderboardScreen extends StatefulWidget {
 }
 
 class _XpLeaderboardScreenState extends State<XpLeaderboardScreen> {
+  XpLeaderboardPeriod selectedPeriod = XpLeaderboardPeriod.allTime;
   late Future<List<XpLeaderboardEntry>> entriesFuture;
 
   @override
   void initState() {
     super.initState();
-    entriesFuture = loadXpLeaderboardEntries();
+    entriesFuture = loadEntries();
+  }
+
+  Future<List<XpLeaderboardEntry>> loadEntries() {
+    return loadXpLeaderboardEntries(period: selectedPeriod);
   }
 
   Future<void> refresh() async {
-    final nextFuture = loadXpLeaderboardEntries();
+    final nextFuture = loadEntries();
     setState(() => entriesFuture = nextFuture);
     await nextFuture;
+  }
+
+  void selectPeriod(XpLeaderboardPeriod period) {
+    if (period == selectedPeriod) {
+      return;
+    }
+
+    final nextFuture = loadXpLeaderboardEntries(period: period);
+    setState(() {
+      selectedPeriod = period;
+      entriesFuture = nextFuture;
+    });
   }
 
   @override
@@ -49172,11 +49242,16 @@ class _XpLeaderboardScreenState extends State<XpLeaderboardScreen> {
               onRefresh: refresh,
               child: ListView(
                 padding: const EdgeInsets.fromLTRB(16, 14, 16, 28),
-                children: const [
+                children: [
+                  XpLeaderboardPeriodSelector(
+                    selectedPeriod: selectedPeriod,
+                    onChanged: selectPeriod,
+                  ),
+                  const SizedBox(height: 16),
                   EmptyStateCard(
                     icon: Icons.emoji_events_outlined,
-                    title: 'No leaderboard yet',
-                    text: 'Earn XP to appear in the Top 100.',
+                    title: xpLeaderboardEmptyTitle(selectedPeriod),
+                    text: xpLeaderboardEmptyText(selectedPeriod),
                   ),
                 ],
               ),
@@ -49190,8 +49265,13 @@ class _XpLeaderboardScreenState extends State<XpLeaderboardScreen> {
             child: ListView(
               padding: const EdgeInsets.fromLTRB(16, 14, 16, 28),
               children: [
-                const Text(
-                  'Top drivers',
+                XpLeaderboardPeriodSelector(
+                  selectedPeriod: selectedPeriod,
+                  onChanged: selectPeriod,
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  xpLeaderboardTitle(selectedPeriod),
                   style: TextStyle(
                     color: Colors.white,
                     fontSize: 24,
@@ -49210,7 +49290,7 @@ class _XpLeaderboardScreenState extends State<XpLeaderboardScreen> {
                 ),
                 const SizedBox(height: 14),
                 for (final entry in entries)
-                  XpLeaderboardTile(entry: entry),
+                  XpLeaderboardTile(entry: entry, period: selectedPeriod),
               ],
             ),
           );
@@ -49220,10 +49300,63 @@ class _XpLeaderboardScreenState extends State<XpLeaderboardScreen> {
   }
 }
 
+class XpLeaderboardPeriodSelector extends StatelessWidget {
+  final XpLeaderboardPeriod selectedPeriod;
+  final ValueChanged<XpLeaderboardPeriod> onChanged;
+
+  const XpLeaderboardPeriodSelector({
+    super.key,
+    required this.selectedPeriod,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return SegmentedButton<XpLeaderboardPeriod>(
+      segments: [
+        for (final period in XpLeaderboardPeriod.values)
+          ButtonSegment<XpLeaderboardPeriod>(
+            value: period,
+            icon: Icon(
+              period == XpLeaderboardPeriod.week
+                  ? Icons.calendar_month_outlined
+                  : Icons.emoji_events_outlined,
+            ),
+            label: Text(xpLeaderboardPeriodLabel(period)),
+          ),
+      ],
+      selected: {selectedPeriod},
+      onSelectionChanged: (value) => onChanged(value.first),
+      style: ButtonStyle(
+        foregroundColor: WidgetStateProperty.resolveWith(
+          (states) => states.contains(WidgetState.selected)
+              ? Colors.white
+              : Colors.white70,
+        ),
+        backgroundColor: WidgetStateProperty.resolveWith(
+          (states) => states.contains(WidgetState.selected) ? blue : panel,
+        ),
+        side: WidgetStateProperty.resolveWith(
+          (states) => BorderSide(
+            color: states.contains(WidgetState.selected)
+                ? blue
+                : Colors.white24,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class XpLeaderboardTile extends StatelessWidget {
   final XpLeaderboardEntry entry;
+  final XpLeaderboardPeriod period;
 
-  const XpLeaderboardTile({super.key, required this.entry});
+  const XpLeaderboardTile({
+    super.key,
+    required this.entry,
+    this.period = XpLeaderboardPeriod.allTime,
+  });
 
   Color get rankColor {
     switch (entry.rank) {
@@ -49369,16 +49502,29 @@ class XpLeaderboardTile extends StatelessWidget {
                         label: '${trText('Level')} ${entry.level}',
                         color: blue,
                       ),
-                      _XpHistoryBadge(
-                        label:
-                            '${formatXpValue(entry.xpTotal)} ${trText('Total XP')}',
-                        color: Colors.white54,
-                      ),
-                      _XpHistoryBadge(
-                        label:
-                            '${formatXpValue(entry.weeklyXp)} ${trText('Weekly XP')}',
-                        color: Colors.white54,
-                      ),
+                      if (period == XpLeaderboardPeriod.week) ...[
+                        _XpHistoryBadge(
+                          label:
+                              '${formatXpValue(entry.weeklyXp)} ${trText('Weekly XP')}',
+                          color: const Color(0xFFFFB300),
+                        ),
+                        _XpHistoryBadge(
+                          label:
+                              '${formatXpValue(entry.xpTotal)} ${trText('Total XP')}',
+                          color: Colors.white54,
+                        ),
+                      ] else ...[
+                        _XpHistoryBadge(
+                          label:
+                              '${formatXpValue(entry.xpTotal)} ${trText('Total XP')}',
+                          color: Colors.white54,
+                        ),
+                        _XpHistoryBadge(
+                          label:
+                              '${formatXpValue(entry.weeklyXp)} ${trText('Weekly XP')}',
+                          color: Colors.white54,
+                        ),
+                      ],
                     ],
                   ),
                 ],
