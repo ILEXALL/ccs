@@ -48571,8 +48571,8 @@ class XpHistoryScreen extends StatelessWidget {
           : StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
               stream: xpTransactionsCollection()
                   .where('userId', isEqualTo: cleanUserId)
-                  .orderBy('createdAt', descending: true)
-                  .limit(50)
+                  // Keep the first XP test build independent from Firestore composite indexes.
+                  .limit(100)
                   .debugSnapshots('profile: xp history listener'),
               builder: (context, snapshot) {
                 if (snapshot.connectionState == ConnectionState.waiting &&
@@ -48591,10 +48591,15 @@ class XpHistoryScreen extends StatelessWidget {
                   );
                 }
 
-                final transactions = snapshot.data?.docs
+                final transactions =
+                    snapshot.data?.docs
                         .map(XpTransactionData.fromFirestore)
                         .toList() ??
-                    const <XpTransactionData>[];
+                    <XpTransactionData>[];
+                transactions.sort(
+                  (first, second) =>
+                      second.createdAtMillis.compareTo(first.createdAtMillis),
+                );
 
                 if (transactions.isEmpty) {
                   return ListView(
