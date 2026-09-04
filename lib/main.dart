@@ -19039,12 +19039,32 @@ class CcsNotificationBell extends StatelessWidget {
   }
 }
 
-List<Widget> ccsAppBarActions() {
-  return const [
-    CcsLanguageSelector(),
-    SizedBox(width: 6),
-    CcsNotificationBell(),
-    SizedBox(width: 4),
+class CcsXpLeaderboardAction extends StatelessWidget {
+  const CcsXpLeaderboardAction({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return IconButton(
+      tooltip: trText('XP Leaderboard'),
+      onPressed: () {
+        Navigator.push(
+          context,
+          appPageRoute(builder: (_) => const XpLeaderboardScreen()),
+        );
+      },
+      icon: const Icon(Icons.emoji_events_outlined),
+    );
+  }
+}
+
+List<Widget> ccsAppBarActions({bool showXpLeaderboard = true}) {
+  return [
+    if (showXpLeaderboard) const CcsXpLeaderboardAction(),
+    if (showXpLeaderboard) const SizedBox(width: 2),
+    const CcsLanguageSelector(),
+    const SizedBox(width: 6),
+    const CcsNotificationBell(),
+    const SizedBox(width: 4),
   ];
 }
 
@@ -45620,13 +45640,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  void openXpLeaderboard() {
-    Navigator.push(
-      context,
-      appPageRoute(builder: (_) => const XpLeaderboardScreen()),
-    );
-  }
-
   void openBlacklist() {
     Navigator.push(
       context,
@@ -45740,13 +45753,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
               ),
               const SizedBox(height: 12),
               XpSummaryCard(userId: currentUser.uid, onTap: openXpHistory),
-              const SizedBox(height: 12),
-              _ProfileActionTile(
-                icon: Icons.emoji_events_outlined,
-                title: 'XP Leaderboard',
-                subtitle: 'Top 100 drivers by XP',
-                onTap: openXpLeaderboard,
-              ),
               const SizedBox(height: 12),
               if (cars.isEmpty) ...[
                 _EmptyGarageCard(onAdd: addCar),
@@ -48984,7 +48990,7 @@ class _XpLeaderboardScreenState extends State<XpLeaderboardScreen> {
         title: const Text('XP Leaderboard'),
         backgroundColor: Colors.transparent,
         foregroundColor: blue,
-        actions: ccsAppBarActions(),
+        actions: ccsAppBarActions(showXpLeaderboard: false),
       ),
       body: FutureBuilder<List<XpLeaderboardEntry>>(
         future: entriesFuture,
