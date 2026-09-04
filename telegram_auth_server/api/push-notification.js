@@ -394,6 +394,10 @@ function timestampMillis(value) {
   return value && typeof value.toMillis === 'function' ? value.toMillis() : 0;
 }
 
+function numberValue(value) {
+  return typeof value === 'number' && Number.isFinite(value) ? value : 0;
+}
+
 async function notificationCenterItems(userId) {
   const [notificationsSnapshot, newsSnapshot] = await Promise.all([
     db.collection('user_notifications').where('userId', '==', userId).get(),
@@ -410,6 +414,9 @@ async function notificationCenterItems(userId) {
       read: data.read === true,
       createdAtMillis: timestampMillis(data.createdAt),
       projectNews: false,
+      xpAmount: numberValue(data.xpAmount),
+      xpAction: cleanText(data.xpAction),
+      xpTransactionId: cleanText(data.xpTransactionId),
     };
   });
 

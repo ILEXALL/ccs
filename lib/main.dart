@@ -1747,6 +1747,11 @@ const _ruText = <String, String>{
   'Fresh approved locations nearby': 'Новые одобренные места поблизости',
   'Messages': 'Сообщения',
   'New direct and group messages': 'Новые личные и групповые сообщения',
+  'New direct, group and global chat messages':
+      'Новые личные, групповые и глобальные сообщения',
+  'XP rewards': 'XP-награды',
+  'When you receive XP': 'Когда вы получаете XP',
+  'XP reward': 'XP-награда',
   'Friends at spots': 'Друзья на спотах',
   'When friends stay near a spot for 5 minutes':
       'Когда друзья находятся возле спота 5 минут',
@@ -2740,6 +2745,11 @@ const _lvText = <String, String>{
   'Fresh approved locations nearby': 'Jaunas apstiprinātas vietas tuvumā',
   'Messages': 'Ziņas',
   'New direct and group messages': 'Jaunas privātās un grupu ziņas',
+  'New direct, group and global chat messages':
+      'Jaunas privātās, grupu un globālā čata ziņas',
+  'XP rewards': 'XP balvas',
+  'When you receive XP': 'Kad saņemat XP',
+  'XP reward': 'XP balva',
   'Friends at spots': 'Draugi pie vietām',
   'When friends stay near a spot for 5 minutes':
       'Kad draugi 5 minūtes atrodas pie vietas',
@@ -4879,6 +4889,7 @@ String notificationPreferenceKeyForRemoteMessage(RemoteMessage message) {
     'chat_message' ||
     'global_chat_message' ||
     'global_chat_admin' => 'newMessageNotifications',
+    'xp_reward' => 'xpNotifications',
     'new_spot' ||
     'temporary_event' ||
     'temporary_spot_today' => 'newSpotNotifications',
@@ -4896,6 +4907,7 @@ bool localNotificationPreferenceEnabled(String preferenceKey) {
     'commentNotifications' => settings.commentNotifications,
     'newSpotNotifications' => settings.newSpotNotifications,
     'newMessageNotifications' => settings.newMessageNotifications,
+    'xpNotifications' => settings.xpNotifications,
     'friendAtSpotNotifications' => settings.friendAtSpotNotifications,
     'friendLiveShareNotifications' => settings.friendLiveShareNotifications,
     _ => true,
@@ -7640,6 +7652,7 @@ Future<AppUser> saveFirebaseUser(
     'commentNotifications': settings.commentNotifications,
     'newSpotNotifications': settings.newSpotNotifications,
     'newMessageNotifications': settings.newMessageNotifications,
+    'xpNotifications': settings.xpNotifications,
     'friendAtSpotNotifications': settings.friendAtSpotNotifications,
     'friendLiveShareNotifications': settings.friendLiveShareNotifications,
     'publicProfile': settings.publicProfile,
@@ -8623,6 +8636,7 @@ class UserSettingsData {
   final bool commentNotifications;
   final bool newSpotNotifications;
   final bool newMessageNotifications;
+  final bool xpNotifications;
   final bool friendAtSpotNotifications;
   final bool friendLiveShareNotifications;
   final bool publicProfile;
@@ -8637,6 +8651,7 @@ class UserSettingsData {
     required this.commentNotifications,
     required this.newSpotNotifications,
     this.newMessageNotifications = true,
+    this.xpNotifications = true,
     this.friendAtSpotNotifications = true,
     this.friendLiveShareNotifications = true,
     required this.publicProfile,
@@ -8671,6 +8686,10 @@ class UserSettingsData {
         data['newMessageNotifications'],
         defaults.newMessageNotifications,
       ),
+      xpNotifications: boolFromFirebase(
+        data['xpNotifications'],
+        defaults.xpNotifications,
+      ),
       friendAtSpotNotifications: boolFromFirebase(
         data['friendAtSpotNotifications'],
         defaults.friendAtSpotNotifications,
@@ -8697,6 +8716,7 @@ class UserSettingsData {
       'commentNotifications': commentNotifications,
       'newSpotNotifications': newSpotNotifications,
       'newMessageNotifications': newMessageNotifications,
+      'xpNotifications': xpNotifications,
       'friendAtSpotNotifications': friendAtSpotNotifications,
       'friendLiveShareNotifications': friendLiveShareNotifications,
       'publicProfile': publicProfile,
@@ -8713,6 +8733,7 @@ class UserSettingsData {
     bool? commentNotifications,
     bool? newSpotNotifications,
     bool? newMessageNotifications,
+    bool? xpNotifications,
     bool? friendAtSpotNotifications,
     bool? friendLiveShareNotifications,
     bool? publicProfile,
@@ -8728,6 +8749,7 @@ class UserSettingsData {
       newSpotNotifications: newSpotNotifications ?? this.newSpotNotifications,
       newMessageNotifications:
           newMessageNotifications ?? this.newMessageNotifications,
+      xpNotifications: xpNotifications ?? this.xpNotifications,
       friendAtSpotNotifications:
           friendAtSpotNotifications ?? this.friendAtSpotNotifications,
       friendLiveShareNotifications:
@@ -8758,6 +8780,7 @@ Future<void> saveCurrentUserSettings(UserSettingsData settings) async {
     'commentNotifications': settings.commentNotifications,
     'newSpotNotifications': settings.newSpotNotifications,
     'newMessageNotifications': settings.newMessageNotifications,
+    'xpNotifications': settings.xpNotifications,
     'friendAtSpotNotifications': settings.friendAtSpotNotifications,
     'friendLiveShareNotifications': settings.friendLiveShareNotifications,
     'publicProfile': settings.publicProfile,
@@ -8776,6 +8799,7 @@ UserSettingsData defaultUserSettings() {
     commentNotifications: true,
     newSpotNotifications: true,
     newMessageNotifications: true,
+    xpNotifications: true,
     friendAtSpotNotifications: true,
     friendLiveShareNotifications: true,
     publicProfile: true,
@@ -17428,6 +17452,9 @@ class NotificationCenterItem {
   final double friendLng;
   final String status;
   final String rejectionReason;
+  final int xpAmount;
+  final String xpAction;
+  final String xpTransactionId;
 
   const NotificationCenterItem({
     required this.id,
@@ -17453,6 +17480,9 @@ class NotificationCenterItem {
     this.friendLng = 0,
     this.status = '',
     this.rejectionReason = '',
+    this.xpAmount = 0,
+    this.xpAction = '',
+    this.xpTransactionId = '',
   });
 
   NotificationCenterItem copyWith({
@@ -17480,6 +17510,9 @@ class NotificationCenterItem {
     double? friendLng,
     String? status,
     String? rejectionReason,
+    int? xpAmount,
+    String? xpAction,
+    String? xpTransactionId,
   }) {
     return NotificationCenterItem(
       id: id ?? this.id,
@@ -17505,6 +17538,9 @@ class NotificationCenterItem {
       friendLng: friendLng ?? this.friendLng,
       status: status ?? this.status,
       rejectionReason: rejectionReason ?? this.rejectionReason,
+      xpAmount: xpAmount ?? this.xpAmount,
+      xpAction: xpAction ?? this.xpAction,
+      xpTransactionId: xpTransactionId ?? this.xpTransactionId,
     );
   }
 
@@ -17527,6 +17563,7 @@ class NotificationCenterItem {
           type == 'friend_request' ||
           type == 'spot_pending_review' ||
           type == 'user_report_new' ||
+          type == 'xp_reward' ||
           type == 'friend_nearby' ||
           type == 'friend_at_spot' ||
           type == 'friend_live_sharing');
@@ -17601,6 +17638,7 @@ IconData notificationCenterIcon(NotificationCenterItem item) {
           : Icons.check_circle,
     'spot_pending_review' => Icons.fact_check,
     'global_chat_message' || 'global_chat_admin' => Icons.public,
+    'xp_reward' => Icons.emoji_events_outlined,
     'forum_reply' ||
     'forum_topic_pending' ||
     'forum_reply_admin' => Icons.forum_outlined,
@@ -17630,6 +17668,7 @@ Color notificationCenterColor(NotificationCenterItem item) {
   return switch (item.type) {
     'spot_like' => Colors.redAccent,
     'spot_comment' || 'chat_message' => blue,
+    'xp_reward' => const Color(0xFFFFB300),
     'spot_review_update' =>
       notificationCenterItemIsRejected(item) ? Colors.redAccent : Colors.green,
     'spot_rejected_by_admin' => Colors.redAccent,
@@ -17692,11 +17731,24 @@ String notificationCenterDisplayTitle(NotificationCenterItem item) {
     return chatNotificationTitle(item.actorUsername);
   }
 
+  if (item.type == 'xp_reward') {
+    return 'XP reward';
+  }
+
   return item.title;
 }
 
 String notificationCenterDisplayBody(NotificationCenterItem item) {
   final body = item.body.trim();
+  if (item.type == 'xp_reward') {
+    final amount = item.xpAmount > 0 ? item.xpAmount : 0;
+    final amountLabel = amount > 0 ? '+${formatXpValue(amount)} XP' : 'XP';
+    final actionLabel = trText(xpTransactionActionLabel(item.xpAction)).trim();
+    return actionLabel.isEmpty || actionLabel == 'XP'
+        ? amountLabel
+        : '$amountLabel - $actionLabel';
+  }
+
   if (item.type != 'chat_message') {
     if (notificationCenterItemIsRejected(item) &&
         item.rejectionReason.trim().isNotEmpty &&
@@ -17826,6 +17878,18 @@ NotificationCenterItem notificationCenterItemFromJson(Object? value) {
     return 0;
   }
 
+  int pickInt(String key) {
+    final topLevel = data[key];
+    if (topLevel is num) {
+      return topLevel.round();
+    }
+    final nested = payload[key];
+    if (nested is num) {
+      return nested.round();
+    }
+    return 0;
+  }
+
   double pickDouble(String key) {
     final topLevel = data[key];
     if (topLevel is num) {
@@ -17902,6 +17966,9 @@ NotificationCenterItem notificationCenterItemFromJson(Object? value) {
     friendLng: pickDouble('friendLng'),
     status: status,
     rejectionReason: rejectionReason,
+    xpAmount: pickInt('xpAmount'),
+    xpAction: pickString('xpAction', ''),
+    xpTransactionId: pickString('xpTransactionId', ''),
   );
 }
 
@@ -17928,6 +17995,18 @@ NotificationCenterItem notificationCenterItemFromDocument(
     final nested = payload[key];
     if (nested is num) {
       return nested.toDouble();
+    }
+    return 0;
+  }
+
+  int pickInt(String key) {
+    final topLevel = data[key];
+    if (topLevel is num) {
+      return topLevel.round();
+    }
+    final nested = payload[key];
+    if (nested is num) {
+      return nested.round();
     }
     return 0;
   }
@@ -17968,6 +18047,7 @@ NotificationCenterItem notificationCenterItemFromDocument(
     'friend_nearby' ||
     'friend_at_spot' ||
     'friend_live_sharing' => 'Live location',
+    'xp_reward' => 'XP reward',
     'project_news' => 'Project news',
     _ => stringFromFirebase(data['title'], 'CCS'),
   };
@@ -18045,6 +18125,7 @@ NotificationCenterItem notificationCenterItemFromDocument(
         friendUsername.trim().isEmpty
             ? 'A friend is sharing live location.'
             : '@$friendUsername is sharing live location.',
+      'xp_reward' => 'XP reward',
       _ => pickString('message', ''),
     };
   }
@@ -18096,6 +18177,9 @@ NotificationCenterItem notificationCenterItemFromDocument(
     friendLng: pickDouble('friendLng'),
     status: status,
     rejectionReason: rejectionReason,
+    xpAmount: pickInt('xpAmount'),
+    xpAction: pickString('xpAction', ''),
+    xpTransactionId: pickString('xpTransactionId', ''),
   );
 }
 
@@ -18681,6 +18765,10 @@ Future<List<NotificationCenterItem>> loadNotificationCenterItems() async {
     'friend location notifications',
   );
 
+  if (!userSettings.value.xpNotifications) {
+    items.removeWhere((item) => item.type == 'xp_reward');
+  }
+
   final uniqueItemsById = <String, NotificationCenterItem>{};
   final uniqueItemsWithoutId = <NotificationCenterItem>[];
   for (final item in items) {
@@ -19092,10 +19180,14 @@ class CcsXpLeaderboardAction extends StatelessWidget {
   }
 }
 
-List<Widget> ccsAppBarActions({bool showXpLeaderboard = true}) {
+List<Widget> ccsAppBarActions({
+  bool showXpLeaderboard = true,
+  List<Widget> afterXpActions = const <Widget>[],
+}) {
   return [
     if (showXpLeaderboard) const CcsXpLeaderboardAction(),
     if (showXpLeaderboard) const SizedBox(width: 2),
+    ...afterXpActions,
     const CcsLanguageSelector(),
     const SizedBox(width: 6),
     const CcsNotificationBell(),
@@ -19299,6 +19391,21 @@ Future<void> openNotificationCenterItem(
 ) async {
   if (item.reference != null) {
     unawaited(markNotificationReadBestEffort(item.reference!));
+  }
+
+  if (item.type == 'xp_reward') {
+    final currentUid =
+        FirebaseAuth.instance.currentUser?.uid.trim() ?? currentUser.uid.trim();
+    final cleanUserId = item.userId.trim().isNotEmpty
+        ? item.userId.trim()
+        : currentUid;
+    if (cleanUserId.isNotEmpty && canReadXpStatsForUser(cleanUserId)) {
+      Navigator.push(
+        context,
+        appPageRoute(builder: (_) => XpHistoryScreen(userId: cleanUserId)),
+      );
+    }
+    return;
   }
 
   if (item.type == 'global_chat_message' || item.type == 'global_chat_admin') {
@@ -21993,14 +22100,15 @@ class _ExploreScreenState extends State<ExploreScreen> {
             title: const CcsAppBarLogo(),
             backgroundColor: Colors.transparent,
             foregroundColor: blue,
-            actions: [
-              IconButton(
-                onPressed: showExploreCategoryFilterSheet,
-                tooltip: trText('Spot filters'),
-                icon: const Icon(Icons.tune),
-              ),
-              ...ccsAppBarActions(),
-            ],
+            actions: ccsAppBarActions(
+              afterXpActions: [
+                IconButton(
+                  onPressed: showExploreCategoryFilterSheet,
+                  tooltip: trText('Spot filters'),
+                  icon: const Icon(Icons.tune),
+                ),
+              ],
+            ),
           ),
           body: MediaQuery.removeViewInsets(
             context: context,
@@ -45403,12 +45511,14 @@ Future<void> saveSettingsToFirebase(UserSettingsData settings) async {
     'commentNotifications': settings.commentNotifications,
     'newSpotNotifications': settings.newSpotNotifications,
     'newMessageNotifications': settings.newMessageNotifications,
+    'xpNotifications': settings.xpNotifications,
     'friendAtSpotNotifications': settings.friendAtSpotNotifications,
     'friendLiveShareNotifications': settings.friendLiveShareNotifications,
     'publicProfile': settings.publicProfile,
     'showGarage': settings.showGarage,
   });
 
+  scheduleNotificationCenterUnreadRefresh();
   unawaited(syncXpWithServer({'action': 'sync_me'}));
 }
 
@@ -51071,6 +51181,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   late bool commentNotifications;
   late bool newSpotNotifications;
   late bool newMessageNotifications;
+  late bool xpNotifications;
   late bool friendAtSpotNotifications;
   late bool friendLiveShareNotifications;
   late bool publicProfile;
@@ -51089,6 +51200,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     commentNotifications = settings.commentNotifications;
     newSpotNotifications = settings.newSpotNotifications;
     newMessageNotifications = settings.newMessageNotifications;
+    xpNotifications = settings.xpNotifications;
     friendAtSpotNotifications = settings.friendAtSpotNotifications;
     friendLiveShareNotifications = settings.friendLiveShareNotifications;
     publicProfile = settings.publicProfile;
@@ -51113,6 +51225,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       commentNotifications: commentNotifications,
       newSpotNotifications: newSpotNotifications,
       newMessageNotifications: newMessageNotifications,
+      xpNotifications: xpNotifications,
       friendAtSpotNotifications: friendAtSpotNotifications,
       friendLiveShareNotifications: friendLiveShareNotifications,
       publicProfile: publicProfile,
@@ -51235,6 +51348,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 value: newMessageNotifications,
                 onChanged: (value) =>
                     updateSettingsSwitch(() => newMessageNotifications = value),
+              ),
+              _SettingsSwitchTile(
+                icon: Icons.emoji_events_outlined,
+                title: 'XP rewards',
+                subtitle: 'When you receive XP',
+                value: xpNotifications,
+                onChanged: (value) =>
+                    updateSettingsSwitch(() => xpNotifications = value),
               ),
               _SettingsSwitchTile(
                 icon: Icons.place,
@@ -52323,6 +52444,9 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
           commentNotifications: false,
           newSpotNotifications: false,
           newMessageNotifications: false,
+          xpNotifications: false,
+          friendAtSpotNotifications: false,
+          friendLiveShareNotifications: false,
           publicProfile: false,
           showGarage: false,
         ).toFirebase(),

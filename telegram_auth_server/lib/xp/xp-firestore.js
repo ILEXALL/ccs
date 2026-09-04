@@ -151,6 +151,21 @@ async function awardXp(input, options = {}) {
       }),
     );
 
+    if (
+      appliedAmount > 0 &&
+      notificationPreferenceEnabled(user, 'xpNotifications')
+    ) {
+      const notificationRef = db
+        .collection('user_notifications')
+        .doc(`xp_${transactionId}`);
+
+      transaction.set(
+        notificationRef,
+        xpNotificationData(normalized, transactionId, appliedAmount, weekKey),
+        { merge: true },
+      );
+    }
+
     transaction.set(
       weekRef,
       {
@@ -259,6 +274,42 @@ function xpConfigFromDocument(data) {
 function userEnabledForXp(userId, config) {
   const enabledUserIds = config.enabledUserIds || [];
   return enabledUserIds.includes('*') || enabledUserIds.includes(userId);
+}
+
+function notificationPreferenceEnabled(user, preferenceKey) {
+  if (!user || typeof user !== 'object') {
+    return true;
+  }
+
+  if (typeof user[preferenceKey] === 'boolean') {
+    return user[preferenceKey];
+  }
+
+  const settings =
+    user.settings && typeof user.settings === 'object' ? user.settings : {};
+  if (typeof settings[preferenceKey] === 'boolean') {
+    return settings[preferenceKey];
+  }
+
+  return true;
+}
+
+function xpNotificationData(input, transactionId, amount, weekKey) {
+  return {
+    userId: input.userId,
+    type: 'xp_reward',
+    title: 'XP reward',
+    body: `+${amount} XP`,
+    xpTransactionId: transactionId,
+    xpAction: input.action,
+    xpObjectType: input.objectType,
+    xpObjectId: input.objectId,
+    xpAmount: amount,
+    weekKey,
+    read: false,
+    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    createdAtMillis: Date.now(),
+  };
 }
 
 function transactionData(input, transactionId, uniqueKey, weekKey, result) {

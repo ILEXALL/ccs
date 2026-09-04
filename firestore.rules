@@ -301,6 +301,7 @@ service cloud.firestore {
         'commentNotifications',
         'newSpotNotifications',
         'newMessageNotifications',
+        'xpNotifications',
         'friendAtSpotNotifications',
         'friendLiveShareNotifications',
         'publicProfile',
