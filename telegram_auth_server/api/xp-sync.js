@@ -1,6 +1,7 @@
 const { admin, db } = require('../lib/firebase-admin');
 const {
   awardManyXp,
+  settlePendingXp,
   ensureXpConfig,
   evaluateFirstCarXp,
   evaluatePermanentSpotApprovalXp,
@@ -63,7 +64,7 @@ async function syncCurrentUser(actor) {
     ...evaluateFirstCarXp(actor.uid, user),
   ];
 
-  return awardManyXp(awards);
+  return [...await settlePendingXp(actor.uid), ...await awardManyXp(awards)];
 }
 
 async function syncUser(actor, body) {
@@ -87,7 +88,7 @@ async function syncUser(actor, body) {
     ...evaluateFirstCarXp(userId, user),
   ];
 
-  return awardManyXp(awards);
+  return [...await settlePendingXp(userId), ...await awardManyXp(awards)];
 }
 
 async function syncSpot(actor, body) {

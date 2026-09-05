@@ -60,7 +60,7 @@ async function actorContext(req) {
   const userSnapshot = await db.collection('users').doc(token.uid).get();
   const user = userSnapshot.data() || {};
 
-  if (!isActiveUser(user)) {
+  if (!userSnapshot.exists || !isActiveUser(user)) {
     return null;
   }
 
@@ -93,9 +93,7 @@ function publicEntry(rank, userId, stats, user, weeklyXpOverride) {
   };
 }
 
-async function currentXpWeekKey() {
-  const configSnapshot = await db.collection('app_config').doc('xp').get();
-  const config = configSnapshot.data() || {};
+function currentXpWeekKey(config) {
   const timeZone = cleanString(
     config.timezone,
     cleanString(config.timeZone, 'Europe/Riga'),
@@ -162,34 +160,31 @@ async function loadAllTimeLeaderboard(limit) {
   return entries;
 }
 
-async function loadWeeklyLeaderboard(limit) {
-  const weekKey = await currentXpWeekKey();
-  const [weekKeySnapshot, legacyWeekSnapshot] = await Promise.all([
-    db
-      .collection('xp_user_weeks')
-      .where('weekKey', '==', weekKey)
-      .limit(WEEK_FETCH_LIMIT)
-      .get(),
-    db
-      .collection('xp_user_weeks')
-      .where('weeklyXpWeek', '==', weekKey)
-      .limit(WEEK_FETCH_LIMIT)
-      .get(),
-  ]);
-
+async function loadWeeklyLeaderboard(limit, weekKey) {
   const weeksByUserId = new Map();
-  for (const doc of [...weekKeySnapshot.docs, ...legacyWeekSnapshot.docs]) {
-    const data = doc.data() || {};
-    const userId = userIdFromWeekDoc(doc, data);
-    const weeklyXp = xpFromWeekDoc(data);
-    const existing = weeksByUserId.get(userId);
+  // Traverse both schemas fully before ranking; a page boundary is not an XP cutoff.
+  for (const field of ['weekKey', 'weeklyXpWeek']) {
+    const baseQuery = db.collection('xp_user_weeks')
+      .where(field, '==', weekKey).limit(WEEK_FETCH_LIMIT);
+    let cursor;
+    while (true) {
+      const page = await (cursor ? baseQuery.startAfter(cursor) : baseQuery).get();
+      for (const doc of page.docs) {
+        const data = doc.data() || {};
+        const userId = userIdFromWeekDoc(doc, data);
+        const weeklyXp = xpFromWeekDoc(data);
+        const existing = weeksByUserId.get(userId);
 
-    if (!userId || weeklyXp <= 0) {
-      continue;
-    }
+        if (!userId || weeklyXp <= 0) {
+          continue;
+        }
 
-    if (!existing || weeklyXp > existing.weeklyXp) {
-      weeksByUserId.set(userId, { userId, weeklyXp });
+        if (!existing || weeklyXp > existing.weeklyXp) {
+          weeksByUserId.set(userId, { userId, weeklyXp });
+        }
+      }
+      if (page.docs.length < WEEK_FETCH_LIMIT) break;
+      cursor = page.docs[page.docs.length - 1];
     }
   }
 
@@ -199,63 +194,59 @@ async function loadWeeklyLeaderboard(limit) {
         return second.weeklyXp - first.weeklyXp;
       }
       return first.userId.localeCompare(second.userId);
-    })
-    .slice(0, STATS_FETCH_LIMIT);
-
-  const [statsSnapshots, userSnapshots] = await Promise.all([
-    Promise.all(
-      weeks.map((week) => {
-        return db.collection('xp_user_stats').doc(week.userId).get();
-      }),
-    ),
-    Promise.all(
-      weeks.map((week) => {
-        return db.collection('users').doc(week.userId).get();
-      }),
-    ),
-  ]);
+    });
 
   const entries = [];
+  for (let offset = 0; offset < weeks.length && entries.length < limit; offset += MAX_LIMIT) {
+    const batch = weeks.slice(offset, offset + MAX_LIMIT);
+    const [statsSnapshots, userSnapshots] = await Promise.all([
+      Promise.all(batch.map((week) =>
+        db.collection('xp_user_stats').doc(week.userId).get())),
+      Promise.all(batch.map((week) =>
+        db.collection('users').doc(week.userId).get())),
+    ]);
 
-  for (let index = 0; index < weeks.length; index += 1) {
-    const week = weeks[index];
-    const userId = week.userId;
-    const weeklyXp = week.weeklyXp;
-    const userSnapshot = userSnapshots[index];
-    const statsSnapshot = statsSnapshots[index];
+    for (let index = 0; index < batch.length; index += 1) {
+      const week = batch[index];
+      const userId = week.userId;
+      const weeklyXp = week.weeklyXp;
+      const userSnapshot = userSnapshots[index];
+      const statsSnapshot = statsSnapshots[index];
 
-    if (!userId || weeklyXp <= 0 || !userSnapshot.exists) {
-      continue;
-    }
+      if (!userId || weeklyXp <= 0 || !userSnapshot.exists) {
+        continue;
+      }
 
-    const user = userSnapshot.data() || {};
-    const stats = statsSnapshot.exists ? statsSnapshot.data() || {} : {};
-    if (
-      !isActiveUser(user) ||
-      !publicProfileEnabled(user) ||
-      stats.xpBlocked === true
-    ) {
-      continue;
-    }
+      const user = userSnapshot.data() || {};
+      const stats = statsSnapshot.exists ? statsSnapshot.data() || {} : {};
+      if (
+        !isActiveUser(user) ||
+        !publicProfileEnabled(user) ||
+        stats.xpBlocked === true
+      ) {
+        continue;
+      }
 
-    entries.push(publicEntry(entries.length + 1, userId, stats, user, weeklyXp));
+      entries.push(publicEntry(entries.length + 1, userId, stats, user, weeklyXp));
 
-    if (entries.length >= limit) {
-      break;
+      if (entries.length >= limit) {
+        break;
+      }
     }
   }
 
   return { entries, weekKey };
 }
 
-async function loadLeaderboard(limit, period) {
+async function loadLeaderboard(limit, period, config) {
+  const weekKey = currentXpWeekKey(config);
   if (period === 'weekly') {
-    return loadWeeklyLeaderboard(limit);
+    return loadWeeklyLeaderboard(limit, weekKey);
   }
 
   return {
     entries: await loadAllTimeLeaderboard(limit),
-    weekKey: await currentXpWeekKey(),
+    weekKey,
   };
 }
 
@@ -272,9 +263,19 @@ module.exports = async function handler(req, res) {
       return res.status(401).json({ ok: false, error: 'Unauthorized' });
     }
 
+    const configSnapshot = await db.collection('app_config').doc('xp').get();
+    const config = configSnapshot.data() || {};
+    const enabledUserIds = Array.isArray(config.enabledUserIds)
+      ? config.enabledUserIds.filter((id) => typeof id === 'string').map((id) => id.trim())
+      : [];
+    if (config.levels_enabled !== true ||
+        (!enabledUserIds.includes('*') && !enabledUserIds.includes(actor.uid))) {
+      return res.status(403).json({ ok: false, error: 'XP_NOT_ENABLED' });
+    }
+
     const body = req.body || {};
     const period = periodFromBody(body);
-    const leaderboard = await loadLeaderboard(limitFromBody(body), period);
+    const leaderboard = await loadLeaderboard(limitFromBody(body), period, config);
 
     return res.status(200).json({
       ok: true,

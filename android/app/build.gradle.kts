@@ -1,10 +1,15 @@
 plugins {
     id("com.android.application")
     // START: FlutterFire Configuration
-    id("com.google.gms.google-services")
+    id("com.google.gms.google-services") apply false
     // END: FlutterFire Configuration
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
+}
+
+val ccsUiSandbox = System.getenv("CCS_UI_SANDBOX") == "1"
+if (!ccsUiSandbox) {
+    apply(plugin = "com.google.gms.google-services")
 }
 
 android {
@@ -24,7 +29,7 @@ android {
 
     defaultConfig {
         // TODO: Specify your own unique Application ID before publishing.
-        applicationId = "com.example.ccs_app"
+        applicationId = if (ccsUiSandbox) "com.example.ccs_app.uitest" else "com.example.ccs_app"
 
         minSdk = flutter.minSdkVersion
 

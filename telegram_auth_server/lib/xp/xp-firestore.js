@@ -10,7 +10,8 @@ const {
 } = require('./xp-engine');
 
 async function awardXp(input, options = {}) {
-  const normalized = normalizeAwardInput(input);
+  const normalizedInput = normalizeAwardInput(input);
+  const normalized = normalizedInput;
   const transactionId = buildXpTransactionId(normalized);
   const uniqueKey = buildXpUniqueKey(normalized);
   const transactionRef = db.collection('xp_transactions').doc(transactionId);
@@ -19,6 +20,7 @@ async function awardXp(input, options = {}) {
   const configRef = db.collection('app_config').doc('xp');
 
   return db.runTransaction(async (transaction) => {
+    let normalized = normalizedInput;
     const configSnapshot = await transaction.get(configRef);
     const config = xpConfigFromDocument(configSnapshot.data());
     const weekKey = weekKeyFor(options.now || new Date(), config.timeZone);
@@ -33,7 +35,10 @@ async function awardXp(input, options = {}) {
       transaction.get(weekRef),
     ]);
 
-    if (existingSnapshot.exists) {
+    const existing = existingSnapshot.data() || {};
+    const resumePending = existingSnapshot.exists &&
+      existing.status === 'pending' && existing.reason === 'WEEKLY_LIMIT_REACHED';
+    if (existingSnapshot.exists && !resumePending) {
       const existing = existingSnapshot.data() || {};
       return {
         transactionId,
@@ -57,6 +62,12 @@ async function awardXp(input, options = {}) {
       );
     }
 
+    // Resume the server-stored entitlement, not new client/source values.
+    if (resumePending) {
+      normalized = normalizeAwardInput({ ...existing, amount: existing.requestedAmount,
+        status: 'confirmed' });
+    }
+
     if (!userEnabledForXp(normalized.userId, config)) {
       return blockedResult(
         normalized,
@@ -70,10 +81,20 @@ async function awardXp(input, options = {}) {
       return blockedResult(normalized, transactionId, weekKey, 'USER_NOT_FOUND');
     }
 
+    if (resumePending && normalized.objectType === 'spot') {
+      const source = await transaction.get(db.collection('spots').doc(normalized.objectId));
+      const spot = source.data() || {};
+      const ownerId = stringValue(spot.addedByUid) || stringValue(spot.ownerUid);
+      if (!source.exists || spot.status !== 'approved' || spot.isTemporary === true ||
+          ownerId !== normalized.userId) {
+        return blockedResult(normalized, transactionId, weekKey, 'SPOT_NO_LONGER_ELIGIBLE');
+      }
+    }
+
     const user = userSnapshot.data() || {};
     const stats = statsSnapshot.data() || {};
     if (user.deleted === true || user.banned === true || user.xpBlocked === true) {
-      transaction.create(
+      transaction.set(
         transactionRef,
         transactionData(normalized, transactionId, uniqueKey, weekKey, {
           status: 'blocked',
@@ -115,6 +136,16 @@ async function awardXp(input, options = {}) {
     const currentWeekXp = numberValue(week.confirmedXp);
     const remainingWeeklyXp = Math.max(0, config.weeklyLimit - currentWeekXp);
 
+    if (isOneTimeAward(normalized) && remainingWeeklyXp < normalized.amount) {
+      if (!resumePending) transaction.create(transactionRef,
+        transactionData(normalized, transactionId, uniqueKey, weekKey, {
+          status: 'pending', amount: normalized.amount, reason: 'WEEKLY_LIMIT_REACHED',
+        }));
+      return { transactionId, userId: normalized.userId, awarded: false,
+        duplicate: resumePending, status: 'pending', amount: normalized.amount,
+        requestedAmount: normalized.amount, weekKey, reason: 'WEEKLY_LIMIT_REACHED' };
+    }
+
     if (remainingWeeklyXp <= 0) {
       transaction.create(
         transactionRef,
@@ -142,12 +173,13 @@ async function awardXp(input, options = {}) {
     const partialReason =
       appliedAmount < normalized.amount ? 'WEEKLY_LIMIT_PARTIAL' : undefined;
 
-    transaction.create(
+    transaction.set(
       transactionRef,
       transactionData(normalized, transactionId, uniqueKey, weekKey, {
         status: 'confirmed',
         amount: appliedAmount,
         reason: partialReason,
+        createdAt: resumePending ? existing.createdAt : undefined,
       }),
     );
 
@@ -271,6 +303,29 @@ function xpConfigFromDocument(data) {
   };
 }
 
+function isOneTimeAward(input) {
+  return [
+    'profile.avatar', 'profile.bio', 'profile.city', 'profile.social', 'profile.full',
+    'garage.first_car', 'garage.first_car_photo', 'garage.first_car_description',
+    'garage.first_car_gallery', 'garage.first_car_full',
+    'spot.approved', 'spot.description', 'spot.photo', 'spot.media_bundle',
+  ].includes(input.action);
+}
+
+async function settlePendingXp(userId, options = {}) {
+  const snapshot = await db.collection('xp_transactions')
+    .where('userId', '==', userId).where('status', '==', 'pending')
+    .limit(100).get();
+  const results = [];
+  for (const document of snapshot.docs) {
+    const data = document.data();
+    if (data.reason !== 'WEEKLY_LIMIT_REACHED' || !isOneTimeAward(data)) continue;
+    results.push(await awardXp({ ...data, amount: data.requestedAmount,
+      status: 'confirmed' }, options));
+  }
+  return results;
+}
+
 function userEnabledForXp(userId, config) {
   const enabledUserIds = config.enabledUserIds || [];
   return enabledUserIds.includes('*') || enabledUserIds.includes(userId);
@@ -328,7 +383,7 @@ function transactionData(input, transactionId, uniqueKey, weekKey, result) {
     reason: result.reason || null,
     rulesVersion: XP_RULES_VERSION,
     metadata: input.metadata || {},
-    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    createdAt: result.createdAt || admin.firestore.FieldValue.serverTimestamp(),
     confirmedAt:
       result.status === 'confirmed'
         ? admin.firestore.FieldValue.serverTimestamp()
@@ -388,6 +443,7 @@ function stringArray(value, limit = 500) {
 module.exports = {
   awardXp,
   awardManyXp,
+  settlePendingXp,
   ensureXpConfig,
   xpConfigFromDocument,
 };
