@@ -77,7 +77,6 @@ async function spotReviewAction({ actor, body }) {
     }
     transaction.update(spotRef, {
       status, rejectionReason: reason,
-      rating: status === 'approved' && !spot.rating ? 4.5 : (spot.rating || 0),
       reviewedBy: text(user.username), reviewedByUid: actor.uid,
       reviewedAt: admin.firestore.FieldValue.serverTimestamp(),
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),

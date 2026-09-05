@@ -130,6 +130,15 @@ function userAllowsSpotCountry(user, spotCountry) {
   return profileCountry ? profileCountry === targetCountry : true;
 }
 
+function userMatchesCommunityCountry(user, communityCountry) {
+  const targetCountry = countryKey(communityCountry);
+  if (!targetCountry) return true;
+  // Existing profiles without a country predate regional communities and
+  // belong to the original Latvian community.
+  const profileCountry = countryKey(user.country) || 'LV';
+  return profileCountry === targetCountry;
+}
+
 function settingEnabled(user, settingName) {
   const settings = user.settings || {};
   const fallback = defaultNotificationSettings[settingName] === true;
@@ -262,6 +271,7 @@ async function sendPushToUser({
   userId,
   settingName,
   spotCountry = '',
+  communityCountry = '',
   deliveryKey,
   notificationId,
   notificationCollection = 'user_notifications',
@@ -286,6 +296,7 @@ async function sendPushToUser({
     user.deleted === true ||
     userHasActiveBan(user) ||
     !settingEnabled(user, settingName) ||
+    !userMatchesCommunityCountry(user, communityCountry) ||
     !userAllowsSpotCountry(user, spotCountry)
   ) {
     return 0;
@@ -1047,9 +1058,15 @@ async function communityRecipientIds(userId, payload, fallbackUserIds = []) {
   const explicitRecipients = cleanStringArray(payload.recipientUserIds).filter(
     (recipientUserId) => recipientUserId !== userId,
   );
+  const fallbackRecipients = cleanStringArray(fallbackUserIds).filter(
+    (recipientUserId) => recipientUserId !== userId,
+  );
 
   if (explicitRecipients.length) {
-    return explicitRecipients;
+    // Explicit recipients are normally the residents of the selected
+    // community. Always retain targeted recipients too (for example a topic
+    // author who is participating in another country's forum).
+    return [...new Set([...explicitRecipients, ...fallbackRecipients])];
   }
 
   if (cleanText(payload.audience) === 'all_users') {
@@ -1057,9 +1074,7 @@ async function communityRecipientIds(userId, payload, fallbackUserIds = []) {
     return usersSnapshot.docs.map((doc) => doc.id).filter((id) => id !== userId);
   }
 
-  return cleanStringArray(fallbackUserIds).filter(
-    (recipientUserId) => recipientUserId !== userId,
-  );
+  return fallbackRecipients;
 }
 
 function recipientNotificationId(payload, fallbackBase, recipientUserId) {
@@ -1069,8 +1084,13 @@ function recipientNotificationId(payload, fallbackBase, recipientUserId) {
 
 const GLOBAL_CHAT_DAILY_PUSH_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 
-async function claimGlobalChatDailyPushWindow(senderUid, messageId) {
-  const globalRef = db.collection('push_throttles').doc('global_chat');
+async function claimGlobalChatDailyPushWindow(
+  senderUid,
+  messageId,
+  communityCountry,
+) {
+  const country = countryKey(communityCountry) || 'LV';
+  const globalRef = db.collection('push_throttles').doc(`global_chat_${country}`);
   const nowMillis = Date.now();
 
   return db.runTransaction(async (transaction) => {
@@ -1098,6 +1118,7 @@ async function claimGlobalChatDailyPushWindow(senderUid, messageId) {
         lastPushAt: admin.firestore.FieldValue.serverTimestamp(),
         lastSenderUid: senderUid,
         lastMessageId: messageId,
+        countryCode: country,
       },
       { merge: true },
     );
@@ -1155,6 +1176,7 @@ async function handleGlobalChatMessage(userId, payload) {
   );
   const title = 'Global chat';
   const body = `@${senderUsername}: ${messageText}`;
+  const communityCountry = countryKey(message.countryCode) || 'LV';
 
   const results = [];
   const replyTarget = await globalChatReplyTarget(message, senderUid);
@@ -1164,6 +1186,8 @@ async function handleGlobalChatMessage(userId, payload) {
         await sendPushToUser({
           userId: replyTarget.recipientUserId,
           settingName: 'newMessageNotifications',
+          // A direct reply follows the participant even when they are writing
+          // in a community outside their registered country.
           deliveryKey: `global_chat_reply:${messageId}`,
           notificationId: recipientNotificationId(
             payload,
@@ -1196,7 +1220,11 @@ async function handleGlobalChatMessage(userId, payload) {
     return results;
   }
 
-  const pushWindow = await claimGlobalChatDailyPushWindow(senderUid, messageId);
+  const pushWindow = await claimGlobalChatDailyPushWindow(
+    senderUid,
+    messageId,
+    communityCountry,
+  );
   if (!pushWindow.allowed) {
     console.log(
       `Global chat daily push suppressed: ${pushWindow.reason}; sender=${senderUid}; remainingMs=${Math.max(
@@ -1212,6 +1240,7 @@ async function handleGlobalChatMessage(userId, payload) {
       sendPushToUser({
         userId: recipientUserId,
         settingName: 'newMessageNotifications',
+        communityCountry,
         deliveryKey: `global_chat_message:${messageId}`,
         notificationId: recipientNotificationId(
           payload,
@@ -1253,10 +1282,27 @@ async function handleForumReply(userId, payload) {
   }
 
   const authorId = cleanText(topic.authorId);
+  const replyToMessageId = cleanText(reply.replyToMessageId);
+  let repliedToUserId = '';
+  if (replyToMessageId) {
+    const originalReplySnapshot = await topicRef
+      .collection('replies')
+      .doc(replyToMessageId)
+      .get();
+    repliedToUserId = cleanText(originalReplySnapshot.data()?.userId);
+    if (repliedToUserId === userId) {
+      repliedToUserId = '';
+    }
+  }
+  const targetedRecipientIds = new Set(
+    [authorId, repliedToUserId].filter(
+      (recipientUserId) => recipientUserId && recipientUserId !== userId,
+    ),
+  );
   const recipientUserIds = await communityRecipientIds(
     userId,
     payload,
-    authorId ? [authorId] : [],
+    [...targetedRecipientIds],
   );
   if (!recipientUserIds.length) {
     return [];
@@ -1276,12 +1322,19 @@ async function handleForumReply(userId, payload) {
   );
   const title = `Forum: ${topicTitle}`;
   const body = `@${senderUsername}: ${text}`;
+  const communityCountry = countryKey(topic.countryCode) || 'LV';
 
   return Promise.all(
     recipientUserIds.map((recipientUserId) =>
       sendPushToUser({
         userId: recipientUserId,
         settingName: 'commentNotifications',
+        // Regional filtering applies to the general audience. Topic authors
+        // and directly replied-to participants must still receive replies
+        // while taking part in another country's forum.
+        communityCountry: targetedRecipientIds.has(recipientUserId)
+          ? ''
+          : communityCountry,
         deliveryKey: `forum_reply:${topicId}:${messageId}`,
         notificationId: recipientNotificationId(
           payload,

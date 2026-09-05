@@ -80,6 +80,7 @@ class InAppBadgeController extends ChangeNotifier {
     DateTime.now().millisecondsSinceEpoch,
   );
   String? _uid;
+  String _countryCode = 'LV';
   int _generation = 0;
   bool _ready = false;
   final _subscriptions = <StreamSubscription>[];
@@ -102,10 +103,12 @@ class InAppBadgeController extends ChangeNotifier {
   int count(ActivitySection section) => state.count(section);
   int get chatCount => state.chatCount;
 
-  Future<void> start(String uid) async {
-    if (_uid == uid) return;
+  Future<void> start(String uid, {String countryCode = 'LV'}) async {
+    final cleanCountryCode = countryCode.trim().toUpperCase();
+    if (_uid == uid && _countryCode == cleanCountryCode) return;
     stop();
     _uid = uid;
+    _countryCode = cleanCountryCode.isEmpty ? 'LV' : cleanCountryCode;
     final generation = _generation;
     await _saving.catchError((Object _) {});
     final prefs = await SharedPreferences.getInstance();
@@ -154,43 +157,60 @@ class InAppBadgeController extends ChangeNotifier {
     _watch(
       db
           .collection('global_chat')
+          .where('countryCode', isEqualTo: _countryCode)
           .orderBy('timestamp', descending: true)
           .limit(1),
       (snapshot) {
         if (snapshot.docs.isNotEmpty) {
           _schedule(
-            'global',
+            'global/$_countryCode',
             snapshot.docs.first.data()['timestamp'],
             ActivitySection.global,
             db.collection('global_chat'),
             'timestamp',
             'userId',
+            countryCode: _countryCode,
           );
         }
       },
     );
-    _watch(
-      db.collection('forum_topics').where('status', isEqualTo: 'approved'),
-      (snapshot) {
-        for (final doc in snapshot.docs) {
-          final data = doc.data();
-          final expiry = data['autoExpiresAt'];
-          if (expiry is Timestamp &&
-              expiry.millisecondsSinceEpoch <=
-                  DateTime.now().millisecondsSinceEpoch) {
-            continue;
-          }
-          _schedule(
-            'forum/${doc.id}',
-            data['lastReplyAt'],
-            ActivitySection.forum,
-            doc.reference.collection('replies'),
-            'timestamp',
-            'userId',
-          );
+    Query<Map<String, dynamic>> forumTopicsQuery = db
+        .collection('forum_topics')
+        .where('status', isEqualTo: 'approved');
+    if (_countryCode != 'LV') {
+      forumTopicsQuery = forumTopicsQuery.where(
+        'countryCode',
+        isEqualTo: _countryCode,
+      );
+    }
+    _watch(forumTopicsQuery, (snapshot) {
+      for (final doc in snapshot.docs) {
+        final data = doc.data();
+        final topicCountryCode = (data['countryCode'] as String?)
+            ?.trim()
+            .toUpperCase();
+        // Untagged topics are legacy content from the original Latvian
+        // community.
+        if ((topicCountryCode?.isNotEmpty == true ? topicCountryCode : 'LV') !=
+            _countryCode) {
+          continue;
         }
-      },
-    );
+        final expiry = data['autoExpiresAt'];
+        if (expiry is Timestamp &&
+            expiry.millisecondsSinceEpoch <=
+                DateTime.now().millisecondsSinceEpoch) {
+          continue;
+        }
+        _schedule(
+          'forum/$_countryCode/${doc.id}',
+          data['lastReplyAt'],
+          ActivitySection.forum,
+          doc.reference.collection('replies'),
+          'timestamp',
+          'userId',
+        );
+      }
+    });
     onReady?.call();
   }
 
@@ -236,8 +256,9 @@ class InAppBadgeController extends ChangeNotifier {
     ActivitySection section,
     CollectionReference<Map<String, dynamic>> collection,
     String timeField,
-    String authorField,
-  ) {
+    String authorField, {
+    String countryCode = '',
+  }) {
     if (updated is! Timestamp ||
         updated.millisecondsSinceEpoch <= state.since) {
       return;
@@ -255,6 +276,7 @@ class InAppBadgeController extends ChangeNotifier {
         timeField,
         authorField,
         generation,
+        countryCode: countryCode,
       );
       if (generation == _generation) {
         state.summaries[key] = version;
@@ -292,12 +314,16 @@ class InAppBadgeController extends ChangeNotifier {
     CollectionReference<Map<String, dynamic>> collection,
     String timeField,
     String authorField,
-    int generation,
-  ) async {
+    int generation, {
+    String countryCode = '',
+  }) async {
     while (generation == _generation) {
       Query<Map<String, dynamic>> query = collection
           .orderBy(timeField)
           .orderBy(FieldPath.documentId);
+      if (countryCode.isNotEmpty) {
+        query = query.where('countryCode', isEqualTo: countryCode);
+      }
       final cursor = state.cursors[key];
       final seen = state.seenAt[section.name] ?? state.since;
       final skipSeen =
