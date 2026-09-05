@@ -113,7 +113,8 @@ function userIdFromWeekDoc(doc, data = {}) {
 }
 
 function xpFromWeekDoc(data = {}) {
-  return Math.max(0, numberValue(data.confirmedXp, numberValue(data.weeklyXp)));
+  return Math.max(0, numberValue(data.confirmedXp, numberValue(data.weeklyXp)) -
+    numberValue(data.revokedXp));
 }
 
 async function loadAllTimeLeaderboard(limit) {
@@ -175,12 +176,15 @@ async function loadWeeklyLeaderboard(limit, weekKey) {
         const weeklyXp = xpFromWeekDoc(data);
         const existing = weeksByUserId.get(userId);
 
-        if (!userId || weeklyXp <= 0) {
+        if (!userId) {
           continue;
         }
 
-        if (!existing || weeklyXp > existing.weeklyXp) {
-          weeksByUserId.set(userId, { userId, weeklyXp });
+        // A corrected canonical row, including zero, overrides stale legacy mirrors.
+        const corrected = doc.id === `${userId}_${weekKey}` &&
+          typeof data.revokedXp === 'number';
+        if (!existing || corrected || (!existing.corrected && weeklyXp > existing.weeklyXp)) {
+          weeksByUserId.set(userId, { userId, weeklyXp, corrected });
         }
       }
       if (page.docs.length < WEEK_FETCH_LIMIT) break;

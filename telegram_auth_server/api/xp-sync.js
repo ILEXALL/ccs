@@ -1,4 +1,5 @@
 const { admin, db } = require('../lib/firebase-admin');
+const { adjustXp } = require('../lib/xp/xp-adjustments');
 const {
   awardManyXp,
   settlePendingXp,
@@ -113,6 +114,7 @@ async function syncSpot(actor, body) {
 }
 
 const handlers = {
+  adjust_xp: (actor, body) => adjustXp(actor.uid, body),
   ensure_config: async (actor) => {
     if (!isAdmin(actor.user)) {
       throw new Error('No permission to initialize XP config');
