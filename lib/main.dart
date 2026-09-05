@@ -44855,6 +44855,21 @@ const Map<int, String> xpWheelAssetByTier = {
   100: 'assets/xp_wheels/lvl_100.png',
 };
 
+// Tire bounds in the 512px assets, excluding the decorative ring and label.
+const Map<int, Rect> xpWheelBoundsByTier = {
+  1: Rect.fromLTWH(119, 79, 273, 273),
+  10: Rect.fromLTWH(119, 89, 274, 274),
+  20: Rect.fromLTWH(118, 86, 276, 276),
+  30: Rect.fromLTWH(109, 81, 294, 294),
+  40: Rect.fromLTWH(97, 71, 318, 318),
+  50: Rect.fromLTWH(96, 70, 320, 320),
+  60: Rect.fromLTWH(94, 66, 324, 324),
+  70: Rect.fromLTWH(76, 56, 360, 360),
+  80: Rect.fromLTWH(73, 51, 366, 366),
+  90: Rect.fromLTWH(74, 50, 364, 364),
+  100: Rect.fromLTWH(80, 40, 356, 356),
+};
+
 const Map<int, Color> xpWheelAccentColorByTier = {
   1: Color(0xFF8C715A),
   10: Color(0xFF7B93C4),
@@ -48735,6 +48750,8 @@ class XpLevelWheel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final asset = xpWheelAssetForLevel(level);
+    final bounds = xpWheelBoundsByTier[xpWheelTierForLevel(level)]!;
+    final wheelScale = 512 / bounds.width;
 
     return Container(
       width: size,
@@ -48761,6 +48778,15 @@ class XpLevelWheel extends StatelessWidget {
           height: size,
           fit: BoxFit.contain,
           filterQuality: FilterQuality.high,
+          frameBuilder: (_, child, frame, wasSynchronouslyLoaded) {
+            return Transform.translate(
+              offset: Offset(
+                (256 - bounds.center.dx) * size / bounds.width,
+                (256 - bounds.center.dy) * size / bounds.height,
+              ),
+              child: Transform.scale(scale: wheelScale, child: child),
+            );
+          },
           errorBuilder: (_, _, _) {
             return Container(
               width: size,
