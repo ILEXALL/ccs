@@ -1,7 +1,7 @@
 ﻿name: ccs_app
 description: "A new Flutter project."
 publish_to: 'none'
-version: 1.0.6+15
+version: 1.0.6+16
 environment:
   sdk: ^3.12.0
 
@@ -51,4 +51,5 @@ flutter:
     - assets/bg_map.png
     - assets/spot_icons/
     - assets/user_cars/
+    - assets/xp_wheels/
     - assets/ccs_logo.png

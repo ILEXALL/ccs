@@ -44841,6 +44841,55 @@ List<GarageCar> garageCarsFromFirebase(Object? value) {
 
 const int xpMaxLevel = 100;
 
+const Map<int, String> xpWheelAssetByTier = {
+  1: 'assets/xp_wheels/lvl_1.png',
+  10: 'assets/xp_wheels/lvl_10.png',
+  20: 'assets/xp_wheels/lvl_20.png',
+  30: 'assets/xp_wheels/lvl_30.png',
+  40: 'assets/xp_wheels/lvl_40.png',
+  50: 'assets/xp_wheels/lvl_50.png',
+  60: 'assets/xp_wheels/lvl_60.png',
+  70: 'assets/xp_wheels/lvl_70.png',
+  80: 'assets/xp_wheels/lvl_80.png',
+  90: 'assets/xp_wheels/lvl_90.png',
+  100: 'assets/xp_wheels/lvl_100.png',
+};
+
+const Map<int, Color> xpWheelAccentColorByTier = {
+  1: Color(0xFF8C715A),
+  10: Color(0xFF7B93C4),
+  20: Color(0xFF457ECC),
+  30: Color(0xFF356BD3),
+  40: Color(0xFF5749D7),
+  50: Color(0xFF8347DA),
+  60: Color(0xFF803BD6),
+  70: Color(0xFFDC41A3),
+  80: Color(0xFFE29032),
+  90: Color(0xFFD9B561),
+  100: Color(0xFFD9A246),
+};
+
+int xpWheelTierForLevel(int level) {
+  final safeLevel = math.min(xpMaxLevel, math.max(1, level)).toInt();
+  if (safeLevel >= 100) {
+    return 100;
+  }
+  if (safeLevel < 10) {
+    return 1;
+  }
+
+  return (safeLevel ~/ 10) * 10;
+}
+
+String xpWheelAssetForLevel(int level) {
+  return xpWheelAssetByTier[xpWheelTierForLevel(level)] ??
+      xpWheelAssetByTier[1]!;
+}
+
+Color xpWheelAccentColorForLevel(int level) {
+  return xpWheelAccentColorByTier[xpWheelTierForLevel(level)] ?? blue;
+}
+
 int xpRequiredForLevel(int level) {
   final safeLevel = math.min(xpMaxLevel, math.max(1, level)).toInt();
   return 25 * math.pow(safeLevel - 1, 2).round();
@@ -48669,6 +48718,71 @@ class XpSummaryCard extends StatelessWidget {
   }
 }
 
+class XpLevelWheel extends StatelessWidget {
+  final int level;
+  final Color accentColor;
+  final bool loading;
+  final double size;
+
+  const XpLevelWheel({
+    super.key,
+    required this.level,
+    required this.accentColor,
+    this.loading = false,
+    this.size = 58,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final asset = xpWheelAssetForLevel(level);
+
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        boxShadow: [
+          BoxShadow(
+            color: accentColor.withValues(alpha: 0.44),
+            blurRadius: 18,
+            spreadRadius: 1.6,
+          ),
+          BoxShadow(
+            color: accentColor.withValues(alpha: 0.22),
+            blurRadius: 30,
+            spreadRadius: 5,
+          ),
+        ],
+      ),
+      child: ClipOval(
+        child: Image.asset(
+          asset,
+          width: size,
+          height: size,
+          fit: BoxFit.contain,
+          filterQuality: FilterQuality.high,
+          errorBuilder: (_, _, _) {
+            return Container(
+              width: size,
+              height: size,
+              decoration: BoxDecoration(
+                color: accentColor.withValues(alpha: 0.16),
+                shape: BoxShape.circle,
+                border: Border.all(color: accentColor.withValues(alpha: 0.42)),
+              ),
+              child: Icon(
+                loading ? Icons.hourglass_top_rounded : Icons.bolt_rounded,
+                color: accentColor,
+                size: size * 0.48,
+              ),
+            );
+          },
+        ),
+      ),
+    );
+  }
+}
+
 class _XpSummaryContent extends StatelessWidget {
   final XpUserStats stats;
   final bool loading;
@@ -48687,6 +48801,12 @@ class _XpSummaryContent extends StatelessWidget {
     final totalLabel = loading ? '...' : '${formatXpValue(stats.xpTotal)} XP';
     final weeklyLabel = loading ? '...' : '${formatXpValue(stats.weeklyXp)} XP';
     final levelLabel = loading ? '...' : '${stats.level}';
+    final displayedLevel = loading
+        ? 1
+        : stats.level.clamp(1, xpMaxLevel).toInt();
+    final accentColor = stats.xpBlocked
+        ? Colors.redAccent
+        : xpWheelAccentColorForLevel(displayedLevel);
     final nextLabel = loading
         ? '...'
         : stats.level >= xpMaxLevel
@@ -48715,15 +48835,10 @@ class _XpSummaryContent extends StatelessWidget {
         children: [
           Row(
             children: [
-              Container(
-                width: 42,
-                height: 42,
-                decoration: BoxDecoration(
-                  color: blue.withValues(alpha: 0.16),
-                  shape: BoxShape.circle,
-                  border: Border.all(color: blue.withValues(alpha: 0.42)),
-                ),
-                child: const Icon(Icons.bolt_rounded, color: blue, size: 24),
+              XpLevelWheel(
+                level: displayedLevel,
+                accentColor: accentColor,
+                loading: loading,
               ),
               const SizedBox(width: 11),
               const Expanded(
@@ -48773,8 +48888,8 @@ class _XpSummaryContent extends StatelessWidget {
                     '${trText('Level')} $levelLabel',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: blue,
+                    style: TextStyle(
+                      color: accentColor,
                       fontSize: 11.5,
                       fontWeight: FontWeight.w900,
                     ),
@@ -48789,9 +48904,9 @@ class _XpSummaryContent extends StatelessWidget {
             child: LinearProgressIndicator(
               value: progressValue,
               minHeight: 8,
-              backgroundColor: Colors.white10,
+              backgroundColor: accentColor.withValues(alpha: 0.15),
               valueColor: AlwaysStoppedAnimation<Color>(
-                stats.xpBlocked ? Colors.redAccent : blue,
+                accentColor,
               ),
             ),
           ),
