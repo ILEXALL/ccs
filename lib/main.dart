@@ -1863,6 +1863,7 @@ const _ruText = <String, String>{
   'View Profile': 'Открыть профиль',
   'Edit Profile': 'Редактировать профиль',
   'Adjust Photo': 'Настроить фото',
+  'Fit whole photo': 'Уместить фото целиком',
   'Use Photo': 'Использовать фото',
   'Saving...': 'Сохранение...',
   'Monday': 'Понедельник',
@@ -2826,6 +2827,7 @@ const _lvText = <String, String>{
   'View Profile': 'Atvērt profilu',
   'Edit Profile': 'Mainīt profilu',
   'Adjust Photo': 'Pielāgot foto',
+  'Fit whole photo': 'Ietilpināt visu foto',
   'Use Photo': 'Izmantot foto',
   'Saving...': 'Saglabā...',
   'Monday': 'Pirmdiena',
@@ -3801,6 +3803,26 @@ TextStyle? _appTextStyle(TextStyle? style) {
   return style.copyWith(color: _lightTextColor(style.color));
 }
 
+// Rebuild translated hints, computed labels and menus without replacing the
+// page State (which would discard drafts, scroll positions and subscriptions).
+mixin LanguageReactiveState<T extends StatefulWidget> on State<T> {
+  @override
+  void initState() {
+    super.initState();
+    appUiPreferences.addListener(_rebuildLanguage);
+  }
+
+  void _rebuildLanguage() {
+    if (mounted) setState(() {});
+  }
+
+  @override
+  void dispose() {
+    appUiPreferences.removeListener(_rebuildLanguage);
+    super.dispose();
+  }
+}
+
 class Text extends StatelessWidget {
   final String data;
   final TextStyle? style;
@@ -4046,7 +4068,8 @@ class BannedUserScreen extends StatefulWidget {
   State<BannedUserScreen> createState() => _BannedUserScreenState();
 }
 
-class _BannedUserScreenState extends State<BannedUserScreen> {
+class _BannedUserScreenState extends State<BannedUserScreen>
+    with LanguageReactiveState {
   bool signingOut = false;
 
   String get untilLabel {
@@ -4703,7 +4726,10 @@ PageRoute<T> appPageRoute<T>({
     transitionDuration: Duration.zero,
     reverseTransitionDuration: Duration.zero,
     pageBuilder: (context, animation, secondaryAnimation) {
-      return AppRouteBackground(child: builder(context));
+      return AnimatedBuilder(
+        animation: appUiPreferences,
+        builder: (context, _) => AppRouteBackground(child: builder(context)),
+      );
     },
   );
 }
@@ -5458,71 +5484,74 @@ Future<String?> showCommunityCountryPicker(BuildContext context) async {
     shape: const RoundedRectangleBorder(
       borderRadius: BorderRadius.vertical(top: Radius.circular(26)),
     ),
-    builder: (sheetContext) {
-      final countries = availableCommunityCountryCodes();
+    builder: (sheetContext) => AnimatedBuilder(
+      animation: appUiPreferences,
+      builder: (sheetContext, _) {
+        final countries = availableCommunityCountryCodes();
 
-      return SafeArea(
-        child: SizedBox(
-          height: MediaQuery.sizeOf(context).height * 0.76,
-          child: Column(
-            children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(20, 18, 20, 12),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        communityText(
-                          en: 'Choose community country',
-                          ru: 'Выберите страну сообщества',
-                          lv: 'Izvēlieties kopienas valsti',
-                        ),
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 20,
-                          fontWeight: FontWeight.w900,
+        return SafeArea(
+          child: SizedBox(
+            height: MediaQuery.sizeOf(context).height * 0.76,
+            child: Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 18, 20, 12),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          communityText(
+                            en: 'Choose community country',
+                            ru: 'Выберите страну сообщества',
+                            lv: 'Izvēlieties kopienas valsti',
+                          ),
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 20,
+                            fontWeight: FontWeight.w900,
+                          ),
                         ),
                       ),
-                    ),
-                    IconButton(
-                      onPressed: () => Navigator.pop(sheetContext),
-                      icon: const Icon(Icons.close, color: Colors.white70),
-                    ),
-                  ],
+                      IconButton(
+                        onPressed: () => Navigator.pop(sheetContext),
+                        icon: const Icon(Icons.close, color: Colors.white70),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-              Expanded(
-                child: ListView.builder(
-                  padding: const EdgeInsets.fromLTRB(12, 0, 12, 16),
-                  itemCount: countries.length,
-                  itemBuilder: (context, index) {
-                    final code = countries[index];
-                    final active = code == communityCountrySelection.value;
-                    return ListTile(
-                      leading: Text(
-                        countryFlagEmoji(code),
-                        style: const TextStyle(fontSize: 24),
-                      ),
-                      title: Text(
-                        localizedCountryName(code),
-                        style: TextStyle(
-                          color: active ? blue : Colors.white,
-                          fontWeight: FontWeight.w800,
+                Expanded(
+                  child: ListView.builder(
+                    padding: const EdgeInsets.fromLTRB(12, 0, 12, 16),
+                    itemCount: countries.length,
+                    itemBuilder: (context, index) {
+                      final code = countries[index];
+                      final active = code == communityCountrySelection.value;
+                      return ListTile(
+                        leading: Text(
+                          countryFlagEmoji(code),
+                          style: const TextStyle(fontSize: 24),
                         ),
-                      ),
-                      trailing: active
-                          ? const Icon(Icons.check_circle, color: blue)
-                          : null,
-                      onTap: () => Navigator.pop(sheetContext, code),
-                    );
-                  },
+                        title: Text(
+                          localizedCountryName(code),
+                          style: TextStyle(
+                            color: active ? blue : Colors.white,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        trailing: active
+                            ? const Icon(Icons.check_circle, color: blue)
+                            : null,
+                        onTap: () => Navigator.pop(sheetContext, code),
+                      );
+                    },
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
-        ),
-      );
-    },
+        );
+      },
+    ),
   );
 }
 
@@ -5533,9 +5562,13 @@ class CommunityCountrySelector extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ValueListenableBuilder<String>(
-      valueListenable: communityCountrySelection,
-      builder: (context, code, _) {
+    return AnimatedBuilder(
+      animation: Listenable.merge([
+        communityCountrySelection,
+        appUiPreferences,
+      ]),
+      builder: (context, _) {
+        final code = communityCountrySelection.value;
         return InkWell(
           onTap: () async {
             FocusManager.instance.primaryFocus?.unfocus();
@@ -6440,6 +6473,37 @@ Future<img.Image?> decodePhotoImageBytes(Uint8List bytes) async {
   }
 }
 
+// The source rectangle may extend beyond the photo when zoomed out. Preserve
+// that framing with black padding, rather than silently cropping again on save.
+img.Image renderFramedPhoto(img.Image source, Rect sourceFrame) {
+  final outputScale = math.min(
+    1.0,
+    2048 / math.max(sourceFrame.width, sourceFrame.height),
+  );
+  final output = img.Image(
+    width: math.max(1, (sourceFrame.width * outputScale).round()),
+    height: math.max(1, (sourceFrame.height * outputScale).round()),
+    numChannels: 3,
+  );
+  final visible = sourceFrame.intersect(
+    Rect.fromLTWH(0, 0, source.width.toDouble(), source.height.toDouble()),
+  );
+  if (visible.isEmpty) return output;
+  img.compositeImage(
+    output,
+    source,
+    srcX: visible.left.floor(),
+    srcY: visible.top.floor(),
+    srcW: math.max(1, visible.width.floor()),
+    srcH: math.max(1, visible.height.floor()),
+    dstX: ((visible.left - sourceFrame.left) * outputScale).round(),
+    dstY: ((visible.top - sourceFrame.top) * outputScale).round(),
+    dstW: math.max(1, (visible.width * outputScale).round()),
+    dstH: math.max(1, (visible.height * outputScale).round()),
+  );
+  return output;
+}
+
 class PhotoCropScreen extends StatefulWidget {
   final String sourcePath;
   final double cropAspectRatio;
@@ -6456,7 +6520,8 @@ class PhotoCropScreen extends StatefulWidget {
   State<PhotoCropScreen> createState() => _PhotoCropScreenState();
 }
 
-class _PhotoCropScreenState extends State<PhotoCropScreen> {
+class _PhotoCropScreenState extends State<PhotoCropScreen>
+    with LanguageReactiveState {
   double zoom = 1;
   Offset offset = Offset.zero;
   double editorWidth = 0;
@@ -6486,6 +6551,10 @@ class _PhotoCropScreenState extends State<PhotoCropScreen> {
       setState(() {
         imageWidth = normalized.width;
         imageHeight = normalized.height;
+        if (cropWidth > 0 && cropHeight > 0) {
+          zoom = minZoomForLayout() * 4;
+          offset = Offset.zero;
+        }
       });
     } catch (_) {}
   }
@@ -6505,11 +6574,12 @@ class _PhotoCropScreenState extends State<PhotoCropScreen> {
 
     final baseScale = math.min(editorWidth / width, editorHeight / height);
     return math.max(
-      1.0,
-      math.max(
-        cropWidth / (width * baseScale),
-        cropHeight / (height * baseScale),
-      ),
+      0.01,
+      0.25 *
+          math.min(
+            cropWidth / (width * baseScale),
+            cropHeight / (height * baseScale),
+          ),
     );
   }
 
@@ -6584,49 +6654,29 @@ class _PhotoCropScreenState extends State<PhotoCropScreen> {
           editorHeight > 0 &&
           cropWidth > 0 &&
           cropHeight > 0;
-      final fallbackWidth = math.min(width, height);
-      final fallbackHeight = math.min(width, height);
       final baseScale = hasLayout
           ? math.min(editorWidth / width, editorHeight / height)
           : 1.0;
       final effectiveZoom = math.max(zoom, minZoomForLayout());
       final totalScale = hasLayout ? baseScale * effectiveZoom : 1.0;
-      final cropPixelWidth =
-          (hasLayout ? cropWidth / totalScale : fallbackWidth)
-              .round()
-              .clamp(1, width)
-              .toInt();
-      final cropPixelHeight =
-          (hasLayout ? cropHeight / totalScale : fallbackHeight)
-              .round()
-              .clamp(1, height)
-              .toInt();
       final cropLeft = hasLayout ? (editorWidth - cropWidth) / 2 : 0.0;
       final cropTop = hasLayout ? (editorHeight - cropHeight) / 2 : 0.0;
       final imageLeft = hasLayout
           ? (editorWidth - width * totalScale) / 2 + offset.dx
-          : (width - cropPixelWidth) / 2;
+          : 0.0;
       final imageTop = hasLayout
           ? (editorHeight - height * totalScale) / 2 + offset.dy
-          : (height - cropPixelHeight) / 2;
-      final cropX = hasLayout
-          ? ((cropLeft - imageLeft) / totalScale)
-                .round()
-                .clamp(0, width - cropPixelWidth)
-                .toInt()
-          : ((width - cropPixelWidth) / 2).round();
-      final cropY = hasLayout
-          ? ((cropTop - imageTop) / totalScale)
-                .round()
-                .clamp(0, height - cropPixelHeight)
-                .toInt()
-          : ((height - cropPixelHeight) / 2).round();
-      final cropped = img.copyCrop(
+          : 0.0;
+      final cropped = renderFramedPhoto(
         normalized,
-        x: cropX,
-        y: cropY,
-        width: cropPixelWidth,
-        height: cropPixelHeight,
+        hasLayout
+            ? Rect.fromLTWH(
+                (cropLeft - imageLeft) / totalScale,
+                (cropTop - imageTop) / totalScale,
+                cropWidth / totalScale,
+                cropHeight / totalScale,
+              )
+            : Rect.fromLTWH(0, 0, width.toDouble(), height.toDouble()),
       );
       final directory = await Directory.systemTemp.createTemp('ccs_photo_');
       final croppedPath =
@@ -6750,7 +6800,7 @@ class _PhotoCropScreenState extends State<PhotoCropScreen> {
                       width: editorWidth,
                       height: editorHeight,
                       decoration: BoxDecoration(
-                        color: panelGlass,
+                        color: Colors.black,
                         borderRadius: BorderRadius.circular(18),
                         border: Border.all(color: Colors.white12),
                       ),
@@ -6892,7 +6942,21 @@ class _PhotoCropScreenState extends State<PhotoCropScreen> {
                   ),
                   child: Row(
                     children: [
-                      const Icon(Icons.zoom_out, color: Colors.white54),
+                      IconButton(
+                        tooltip: trText('Fit whole photo'),
+                        icon: const Icon(
+                          Icons.fit_screen,
+                          color: Colors.white70,
+                        ),
+                        onPressed: isSaving
+                            ? null
+                            : () {
+                                setState(() {
+                                  zoom = minZoomForLayout() * 4;
+                                  offset = Offset.zero;
+                                });
+                              },
+                      ),
                       Expanded(
                         child: Slider(
                           value: effectiveZoom,
@@ -19557,7 +19621,8 @@ class NotificationCenterScreen extends StatefulWidget {
       _NotificationCenterScreenState();
 }
 
-class _NotificationCenterScreenState extends State<NotificationCenterScreen> {
+class _NotificationCenterScreenState extends State<NotificationCenterScreen>
+    with LanguageReactiveState {
   late Future<List<NotificationCenterItem>> itemsFuture;
   bool markedRead = false;
   bool clearingNotifications = false;
@@ -19813,7 +19878,8 @@ class _AllNotificationsScreen extends StatefulWidget {
       _AllNotificationsScreenState();
 }
 
-class _AllNotificationsScreenState extends State<_AllNotificationsScreen> {
+class _AllNotificationsScreenState extends State<_AllNotificationsScreen>
+    with LanguageReactiveState {
   @override
   Widget build(BuildContext context) {
     final items = widget.allItems;
@@ -19972,7 +20038,7 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen>
-    with SingleTickerProviderStateMixin {
+    with SingleTickerProviderStateMixin, LanguageReactiveState {
   String? signingProvider;
   bool rememberMe = rememberMeEnabled;
 
@@ -22959,7 +23025,8 @@ class _SpotCommentComposerSheet extends StatefulWidget {
       _SpotCommentComposerSheetState();
 }
 
-class _SpotCommentComposerSheetState extends State<_SpotCommentComposerSheet> {
+class _SpotCommentComposerSheetState extends State<_SpotCommentComposerSheet>
+    with LanguageReactiveState {
   late final TextEditingController controller;
   bool isSaving = false;
 
@@ -23482,7 +23549,8 @@ class MapScreen extends StatefulWidget {
   State<MapScreen> createState() => _MapScreenState();
 }
 
-class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
+class _MapScreenState extends State<MapScreen>
+    with TickerProviderStateMixin, LanguageReactiveState {
   // Default map view: open Riga area first, do not auto-jump to the user.
   static const rigaCenter = LatLng(56.9496, 24.1052);
   static const rigaZoom = 11.25;
@@ -30265,7 +30333,8 @@ class SpotDetailScreen extends StatefulWidget {
   State<SpotDetailScreen> createState() => _SpotDetailScreenState();
 }
 
-class _SpotDetailScreenState extends State<SpotDetailScreen> {
+class _SpotDetailScreenState extends State<SpotDetailScreen>
+    with LanguageReactiveState {
   late CarSpot spot;
 
   @override
@@ -31271,7 +31340,8 @@ class SpotReviewsSection extends StatefulWidget {
   State<SpotReviewsSection> createState() => _SpotReviewsSectionState();
 }
 
-class _SpotReviewsSectionState extends State<SpotReviewsSection> {
+class _SpotReviewsSectionState extends State<SpotReviewsSection>
+    with LanguageReactiveState {
   final commentController = TextEditingController();
   final List<SpotReviewData> reviews = [];
   DocumentSnapshot<Map<String, dynamic>>? lastReviewDocument;
@@ -33818,7 +33888,8 @@ class LocationPickerScreen extends StatefulWidget {
   State<LocationPickerScreen> createState() => _LocationPickerScreenState();
 }
 
-class _LocationPickerScreenState extends State<LocationPickerScreen> {
+class _LocationPickerScreenState extends State<LocationPickerScreen>
+    with LanguageReactiveState {
   static const defaultCenter = LatLng(56.9496, 24.1052);
   static const defaultZoom = 13.0;
 
@@ -34458,7 +34529,8 @@ class SpotOwnerSelector extends StatefulWidget {
   State<SpotOwnerSelector> createState() => _SpotOwnerSelectorState();
 }
 
-class _SpotOwnerSelectorState extends State<SpotOwnerSelector> {
+class _SpotOwnerSelectorState extends State<SpotOwnerSelector>
+    with LanguageReactiveState {
   final searchController = TextEditingController();
   String searchText = '';
   late bool isPicking;
@@ -35866,7 +35938,7 @@ class ChatsTab extends StatefulWidget {
 }
 
 class _ChatsTabState extends State<ChatsTab>
-    with AutomaticKeepAliveClientMixin {
+    with AutomaticKeepAliveClientMixin, LanguageReactiveState {
   @override
   bool get wantKeepAlive => true;
 
@@ -35964,7 +36036,7 @@ class GroupsTab extends StatefulWidget {
 }
 
 class _GroupsTabState extends State<GroupsTab>
-    with AutomaticKeepAliveClientMixin {
+    with AutomaticKeepAliveClientMixin, LanguageReactiveState {
   @override
   bool get wantKeepAlive => true;
 
@@ -38363,7 +38435,7 @@ class ForumTab extends StatefulWidget {
 }
 
 class _ForumTabState extends State<ForumTab>
-    with AutomaticKeepAliveClientMixin {
+    with AutomaticKeepAliveClientMixin, LanguageReactiveState {
   final scrollController = ScrollController();
   final searchController = TextEditingController();
   final topics = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
@@ -38999,7 +39071,8 @@ class ForumCategoryPage extends StatefulWidget {
   State<ForumCategoryPage> createState() => _ForumCategoryPageState();
 }
 
-class _ForumCategoryPageState extends State<ForumCategoryPage> {
+class _ForumCategoryPageState extends State<ForumCategoryPage>
+    with LanguageReactiveState {
   final searchController = TextEditingController();
   final topics = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
   bool isLoading = false;
@@ -39559,7 +39632,8 @@ class EditForumTopicPage extends StatefulWidget {
   State<EditForumTopicPage> createState() => _EditForumTopicPageState();
 }
 
-class _EditForumTopicPageState extends State<EditForumTopicPage> {
+class _EditForumTopicPageState extends State<EditForumTopicPage>
+    with LanguageReactiveState {
   late final TextEditingController titleController;
   late final TextEditingController descriptionController;
   bool isSaving = false;
@@ -39743,7 +39817,8 @@ class ForumTopicPage extends StatefulWidget {
   State<ForumTopicPage> createState() => _ForumTopicPageState();
 }
 
-class _ForumTopicPageState extends State<ForumTopicPage> {
+class _ForumTopicPageState extends State<ForumTopicPage>
+    with LanguageReactiveState {
   final replyController = TextEditingController();
   final replyFocusNode = FocusNode();
   bool isSending = false;
@@ -41097,7 +41172,8 @@ class NewForumTopicPage extends StatefulWidget {
   State<NewForumTopicPage> createState() => _NewForumTopicPageState();
 }
 
-class _NewForumTopicPageState extends State<NewForumTopicPage> {
+class _NewForumTopicPageState extends State<NewForumTopicPage>
+    with LanguageReactiveState {
   final titleController = TextEditingController();
   final descriptionController = TextEditingController();
   late String categoryId;
@@ -42383,7 +42459,8 @@ class NewChatScreen extends StatefulWidget {
   State<NewChatScreen> createState() => _NewChatScreenState();
 }
 
-class _NewChatScreenState extends State<NewChatScreen> {
+class _NewChatScreenState extends State<NewChatScreen>
+    with LanguageReactiveState {
   final searchController = TextEditingController();
   final groupNameController = TextEditingController();
   final Set<String> selectedUserIds = {};
@@ -42918,7 +42995,8 @@ class GroupSettingsScreen extends StatefulWidget {
   State<GroupSettingsScreen> createState() => _GroupSettingsScreenState();
 }
 
-class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
+class _GroupSettingsScreenState extends State<GroupSettingsScreen>
+    with LanguageReactiveState {
   late final TextEditingController nameController;
   late final TextEditingController descriptionController;
   late List<String> memberIds;
@@ -44239,7 +44317,8 @@ class ChatConversationScreen extends StatefulWidget {
   State<ChatConversationScreen> createState() => _ChatConversationScreenState();
 }
 
-class _ChatConversationScreenState extends State<ChatConversationScreen> {
+class _ChatConversationScreenState extends State<ChatConversationScreen>
+    with LanguageReactiveState {
   final messageController = TextEditingController();
   final messageFocusNode = FocusNode();
   final chatScrollController = ScrollController();
@@ -46443,7 +46522,8 @@ class ProfileScreen extends StatefulWidget {
   State<ProfileScreen> createState() => _ProfileScreenState();
 }
 
-class _ProfileScreenState extends State<ProfileScreen> {
+class _ProfileScreenState extends State<ProfileScreen>
+    with LanguageReactiveState {
   bool isSigningOut = false;
 
   UserProfileData profile = UserProfileData.fromCurrentUser();
@@ -46882,7 +46962,8 @@ class BlockedUsersScreen extends StatefulWidget {
   State<BlockedUsersScreen> createState() => _BlockedUsersScreenState();
 }
 
-class _BlockedUsersScreenState extends State<BlockedUsersScreen> {
+class _BlockedUsersScreenState extends State<BlockedUsersScreen>
+    with LanguageReactiveState {
   late Future<List<FriendUserData>> blockedUsersFuture;
   final Set<String> busyUserIds = <String>{};
 
@@ -47257,7 +47338,8 @@ class PublicProfileActions extends StatefulWidget {
   State<PublicProfileActions> createState() => _PublicProfileActionsState();
 }
 
-class _PublicProfileActionsState extends State<PublicProfileActions> {
+class _PublicProfileActionsState extends State<PublicProfileActions>
+    with LanguageReactiveState {
   late Future<PublicProfileRelationshipState> relationshipFuture;
   bool busy = false;
 
@@ -48459,7 +48541,8 @@ class FriendsScreen extends StatefulWidget {
   State<FriendsScreen> createState() => _FriendsScreenState();
 }
 
-class _FriendsScreenState extends State<FriendsScreen> {
+class _FriendsScreenState extends State<FriendsScreen>
+    with LanguageReactiveState {
   final searchController = TextEditingController();
   String searchText = '';
   Timer? userSearchDebounce;
@@ -49477,7 +49560,8 @@ class CreatorSpotsBadge extends StatefulWidget {
   State<CreatorSpotsBadge> createState() => _CreatorSpotsBadgeState();
 }
 
-class _CreatorSpotsBadgeState extends State<CreatorSpotsBadge> {
+class _CreatorSpotsBadgeState extends State<CreatorSpotsBadge>
+    with LanguageReactiveState {
   late Future<int> count;
 
   @override
@@ -49547,7 +49631,8 @@ class CreatorSpotsScreen extends StatefulWidget {
   State<CreatorSpotsScreen> createState() => _CreatorSpotsScreenState();
 }
 
-class _CreatorSpotsScreenState extends State<CreatorSpotsScreen> {
+class _CreatorSpotsScreenState extends State<CreatorSpotsScreen>
+    with LanguageReactiveState {
   final List<CarSpot> spots = [];
   DocumentSnapshot<Map<String, dynamic>>? cursor;
   bool loading = false;
@@ -51838,7 +51923,8 @@ class AdminUsersScreen extends StatefulWidget {
 
 enum AdminUserSortMode { recent, alphabetical }
 
-class _AdminUsersScreenState extends State<AdminUsersScreen> {
+class _AdminUsersScreenState extends State<AdminUsersScreen>
+    with LanguageReactiveState {
   static const int usersPerPage = 25;
 
   late bool bannedOnly;
@@ -54597,7 +54683,8 @@ class AdminReviewScreen extends StatefulWidget {
   State<AdminReviewScreen> createState() => _AdminReviewScreenState();
 }
 
-class _AdminReviewScreenState extends State<AdminReviewScreen> {
+class _AdminReviewScreenState extends State<AdminReviewScreen>
+    with LanguageReactiveState {
   AdminSpotFilter selectedFilter = AdminSpotFilter.pending;
 
   @override
@@ -55043,7 +55130,8 @@ class AdminEditSpotScreen extends StatefulWidget {
   State<AdminEditSpotScreen> createState() => _AdminEditSpotScreenState();
 }
 
-class _AdminEditSpotScreenState extends State<AdminEditSpotScreen> {
+class _AdminEditSpotScreenState extends State<AdminEditSpotScreen>
+    with LanguageReactiveState {
   late final TextEditingController nameController;
   late final TextEditingController cityController;
   late final TextEditingController latController;
@@ -56716,7 +56804,7 @@ class AdminSpotReviewScreen extends StatefulWidget {
 }
 
 class _AdminSpotReviewScreenState extends State<AdminSpotReviewScreen>
-    with WidgetsBindingObserver {
+    with WidgetsBindingObserver, LanguageReactiveState {
   late final SpotReviewLease _lease;
   CarSpot? _spot;
   bool _loading = false;
