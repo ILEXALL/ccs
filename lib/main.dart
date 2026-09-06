@@ -27,6 +27,8 @@ import 'in_app_badges.dart';
 
 final inAppBadges = InAppBadgeController(
   FirebaseFirestore.instance,
+  forumCategoryForData: (data) =>
+      forumCategoryIdFromFirebase(data['categoryId'] ?? data['category']),
   onRead: (label, readCount) =>
       firestoreDebugTracker.recordRead(label, readCount),
 );
@@ -17565,6 +17567,7 @@ class CcsAppBarLogo extends StatelessWidget {
 }
 
 class NotificationCenterItem {
+  final String countryCode;
   final String id;
   final String title;
   final String body;
@@ -17590,6 +17593,7 @@ class NotificationCenterItem {
   final String rejectionReason;
 
   const NotificationCenterItem({
+    this.countryCode = '',
     required this.id,
     required this.title,
     required this.body,
@@ -17616,6 +17620,7 @@ class NotificationCenterItem {
   });
 
   NotificationCenterItem copyWith({
+    String? countryCode,
     String? id,
     String? title,
     String? body,
@@ -17654,6 +17659,7 @@ class NotificationCenterItem {
       spotName: spotName ?? this.spotName,
       chatId: chatId ?? this.chatId,
       topicId: topicId ?? this.topicId,
+      countryCode: countryCode ?? this.countryCode,
       reviewId: reviewId ?? this.reviewId,
       messageId: messageId ?? this.messageId,
       likeId: likeId ?? this.likeId,
@@ -18051,6 +18057,7 @@ NotificationCenterItem notificationCenterItemFromJson(Object? value) {
       return pickString('chat_id', '');
     })(),
     topicId: pickString('topicId', ''),
+    countryCode: pickString('countryCode', ''),
     reviewId: pickString('reviewId', ''),
     messageId: pickString('messageId', ''),
     likeId: pickString('likeId', ''),
@@ -18247,6 +18254,7 @@ NotificationCenterItem notificationCenterItemFromDocument(
       return pickString('chat_id', '');
     })(),
     topicId: pickString('topicId', ''),
+    countryCode: pickString('countryCode', ''),
     reviewId: pickString('reviewId', ''),
     messageId: pickString('messageId', ''),
     likeId: pickString('likeId', ''),
@@ -19436,9 +19444,32 @@ Future<void> openNotificationCenterItem(
   }
 
   if (item.type == 'global_chat_message' || item.type == 'global_chat_admin') {
+    // Legacy untagged global notifications belong to the original LV channel.
+    var country = countryIsoCode(item.countryCode);
+    if (country == null && item.messageId.trim().isNotEmpty) {
+      try {
+        final message = await FirebaseFirestore.instance
+            .collection('global_chat')
+            .doc(item.messageId.trim())
+            .debugGet(
+              const GetOptions(source: Source.server),
+              'notification: resolve global message country',
+            );
+        country = countryIsoCode(
+          stringFromFirebase(message.data()?['countryCode'], ''),
+        );
+      } catch (error) {
+        debugPrint('Could not resolve notification country: $error');
+      }
+      if (!context.mounted) return;
+    }
+    country ??= 'LV';
+    communityCountrySelection.value = country;
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid != null) unawaited(inAppBadges.start(uid, countryCode: country));
     Navigator.push(
       context,
-      appPageRoute(builder: (_) => const ChatScreen(initialTabIndex: 3)),
+      appPageRoute(builder: (_) => const ChatScreen(initialTabIndex: 2)),
     );
     return;
   }
@@ -19450,8 +19481,11 @@ Future<void> openNotificationCenterItem(
     Navigator.push(
       context,
       appPageRoute(
-        builder: (_) =>
-            ForumTopicPage(topicId: item.topicId.trim(), title: item.title),
+        builder: (_) => ForumTopicPage(
+          topicId: item.topicId.trim(),
+          title: item.title,
+          countryCode: item.countryCode,
+        ),
       ),
     );
     return;
@@ -22745,39 +22779,6 @@ class ExploreSpotCard extends StatelessWidget {
                               const SizedBox(width: 5),
                               SpotCountryFlagBadge(spot: spot),
                             ],
-                          ],
-                        ),
-                      ),
-                      const SizedBox(width: 6),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 7,
-                          vertical: 3,
-                        ),
-                        decoration: BoxDecoration(
-                          color: Colors.redAccent.withValues(alpha: 0.10),
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(
-                            color: Colors.redAccent.withValues(alpha: 0.28),
-                          ),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const Icon(
-                              Icons.favorite,
-                              color: Colors.redAccent,
-                              size: 14,
-                            ),
-                            const SizedBox(width: 4),
-                            Text(
-                              '${spot.likeCount}',
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 12,
-                                fontWeight: FontWeight.w900,
-                              ),
-                            ),
                           ],
                         ),
                       ),
@@ -38291,6 +38292,35 @@ Future<void> showCreateTopicDialog(
   );
 }
 
+class ForumUnreadBadge extends StatelessWidget {
+  final String? topicId;
+  final String? categoryId;
+  final String countryCode;
+  const ForumUnreadBadge({
+    super.key,
+    this.topicId,
+    this.categoryId,
+    this.countryCode = 'LV',
+  });
+  @override
+  Widget build(BuildContext context) => AnimatedBuilder(
+    animation: inAppBadges,
+    builder: (context, _) {
+      final count = topicId != null
+          ? inAppBadges.forumTopicCount(topicId!, countryCode)
+          : inAppBadges.forumCategoryCount(categoryId!);
+      if (count == 0) return const SizedBox.shrink();
+      return Padding(
+        padding: const EdgeInsets.only(right: 8),
+        child: Badge(
+          backgroundColor: Colors.redAccent,
+          label: Text(compactBadgeLabel(count)),
+        ),
+      );
+    },
+  );
+}
+
 class ForumCategoryConfig {
   final String id;
   final String titleKey;
@@ -38730,6 +38760,7 @@ class _ForumTabState extends State<ForumTab>
               ),
             ),
             const SizedBox(width: 10),
+            ForumUnreadBadge(categoryId: category.id),
             Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.end,
@@ -38969,6 +39000,10 @@ class _ForumTabState extends State<ForumTab>
               ),
             ),
             const SizedBox(width: 8),
+            ForumUnreadBadge(
+              topicId: doc.id,
+              countryCode: communityContentCountryCode(data),
+            ),
             forumReplyCountBadge(
               topicId: doc.id,
               fallbackCount: storedRepliesCount,
@@ -39454,6 +39489,10 @@ class _ForumCategoryPageState extends State<ForumCategoryPage>
               ),
             ),
             const SizedBox(width: 8),
+            ForumUnreadBadge(
+              topicId: doc.id,
+              countryCode: communityContentCountryCode(data),
+            ),
             forumReplyCountBadge(
               topicId: doc.id,
               fallbackCount: storedRepliesCount,
@@ -39852,6 +39891,7 @@ class _ForumTopicPageState extends State<ForumTopicPage>
 
   @override
   void dispose() {
+    inAppBadges.closeForumTopic(widget.topicId);
     replyFocusNode.dispose();
     replyController.dispose();
     super.dispose();
@@ -40938,12 +40978,31 @@ class _ForumTopicPageState extends State<ForumTopicPage>
 
                   return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
                     stream: topicRepliesCollection
-                        .orderBy('timestamp', descending: false)
+                        .orderBy('timestamp', descending: true)
                         .limit(50)
                         .debugSnapshots('forum: topic replies listener'),
                     builder: (context, repliesSnapshot) {
+                      if (repliesSnapshot.hasData &&
+                          !repliesSnapshot.hasError &&
+                          !repliesSnapshot.data!.metadata.isFromCache) {
+                        WidgetsBinding.instance.addPostFrameCallback((_) {
+                          if (!mounted ||
+                              ModalRoute.of(context)?.isCurrent != true)
+                            return;
+                          inAppBadges.openForumTopic(
+                            widget.topicId,
+                            resolvedCountryCode,
+                            isVisible: () =>
+                                mounted &&
+                                ModalRoute.of(this.context)?.isCurrent ==
+                                    true &&
+                                WidgetsBinding.instance.lifecycleState ==
+                                    AppLifecycleState.resumed,
+                          );
+                        });
+                      }
                       final replies =
-                          repliesSnapshot.data?.docs ??
+                          repliesSnapshot.data?.docs.reversed.toList() ??
                           const <QueryDocumentSnapshot<Map<String, dynamic>>>[];
 
                       return ListView(
