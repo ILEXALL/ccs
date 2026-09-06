@@ -15,10 +15,30 @@ class ActivityBadgeState {
   final cursors = <String, List<dynamic>>{};
   final summaries = <String, String>{};
   final spotIds = <String>{};
+  final forumCategories = <String, String>{};
+  int topicCount(String key) => counts[key] ?? 0;
+  int forumCount(String country, {String? category}) => forumCategories.entries
+      .where(
+        (entry) =>
+            entry.key.startsWith('forum/$country/') &&
+            (category == null || entry.value == category),
+      )
+      .fold(0, (total, entry) => total + topicCount(entry.key));
+  int topicSeen(String key) => seenAt[key] ?? seenAt['forum'] ?? since;
+  void readTopic(String key, int now) {
+    if (now > topicSeen(key)) seenAt[key] = now;
+    counts[key] = 0;
+  }
+
+  void receiveTopic(String key, int time, {required bool own}) {
+    if (!own && time > topicSeen(key)) counts[key] = topicCount(key) + 1;
+  }
+
   int count(ActivitySection section) => counts[section.name] ?? 0;
   int get chatCount =>
       ActivitySection.values.take(4).fold(0, (n, s) => n + count(s));
   void visit(ActivitySection section, int now) {
+    if (section == ActivitySection.forum) return;
     seenAt[section.name] = now;
     counts[section.name] = 0;
   }
@@ -36,9 +56,15 @@ class ActivityBadgeState {
     'cursors': cursors,
     'summaries': summaries,
     'spotIds': spotIds.toList(),
+    'forumCategories': forumCategories,
   };
   factory ActivityBadgeState.restore(Map<String, dynamic> data, int now) {
     final result = ActivityBadgeState((data['since'] as num?)?.toInt() ?? now);
+    if (data['forumCategories'] is Map) {
+      (data['forumCategories'] as Map).forEach((key, value) {
+        if (value is String) result.forumCategories[key.toString()] = value;
+      });
+    }
     for (final pair in [
       (data['counts'], result.counts),
       (data['seenAt'], result.seenAt),
@@ -68,14 +94,22 @@ class ActivityBadgeState {
     if (data['spotIds'] is List) {
       result.spotIds.addAll((data['spotIds'] as List).whereType<String>());
     }
+    // One-time migration: old aggregate unread counts did not identify topics.
+    // Replay only unread forum activity so existing badges can be attributed.
+    if (data['forumCategories'] is! Map &&
+        result.count(ActivitySection.forum) > 0) {
+      result.cursors.removeWhere((key, _) => key.startsWith('forum/'));
+      result.summaries.removeWhere((key, _) => key.startsWith('forum/'));
+    }
     return result;
   }
 }
 
 class InAppBadgeController extends ChangeNotifier {
   final FirebaseFirestore db;
-  InAppBadgeController(this.db, {this.onRead});
+  InAppBadgeController(this.db, {this.onRead, this.forumCategoryForData});
   final void Function(String, int)? onRead;
+  final String Function(Map<String, dynamic>)? forumCategoryForData;
   ActivityBadgeState state = ActivityBadgeState(
     DateTime.now().millisecondsSinceEpoch,
   );
@@ -100,8 +134,37 @@ class InAppBadgeController extends ChangeNotifier {
     yield* _chatEvents.stream;
   }
 
-  int count(ActivitySection section) => state.count(section);
-  int get chatCount => state.chatCount;
+  String? _visibleForumTopic;
+  bool Function()? _forumPageVisible;
+  String topicKey(String topicId, String country) => 'forum/$country/$topicId';
+  int forumTopicCount(String topicId, String country) =>
+      state.topicCount(topicKey(topicId, country));
+  int forumCategoryCount(String category) =>
+      state.forumCount(_countryCode, category: category);
+  int count(ActivitySection section) => section == ActivitySection.forum
+      ? state.forumCount(_countryCode)
+      : state.count(section);
+  int get chatCount => ActivitySection.values
+      .take(4)
+      .fold(0, (total, section) => total + count(section));
+  void openForumTopic(
+    String topicId,
+    String country, {
+    bool Function()? isVisible,
+  }) {
+    _visibleForumTopic = topicKey(topicId, country);
+    _forumPageVisible = isVisible;
+    if (!_ready) return;
+    state.readTopic(_visibleForumTopic!, DateTime.now().millisecondsSinceEpoch);
+    _changed();
+  }
+
+  void closeForumTopic(String topicId) {
+    if (_visibleForumTopic?.endsWith('/$topicId') == true) {
+      _visibleForumTopic = null;
+      _forumPageVisible = null;
+    }
+  }
 
   Future<void> start(String uid, {String countryCode = 'LV'}) async {
     final cleanCountryCode = countryCode.trim().toUpperCase();
@@ -184,6 +247,7 @@ class InAppBadgeController extends ChangeNotifier {
       );
     }
     _watch(forumTopicsQuery, (snapshot) {
+      final activeKeys = <String>{};
       for (final doc in snapshot.docs) {
         final data = doc.data();
         final topicCountryCode = (data['countryCode'] as String?)
@@ -201,8 +265,14 @@ class InAppBadgeController extends ChangeNotifier {
                 DateTime.now().millisecondsSinceEpoch) {
           continue;
         }
+        final key = topicKey(doc.id, _countryCode);
+        activeKeys.add(key);
+        state.forumCategories[key] =
+            forumCategoryForData?.call(data) ??
+            (data['categoryId'] ?? data['category'] ?? 'meets_events')
+                .toString();
         _schedule(
-          'forum/$_countryCode/${doc.id}',
+          key,
           data['lastReplyAt'],
           ActivitySection.forum,
           doc.reference.collection('replies'),
@@ -210,6 +280,11 @@ class InAppBadgeController extends ChangeNotifier {
           'userId',
         );
       }
+      state.forumCategories.removeWhere(
+        (key, _) =>
+            key.startsWith('forum/$_countryCode/') && !activeKeys.contains(key),
+      );
+      _changed();
     });
     onReady?.call();
   }
@@ -325,7 +400,9 @@ class InAppBadgeController extends ChangeNotifier {
         query = query.where('countryCode', isEqualTo: countryCode);
       }
       final cursor = state.cursors[key];
-      final seen = state.seenAt[section.name] ?? state.since;
+      final seen = section == ActivitySection.forum
+          ? state.topicSeen(key)
+          : state.seenAt[section.name] ?? state.since;
       final skipSeen =
           cursor == null ||
           Timestamp(cursor[0] as int, cursor[1] as int).millisecondsSinceEpoch <
@@ -351,7 +428,18 @@ class InAppBadgeController extends ChangeNotifier {
         final data = doc.data();
         final stamp = data[timeField];
         if (stamp is! Timestamp) continue;
-        if (visibleSection != section) {
+        if (section == ActivitySection.forum) {
+          if (_visibleForumTopic == key &&
+              (_forumPageVisible?.call() ?? false)) {
+            state.readTopic(key, stamp.millisecondsSinceEpoch);
+          } else {
+            state.receiveTopic(
+              key,
+              stamp.millisecondsSinceEpoch,
+              own: data[authorField] == _uid,
+            );
+          }
+        } else if (visibleSection != section) {
           state.receive(
             section,
             stamp.millisecondsSinceEpoch,
@@ -412,6 +500,8 @@ class InAppBadgeController extends ChangeNotifier {
     _subscriptions.clear();
     _pending.clear();
     _summaryVersions.clear();
+    _visibleForumTopic = null;
+    _forumPageVisible = null;
     _lastChats = null;
     _ready = false;
     _uid = null;
