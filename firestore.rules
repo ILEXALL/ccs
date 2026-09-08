@@ -939,6 +939,41 @@ service cloud.firestore {
       return get(/databases/$(database)/documents/forum_topics/$(topicId)).data;
     }
 
+    // Forum replies are written first, then the existing Dart client updates
+    // the parent topic counter in a separate write. Keep this permission narrow:
+    // a normal active user may only change the counter by exactly one together
+    // with the timestamp field used by the current client.
+    function validForumReplyCounterIncrement() {
+      let beforeCount = resource.data.get('repliesCount', 0);
+      let afterCount = request.resource.data.get('repliesCount', 0);
+      return isActiveUser()
+        && beforeCount is int
+        && afterCount is int
+        && afterCount == beforeCount + 1
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'repliesCount',
+          'lastReplyAt'
+        ])
+        && request.resource.data.get('lastReplyAt', null) == request.time;
+    }
+
+    // The current Dart client also decrements repliesCount after a permitted
+    // reply deletion. This allows only that exact counter/timestamp mutation.
+    function validForumReplyCounterDecrement() {
+      let beforeCount = resource.data.get('repliesCount', 0);
+      let afterCount = request.resource.data.get('repliesCount', 0);
+      return isActiveUser()
+        && beforeCount is int
+        && afterCount is int
+        && beforeCount > 0
+        && afterCount == beforeCount - 1
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'repliesCount',
+          'updatedAt'
+        ])
+        && request.resource.data.get('updatedAt', null) == request.time;
+    }
+
     function canManageForumTopic(topicId) {
       return isStaff()
         || isGlobalModerator()
@@ -2295,18 +2330,20 @@ service cloud.firestore {
         && (
           isStaff()
           || isGlobalModerator()
+          || validForumReplyCounterIncrement()
+          || validForumReplyCounterDecrement()
           || (
-          isActiveUser()
-          && resource.data.authorId == currentUid()
-          && request.resource.data.authorId == resource.data.authorId
-          && request.resource.data.status == resource.data.status
-          && request.resource.data.isPinned == resource.data.isPinned
-          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-            'title',
-            'description',
-            'avatarUrl',
-            'updatedAt'
-          ])
+            isActiveUser()
+            && resource.data.authorId == currentUid()
+            && request.resource.data.authorId == resource.data.authorId
+            && request.resource.data.status == resource.data.status
+            && request.resource.data.isPinned == resource.data.isPinned
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+              'title',
+              'description',
+              'avatarUrl',
+              'updatedAt'
+            ])
           )
         );
 
