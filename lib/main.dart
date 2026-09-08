@@ -8,6 +8,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart' hide Text;
 import 'package:flutter/material.dart' as material show Text;
 import 'package:flutter/rendering.dart' show ScrollDirection;
@@ -3885,6 +3886,228 @@ class Text extends StatelessWidget {
   }
 }
 
+class _ChatLinkPart {
+  final String text;
+  final bool isLink;
+
+  const _ChatLinkPart(this.text, {this.isLink = false});
+}
+
+final RegExp _chatLinkPattern = RegExp(
+  r'''(?:(?:https?://|www\.)[^\s<>{}\[\]"']+|(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z]{2,63}(?:[/?#][^\s<>{}\[\]"']*)?)''',
+  caseSensitive: false,
+);
+
+String _trimChatLinkEnd(String value) {
+  var result = value;
+
+  while (result.isNotEmpty &&
+      (result.endsWith('.') ||
+          result.endsWith(',') ||
+          result.endsWith('!') ||
+          result.endsWith('?') ||
+          result.endsWith(';') ||
+          result.endsWith(':'))) {
+    result = result.substring(0, result.length - 1);
+  }
+
+  int countCharacter(String source, String character) =>
+      character.allMatches(source).length;
+
+  while (result.endsWith(')') &&
+      countCharacter(result, ')') > countCharacter(result, '(')) {
+    result = result.substring(0, result.length - 1);
+  }
+  while (result.endsWith(']') &&
+      countCharacter(result, ']') > countCharacter(result, '[')) {
+    result = result.substring(0, result.length - 1);
+  }
+  while (result.endsWith('}') &&
+      countCharacter(result, '}') > countCharacter(result, '{')) {
+    result = result.substring(0, result.length - 1);
+  }
+
+  return result;
+}
+
+List<_ChatLinkPart> _chatLinkParts(String value) {
+  if (value.isEmpty) {
+    return const <_ChatLinkPart>[];
+  }
+
+  final parts = <_ChatLinkPart>[];
+  var cursor = 0;
+
+  for (final match in _chatLinkPattern.allMatches(value)) {
+    final rawMatch = match.group(0) ?? '';
+    if (rawMatch.isEmpty) {
+      continue;
+    }
+
+    // Do not turn the domain portion of an email address into a web link.
+    if (match.start > 0 && value[match.start - 1] == '@') {
+      continue;
+    }
+
+    final linkText = _trimChatLinkEnd(rawMatch);
+    if (linkText.isEmpty) {
+      continue;
+    }
+
+    if (match.start > cursor) {
+      parts.add(_ChatLinkPart(value.substring(cursor, match.start)));
+    }
+
+    parts.add(_ChatLinkPart(linkText, isLink: true));
+
+    final trailingStart = match.start + linkText.length;
+    if (trailingStart < match.end) {
+      parts.add(_ChatLinkPart(value.substring(trailingStart, match.end)));
+    }
+
+    cursor = match.end;
+  }
+
+  if (cursor < value.length) {
+    parts.add(_ChatLinkPart(value.substring(cursor)));
+  }
+
+  if (parts.isEmpty) {
+    parts.add(_ChatLinkPart(value));
+  }
+
+  return parts;
+}
+
+Uri? _chatLinkUri(String value) {
+  final clean = value.trim();
+  if (clean.isEmpty) {
+    return null;
+  }
+
+  final normalized = clean.startsWith('http://') || clean.startsWith('https://')
+      ? clean
+      : 'https://$clean';
+  final uri = Uri.tryParse(normalized);
+
+  if (uri == null || !uri.hasScheme || uri.host.trim().isEmpty) {
+    return null;
+  }
+
+  return uri;
+}
+
+Future<void> _openChatLink(BuildContext context, String value) async {
+  final uri = _chatLinkUri(value);
+  if (uri == null) {
+    return;
+  }
+
+  try {
+    final opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    if (!opened && context.mounted) {
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        const SnackBar(content: material.Text('Could not open link.')),
+      );
+    }
+  } catch (_) {
+    if (context.mounted) {
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        const SnackBar(content: material.Text('Could not open link.')),
+      );
+    }
+  }
+}
+
+class ChatLinkText extends StatefulWidget {
+  final String text;
+  final TextStyle? style;
+  final TextAlign? textAlign;
+  final bool? softWrap;
+  final TextOverflow? overflow;
+  final int? maxLines;
+
+  const ChatLinkText(
+    this.text, {
+    super.key,
+    this.style,
+    this.textAlign,
+    this.softWrap,
+    this.overflow,
+    this.maxLines,
+  });
+
+  @override
+  State<ChatLinkText> createState() => _ChatLinkTextState();
+}
+
+class _ChatLinkTextState extends State<ChatLinkText> {
+  final Map<int, TapGestureRecognizer> _recognizers = {};
+
+  void _disposeRecognizers() {
+    for (final recognizer in _recognizers.values) {
+      recognizer.dispose();
+    }
+    _recognizers.clear();
+  }
+
+  @override
+  void didUpdateWidget(covariant ChatLinkText oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.text != widget.text) {
+      _disposeRecognizers();
+    }
+  }
+
+  @override
+  void dispose() {
+    _disposeRecognizers();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final displayedText = trText(widget.text);
+    final parts = _chatLinkParts(displayedText);
+    final baseStyle = _appTextStyle(widget.style);
+
+    final spans = <InlineSpan>[];
+    for (var index = 0; index < parts.length; index++) {
+      final part = parts[index];
+      if (!part.isLink) {
+        spans.add(TextSpan(text: part.text));
+        continue;
+      }
+
+      final recognizer = _recognizers.putIfAbsent(
+        index,
+        () => TapGestureRecognizer(),
+      );
+      recognizer.onTap = () => unawaited(_openChatLink(context, part.text));
+
+      spans.add(
+        TextSpan(
+          text: part.text,
+          style: (baseStyle ?? const TextStyle()).copyWith(
+            color: blue,
+            decoration: TextDecoration.underline,
+            decorationColor: blue,
+          ),
+          recognizer: recognizer,
+        ),
+      );
+    }
+
+    return material.Text.rich(
+      TextSpan(style: baseStyle, children: spans),
+      textAlign: widget.textAlign,
+      softWrap: widget.softWrap,
+      overflow: widget.overflow,
+      maxLines: widget.maxLines,
+    );
+  }
+}
+
 @pragma('vm:entry-point')
 Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
@@ -5447,7 +5670,28 @@ String? countryIsoCode(String value) =>
 final communityCountrySelection = ValueNotifier<String>('LV');
 
 String currentUserHomeCountryCode() =>
-    countryIsoCode(currentUser.country) ?? 'LV';
+    countryIsoCode(currentUser.country) ?? '';
+
+String profileAuthorCountryCode(
+  Map<String, dynamic>? profile,
+  String fallback,
+) => profile == null
+    ? fallback
+    : countryIsoCode(stringFromFirebase(profile['country'], '')) ?? '';
+
+String get chooseProfileCountryMessage => communityText(
+  en: 'Choose your country in Profile → Edit Profile before posting.',
+  ru: 'Перед публикацией выберите страну: Профиль → Редактировать профиль.',
+  lv: 'Pirms publicēšanas izvēlieties valsti: Profils → Rediģēt profilu.',
+);
+
+bool ensureCommunityProfileCountry(BuildContext context) {
+  if (currentUserHomeCountryCode().isNotEmpty) return true;
+  ScaffoldMessenger.of(
+    context,
+  ).showSnackBar(SnackBar(content: Text(chooseProfileCountryMessage)));
+  return false;
+}
 
 bool get isViewingHomeCommunity =>
     communityCountrySelection.value == currentUserHomeCountryCode();
@@ -5465,7 +5709,7 @@ String communityContentCountryCode(Map<String, dynamic> data) {
 String communityAuthorCountryCode(Map<String, dynamic> data) {
   return countryIsoCode(stringFromFirebase(data['authorCountryCode'], '')) ??
       countryIsoCode(stringFromFirebase(data['country'], '')) ??
-      communityContentCountryCode(data);
+      '';
 }
 
 String communityText({
@@ -7064,6 +7308,8 @@ AppUser currentUser = const AppUser(
   country: '',
 );
 
+final currentUserProfileRevision = ValueNotifier<int>(0);
+
 void setCurrentUser(AppUser value) {
   final previousUid = currentUser.uid;
   final previousHomeCountryCode = currentUserHomeCountryCode();
@@ -7071,11 +7317,12 @@ void setCurrentUser(AppUser value) {
       communityCountrySelection.value == previousHomeCountryCode;
   currentUser = value;
   if (previousUid != value.uid ||
-      (wasBrowsingHome &&
+      ((wasBrowsingHome || previousHomeCountryCode.isEmpty) &&
           previousHomeCountryCode != currentUserHomeCountryCode())) {
-    communityCountrySelection.value = currentUserHomeCountryCode();
+    communityCountrySelection.value = countryIsoCode(value.country) ?? 'LV';
   }
   refreshMaintenanceAccess();
+  currentUserProfileRevision.value++;
 }
 
 String roleName(UserRole role) {
@@ -7934,6 +8181,56 @@ Future<AppUser?> loadCurrentFirebaseUser() async {
   }
 }
 
+// Only new accounts request location. A failed lookup leaves the profile
+// unknown so the user can choose it; language and the map's default are not
+// evidence of a user's country.
+Future<({String city, String country})> detectNewAccountLocation() async {
+  const unknown = (city: '', country: '');
+  try {
+    if (!await Geolocator.isLocationServiceEnabled()) return unknown;
+    var permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+    }
+    if (permission != LocationPermission.always &&
+        permission != LocationPermission.whileInUse) {
+      return unknown;
+    }
+    final position = await Geolocator.getCurrentPosition(
+      locationSettings: const LocationSettings(
+        accuracy: LocationAccuracy.medium,
+        timeLimit: Duration(seconds: 12),
+      ),
+    );
+    final places = await placemarkFromCoordinates(
+      position.latitude,
+      position.longitude,
+    ).timeout(const Duration(seconds: 8));
+    if (places.isEmpty) return unknown;
+    return profileLocationFromPlacemark(places.first);
+  } catch (error) {
+    debugPrint('Initial profile location unavailable: $error');
+    return unknown;
+  }
+}
+
+({String city, String country}) profileLocationFromPlacemark(Placemark place) {
+  final city =
+      [place.locality, place.subAdministrativeArea, place.administrativeArea]
+          .whereType<String>()
+          .map((value) => value.trim())
+          .firstWhere((value) => value.isNotEmpty, orElse: () => '');
+  final code =
+      countryIsoCode(place.isoCountryCode ?? '') ??
+      countryIsoCode(place.country ?? '');
+  return (
+    city: city,
+    country: code == null
+        ? (place.country ?? '').trim()
+        : canonicalSpotCountryName(code),
+  );
+}
+
 Future<AppUser> saveFirebaseUser(
   User firebaseUser, {
   required String provider,
@@ -7979,12 +8276,14 @@ Future<AppUser> saveFirebaseUser(
       : usernameOverride?.trim().isNotEmpty == true
       ? usernameOverride!.trim()
       : makeUsernameFromFirebaseUser(firebaseUser);
-  final city = (data?['city'] as String?)?.trim().isNotEmpty == true
-      ? data!['city'] as String
-      : 'Riga';
-  final country = (data?['country'] as String?)?.trim().isNotEmpty == true
-      ? data!['country'] as String
-      : 'Latvia';
+  final initialLocation = isNewUser
+      ? await detectNewAccountLocation()
+      : (city: '', country: '');
+  final city = stringFromFirebase(data?['city'], initialLocation.city).trim();
+  final country = stringFromFirebase(
+    data?['country'],
+    initialLocation.country,
+  ).trim();
   final photoUrl = (data?['photoUrl'] as String?)?.trim().isNotEmpty == true
       ? data!['photoUrl'] as String
       : photoUrlOverride ?? firebaseUser.photoURL;
@@ -8044,8 +8343,8 @@ Future<AppUser> saveFirebaseUser(
     'photoUrl': photoUrl,
     'bio': bio,
     'avatarPath': avatarPath,
-    'city': city,
-    'country': country,
+    if (isNewUser) 'city': city,
+    if (isNewUser) 'country': country,
     'settings': settings.toFirebase(),
     'instagram': settings.instagram.trim(),
     'tiktok': settings.tiktok.trim(),
@@ -9871,6 +10170,246 @@ class SpotOwnerAssignment {
   final String username;
 
   const SpotOwnerAssignment({required this.uid, required this.username});
+}
+
+bool canTransferSpotOwnership(AppUser user) =>
+    user.uid.isNotEmpty && userRoleIsStaff(user.role) && !user.banActive;
+
+Map<String, Object?> spotOwnershipTransferFields({
+  required Map<String, dynamic> spot,
+  required String recipientUid,
+  required Map<String, dynamic> recipient,
+  required String actorUid,
+}) {
+  if (recipientUid.isEmpty ||
+      recipient['deleted'] == true ||
+      userBanIsActive(recipient)) {
+    throw StateError('Choose an active user.');
+  }
+  final username = stringFromFirebase(recipient['username'], '').trim();
+  if (username.isEmpty) throw StateError('This user has no profile nickname.');
+  if (spot['addedByUid'] == recipientUid && spot['ownerUid'] == recipientUid) {
+    throw StateError('This user already owns the spot.');
+  }
+  return {
+    'addedByUid': recipientUid,
+    'addedBy': username,
+    'ownerUid': recipientUid,
+    'ownerUsername': username,
+    'ownershipTransferredFromUid': stringFromFirebase(spot['addedByUid'], ''),
+    'previousBusinessOwnerUid': stringFromFirebase(spot['ownerUid'], ''),
+    'ownershipTransferredByUid': actorUid,
+    'ownershipTransferredAt': FieldValue.serverTimestamp(),
+    'updatedAt': FieldValue.serverTimestamp(),
+  };
+}
+
+Future<CarSpot> transferSpotOwnership(
+  CarSpot expected,
+  SpotOwnerAssignment recipient,
+) async {
+  final uid = FirebaseAuth.instance.currentUser?.uid;
+  if (uid == null ||
+      uid != currentUser.uid ||
+      !canTransferSpotOwnership(currentUser)) {
+    throw StateError('Only admins and moderators can transfer ownership.');
+  }
+  final ref = spotsCollection().doc(expected.id);
+  final updated = await FirebaseFirestore.instance.runTransaction<CarSpot>((
+    transaction,
+  ) async {
+    final snapshot = await transaction.debugGet(
+      ref,
+      'ownership transfer: spot',
+    );
+    final target = await transaction.debugGet(
+      usersCollection().doc(recipient.uid),
+      'ownership transfer: recipient',
+    );
+    final data = snapshot.data();
+    if (data == null || !target.exists) {
+      throw StateError('The spot or user no longer exists.');
+    }
+    if (stringFromFirebase(data['addedByUid'], '') != expected.addedByUid ||
+        stringFromFirebase(data['ownerUid'], '') != expected.ownerUid) {
+      throw StateError('Ownership changed. Reopen the spot and try again.');
+    }
+    final fields = spotOwnershipTransferFields(
+      spot: data,
+      recipientUid: target.id,
+      recipient: target.data()!,
+      actorUid: uid,
+    );
+    transaction.debugUpdate(ref, fields, 'ownership transfer');
+    return CarSpot.fromFirestore(snapshot).copyWith(
+      addedByUid: target.id,
+      addedBy: fields['addedBy']! as String,
+      ownerUid: target.id,
+      ownerUsername: fields['ownerUsername']! as String,
+      updatedAtMillis: DateTime.now().millisecondsSinceEpoch,
+    );
+  });
+  upsertSpotIntoLocalImmediateCache(updated);
+  reviewSpots.value = reviewSpots.value
+      .map((spot) => isSameSpot(spot, updated) ? updated : spot)
+      .toList();
+  submittedSpots.value = submittedSpots.value
+      .where((spot) => !isSameSpot(spot, updated))
+      .toList();
+  if (updated.addedByUid == currentUser.uid) {
+    submittedSpots.value = [...submittedSpots.value, updated];
+  }
+  return updated;
+}
+
+Future<CarSpot?> showSpotOwnershipTransfer(
+  BuildContext context,
+  CarSpot spot,
+) => showDialog<CarSpot>(
+  context: context,
+  barrierDismissible: false,
+  builder: (_) => SpotOwnershipTransferDialog(spot: spot),
+);
+
+class SpotOwnershipTransferDialog extends StatefulWidget {
+  final CarSpot spot;
+  const SpotOwnershipTransferDialog({super.key, required this.spot});
+  @override
+  State<SpotOwnershipTransferDialog> createState() =>
+      _SpotOwnershipTransferDialogState();
+}
+
+class _SpotOwnershipTransferDialogState
+    extends State<SpotOwnershipTransferDialog> {
+  final controller = TextEditingController();
+  SpotOwnerAssignment? recipient;
+  bool busy = false;
+  String? error;
+  @override
+  void dispose() {
+    controller.dispose();
+    super.dispose();
+  }
+
+  Future<void> search() async {
+    setState(() {
+      busy = true;
+      error = null;
+      recipient = null;
+    });
+    try {
+      final result = await findSpotOwnerAssignment(controller.text);
+      if (!mounted) return;
+      setState(() {
+        recipient = result;
+        if (result == null) error = 'User not found.';
+      });
+    } catch (_) {
+      if (mounted) {
+        setState(() => error = 'Could not find the user. Try again.');
+      }
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
+  }
+
+  Future<void> transfer() async {
+    if (recipient == null || busy) return;
+    setState(() {
+      busy = true;
+      error = null;
+    });
+    try {
+      final updated = await transferSpotOwnership(widget.spot, recipient!);
+      if (mounted) Navigator.pop(context, updated);
+    } catch (_) {
+      if (mounted) {
+        setState(
+          () => error =
+              'Transfer failed. Check that the user is active, ownership has not changed, and the spot is not under review.',
+        );
+      }
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => PopScope(
+    canPop: !busy,
+    child: AlertDialog(
+      scrollable: true,
+      title: Text(
+        communityText(
+          en: 'Transfer ownership',
+          ru: 'Передать владение',
+          lv: 'Nodot īpašumtiesības',
+        ),
+      ),
+      content: SizedBox(
+        width: 380,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(widget.spot.name),
+            const SizedBox(height: 8),
+            Text('${trText('Owner')}: @${widget.spot.addedBy}'),
+            const SizedBox(height: 12),
+            TextField(
+              controller: controller,
+              enabled: !busy,
+              decoration: InputDecoration(
+                labelText: communityText(
+                  en: 'Nickname or user ID',
+                  ru: 'Никнейм или ID пользователя',
+                  lv: 'Segvārds vai lietotāja ID',
+                ),
+              ),
+              onChanged: (_) => setState(() {
+                recipient = null;
+                error = null;
+              }),
+              onSubmitted: (_) {
+                if (!busy && controller.text.trim().isNotEmpty) search();
+              },
+            ),
+            TextButton(
+              onPressed: busy ? null : search,
+              child: Text(trText('Search')),
+            ),
+            if (recipient != null)
+              Text(
+                communityText(
+                  en: 'Transfer this spot to @${recipient!.username}? They will receive ownership and editing rights.',
+                  ru: 'Передать точку @${recipient!.username}? Пользователь получит права владельца и редактирования.',
+                  lv: 'Nodot vietu @${recipient!.username}? Lietotājs saņems īpašumtiesības un rediģēšanas tiesības.',
+                ),
+              ),
+            if (error != null)
+              Text(error!, style: const TextStyle(color: Colors.redAccent)),
+            if (busy) const LinearProgressIndicator(),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: busy ? null : () => Navigator.pop(context),
+          child: Text(trText('Cancel')),
+        ),
+        FilledButton(
+          onPressed: busy || recipient == null ? null : transfer,
+          child: Text(
+            communityText(
+              en: 'Confirm transfer',
+              ru: 'Подтвердить передачу',
+              lv: 'Apstiprināt nodošanu',
+            ),
+          ),
+        ),
+      ],
+    ),
+  );
 }
 
 Future<SpotOwnerAssignment?> findSpotOwnerAssignment(
@@ -20552,16 +21091,236 @@ class _RememberMeRow extends StatelessWidget {
   }
 }
 
-class MainScreen extends StatefulWidget {
-  final int initialIndex;
+bool profileRegionIsComplete(String city, String country) =>
+    city.trim().isNotEmpty &&
+    city.trim().length <= 120 &&
+    countryIsoCode(country) != null;
 
-  const MainScreen({super.key, this.initialIndex = 0});
+String get requiredRegionMessage => communityText(
+  en: 'Choose your country and enter your city to continue.',
+  ru: 'Чтобы продолжить, выберите страну и введите город.',
+  lv: 'Lai turpinātu, izvēlieties valsti un ievadiet pilsētu.',
+);
 
-  @override
-  State<MainScreen> createState() => _MainScreenState();
+Future<void> saveRequiredProfileRegion(String city, String country) async {
+  if (!profileRegionIsComplete(city, country)) {
+    throw ArgumentError(requiredRegionMessage);
+  }
+  final uid = FirebaseAuth.instance.currentUser?.uid;
+  if (uid == null || uid != currentUser.uid) {
+    throw StateError('Please sign in again to save your region.');
+  }
+  final cleanCity = city.trim();
+  final cleanCountry = canonicalSpotCountryName(country);
+  await usersCollection().doc(uid).debugUpdate({
+    'city': cleanCity,
+    'country': cleanCountry,
+    'updatedAt': FieldValue.serverTimestamp(),
+  });
+  if (FirebaseAuth.instance.currentUser?.uid != uid || currentUser.uid != uid) {
+    throw StateError('The signed-in account changed.');
+  }
+  final user = currentUser;
+  setCurrentUser(
+    AppUser(
+      uid: user.uid,
+      name: user.name,
+      username: user.username,
+      email: user.email,
+      photoUrl: user.photoUrl,
+      bio: user.bio,
+      avatarPath: user.avatarPath,
+      role: user.role,
+      verified: user.verified,
+      globalChatModerator: user.globalChatModerator,
+      moderatorCountryCodes: user.moderatorCountryCodes,
+      city: cleanCity,
+      country: cleanCountry,
+      banned: user.banned,
+      bannedUntilMillis: user.bannedUntilMillis,
+      banReason: user.banReason,
+    ),
+  );
+  // A failed initial lookup may have initialized an empty country filter.
+  if (spotCountryFilters.value.isEmpty) {
+    await initializeSpotCountryFiltersForUser(currentUser);
+  }
 }
 
-class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
+class ProfileRegionGate extends StatefulWidget {
+  final Widget child;
+  final Future<void> Function(String city, String country) saveRegion;
+  const ProfileRegionGate({
+    super.key,
+    required this.child,
+    this.saveRegion = saveRequiredProfileRegion,
+  });
+
+  @override
+  State<ProfileRegionGate> createState() => _ProfileRegionGateState();
+}
+
+class _ProfileRegionGateState extends State<ProfileRegionGate> {
+  final formKey = GlobalKey<FormState>();
+  late final cityController = TextEditingController(text: currentUser.city);
+  late String? countryCode = countryIsoCode(currentUser.country);
+  bool saving = false;
+  String? saveError;
+
+  @override
+  void dispose() {
+    cityController.dispose();
+    super.dispose();
+  }
+
+  Future<void> save() async {
+    if (saving || !formKey.currentState!.validate()) return;
+    setState(() {
+      saving = true;
+      saveError = null;
+    });
+    try {
+      await widget.saveRegion(cityController.text.trim(), countryCode!);
+      if (!mounted) return;
+      setState(() => saving = false);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        saving = false;
+        saveError = communityText(
+          en: 'Could not save your region. Check your connection and try again.',
+          ru: 'Не удалось сохранить регион. Проверьте подключение и попробуйте снова.',
+          lv: 'Neizdevās saglabāt reģionu. Pārbaudiet savienojumu un mēģiniet vēlreiz.',
+        );
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => ValueListenableBuilder<int>(
+    valueListenable: currentUserProfileRevision,
+    builder: (context, _, child) {
+      // Pending Firestore snapshots must not unlock the app before save succeeds.
+      if (!saving &&
+          saveError == null &&
+          profileRegionIsComplete(currentUser.city, currentUser.country)) {
+        return widget.child;
+      }
+      return PopScope(
+        canPop: false,
+        child: Scaffold(
+          backgroundColor: Colors.black54,
+          body: Center(
+            child: AlertDialog(
+              scrollable: true,
+              title: Text(
+                communityText(
+                  en: 'Set your region',
+                  ru: 'Укажите регион',
+                  lv: 'Norādiet reģionu',
+                ),
+              ),
+              content: Form(
+                key: formKey,
+                child: SizedBox(
+                  width: 360,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(requiredRegionMessage),
+                      const SizedBox(height: 18),
+                      DropdownButtonFormField<String>(
+                        initialValue: countryCode,
+                        isExpanded: true,
+                        decoration: InputDecoration(
+                          labelText: communityText(
+                            en: 'Country',
+                            ru: 'Страна',
+                            lv: 'Valsts',
+                          ),
+                        ),
+                        items: allSupportedCountryNames()
+                            .map(
+                              (country) => DropdownMenuItem(
+                                value: countryIsoCode(country),
+                                child: Text(
+                                  '${countryFlagEmoji(country)} ${localizedCountryName(country)}',
+                                ),
+                              ),
+                            )
+                            .toList(),
+                        onChanged: saving
+                            ? null
+                            : (value) => setState(() => countryCode = value),
+                        validator: (value) =>
+                            value == null ? requiredRegionMessage : null,
+                      ),
+                      const SizedBox(height: 14),
+                      TextFormField(
+                        controller: cityController,
+                        enabled: !saving,
+                        maxLength: 120,
+                        decoration: InputDecoration(
+                          labelText: communityText(
+                            en: 'City',
+                            ru: 'Город',
+                            lv: 'Pilsēta',
+                          ),
+                        ),
+                        validator: (value) => (value ?? '').trim().isEmpty
+                            ? requiredRegionMessage
+                            : null,
+                      ),
+                      if (saveError != null)
+                        Text(
+                          saveError!,
+                          style: const TextStyle(color: Colors.redAccent),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+              actions: [
+                FilledButton(
+                  onPressed: saving ? null : save,
+                  child: Text(
+                    saving
+                        ? trText('Saving...')
+                        : communityText(
+                            en: 'Save and continue',
+                            ru: 'Сохранить и продолжить',
+                            lv: 'Saglabāt un turpināt',
+                          ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    },
+  );
+}
+
+class MainScreen extends StatelessWidget {
+  final int initialIndex;
+  const MainScreen({super.key, this.initialIndex = 0});
+  @override
+  Widget build(BuildContext context) =>
+      ProfileRegionGate(child: _MainContentScreen(initialIndex: initialIndex));
+}
+
+class _MainContentScreen extends StatefulWidget {
+  final int initialIndex;
+
+  const _MainContentScreen({this.initialIndex = 0});
+
+  @override
+  State<_MainContentScreen> createState() => _MainScreenState();
+}
+
+class _MainScreenState extends State<_MainContentScreen>
+    with WidgetsBindingObserver {
   late int index;
   final List<int> tabHistory = [];
   bool hasOpenedMap = false;
@@ -20577,7 +21336,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   bool isCheckingFriendLocationNotifications = false;
 
   List<Widget> get screens => [
-    const ExploreScreen(),
+    ExploreScreen(isVisible: index == 0),
     hasOpenedMap ? MapScreen(isVisible: index == 1) : const SizedBox.shrink(),
     const AddSpotScreen(),
     hasOpenedChat ? const ChatScreen(isMainTab: true) : const SizedBox.shrink(),
@@ -20727,7 +21486,9 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
         state == AppLifecycleState.detached ||
         state == AppLifecycleState.inactive) {
       appIsForegroundForNotifications = false;
-      if (state != AppLifecycleState.inactive) inAppBadges.stop();
+      if (state != AppLifecycleState.inactive) {
+        inAppBadges.stop(preserveVisibleForumTopic: true);
+      }
       unawaited(firestoreDebugTracker.flushPersisted());
       updateCurrentUserOnlinePresence(isOnline: false);
     }
@@ -21194,6 +21955,1381 @@ class _CcsBottomNavItem extends StatelessWidget {
   }
 }
 
+class CcsPartner {
+  final String id;
+  final String name;
+  final String logoUrl;
+  final String bio;
+  final String phone;
+  final String website;
+  final String instagram;
+  final String telegram;
+  final List<String> photoUrls;
+  final bool active;
+  final int createdAtMillis;
+
+  const CcsPartner({
+    required this.id,
+    required this.name,
+    required this.logoUrl,
+    this.bio = '',
+    this.phone = '',
+    this.website = '',
+    this.instagram = '',
+    this.telegram = '',
+    this.photoUrls = const <String>[],
+    this.active = true,
+    this.createdAtMillis = 0,
+  });
+
+  factory CcsPartner.fromFirestore(
+    DocumentSnapshot<Map<String, dynamic>> snapshot,
+  ) {
+    final data = snapshot.data() ?? const <String, dynamic>{};
+    final createdAt = data['createdAt'];
+    final gallery = data['photoUrls'];
+    return CcsPartner(
+      id: snapshot.id,
+      name: stringFromFirebase(data['name'], '').trim(),
+      logoUrl: stringFromFirebase(data['logoUrl'], '').trim(),
+      bio: stringFromFirebase(data['bio'], '').trim(),
+      phone: stringFromFirebase(data['phone'], '').trim(),
+      website: stringFromFirebase(data['website'], '').trim(),
+      instagram: stringFromFirebase(data['instagram'], '').trim(),
+      telegram: stringFromFirebase(data['telegram'], '').trim(),
+      photoUrls: gallery is Iterable
+          ? gallery
+                .map((value) => value?.toString().trim() ?? '')
+                .where((value) => value.isNotEmpty)
+                .take(4)
+                .toList(growable: false)
+          : const <String>[],
+      active: data['active'] != false,
+      createdAtMillis: createdAt is Timestamp
+          ? createdAt.millisecondsSinceEpoch
+          : (data['createdAtMillis'] as num?)?.toInt() ?? 0,
+    );
+  }
+}
+
+CollectionReference<Map<String, dynamic>> ccsPartnersCollection() =>
+    FirebaseFirestore.instance.collection('partners');
+
+bool get currentUserCanManagePartners => currentUser.role == UserRole.admin;
+
+List<CcsPartner> sortedPartners(
+  QuerySnapshot<Map<String, dynamic>> snapshot, {
+  bool includeInactive = false,
+}) {
+  final partners = snapshot.docs
+      .map(CcsPartner.fromFirestore)
+      .where(
+        (partner) =>
+            (includeInactive || partner.active) &&
+            partner.name.trim().isNotEmpty &&
+            partner.logoUrl.trim().isNotEmpty,
+      )
+      .toList();
+  partners.sort((a, b) {
+    if (a.active != b.active) return a.active ? -1 : 1;
+    final createdCompare = a.createdAtMillis.compareTo(b.createdAtMillis);
+    if (createdCompare != 0) return createdCompare;
+    return a.name.toLowerCase().compareTo(b.name.toLowerCase());
+  });
+  return partners;
+}
+
+List<CcsPartner> sortedVisiblePartners(
+  QuerySnapshot<Map<String, dynamic>> snapshot,
+) => sortedPartners(snapshot);
+
+Future<String> uploadPartnerImage({
+  required String partnerId,
+  required String localPhotoPath,
+  required bool logo,
+  int photoIndex = 0,
+}) async {
+  final firebaseUser = FirebaseAuth.instance.currentUser;
+  final userId = firebaseUser?.uid.trim() ?? '';
+  if (userId.isEmpty || currentUser.uid != userId) {
+    throw StateError('Please sign in again before uploading partner media.');
+  }
+  if (!currentUserCanManagePartners) {
+    throw StateError('Only administrators can manage partners.');
+  }
+  if (!logo && (photoIndex < 0 || photoIndex >= 4)) {
+    throw StateError('Partner gallery supports up to 4 photos.');
+  }
+
+  final timestamp = DateTime.now().millisecondsSinceEpoch;
+  // Keep partner media under the already-supported users/ upload root so the
+  // current R2 presign endpoint does not need a new top-level upload path.
+  final root = 'users/${safeR2Path(userId)}/partners/${safeR2Path(partnerId)}';
+  final r2Path = logo
+      ? '$root/logo_$timestamp.jpg'
+      : '$root/gallery/photo_${photoIndex + 1}_$timestamp.jpg';
+
+  return uploadImageToR2(
+    r2Path: r2Path,
+    localPhotoPath: localPhotoPath,
+    maxLongSide: logo ? r2AvatarPhotoMaxLongSide : r2SpotPhotoMaxLongSide,
+    quality: r2JpegQuality,
+  );
+}
+
+class _SpotsHeaderIconButton extends StatelessWidget {
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback onTap;
+
+  const _SpotsHeaderIconButton({
+    required this.icon,
+    required this.tooltip,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: tooltip,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(12),
+          child: Container(
+            width: 38,
+            height: 38,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.035),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+            ),
+            child: Icon(icon, color: blue, size: 20),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SpotsHeaderLanguageButton extends StatelessWidget {
+  const _SpotsHeaderLanguageButton();
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: appUiPreferences,
+      builder: (context, _) {
+        return PopupMenuButton<AppLanguage>(
+          tooltip: trText('Language'),
+          onSelected: (language) {
+            unawaited(appUiPreferences.setLanguage(language));
+          },
+          itemBuilder: (context) => [
+            for (final language in AppLanguage.values)
+              PopupMenuItem<AppLanguage>(
+                value: language,
+                child: Row(
+                  children: [
+                    Icon(
+                      appUiPreferences.language == language
+                          ? Icons.radio_button_checked
+                          : Icons.radio_button_unchecked,
+                      color: blue,
+                      size: 18,
+                    ),
+                    const SizedBox(width: 10),
+                    Text(language.name.toUpperCase()),
+                  ],
+                ),
+              ),
+          ],
+          child: Container(
+            width: 42,
+            height: 38,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: blue.withValues(alpha: 0.10),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: blue.withValues(alpha: 0.38)),
+            ),
+            child: Text(
+              appUiPreferences.language.name.toUpperCase(),
+              style: const TextStyle(
+                color: blue,
+                fontSize: 10.5,
+                letterSpacing: 0.4,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _SpotsHeaderNotificationButton extends StatelessWidget {
+  const _SpotsHeaderNotificationButton();
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: trText('Notifications'),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: () {
+            Navigator.push(
+              context,
+              appPageRoute(builder: (_) => const NotificationCenterScreen()),
+            );
+          },
+          borderRadius: BorderRadius.circular(12),
+          child: Container(
+            width: 38,
+            height: 38,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.035),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+            ),
+            child: ValueListenableBuilder<int>(
+              valueListenable: notificationCenterUnreadCount,
+              builder: (context, unreadCount, _) {
+                return Stack(
+                  clipBehavior: Clip.none,
+                  alignment: Alignment.center,
+                  children: [
+                    const Icon(Icons.notifications_none, color: blue, size: 21),
+                    if (unreadCount > 0)
+                      Positioned(
+                        top: -7,
+                        right: -8,
+                        child: Container(
+                          constraints: const BoxConstraints(
+                            minWidth: 16,
+                            minHeight: 16,
+                          ),
+                          alignment: Alignment.center,
+                          padding: const EdgeInsets.symmetric(horizontal: 3),
+                          decoration: BoxDecoration(
+                            color: Colors.redAccent,
+                            borderRadius: BorderRadius.circular(99),
+                            border: Border.all(color: night, width: 1.2),
+                          ),
+                          child: Text(
+                            unreadCount > 9 ? '9+' : '$unreadCount',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 9,
+                              height: 1,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
+                );
+              },
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class PartnersHeaderButton extends StatefulWidget {
+  const PartnersHeaderButton({super.key});
+
+  @override
+  State<PartnersHeaderButton> createState() => _PartnersHeaderButtonState();
+}
+
+class _PartnersHeaderButtonState extends State<PartnersHeaderButton> {
+  static const int _initialLoopPage = 10000;
+
+  late final Stream<QuerySnapshot<Map<String, dynamic>>> partnerStream;
+  late final PageController pageController;
+  Timer? rotationTimer;
+  int partnerCount = 0;
+  int currentLoopPage = _initialLoopPage;
+
+  @override
+  void initState() {
+    super.initState();
+    pageController = PageController(initialPage: _initialLoopPage);
+    partnerStream = ccsPartnersCollection().debugSnapshots(
+      'partners: header listener',
+    );
+    rotationTimer = Timer.periodic(const Duration(milliseconds: 2400), (_) {
+      if (!mounted || partnerCount <= 1 || !pageController.hasClients) return;
+      currentLoopPage += 1;
+      try {
+        pageController.animateToPage(
+          currentLoopPage,
+          duration: const Duration(milliseconds: 520),
+          curve: Curves.easeInOutCubicEmphasized,
+        );
+      } catch (_) {}
+    });
+  }
+
+  @override
+  void dispose() {
+    rotationTimer?.cancel();
+    pageController.dispose();
+    super.dispose();
+  }
+
+  void openPartners() {
+    Navigator.push(
+      context,
+      appPageRoute(builder: (_) => const PartnersScreen()),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: openPartners,
+        borderRadius: BorderRadius.circular(9),
+        child: Container(
+          height: 50,
+          width: double.infinity,
+          padding: const EdgeInsets.fromLTRB(3, 3, 5, 3),
+          decoration: BoxDecoration(
+            color: const Color(0xFF061121).withValues(alpha: 0.86),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: blue.withValues(alpha: 0.62), width: 1.2),
+            boxShadow: [
+              BoxShadow(color: blue.withValues(alpha: 0.08), blurRadius: 12),
+            ],
+          ),
+          child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+            stream: partnerStream,
+            builder: (context, snapshot) {
+              final partners = snapshot.hasData
+                  ? sortedVisiblePartners(snapshot.data!)
+                  : const <CcsPartner>[];
+              partnerCount = partners.length;
+              if (partnerCount == 0) {
+                return const Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.handshake_outlined, color: blue, size: 16),
+                    SizedBox(width: 6),
+                    Flexible(
+                      child: Text(
+                        'Partners',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 11.5,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ),
+                  ],
+                );
+              }
+
+              return Row(
+                children: [
+                  Expanded(
+                    child: SizedBox(
+                      height: 44,
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(9),
+                        child: PageView.builder(
+                          controller: pageController,
+                          physics: const NeverScrollableScrollPhysics(),
+                          onPageChanged: (page) => currentLoopPage = page,
+                          itemBuilder: (context, page) {
+                            final partner = partners[page % partnerCount];
+                            return Image.network(
+                              partner.logoUrl,
+                              width: double.infinity,
+                              height: double.infinity,
+                              fit: BoxFit.cover,
+                              alignment: Alignment.center,
+                              errorBuilder: (_, _, _) => const Center(
+                                child: Icon(
+                                  Icons.handshake_outlined,
+                                  color: blue,
+                                  size: 23,
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  const SizedBox(
+                    width: 43,
+                    child: Text(
+                      'Official\nPartner',
+                      maxLines: 2,
+                      overflow: TextOverflow.clip,
+                      style: TextStyle(
+                        color: blue,
+                        fontSize: 9.2,
+                        height: 1.02,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                ],
+              );
+            },
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class PartnersScreen extends StatefulWidget {
+  const PartnersScreen({super.key});
+
+  @override
+  State<PartnersScreen> createState() => _PartnersScreenState();
+}
+
+class _PartnersScreenState extends State<PartnersScreen> {
+  late final Stream<QuerySnapshot<Map<String, dynamic>>> partnerStream;
+
+  @override
+  void initState() {
+    super.initState();
+    partnerStream = ccsPartnersCollection().debugSnapshots(
+      'partners: full list listener',
+    );
+  }
+
+  void addPartner() {
+    Navigator.push(
+      context,
+      appPageRoute(builder: (_) => const AddPartnerScreen()),
+    );
+  }
+
+  void editPartner(CcsPartner partner) {
+    Navigator.push(
+      context,
+      appPageRoute(builder: (_) => AddPartnerScreen(partner: partner)),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.transparent,
+      appBar: AppBar(
+        title: const Text('CCS Partners'),
+        backgroundColor: Colors.transparent,
+        foregroundColor: blue,
+        actions: [
+          if (currentUserCanManagePartners)
+            IconButton(
+              tooltip: 'Add partner',
+              onPressed: addPartner,
+              icon: const Icon(Icons.add_business_outlined),
+            ),
+        ],
+      ),
+      body: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+        stream: partnerStream,
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting &&
+              !snapshot.hasData) {
+            return const Center(child: CircularProgressIndicator(color: blue));
+          }
+          if (snapshot.hasError) {
+            return const Center(
+              child: Padding(
+                padding: EdgeInsets.all(24),
+                child: Text(
+                  'Could not load partners.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: Colors.white70),
+                ),
+              ),
+            );
+          }
+          final partners = snapshot.hasData
+              ? sortedPartners(
+                  snapshot.data!,
+                  includeInactive: currentUserCanManagePartners,
+                )
+              : const <CcsPartner>[];
+          if (partners.isEmpty) {
+            return ListView(
+              padding: const EdgeInsets.fromLTRB(16, 24, 16, 32),
+              children: [
+                const EmptyStateCard(
+                  icon: Icons.handshake_outlined,
+                  title: 'No partners yet',
+                  text: 'Official CCS partners will appear here.',
+                ),
+                if (currentUserCanManagePartners) ...[
+                  const SizedBox(height: 14),
+                  FilledButton.icon(
+                    onPressed: addPartner,
+                    icon: const Icon(Icons.add),
+                    label: const Text('Add first partner'),
+                  ),
+                ],
+              ],
+            );
+          }
+
+          return ListView.separated(
+            padding: const EdgeInsets.fromLTRB(12, 12, 12, 28),
+            itemCount: partners.length,
+            separatorBuilder: (_, _) => const SizedBox(height: 10),
+            itemBuilder: (context, index) {
+              final partner = partners[index];
+              return _PartnerListCard(
+                partner: partner,
+                onTap: () => Navigator.push(
+                  context,
+                  appPageRoute(
+                    builder: (_) => PartnerDetailsScreen(partner: partner),
+                  ),
+                ),
+                onEdit: currentUserCanManagePartners
+                    ? () => editPartner(partner)
+                    : null,
+              );
+            },
+          );
+        },
+      ),
+      floatingActionButton: currentUserCanManagePartners
+          ? FloatingActionButton.extended(
+              onPressed: addPartner,
+              backgroundColor: blue,
+              foregroundColor: Colors.white,
+              icon: const Icon(Icons.add_business_outlined),
+              label: const Text('Add partner'),
+            )
+          : null,
+    );
+  }
+}
+
+class _PartnerListCard extends StatelessWidget {
+  final CcsPartner partner;
+  final VoidCallback onTap;
+  final VoidCallback? onEdit;
+
+  const _PartnerListCard({
+    required this.partner,
+    required this.onTap,
+    this.onEdit,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(16),
+        child: Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: panelGlass,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: blue.withValues(alpha: 0.25)),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 72,
+                height: 58,
+                padding: const EdgeInsets.all(7),
+                decoration: BoxDecoration(
+                  color: Colors.black26,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.white10),
+                ),
+                child: Image.network(
+                  partner.logoUrl,
+                  fit: BoxFit.contain,
+                  errorBuilder: (_, _, _) =>
+                      const Icon(Icons.handshake_outlined, color: blue),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      partner.name,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      partner.active
+                          ? 'Official CCS Partner'
+                          : 'Inactive partner',
+                      style: TextStyle(
+                        color: partner.active ? blue : Colors.orangeAccent,
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (onEdit != null)
+                IconButton(
+                  tooltip: 'Edit partner',
+                  onPressed: onEdit,
+                  icon: const Icon(Icons.edit_outlined, color: blue, size: 20),
+                )
+              else
+                const Icon(Icons.chevron_right, color: Colors.white38),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class PartnerDetailsScreen extends StatelessWidget {
+  final CcsPartner partner;
+
+  const PartnerDetailsScreen({super.key, required this.partner});
+
+  Widget contactButton(
+    BuildContext context, {
+    required IconData icon,
+    required String label,
+    required VoidCallback onTap,
+  }) {
+    return OutlinedButton.icon(
+      onPressed: onTap,
+      icon: Icon(icon, size: 18),
+      label: Text(label),
+      style: OutlinedButton.styleFrom(
+        foregroundColor: blue,
+        side: BorderSide(color: blue.withValues(alpha: 0.45)),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final contacts = <Widget>[
+      if (partner.phone.isNotEmpty)
+        contactButton(
+          context,
+          icon: Icons.phone_outlined,
+          label: 'Phone',
+          onTap: () => unawaited(
+            launchUrl(
+              Uri(scheme: 'tel', path: partner.phone),
+              mode: LaunchMode.externalApplication,
+            ),
+          ),
+        ),
+      if (partner.website.isNotEmpty)
+        contactButton(
+          context,
+          icon: Icons.language,
+          label: 'Website',
+          onTap: () => unawaited(launchExternalUrl(context, partner.website)),
+        ),
+      if (partner.instagram.isNotEmpty)
+        contactButton(
+          context,
+          icon: Icons.camera_alt_outlined,
+          label: 'Instagram',
+          onTap: () => unawaited(
+            launchExternalUrl(context, partner.instagram, kind: 'instagram'),
+          ),
+        ),
+      if (partner.telegram.isNotEmpty)
+        contactButton(
+          context,
+          icon: Icons.send_outlined,
+          label: 'Telegram',
+          onTap: () => unawaited(
+            launchExternalUrl(context, partner.telegram, kind: 'telegram'),
+          ),
+        ),
+    ];
+
+    return Scaffold(
+      backgroundColor: Colors.transparent,
+      appBar: AppBar(
+        title: Text(partner.name),
+        backgroundColor: Colors.transparent,
+        foregroundColor: blue,
+        actions: [
+          if (currentUserCanManagePartners)
+            IconButton(
+              tooltip: 'Edit partner',
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  appPageRoute(
+                    builder: (_) => AddPartnerScreen(partner: partner),
+                  ),
+                );
+              },
+              icon: const Icon(Icons.edit_outlined),
+            ),
+        ],
+      ),
+      body: ListView(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 30),
+        children: [
+          Container(
+            height: 150,
+            padding: const EdgeInsets.all(18),
+            decoration: BoxDecoration(
+              color: panelGlass,
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: blue.withValues(alpha: 0.28)),
+            ),
+            child: Image.network(
+              partner.logoUrl,
+              fit: BoxFit.contain,
+              errorBuilder: (_, _, _) =>
+                  const Icon(Icons.handshake_outlined, color: blue, size: 52),
+            ),
+          ),
+          const SizedBox(height: 14),
+          Text(
+            partner.name,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 24,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          const SizedBox(height: 4),
+          const Text(
+            'Official CCS Partner',
+            style: TextStyle(
+              color: blue,
+              fontSize: 13,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          if (partner.bio.isNotEmpty) ...[
+            const SizedBox(height: 18),
+            const Text(
+              'About',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 18,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+            const SizedBox(height: 7),
+            Text(
+              partner.bio,
+              style: const TextStyle(
+                color: Colors.white70,
+                fontSize: 14,
+                height: 1.4,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ],
+          if (contacts.isNotEmpty) ...[
+            const SizedBox(height: 16),
+            Wrap(spacing: 8, runSpacing: 8, children: contacts),
+          ],
+          if (partner.photoUrls.isNotEmpty) ...[
+            const SizedBox(height: 22),
+            const Text(
+              'Gallery',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 18,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+            const SizedBox(height: 10),
+            GridView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 2,
+                crossAxisSpacing: 8,
+                mainAxisSpacing: 8,
+                childAspectRatio: 1.35,
+              ),
+              itemCount: partner.photoUrls.length,
+              itemBuilder: (context, index) => ClipRRect(
+                borderRadius: BorderRadius.circular(14),
+                child: Image.network(
+                  partner.photoUrls[index],
+                  fit: BoxFit.cover,
+                  errorBuilder: (_, _, _) => Container(
+                    color: Colors.white10,
+                    child: const Icon(Icons.image_not_supported_outlined),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class AddPartnerScreen extends StatefulWidget {
+  final CcsPartner? partner;
+
+  const AddPartnerScreen({super.key, this.partner});
+
+  @override
+  State<AddPartnerScreen> createState() => _AddPartnerScreenState();
+}
+
+class _AddPartnerScreenState extends State<AddPartnerScreen> {
+  final formKey = GlobalKey<FormState>();
+  late final TextEditingController nameController;
+  late final TextEditingController bioController;
+  late final TextEditingController phoneController;
+  late final TextEditingController websiteController;
+  late final TextEditingController instagramController;
+  late final TextEditingController telegramController;
+  String? logoPath;
+  late String existingLogoUrl;
+  final List<String> galleryPaths = [];
+  late List<String> existingGalleryUrls;
+  late bool active;
+  bool saving = false;
+
+  bool get isEditing => widget.partner != null;
+
+  @override
+  void initState() {
+    super.initState();
+    final partner = widget.partner;
+    nameController = TextEditingController(text: partner?.name ?? '');
+    bioController = TextEditingController(text: partner?.bio ?? '');
+    phoneController = TextEditingController(text: partner?.phone ?? '');
+    websiteController = TextEditingController(text: partner?.website ?? '');
+    instagramController = TextEditingController(text: partner?.instagram ?? '');
+    telegramController = TextEditingController(text: partner?.telegram ?? '');
+    existingLogoUrl = partner?.logoUrl ?? '';
+    existingGalleryUrls = [...?partner?.photoUrls];
+    active = partner?.active ?? true;
+  }
+
+  @override
+  void dispose() {
+    nameController.dispose();
+    bioController.dispose();
+    phoneController.dispose();
+    websiteController.dispose();
+    instagramController.dispose();
+    telegramController.dispose();
+    super.dispose();
+  }
+
+  Future<void> pickLogo() async {
+    final path = await pickPhotoFromPhone(
+      context,
+      cropAspectRatio: 1.6,
+      cropShape: PhotoCropShape.rectangle,
+    );
+    if (!mounted || path == null || path.trim().isEmpty) return;
+    setState(() => logoPath = path);
+  }
+
+  Future<void> addGalleryPhoto() async {
+    if (existingGalleryUrls.length + galleryPaths.length >= 4) return;
+    final path = await pickPhotoFromPhone(context, cropPhoto: false);
+    if (!mounted || path == null || path.trim().isEmpty) return;
+    setState(() {
+      if (existingGalleryUrls.length + galleryPaths.length < 4) {
+        galleryPaths.add(path);
+      }
+    });
+  }
+
+  Future<void> removePartner() async {
+    if (!isEditing || saving || !currentUserCanManagePartners) return;
+
+    final partner = widget.partner!;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('Remove partner?'),
+          content: Text(
+            'This will permanently remove ${partner.name} from CCS Partners. This action cannot be undone.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              style: FilledButton.styleFrom(
+                backgroundColor: Colors.redAccent,
+                foregroundColor: Colors.white,
+              ),
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text('Remove partner'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirmed != true || !mounted) return;
+
+    setState(() => saving = true);
+    try {
+      await ccsPartnersCollection()
+          .doc(partner.id)
+          .debugDelete('partners: admin delete partner');
+
+      if (!mounted) return;
+      Navigator.pop(context);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: blue,
+          content: Text('${partner.name} removed.'),
+        ),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => saving = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: Colors.redAccent,
+          content: Text('Could not remove partner: $error'),
+        ),
+      );
+    }
+  }
+
+  Future<void> savePartner() async {
+    if (saving || !currentUserCanManagePartners) return;
+    if (!(formKey.currentState?.validate() ?? false)) return;
+    if ((logoPath == null || logoPath!.trim().isEmpty) &&
+        existingLogoUrl.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          backgroundColor: Colors.redAccent,
+          content: Text('Partner logo is required.'),
+        ),
+      );
+      return;
+    }
+
+    setState(() => saving = true);
+    try {
+      final ref = isEditing
+          ? ccsPartnersCollection().doc(widget.partner!.id)
+          : ccsPartnersCollection().doc();
+
+      var logoUrl = existingLogoUrl;
+      if (logoPath != null && logoPath!.trim().isNotEmpty) {
+        logoUrl = await uploadPartnerImage(
+          partnerId: ref.id,
+          localPhotoPath: logoPath!,
+          logo: true,
+        );
+      }
+
+      final galleryUrls = <String>[...existingGalleryUrls];
+      for (
+        var index = 0;
+        index < galleryPaths.length && galleryUrls.length < 4;
+        index++
+      ) {
+        galleryUrls.add(
+          await uploadPartnerImage(
+            partnerId: ref.id,
+            localPhotoPath: galleryPaths[index],
+            logo: false,
+            photoIndex: galleryUrls.length,
+          ),
+        );
+      }
+
+      final partnerData = <String, dynamic>{
+        'name': nameController.text.trim(),
+        'logoUrl': logoUrl,
+        'bio': bioController.text.trim(),
+        'phone': phoneController.text.trim(),
+        'website': websiteController.text.trim(),
+        'instagram': instagramController.text.trim(),
+        'telegram': telegramController.text.trim(),
+        'photoUrls': galleryUrls,
+        'active': active,
+        'updatedAt': FieldValue.serverTimestamp(),
+      };
+
+      if (isEditing) {
+        await ref.debugUpdate(partnerData, 'partners: admin update partner');
+      } else {
+        partnerData.addAll({
+          'createdByUid': currentUser.uid,
+          'createdByUsername': currentUser.username,
+          'createdAt': FieldValue.serverTimestamp(),
+        });
+        await ref.debugSet(partnerData, null, 'partners: admin create partner');
+      }
+
+      if (!mounted) return;
+      Navigator.pop(context);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: blue,
+          content: Text(isEditing ? 'Partner updated.' : 'Partner added.'),
+        ),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => saving = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: Colors.redAccent,
+          content: Text(
+            isEditing
+                ? 'Could not update partner: $error'
+                : 'Could not add partner: $error',
+          ),
+        ),
+      );
+    }
+  }
+
+  Widget field(
+    TextEditingController controller,
+    String label,
+    IconData icon, {
+    bool required = false,
+    TextInputType keyboardType = TextInputType.text,
+    int maxLines = 1,
+    int? maxLength,
+  }) {
+    return TextFormField(
+      controller: controller,
+      keyboardType: maxLines > 1 ? TextInputType.multiline : keyboardType,
+      minLines: maxLines > 1 ? 3 : 1,
+      maxLines: maxLines,
+      maxLength: maxLength,
+      style: const TextStyle(color: Colors.white),
+      validator: required
+          ? (value) =>
+                (value ?? '').trim().isEmpty ? '$label is required.' : null
+          : null,
+      decoration: InputDecoration(
+        labelText: required ? '$label *' : label,
+        prefixIcon: Icon(icon),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!currentUserCanManagePartners) {
+      return Scaffold(
+        backgroundColor: Colors.transparent,
+        appBar: AppBar(
+          title: Text(isEditing ? 'Edit partner' : 'Add partner'),
+          backgroundColor: Colors.transparent,
+        ),
+        body: const Center(
+          child: Text(
+            'Only administrators can manage partners.',
+            style: TextStyle(color: Colors.white70),
+          ),
+        ),
+      );
+    }
+
+    return Scaffold(
+      backgroundColor: Colors.transparent,
+      appBar: AppBar(
+        title: Text(isEditing ? 'Edit partner' : 'Add partner'),
+        backgroundColor: Colors.transparent,
+        foregroundColor: blue,
+      ),
+      body: Form(
+        key: formKey,
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
+          children: [
+            const Text(
+              'Logo *',
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+            const SizedBox(height: 8),
+            InkWell(
+              onTap: saving ? null : pickLogo,
+              borderRadius: BorderRadius.circular(16),
+              child: Container(
+                height: 120,
+                decoration: BoxDecoration(
+                  color: panelGlass,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(
+                    color: logoPath == null
+                        ? blue.withValues(alpha: 0.45)
+                        : blue,
+                  ),
+                ),
+                child: logoPath != null
+                    ? Padding(
+                        padding: const EdgeInsets.all(6),
+                        child: Image.file(File(logoPath!), fit: BoxFit.contain),
+                      )
+                    : existingLogoUrl.isNotEmpty
+                    ? Padding(
+                        padding: const EdgeInsets.all(6),
+                        child: Image.network(
+                          existingLogoUrl,
+                          fit: BoxFit.contain,
+                          errorBuilder: (_, _, _) => const Icon(
+                            Icons.add_photo_alternate_outlined,
+                            color: blue,
+                          ),
+                        ),
+                      )
+                    : const Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.add_photo_alternate_outlined, color: blue),
+                          SizedBox(height: 6),
+                          Text(
+                            'Upload partner logo',
+                            style: TextStyle(color: Colors.white70),
+                          ),
+                        ],
+                      ),
+              ),
+            ),
+            const SizedBox(height: 16),
+            field(
+              nameController,
+              'Partner name',
+              Icons.business_outlined,
+              required: true,
+            ),
+            const SizedBox(height: 12),
+            field(
+              bioController,
+              'About partner',
+              Icons.notes_outlined,
+              maxLines: 5,
+              maxLength: 1200,
+            ),
+            const SizedBox(height: 12),
+            field(
+              phoneController,
+              'Partner phone',
+              Icons.phone_outlined,
+              keyboardType: TextInputType.phone,
+            ),
+            const SizedBox(height: 12),
+            field(
+              websiteController,
+              'Partner website',
+              Icons.language,
+              keyboardType: TextInputType.url,
+            ),
+            const SizedBox(height: 12),
+            field(
+              instagramController,
+              'Partner Instagram',
+              Icons.camera_alt_outlined,
+            ),
+            const SizedBox(height: 12),
+            field(telegramController, 'Partner Telegram', Icons.send_outlined),
+            const SizedBox(height: 8),
+            SwitchListTile(
+              value: active,
+              onChanged: saving
+                  ? null
+                  : (value) => setState(() => active = value),
+              contentPadding: EdgeInsets.zero,
+              activeThumbColor: blue,
+              title: const Text(
+                'Active partner',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              subtitle: const Text(
+                'Inactive partners stay editable for admins but are hidden from users.',
+                style: TextStyle(color: Colors.white54, fontSize: 12),
+              ),
+            ),
+            const SizedBox(height: 14),
+            Row(
+              children: [
+                const Expanded(
+                  child: Text(
+                    'Photo gallery',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ),
+                Text(
+                  '${existingGalleryUrls.length + galleryPaths.length}/4',
+                  style: const TextStyle(color: Colors.white54),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            if (existingGalleryUrls.isNotEmpty || galleryPaths.isNotEmpty)
+              GridView.builder(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: 2,
+                  crossAxisSpacing: 8,
+                  mainAxisSpacing: 8,
+                  childAspectRatio: 1.35,
+                ),
+                itemCount: existingGalleryUrls.length + galleryPaths.length,
+                itemBuilder: (context, index) {
+                  final remote = index < existingGalleryUrls.length;
+                  final localIndex = index - existingGalleryUrls.length;
+                  return Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(12),
+                        child: remote
+                            ? Image.network(
+                                existingGalleryUrls[index],
+                                fit: BoxFit.cover,
+                                errorBuilder: (_, _, _) => Container(
+                                  color: Colors.white10,
+                                  child: const Icon(
+                                    Icons.image_not_supported_outlined,
+                                  ),
+                                ),
+                              )
+                            : Image.file(
+                                File(galleryPaths[localIndex]),
+                                fit: BoxFit.cover,
+                              ),
+                      ),
+                      Positioned(
+                        top: 4,
+                        right: 4,
+                        child: IconButton.filled(
+                          visualDensity: VisualDensity.compact,
+                          onPressed: saving
+                              ? null
+                              : () => setState(() {
+                                  if (remote) {
+                                    existingGalleryUrls.removeAt(index);
+                                  } else {
+                                    galleryPaths.removeAt(localIndex);
+                                  }
+                                }),
+                          icon: const Icon(Icons.close, size: 16),
+                        ),
+                      ),
+                    ],
+                  );
+                },
+              ),
+            if (existingGalleryUrls.isNotEmpty || galleryPaths.isNotEmpty)
+              const SizedBox(height: 8),
+            OutlinedButton.icon(
+              onPressed:
+                  saving ||
+                      existingGalleryUrls.length + galleryPaths.length >= 4
+                  ? null
+                  : addGalleryPhoto,
+              icon: const Icon(Icons.add_photo_alternate_outlined),
+              label: Text(
+                existingGalleryUrls.length + galleryPaths.length >= 4
+                    ? 'Maximum 4 photos'
+                    : 'Add gallery photo',
+              ),
+            ),
+            const SizedBox(height: 24),
+            SizedBox(
+              height: 52,
+              child: FilledButton.icon(
+                onPressed: saving ? null : savePartner,
+                icon: saving
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      )
+                    : const Icon(Icons.save_outlined),
+                label: Text(
+                  saving
+                      ? (isEditing ? 'Saving changes...' : 'Saving partner...')
+                      : (isEditing ? 'Save changes' : 'Save partner'),
+                ),
+              ),
+            ),
+            if (isEditing) ...[
+              const SizedBox(height: 12),
+              SizedBox(
+                height: 48,
+                child: OutlinedButton.icon(
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: Colors.redAccent,
+                    side: BorderSide(
+                      color: Colors.redAccent.withValues(alpha: 0.55),
+                    ),
+                  ),
+                  onPressed: saving ? null : removePartner,
+                  icon: const Icon(Icons.delete_outline),
+                  label: const Text('Remove partner'),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 enum ExploreSortMode { popular, newest, nearest, meet }
 
 String exploreSortLabel(ExploreSortMode mode) {
@@ -21210,7 +23346,9 @@ String exploreSortLabel(ExploreSortMode mode) {
 }
 
 class ExploreScreen extends StatefulWidget {
-  const ExploreScreen({super.key});
+  final bool isVisible;
+
+  const ExploreScreen({super.key, this.isVisible = true});
 
   @override
   State<ExploreScreen> createState() => _ExploreScreenState();
@@ -21229,6 +23367,11 @@ class _ExploreScreenState extends State<ExploreScreen> {
   final Set<String> expandedCategories = {};
   Timer? temporarySpotRefreshTimer;
   Timer? nextTemporarySpotExpiryTimer;
+  Timer? spotsEntryHintTimer;
+  int spotsEntryHintGeneration = 0;
+  bool spotsEntryHintAnimating = false;
+  bool pendingSpotsEntryDefaultCategory = true;
+  static const double spotsEntryHintTravelViewports = 0.72;
 
   @override
   void initState() {
@@ -21247,12 +23390,41 @@ class _ExploreScreenState extends State<ExploreScreen> {
       (_) => refreshTemporarySpots(),
     );
     scheduleNextTemporarySpotRefresh();
+    if (widget.isVisible) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && widget.isVisible) {
+          _scheduleSpotsEntryInteractionHint();
+        }
+      });
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant ExploreScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!oldWidget.isVisible && widget.isVisible) {
+      // Every fresh entry to Spots starts from the default feed again. Upcoming
+      // wins whenever at least one upcoming temporary spot is currently
+      // available; otherwise Photo is the fallback.
+      pendingSpotsEntryDefaultCategory = true;
+      userSelectedExploreCategory = false;
+      selectedExploreCategory = '';
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && widget.isVisible) {
+          _scheduleSpotsEntryInteractionHint();
+        }
+      });
+    } else if (oldWidget.isVisible && !widget.isVisible) {
+      _cancelSpotsEntryInteractionHint();
+    }
   }
 
   @override
   void dispose() {
     temporarySpotRefreshTimer?.cancel();
     nextTemporarySpotExpiryTimer?.cancel();
+    spotsEntryHintTimer?.cancel();
+    spotsEntryHintGeneration++;
     categoryScrollController.dispose();
     spotCardScrollController.dispose();
     savedSpots.removeListener(refreshSavedFilter);
@@ -21260,6 +23432,186 @@ class _ExploreScreenState extends State<ExploreScreen> {
     spotCountryFilters.removeListener(refreshSpotCategoryFilters);
     appUiPreferences.removeListener(refreshLanguageLabels);
     super.dispose();
+  }
+
+  void _scheduleSpotsEntryInteractionHint() {
+    if (MediaQuery.maybeOf(context)?.disableAnimations ?? false) {
+      return;
+    }
+
+    spotsEntryHintTimer?.cancel();
+    final generation = ++spotsEntryHintGeneration;
+    spotsEntryHintTimer = Timer(const Duration(milliseconds: 35), () {
+      if (!mounted ||
+          !widget.isVisible ||
+          generation != spotsEntryHintGeneration) {
+        return;
+      }
+      unawaited(_playSpotsEntryInteractionHint(generation));
+    });
+  }
+
+  void _cancelSpotsEntryInteractionHint() {
+    spotsEntryHintTimer?.cancel();
+    spotsEntryHintTimer = null;
+    spotsEntryHintGeneration++;
+    spotsEntryHintAnimating = false;
+
+    // Do not force a jumpTo here. This method is also called from
+    // ScrollStartNotification when a real finger drag begins. Forcing the
+    // ScrollPosition idle at that moment leaves the gesture recognizer sending
+    // drag updates to a position whose activity is no longer scrolling, which
+    // triggers ScrollPositionWithSingleContext's activity!.isScrolling assert.
+    // A user drag naturally interrupts ScrollController.animateTo on its own.
+  }
+
+  Future<void> _playSpotsEntryInteractionHint(int generation) async {
+    spotsEntryHintAnimating = true;
+    try {
+      // Wait until both scroll views have real content dimensions. Start only
+      // a couple of visible items away from the resting position: both selectors
+      // are designed around roughly three visible items, so ~0.72 viewport gives
+      // a clear mechanical spin without sweeping in from the absolute end.
+      await _waitForSpotsHintLayout(generation);
+
+      if (!mounted ||
+          !widget.isVisible ||
+          generation != spotsEntryHintGeneration) {
+        return;
+      }
+
+      final categoryCanAnimate = _jumpControllerToHintStart(
+        categoryScrollController,
+      );
+      final spotsCanAnimate = _jumpControllerToHintStart(
+        spotCardScrollController,
+      );
+
+      if (!categoryCanAnimate && !spotsCanAnimate) {
+        return;
+      }
+
+      // Keep the offset starting position visible for one rendered frame before
+      // the fast deceleration starts. This makes the direction obvious without
+      // making the menus travel across their full content range.
+      await WidgetsBinding.instance.endOfFrame;
+
+      if (!mounted ||
+          !widget.isVisible ||
+          generation != spotsEntryHintGeneration) {
+        return;
+      }
+
+      final animations = <Future<void>>[];
+      if (categoryCanAnimate) {
+        animations.add(
+          _animateControllerToStart(
+            categoryScrollController,
+            generation: generation,
+          ),
+        );
+      }
+      if (spotsCanAnimate) {
+        animations.add(
+          _animateControllerToStart(
+            spotCardScrollController,
+            generation: generation,
+          ),
+        );
+      }
+
+      await Future.wait(animations);
+    } finally {
+      if (generation == spotsEntryHintGeneration) {
+        spotsEntryHintAnimating = false;
+      }
+    }
+  }
+
+  Future<void> _waitForSpotsHintLayout(int generation) async {
+    for (var attempt = 0; attempt < 8; attempt++) {
+      if (!mounted ||
+          !widget.isVisible ||
+          generation != spotsEntryHintGeneration) {
+        return;
+      }
+
+      final categoryReady =
+          categoryScrollController.hasClients &&
+          categoryScrollController.position.hasContentDimensions;
+      final spotsReady =
+          spotCardScrollController.hasClients &&
+          spotCardScrollController.position.hasContentDimensions;
+
+      if (categoryReady && spotsReady) {
+        return;
+      }
+
+      await WidgetsBinding.instance.endOfFrame;
+      await Future<void>.delayed(const Duration(milliseconds: 24));
+    }
+  }
+
+  bool _jumpControllerToHintStart(ScrollController controller) {
+    if (!controller.hasClients || !controller.position.hasContentDimensions) {
+      return false;
+    }
+
+    final position = controller.position;
+    final start = position.minScrollExtent;
+    final end = position.maxScrollExtent;
+    final viewport = position.viewportDimension;
+    if (!end.isFinite ||
+        !viewport.isFinite ||
+        viewport <= 0 ||
+        end <= start + 1) {
+      return false;
+    }
+
+    // Both the category strip and spot feed show about three items at once.
+    // Starting ~0.72 viewport away therefore gives roughly a 2.2-item spin.
+    final travel = viewport * spotsEntryHintTravelViewports;
+    final hintStart = (start + travel).clamp(start, end).toDouble();
+    if ((hintStart - start).abs() < 1) {
+      return false;
+    }
+
+    try {
+      controller.jumpTo(hintStart);
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<void> _animateControllerToStart(
+    ScrollController controller, {
+    required int generation,
+  }) async {
+    if (!mounted ||
+        !widget.isVisible ||
+        generation != spotsEntryHintGeneration ||
+        !controller.hasClients ||
+        !controller.position.hasContentDimensions) {
+      return;
+    }
+
+    final position = controller.position;
+    final start = position.minScrollExtent;
+    if ((position.pixels - start).abs() < 1) {
+      return;
+    }
+
+    try {
+      await controller.animateTo(
+        start,
+        duration: const Duration(milliseconds: 1000),
+        // Fast launch, then a long smooth deceleration into the first item.
+        // This is intentionally much stronger than a normal ease-out so it
+        // reads like a cylinder spinning quickly and locking softly in place.
+        curve: const Cubic(0.06, 0.82, 0.14, 1.0),
+      );
+    } catch (_) {}
   }
 
   void refreshSavedFilter() {
@@ -21770,14 +24122,10 @@ class _ExploreScreenState extends State<ExploreScreen> {
   }
 
   List<String> orderedExploreCategories(Map<String, int> counts) {
-    final categories = <String>[
-      if ((counts[upcomingCategoryName] ?? 0) > 0) upcomingCategoryName,
-      ...spotCategoryOptions.where((category) => (counts[category] ?? 0) > 0),
-    ];
-
+    final hasUpcoming = (counts[upcomingCategoryName] ?? 0) > 0;
     final normalCategories =
-        categories
-            .where((category) => category != upcomingCategoryName)
+        spotCategoryOptions
+            .where((category) => (counts[category] ?? 0) > 0)
             .toList()
           ..sort((first, second) {
             final countCompare = (counts[second] ?? 0).compareTo(
@@ -21791,18 +24139,38 @@ class _ExploreScreenState extends State<ExploreScreen> {
                 .compareTo(spotCategoryOptions.indexOf(second));
           });
 
+    if (hasUpcoming) {
+      return [upcomingCategoryName, ...normalCategories];
+    }
+
+    // With no upcoming events, Photo is always the first/default chamber even
+    // when it currently has zero results. Keep the remaining populated
+    // categories after it, and keep Upcoming reachable at the far end.
     return [
-      if ((counts[upcomingCategoryName] ?? 0) > 0) upcomingCategoryName,
-      ...normalCategories,
-      if ((counts[upcomingCategoryName] ?? 0) <= 0 && normalCategories.isEmpty)
-        ...spotCategoryOptions,
-      // Keep Upcoming reachable during loading, empty searches, and offline use.
-      if ((counts[upcomingCategoryName] ?? 0) <= 0) upcomingCategoryName,
+      'Photo',
+      ...normalCategories.where((category) => category != 'Photo'),
+      upcomingCategoryName,
     ];
   }
 
   void normalizeSelectedExploreCategory(Map<String, int> counts) {
     final categories = orderedExploreCategories(counts);
+    final hasUpcoming = (counts[upcomingCategoryName] ?? 0) > 0;
+    final defaultCategory = hasUpcoming ? upcomingCategoryName : 'Photo';
+
+    if (pendingSpotsEntryDefaultCategory) {
+      selectedExploreCategory = defaultCategory;
+      userSelectedExploreCategory = false;
+
+      // If the feed is still completely empty, keep this pending so the first
+      // real Firestore snapshot can still promote Upcoming to the true default.
+      // Once any approved spot data exists, the entry default is settled.
+      if (approvedPublicSpots().isNotEmpty) {
+        pendingSpotsEntryDefaultCategory = false;
+      }
+      return;
+    }
+
     if (categories.isEmpty) {
       selectedExploreCategory = 'Photo';
       userSelectedExploreCategory = false;
@@ -21810,7 +24178,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
     }
 
     if (!categories.contains(selectedExploreCategory)) {
-      selectedExploreCategory = categories.first;
+      selectedExploreCategory = defaultCategory;
       userSelectedExploreCategory = false;
     }
   }
@@ -21967,13 +24335,15 @@ class _ExploreScreenState extends State<ExploreScreen> {
           height: 50,
           child: NotificationListener<ScrollEndNotification>(
             onNotification: (_) {
-              _snapCategoryStrip(itemExtent);
+              if (!spotsEntryHintAnimating) {
+                _snapCategoryStrip(itemExtent);
+              }
               return false;
             },
-            child: NotificationListener<UserScrollNotification>(
+            child: NotificationListener<ScrollStartNotification>(
               onNotification: (notification) {
-                if (notification.direction == ScrollDirection.idle) {
-                  _snapCategoryStrip(itemExtent);
+                if (notification.dragDetails != null) {
+                  _cancelSpotsEntryInteractionHint();
                 }
                 return false;
               },
@@ -22020,9 +24390,11 @@ class _ExploreScreenState extends State<ExploreScreen> {
 
     return InkWell(
       onTap: () {
+        _cancelSpotsEntryInteractionHint();
         setState(() {
           selectedExploreCategory = category;
           userSelectedExploreCategory = true;
+          pendingSpotsEntryDefaultCategory = false;
         });
       },
       borderRadius: BorderRadius.circular(9),
@@ -22154,17 +24526,33 @@ class _ExploreScreenState extends State<ExploreScreen> {
           backgroundColor: Colors.transparent,
           appBar: AppBar(
             automaticallyImplyLeading: false,
-            title: const CcsAppBarLogo(),
+            toolbarHeight: 68,
+            titleSpacing: 12,
             backgroundColor: Colors.transparent,
             foregroundColor: blue,
-            actions: [
-              IconButton(
-                onPressed: showExploreCategoryFilterSheet,
-                tooltip: trText('Spot filters'),
-                icon: const Icon(Icons.tune),
-              ),
-              ...ccsAppBarActions(),
-            ],
+            title: Row(
+              children: [
+                const SizedBox(
+                  width: 60,
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: CcsAppBarLogo(),
+                  ),
+                ),
+                const SizedBox(width: 7),
+                const Expanded(child: PartnersHeaderButton()),
+                const SizedBox(width: 7),
+                _SpotsHeaderIconButton(
+                  icon: Icons.tune_rounded,
+                  tooltip: trText('Spot filters'),
+                  onTap: showExploreCategoryFilterSheet,
+                ),
+                const SizedBox(width: 5),
+                const _SpotsHeaderLanguageButton(),
+                const SizedBox(width: 5),
+                const _SpotsHeaderNotificationButton(),
+              ],
+            ),
           ),
           body: MediaQuery.removeViewInsets(
             context: context,
@@ -22215,23 +24603,34 @@ class _ExploreScreenState extends State<ExploreScreen> {
                           return RefreshIndicator(
                             onRefresh: refreshUpcomingSpotFeed,
                             color: blue,
-                            child: ListView(
-                              physics: const AlwaysScrollableScrollPhysics(
-                                parent: BouncingScrollPhysics(),
-                              ),
-                              padding: const EdgeInsets.only(bottom: 14),
-                              children: [
-                                if (groups.isEmpty)
-                                  EmptyStateCard(
-                                    icon: Icons.event_available_outlined,
-                                    title: trText('No upcoming spots'),
-                                    text: trText(
-                                      'No upcoming spots match your filters. Check countries, saved-only mode, or search. Pull down to refresh.',
+                            child: NotificationListener<ScrollStartNotification>(
+                              onNotification: (notification) {
+                                if (notification.dragDetails != null) {
+                                  _cancelSpotsEntryInteractionHint();
+                                }
+                                return false;
+                              },
+                              child: ListView(
+                                controller: spotCardScrollController,
+                                physics: const AlwaysScrollableScrollPhysics(
+                                  parent: BouncingScrollPhysics(),
+                                ),
+                                padding: const EdgeInsets.only(bottom: 14),
+                                children: [
+                                  if (groups.isEmpty)
+                                    EmptyStateCard(
+                                      icon: Icons.event_available_outlined,
+                                      title: trText('No upcoming spots'),
+                                      text: trText(
+                                        'No upcoming spots match your filters. Check countries, saved-only mode, or search. Pull down to refresh.',
+                                      ),
+                                    )
+                                  else
+                                    UpcomingTemporarySpotsSection(
+                                      groups: groups,
                                     ),
-                                  )
-                                else
-                                  UpcomingTemporarySpotsSection(groups: groups),
-                              ],
+                                ],
+                              ),
                             ),
                           );
                         }
@@ -22262,15 +24661,16 @@ class _ExploreScreenState extends State<ExploreScreen> {
 
                             return NotificationListener<ScrollEndNotification>(
                               onNotification: (_) {
-                                _snapSpotCards(itemExtent);
+                                if (!spotsEntryHintAnimating) {
+                                  _snapSpotCards(itemExtent);
+                                }
                                 return false;
                               },
                               child:
-                                  NotificationListener<UserScrollNotification>(
+                                  NotificationListener<ScrollStartNotification>(
                                     onNotification: (notification) {
-                                      if (notification.direction ==
-                                          ScrollDirection.idle) {
-                                        _snapSpotCards(itemExtent);
+                                      if (notification.dragDetails != null) {
+                                        _cancelSpotsEntryInteractionHint();
                                       }
                                       return false;
                                     },
@@ -23552,7 +25952,8 @@ class MapScreen extends StatefulWidget {
 
 class _MapScreenState extends State<MapScreen>
     with TickerProviderStateMixin, LanguageReactiveState {
-  // Default map view: open Riga area first, do not auto-jump to the user.
+  // Riga remains the safe fallback, but the first/default map view is resolved
+  // from the signed-in user's profile city + country when the Map tab opens.
   static const rigaCenter = LatLng(56.9496, 24.1052);
   static const rigaZoom = 11.25;
   static const fullSpotIconMinZoom = 11.25;
@@ -23645,6 +26046,9 @@ class _MapScreenState extends State<MapScreen>
   DateTime? lastNavigationPositionAt;
   bool mapCenteredOnCurrentUser = false;
   bool mapCameraReady = false;
+  bool initialProfileCityFocusApplied = false;
+  bool initialProfileCityFocusInProgress = false;
+  bool mapCameraChangedByUser = false;
   int? lastHandledMapFocusRequestToken;
   CcsMapStyle mapStyle = CcsMapStyle.dark;
   bool adaptiveMapStyleEnabled = false;
@@ -23708,7 +26112,61 @@ class _MapScreenState extends State<MapScreen>
       mapCameraReady = true;
       restoreMapCamera();
       handleMapFocusRequest();
+      unawaited(focusInitialMapOnProfileCity());
     });
+  }
+
+  Future<void> focusInitialMapOnProfileCity() async {
+    if (initialProfileCityFocusApplied || initialProfileCityFocusInProgress) {
+      return;
+    }
+
+    final city = currentUser.city.trim();
+    final country = currentUser.country.trim();
+
+    // Empty/legacy profiles keep the existing Riga fallback.
+    if (city.isEmpty) {
+      initialProfileCityFocusApplied = true;
+      return;
+    }
+
+    initialProfileCityFocusInProgress = true;
+    final address = country.isEmpty ? city : '$city, $country';
+
+    try {
+      final locations = await locationFromAddress(
+        address,
+      ).timeout(userLocationLookupTimeout);
+
+      if (!mounted) {
+        return;
+      }
+
+      // An explicit spot/friend focus request or a manual pan always wins over
+      // this one-time default-city lookup.
+      if (mapFocusRequest.value != null || mapCameraChangedByUser) {
+        return;
+      }
+
+      if (locations.isEmpty) {
+        return;
+      }
+
+      final resolved = LatLng(
+        locations.first.latitude,
+        locations.first.longitude,
+      );
+      if (!isValidLatLng(resolved)) {
+        return;
+      }
+
+      moveMapCamera(resolved, rigaZoom, rotationDegrees: 0);
+    } catch (error) {
+      debugPrint('Profile city map focus failed for "$address": $error');
+    } finally {
+      initialProfileCityFocusInProgress = false;
+      initialProfileCityFocusApplied = true;
+    }
   }
 
   Future<void> loadMapStylePreference() async {
@@ -27655,9 +30113,9 @@ class _MapScreenState extends State<MapScreen>
   }
 
   void loadInitialUserLocation() {
-    // Intentionally do nothing on map open.
-    // The map should open on Riga spots first. User location is requested only
-    // after pressing the blue "find me" button or enabling live location.
+    // This centers on the profile city only; GPS is still requested only after
+    // pressing the blue "find me" button or enabling live location.
+    unawaited(focusInitialMapOnProfileCity());
   }
 
   void startNavigationTracking() {
@@ -28051,8 +30509,8 @@ class _MapScreenState extends State<MapScreen>
           FlutterMap(
             mapController: mapController,
             options: MapOptions(
-              initialCenter: rigaCenter,
-              initialZoom: rigaZoom,
+              initialCenter: currentMapCenter,
+              initialZoom: currentMapZoom,
               initialRotation: currentMapRotationDegrees,
               minZoom: 4,
               maxZoom: 18,
@@ -28090,6 +30548,7 @@ class _MapScreenState extends State<MapScreen>
                   currentMapRotationDegrees = nextRotation;
                   if (hasGesture) {
                     mapCenteredOnCurrentUser = false;
+                    mapCameraChangedByUser = true;
                     mapGestureIdleTimer?.cancel();
                     mapGestureIdleTimer = Timer(
                       const Duration(milliseconds: 320),
@@ -30444,6 +32903,19 @@ class _SpotDetailScreenState extends State<SpotDetailScreen>
             padding: const EdgeInsets.only(right: 6),
             child: Center(child: SaveSpotButton(spot: spot, compact: true)),
           ),
+          if (canTransferSpotOwnership(currentUser))
+            IconButton(
+              tooltip: communityText(
+                en: 'Transfer ownership',
+                ru: 'Передать владение',
+                lv: 'Nodot īpašumtiesības',
+              ),
+              icon: const Icon(Icons.manage_accounts_outlined),
+              onPressed: () async {
+                final updated = await showSpotOwnershipTransfer(context, spot);
+                if (updated != null && mounted) setState(() => spot = updated);
+              },
+            ),
           if (userRoleIsStaff(currentUser.role) ||
               spot.addedByUid == currentUser.uid)
             IconButton(
@@ -34463,6 +36935,7 @@ class _CcsTextField extends StatelessWidget {
   final int maxLines;
   final TextInputType keyboardType;
   final bool readOnly;
+  final bool autoGrow;
 
   const _CcsTextField({
     required this.controller,
@@ -34472,16 +36945,19 @@ class _CcsTextField extends StatelessWidget {
     this.maxLines = 1,
     this.keyboardType = TextInputType.text,
     this.readOnly = false,
+    this.autoGrow = false,
   });
 
   @override
   Widget build(BuildContext context) {
+    final multiline = autoGrow || maxLines > 1;
+
     return TextField(
       controller: controller,
-      minLines: maxLines > 1 ? 2 : 1,
-      maxLines: maxLines,
-      keyboardType: maxLines > 1 ? TextInputType.multiline : keyboardType,
-      textInputAction: maxLines > 1
+      minLines: multiline ? 2 : 1,
+      maxLines: autoGrow ? null : maxLines,
+      keyboardType: multiline ? TextInputType.multiline : keyboardType,
+      textInputAction: multiline
           ? TextInputAction.newline
           : TextInputAction.done,
       readOnly: readOnly,
@@ -37015,6 +39491,8 @@ class _GlobalChatTabState extends State<GlobalChatTab>
       return;
     }
 
+    if (!ensureCommunityProfileCountry(context)) return;
+
     final localCooldownRemaining = _localGlobalChatSendCooldownRemaining();
     if (localCooldownRemaining > Duration.zero) {
       _showGlobalChatSpamWarning(localCooldownRemaining);
@@ -37261,7 +39739,7 @@ class _GlobalChatTabState extends State<GlobalChatTab>
                 if (text.trim().isNotEmpty) const SizedBox(height: 8),
               ],
               if (text.trim().isNotEmpty)
-                Text(
+                ChatLinkText(
                   text,
                   style: const TextStyle(
                     color: Colors.white,
@@ -37769,6 +40247,13 @@ Future<String> createForumTopic({
   required String avatarUrl,
 }) async {
   try {
+    if (currentUserHomeCountryCode().isEmpty) {
+      throw FirebaseException(
+        plugin: 'cloud_firestore',
+        code: 'profile-country-required',
+        message: chooseProfileCountryMessage,
+      );
+    }
     final user = FirebaseAuth.instance.currentUser;
     debugPrint('Creating topic: $title');
     debugPrint('User: ${user?.uid}');
@@ -39857,9 +42342,12 @@ class ForumTopicPage extends StatefulWidget {
 }
 
 class _ForumTopicPageState extends State<ForumTopicPage>
-    with LanguageReactiveState {
+    with LanguageReactiveState, WidgetsBindingObserver {
   final replyController = TextEditingController();
   final replyFocusNode = FocusNode();
+  final topicScrollController = ScrollController();
+  late final Stream<DocumentSnapshot<Map<String, dynamic>>> _topicStream;
+  late final Stream<QuerySnapshot<Map<String, dynamic>>> _repliesStream;
   bool isSending = false;
   bool isUploadingPhotoAttachment = false;
   String? pendingPhotoAttachmentPath;
@@ -39867,6 +42355,35 @@ class _ForumTopicPageState extends State<ForumTopicPage>
   bool hasCommunityModerationAccess = false;
   late String _topicCountryCode;
   late bool _topicCountryResolved;
+  bool _hasLoadedReplies = false;
+  int? _latestLoadedReplyAtMillis;
+
+  bool get _isReadingTopic =>
+      mounted &&
+      ModalRoute.of(context)?.isCurrent == true &&
+      WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed;
+
+  void _markLoadedRepliesRead(String countryCode) {
+    if (!_hasLoadedReplies) return;
+    // Notify badge widgets after this frame has rendered the replies.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!_isReadingTopic) return;
+      inAppBadges.openForumTopic(
+        widget.topicId,
+        countryCode,
+        latestReplyAtMillis: _latestLoadedReplyAtMillis,
+        isVisible: () => _isReadingTopic,
+      );
+    });
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && _topicCountryResolved) {
+      _markLoadedRepliesRead(_topicCountryCode);
+      WidgetsBinding.instance.ensureVisualUpdate();
+    }
+  }
 
   DocumentReference<Map<String, dynamic>> get topicDocument =>
       FirebaseFirestore.instance.collection('forum_topics').doc(widget.topicId);
@@ -39886,12 +42403,20 @@ class _ForumTopicPageState extends State<ForumTopicPage>
     super.initState();
     _topicCountryCode = widget.countryCode.trim().toUpperCase();
     _topicCountryResolved = _topicCountryCode.isNotEmpty;
+    _topicStream = topicDocument.debugSnapshots('forum: topic listener');
+    _repliesStream = topicRepliesCollection
+        .orderBy('timestamp', descending: true)
+        .limit(50)
+        .debugSnapshots('forum: topic replies listener');
+    WidgetsBinding.instance.addObserver(this);
     unawaited(loadCommunityModerationAccess());
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     inAppBadges.closeForumTopic(widget.topicId);
+    topicScrollController.dispose();
     replyFocusNode.dispose();
     replyController.dispose();
     super.dispose();
@@ -39944,6 +42469,7 @@ class _ForumTopicPageState extends State<ForumTopicPage>
   }
 
   Future<void> sendReply() async {
+    if (!ensureCommunityProfileCountry(context)) return;
     final firebaseUser = FirebaseAuth.instance.currentUser;
     final text = replyController.text.trim();
     final localPhotoPath = pendingPhotoAttachmentPath?.trim() ?? '';
@@ -40849,7 +43375,7 @@ class _ForumTopicPageState extends State<ForumTopicPage>
             if (text.trim().isNotEmpty) const SizedBox(height: 8),
           ],
           if (text.trim().isNotEmpty)
-            Text(
+            ChatLinkText(
               text,
               style: const TextStyle(
                 color: Colors.white,
@@ -40945,7 +43471,7 @@ class _ForumTopicPageState extends State<ForumTopicPage>
               behavior: HitTestBehavior.translucent,
               onTap: () => FocusManager.instance.primaryFocus?.unfocus(),
               child: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-                stream: topicDocument.debugSnapshots('forum: topic listener'),
+                stream: _topicStream,
                 builder: (context, snapshot) {
                   if (snapshot.connectionState == ConnectionState.waiting) {
                     return const Center(
@@ -40977,35 +43503,30 @@ class _ForumTopicPageState extends State<ForumTopicPage>
                   }
 
                   return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                    stream: topicRepliesCollection
-                        .orderBy('timestamp', descending: true)
-                        .limit(50)
-                        .debugSnapshots('forum: topic replies listener'),
+                    stream: _repliesStream,
                     builder: (context, repliesSnapshot) {
                       if (repliesSnapshot.hasData &&
-                          !repliesSnapshot.hasError &&
-                          !repliesSnapshot.data!.metadata.isFromCache) {
-                        WidgetsBinding.instance.addPostFrameCallback((_) {
-                          if (!mounted ||
-                              ModalRoute.of(context)?.isCurrent != true)
-                            return;
-                          inAppBadges.openForumTopic(
-                            widget.topicId,
-                            resolvedCountryCode,
-                            isVisible: () =>
-                                mounted &&
-                                ModalRoute.of(this.context)?.isCurrent ==
-                                    true &&
-                                WidgetsBinding.instance.lifecycleState ==
-                                    AppLifecycleState.resumed,
-                          );
-                        });
+                          !repliesSnapshot.hasError) {
+                        // Cached replies are readable too; an unchanged server
+                        // result may never trigger another stream event.
+                        _hasLoadedReplies = true;
+                        for (final reply in repliesSnapshot.data!.docs) {
+                          final stamp = reply.data()['timestamp'];
+                          if (stamp is Timestamp &&
+                              stamp.millisecondsSinceEpoch >
+                                  (_latestLoadedReplyAtMillis ?? 0)) {
+                            _latestLoadedReplyAtMillis =
+                                stamp.millisecondsSinceEpoch;
+                          }
+                        }
+                        _markLoadedRepliesRead(resolvedCountryCode);
                       }
                       final replies =
                           repliesSnapshot.data?.docs.reversed.toList() ??
                           const <QueryDocumentSnapshot<Map<String, dynamic>>>[];
 
                       return ListView(
+                        controller: topicScrollController,
                         keyboardDismissBehavior:
                             ScrollViewKeyboardDismissBehavior.onDrag,
                         padding: const EdgeInsets.fromLTRB(20, 18, 20, 12),
@@ -41714,7 +44235,9 @@ class _LiveCommunityAuthorIdentityState
       mainAxisSize: MainAxisSize.min,
       children: [
         CommunityAvatarWithCountryFlag(
-          authorCountryCode: widget.authorCountryCode,
+          authorCountryCode: isCurrentUser
+              ? currentUserHomeCountryCode()
+              : profileAuthorCountryCode(data, widget.authorCountryCode),
           channelCountryCode: widget.channelCountryCode,
           avatar: GlobalSmallAvatar(
             avatarUrl: avatarUrl,
@@ -41764,7 +44287,10 @@ class _LiveCommunityAuthorIdentityState
   Widget build(BuildContext context) {
     final stream = profileStream;
     if (stream == null) {
-      return buildIdentity(null);
+      return ValueListenableBuilder<int>(
+        valueListenable: currentUserProfileRevision,
+        builder: (context, _, child) => buildIdentity(null),
+      );
     }
     return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
       stream: stream,
@@ -45599,7 +48125,7 @@ class _ChatConversationScreenState extends State<ChatConversationScreen>
                 if (message.text.trim().isNotEmpty) const SizedBox(height: 8),
               ],
               if (message.text.trim().isNotEmpty)
-                Text(
+                ChatLinkText(
                   message.text,
                   style: TextStyle(
                     color: Colors.white,
@@ -46060,7 +48586,10 @@ class _ChatConversationScreenState extends State<ChatConversationScreen>
 
 class UserProfileData {
   final String username;
-  final String cityCountry;
+  final String city;
+  final String country;
+  String get cityCountry =>
+      [city.trim(), country.trim()].where((part) => part.isNotEmpty).join(', ');
   final String bio;
   final String instagram;
   final String tiktok;
@@ -46070,7 +48599,8 @@ class UserProfileData {
 
   const UserProfileData({
     required this.username,
-    required this.cityCountry,
+    required this.city,
+    required this.country,
     required this.bio,
     required this.instagram,
     required this.tiktok,
@@ -46084,7 +48614,8 @@ class UserProfileData {
 
     return UserProfileData(
       username: currentUser.username,
-      cityCountry: '${currentUser.city}, ${currentUser.country}',
+      city: currentUser.city,
+      country: currentUser.country,
       bio: currentUser.bio,
       instagram: settings.instagram,
       tiktok: settings.tiktok,
@@ -46333,9 +48864,10 @@ class PublicUserProfileData {
   }
 
   String get cityCountry {
-    final cleanCity = city.trim().isEmpty ? 'Riga' : city.trim();
-    final cleanCountry = country.trim().isEmpty ? 'Latvia' : country.trim();
-    return '$cleanCity, $cleanCountry';
+    return [
+      city.trim(),
+      country.trim(),
+    ].where((part) => part.isNotEmpty).join(', ');
   }
 
   factory PublicUserProfileData.fromFirestore(
@@ -46358,8 +48890,8 @@ class PublicUserProfileData {
           ? data['avatarPath'] as String
           : null,
       bio: stringFromFirebase(data['bio'], 'Find. Drive. Shoot.'),
-      city: stringFromFirebase(data['city'], 'Riga'),
-      country: stringFromFirebase(data['country'], 'Latvia'),
+      city: stringFromFirebase(data['city'], ''),
+      country: stringFromFirebase(data['country'], ''),
       role: role,
       verified: isCurrentProfile
           ? currentUser.verified
@@ -46403,19 +48935,14 @@ void openUserProfile(
   );
 }
 
-List<String> splitCityCountry(String value) {
-  final parts = value.split(',');
-  final city = parts.isNotEmpty && parts.first.trim().isNotEmpty
-      ? parts.first.trim()
-      : 'Riga';
-  final countryText = parts.length > 1 ? parts.sublist(1).join(',').trim() : '';
-  final country = countryText.isNotEmpty ? countryText : 'Latvia';
-
-  return [city, country];
-}
-
 Future<void> saveProfileToFirebase(UserProfileData profile) async {
-  final cityCountry = splitCityCountry(profile.cityCountry);
+  if (!profileRegionIsComplete(profile.city, profile.country)) {
+    throw ArgumentError(requiredRegionMessage);
+  }
+  final cityCountry = [
+    profile.city.trim(),
+    canonicalSpotCountryName(profile.country),
+  ];
   final previousUsername = currentUser.username;
   final cleanUsername = await reserveUsernameForCurrentUser(
     preferredUsername: profile.username,
@@ -46436,6 +48963,24 @@ Future<void> saveProfileToFirebase(UserProfileData profile) async {
     nextAvatarPath = null;
   }
 
+  final nextSettings = userSettings.value.copyWith(
+    instagram: profile.instagram.trim(),
+    tiktok: profile.tiktok.trim(),
+    telegram: profile.telegram.trim(),
+  );
+  await saveCurrentUserFields({
+    'username': cleanUsername,
+    'usernameKey': usernameKey(cleanUsername),
+    'bio': profile.bio,
+    'photoUrl': nextPhotoUrl,
+    'avatarPath': nextAvatarPath,
+    'city': cityCountry[0],
+    'country': cityCountry[1],
+    'settings': nextSettings.toFirebase(),
+    'instagram': nextSettings.instagram.trim(),
+    'tiktok': nextSettings.tiktok.trim(),
+    'telegram': nextSettings.telegram.trim(),
+  });
   setCurrentUser(
     AppUser(
       uid: currentUser.uid,
@@ -46454,26 +48999,7 @@ Future<void> saveProfileToFirebase(UserProfileData profile) async {
     ),
   );
 
-  final nextSettings = userSettings.value.copyWith(
-    instagram: profile.instagram.trim(),
-    tiktok: profile.tiktok.trim(),
-    telegram: profile.telegram.trim(),
-  );
   userSettings.value = nextSettings;
-
-  await saveCurrentUserFields({
-    'username': cleanUsername,
-    'usernameKey': usernameKey(cleanUsername),
-    'bio': profile.bio,
-    'photoUrl': nextPhotoUrl,
-    'avatarPath': nextAvatarPath,
-    'city': cityCountry[0],
-    'country': cityCountry[1],
-    'settings': nextSettings.toFirebase(),
-    'instagram': nextSettings.instagram.trim(),
-    'tiktok': nextSettings.tiktok.trim(),
-    'telegram': nextSettings.telegram.trim(),
-  });
 }
 
 Future<void> saveGarageToFirebase(List<GarageCar> cars) async {
@@ -46868,10 +49394,12 @@ class _ProfileScreenState extends State<ProfileScreen>
   }
 
   String get baseValue {
-    final city = profile.cityCountry.split(',').first.trim();
+    final city = profile.city.trim();
 
     if (city.isEmpty) {
-      return 'Riga';
+      return profile.country.trim().isEmpty
+          ? trText('Unknown location')
+          : localizedCountryName(profile.country);
     }
 
     return city;
@@ -48142,8 +50670,6 @@ class PublicUserProfileScreen extends StatelessWidget {
             const SizedBox(height: 9),
             Text(
               profile.bio,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
               style: const TextStyle(color: Colors.white60, height: 1.25),
             ),
           ],
@@ -48155,6 +50681,7 @@ class PublicUserProfileScreen extends StatelessWidget {
               _MiniProfileInfoChip(
                 icon: Icons.location_on,
                 label: profile.cityCountry,
+                allowFullLabel: true,
               ),
               _MiniProfileInfoChip(
                 icon: Icons.directions_car,
@@ -49527,8 +52054,6 @@ class _ProfileHeader extends StatelessWidget {
                     const SizedBox(height: 4),
                     Text(
                       profile.bio,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
                       style: const TextStyle(color: Colors.white54),
                     ),
                     const SizedBox(height: 8),
@@ -49543,6 +52068,7 @@ class _ProfileHeader extends StatelessWidget {
                             _MiniProfileInfoChip(
                               icon: Icons.location_on,
                               label: profile.cityCountry,
+                              allowFullLabel: true,
                             ),
                             const SizedBox(width: 6),
                             _MiniProfileInfoChip(
@@ -49804,9 +52330,21 @@ class _CreatorSpotsScreenState extends State<CreatorSpotsScreen>
 class _MiniProfileInfoChip extends StatelessWidget {
   final IconData icon;
   final String label;
-  const _MiniProfileInfoChip({required this.icon, required this.label});
+  final bool allowFullLabel;
+
+  const _MiniProfileInfoChip({
+    required this.icon,
+    required this.label,
+    this.allowFullLabel = false,
+  });
+
   @override
   Widget build(BuildContext context) {
+    final availableLabelWidth = MediaQuery.sizeOf(context).width - 72;
+    final maxFullLabelWidth = availableLabelWidth < 74
+        ? 74.0
+        : availableLabelWidth;
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 5),
       decoration: BoxDecoration(
@@ -49816,19 +52354,26 @@ class _MiniProfileInfoChip extends StatelessWidget {
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           Icon(icon, color: blue, size: 12),
           const SizedBox(width: 4),
           ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 74),
+            constraints: BoxConstraints(
+              maxWidth: allowFullLabel ? maxFullLabelWidth : 74,
+            ),
             child: Text(
               label,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
+              maxLines: allowFullLabel ? null : 1,
+              overflow: allowFullLabel
+                  ? TextOverflow.visible
+                  : TextOverflow.ellipsis,
+              softWrap: allowFullLabel,
               style: const TextStyle(
                 color: Colors.white70,
                 fontSize: 9.3,
                 fontWeight: FontWeight.w800,
+                height: 1.15,
               ),
             ),
           ),
@@ -50920,6 +53465,7 @@ class EditProfileScreen extends StatefulWidget {
 }
 
 class _EditProfileScreenState extends State<EditProfileScreen> {
+  String? selectedCountryCode;
   late final TextEditingController usernameController;
   late final TextEditingController cityController;
   late final TextEditingController bioController;
@@ -50939,7 +53485,8 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   void initState() {
     super.initState();
     usernameController = TextEditingController(text: widget.profile.username);
-    cityController = TextEditingController(text: widget.profile.cityCountry);
+    cityController = TextEditingController(text: widget.profile.city);
+    selectedCountryCode = countryIsoCode(widget.profile.country);
     bioController = TextEditingController(text: widget.profile.bio);
     instagramController = TextEditingController(text: widget.profile.instagram);
     tiktokController = TextEditingController(text: widget.profile.tiktok);
@@ -51013,6 +53560,15 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   }
 
   void saveProfile() {
+    if (!profileRegionIsComplete(
+      cityController.text,
+      selectedCountryCode ?? widget.profile.country,
+    )) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(requiredRegionMessage)));
+      return;
+    }
     if (!canSaveProfile) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -51035,9 +53591,10 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         username: usernameController.text.trim().isEmpty
             ? currentUser.username
             : cleanProfileUsername(usernameController.text),
-        cityCountry: cityController.text.trim().isEmpty
-            ? 'Riga, Latvia'
-            : cityController.text.trim(),
+        city: cityController.text.trim(),
+        country: selectedCountryCode == null
+            ? widget.profile.country
+            : canonicalSpotCountryName(selectedCountryCode!),
         bio: bioController.text.trim().isEmpty
             ? 'Find. Drive. Shoot.'
             : bioController.text.trim(),
@@ -51161,9 +53718,54 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
               const SizedBox(height: 14),
               _CcsTextField(
                 controller: cityController,
-                label: 'Base',
-                hint: 'Riga, Latvia',
+                label: communityText(en: 'City', ru: 'Город', lv: 'Pilsēta'),
+                hint: communityText(
+                  en: 'Enter your city',
+                  ru: 'Введите город',
+                  lv: 'Ievadiet pilsētu',
+                ),
                 icon: Icons.location_city,
+              ),
+              const SizedBox(height: 14),
+              DropdownButtonFormField<String>(
+                initialValue: selectedCountryCode,
+                isExpanded: true,
+                dropdownColor: const Color(0xFF171C24),
+                style: const TextStyle(color: Colors.white),
+                decoration: InputDecoration(
+                  labelText: communityText(
+                    en: 'Country',
+                    ru: 'Страна',
+                    lv: 'Valsts',
+                  ),
+                  prefixIcon: const Icon(Icons.public, color: blue),
+                ),
+                hint: Text(
+                  communityText(
+                    en: 'Choose your country',
+                    ru: 'Выберите страну',
+                    lv: 'Izvēlieties valsti',
+                  ),
+                ),
+                items: allSupportedCountryNames().map((country) {
+                  final code = countryIsoCode(country)!;
+                  return DropdownMenuItem(
+                    value: code,
+                    child: Text(
+                      '${countryFlagEmoji(code)} ${localizedCountryName(code)}',
+                    ),
+                  );
+                }).toList(),
+                onChanged: (code) => setState(() => selectedCountryCode = code),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                communityText(
+                  en: 'You can correct your automatically detected location here. Your country is used for your chat flag.',
+                  ru: 'Здесь можно исправить автоматически определённое местоположение. Страна используется для флага в чате.',
+                  lv: 'Šeit varat labot automātiski noteikto atrašanās vietu. Valsts tiek izmantota jūsu karogam tērzēšanā.',
+                ),
+                style: const TextStyle(color: Colors.white54, fontSize: 12),
               ),
               const SizedBox(height: 14),
               _CcsTextField(
@@ -51171,7 +53773,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                 label: 'About you',
                 hint: 'Short description',
                 icon: Icons.notes,
-                maxLines: 4,
+                autoGrow: true,
               ),
             ],
           ),
@@ -55898,8 +58500,10 @@ class _AdminEditSpotScreenState extends State<AdminEditSpotScreen>
         contactInstagram: supportsContacts ? cleanInstagram : '',
         contactEmail: supportsContacts ? cleanEmail : '',
         openingHours: supportsContacts ? openingHours : const {},
-        ownerUid: supportsContacts ? (owner?.uid ?? '') : '',
-        ownerUsername: supportsContacts ? (owner?.username ?? '') : '',
+        ownerUid: supportsContacts ? (owner?.uid ?? '') : widget.spot.ownerUid,
+        ownerUsername: supportsContacts
+            ? (owner?.username ?? '')
+            : widget.spot.ownerUsername,
         photoUrl: finalPhotoUrls.isEmpty ? '' : finalPhotoUrls.first,
         photoUrls: finalPhotoUrls,
         verifiedOnly: verifiedOnlySpot,

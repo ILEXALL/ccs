@@ -193,8 +193,12 @@ service cloud.firestore {
     }
 
     function validRegionalCountryChange() {
-      return regionalFeaturesAllowed()
-        || request.resource.data.get('country', '') == resource.data.get('country', '');
+      // Every active owner may correct their profile, including an incorrectly
+      // assigned restricted country. Regional feature checks remain separate.
+      return request.resource.data.get('country', '') is string
+        && request.resource.data.get('country', '').size() <= 100
+        && request.resource.data.get('city', '') is string
+        && request.resource.data.get('city', '').size() <= 120;
     }
 
     function isNotBanned() {
@@ -638,7 +642,7 @@ service cloud.firestore {
     function canReadSpot() {
       return isActiveUser()
         && (
-          isAdmin()
+          isStaff()
           || moderatorCanManageExistingSpot()
           || resource.data.addedByUid == currentUid()
           || (
@@ -1409,6 +1413,134 @@ service cloud.firestore {
         );
     }
 
+    // CCS Partners
+    // All active signed-in app users may read the partner directory. The app
+    // listens to the full collection and filters inactive partners client-side,
+    // so reads cannot be restricted to active == true at the rules layer.
+    // Only administrators may create, edit, deactivate, or delete partners.
+    function validPartnerPhotoUrls(photoUrls) {
+      return photoUrls is list
+        && photoUrls.size() <= 4
+        && (
+          photoUrls.size() < 1
+          || (
+            photoUrls[0] is string
+            && photoUrls[0].size() >= 1
+            && photoUrls[0].size() <= 2000
+          )
+        )
+        && (
+          photoUrls.size() < 2
+          || (
+            photoUrls[1] is string
+            && photoUrls[1].size() >= 1
+            && photoUrls[1].size() <= 2000
+          )
+        )
+        && (
+          photoUrls.size() < 3
+          || (
+            photoUrls[2] is string
+            && photoUrls[2].size() >= 1
+            && photoUrls[2].size() <= 2000
+          )
+        )
+        && (
+          photoUrls.size() < 4
+          || (
+            photoUrls[3] is string
+            && photoUrls[3].size() >= 1
+            && photoUrls[3].size() <= 2000
+          )
+        );
+    }
+
+    function validPartnerData(data) {
+      return data.keys().hasOnly([
+          'name',
+          'logoUrl',
+          'bio',
+          'phone',
+          'website',
+          'instagram',
+          'telegram',
+          'photoUrls',
+          'active',
+          'createdByUid',
+          'createdByUsername',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.keys().hasAll([
+          'name',
+          'logoUrl',
+          'bio',
+          'phone',
+          'website',
+          'instagram',
+          'telegram',
+          'photoUrls',
+          'active',
+          'createdByUid',
+          'createdByUsername',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.name is string
+        && data.name.size() >= 1
+        && data.name.size() <= 120
+        && data.logoUrl is string
+        && data.logoUrl.size() >= 1
+        && data.logoUrl.size() <= 2000
+        && data.bio is string
+        && data.bio.size() <= 1200
+        && data.phone is string
+        && data.phone.size() <= 80
+        && data.website is string
+        && data.website.size() <= 1000
+        && data.instagram is string
+        && data.instagram.size() <= 1000
+        && data.telegram is string
+        && data.telegram.size() <= 1000
+        && validPartnerPhotoUrls(data.photoUrls)
+        && data.active is bool
+        && data.createdByUid is string
+        && data.createdByUid.size() >= 1
+        && data.createdByUid.size() <= 128
+        && data.createdByUsername is string
+        && data.createdByUsername.size() <= 80
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function validPartnerCreate() {
+      let data = request.resource.data;
+      return isAdmin()
+        && validPartnerData(data)
+        && data.createdByUid == currentUid()
+        && data.createdByUsername
+          == currentUserData().get('username', '')
+        && data.createdAt == request.time
+        && data.updatedAt == request.time;
+    }
+
+    function validPartnerUpdate() {
+      let data = request.resource.data;
+      return isAdmin()
+        && validPartnerData(data)
+        && data.createdByUid == resource.data.createdByUid
+        && data.createdByUsername == resource.data.createdByUsername
+        && data.createdAt == resource.data.createdAt
+        && data.updatedAt == request.time;
+    }
+
+    match /partners/{partnerId} {
+      allow read: if isActiveUser();
+      allow create: if validPartnerCreate();
+      allow update: if validPartnerUpdate();
+      allow delete: if isAdmin();
+    }
+
     match /app_config/{configId} {
       allow read: if configId in ['main', 'global_chat'];
       allow create, update: if (
@@ -1588,18 +1720,52 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    function staffCanTransferSpotOwnership(spotId) {
+      let targetUid = request.resource.data.get('addedByUid', '');
+      let target = /databases/$(database)/documents/users/$(targetUid);
+      return isActiveUser() && isStaff()
+        && !spotReviewLocked(spotId)
+        && targetUid is string && targetUid.size() > 0
+        && exists(target)
+        && get(target).data.get('deleted', false) != true
+        && (
+          get(target).data.get('banned', false) != true
+          || (get(target).data.get('bannedUntil', null) is timestamp
+            && get(target).data.bannedUntil <= request.time)
+        )
+        && get(target).data.get('username', '') is string
+        && get(target).data.get('username', '').size() > 0
+        && request.resource.data.addedBy == get(target).data.username
+        && request.resource.data.ownerUid == targetUid
+        && request.resource.data.ownerUsername == get(target).data.username
+        && request.resource.data.ownershipTransferredFromUid == resource.data.get('addedByUid', '')
+        && request.resource.data.previousBusinessOwnerUid == resource.data.get('ownerUid', '')
+        && request.resource.data.ownershipTransferredByUid == currentUid()
+        && request.resource.data.ownershipTransferredAt == request.time
+        && request.resource.data.updatedAt == request.time
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'addedByUid', 'addedBy', 'ownerUid', 'ownerUsername',
+          'ownershipTransferredFromUid', 'previousBusinessOwnerUid',
+          'ownershipTransferredByUid', 'ownershipTransferredAt', 'updatedAt'
+        ]);
+    }
+
     match /spots/{spotId} {
       allow read: if canReadSpot();
       allow create: if isActiveUser()
         && regionalFeaturesAllowed()
         && validNewSpot();
-      allow update: if ((isAdmin() || moderatorCanUpdateSpot())
+      allow update: if staffCanTransferSpotOwnership(spotId)
+        || (!request.resource.data.diff(resource.data).affectedKeys().hasAny([
+          'addedByUid', 'addedBy', 'ownershipTransferredFromUid',
+          'previousBusinessOwnerUid', 'ownershipTransferredByUid', 'ownershipTransferredAt'
+        ]) && (((isAdmin() || moderatorCanUpdateSpot())
           && (
             spotReviewDecisionUpdateAllowed(spotId)
             || (spotReviewDecisionUnchanged() && spotReviewEditorAllowed(spotId))
           ))
         || (!spotReviewLocked(spotId) && (ownerCanEditSpot() || businessOwnerCanEditSpot()))
-        || signedInUserCanUpdateSpotCounters();
+        || signedInUserCanUpdateSpotCounters()));
       allow delete: if isAdmin()
         && (!spotReviewLocked(spotId)
           || get(/databases/$(database)/documents/spot_review_locks/$(spotId)).data.reviewerUid == currentUid());
