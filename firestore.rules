@@ -247,6 +247,7 @@ service cloud.firestore {
       return request.resource.data.keys().hasOnly([
           'levels_enabled',
           'xp_awards_enabled',
+          'achievements_enabled',
           'enabledUserIds',
           'weeklyLimit',
           'timezone',
@@ -256,6 +257,8 @@ service cloud.firestore {
         ])
         && request.resource.data.levels_enabled is bool
         && request.resource.data.xp_awards_enabled is bool
+        && (!request.resource.data.keys().hasAny(['achievements_enabled'])
+          || request.resource.data.achievements_enabled is bool)
         && request.resource.data.weeklyLimit is int
         && request.resource.data.weeklyLimit >= 0
         && request.resource.data.weeklyLimit <= 3000

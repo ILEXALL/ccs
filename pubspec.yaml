@@ -54,4 +54,5 @@ flutter:
     - assets/spot_icons/
     - assets/user_cars/
     - assets/xp_wheels/
+    - assets/achievements/
     - assets/ccs_logo.png

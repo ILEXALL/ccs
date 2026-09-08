@@ -1,5 +1,6 @@
 const { admin, db } = require('../lib/firebase-admin');
 const { adjustXp } = require('../lib/xp/xp-adjustments');
+const { syncAchievements } = require('../lib/xp/achievements');
 const {
   awardManyXp,
   settlePendingXp,
@@ -114,6 +115,7 @@ async function syncSpot(actor, body) {
 }
 
 const handlers = {
+  achievements: (actor) => syncAchievements(actor.uid),
   adjust_xp: (actor, body) => adjustXp(actor.uid, body),
   ensure_config: async (actor) => {
     if (!isAdmin(actor.user)) {

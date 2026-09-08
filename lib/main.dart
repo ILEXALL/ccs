@@ -22,6 +22,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'firebase_options.dart';
+import 'achievements_screen.dart';
 
 // Paste the OAuth 2.0 Web Client ID from Firebase/Google Cloud here.
 // It usually looks like: 325709324670-xxxxx.apps.googleusercontent.com
@@ -46015,6 +46016,22 @@ class _ProfileScreenState extends State<ProfileScreen> {
               ),
               const SizedBox(height: 12),
               XpSummaryCard(userId: currentUser.uid, onTap: openXpHistory),
+              TextButton.icon(
+                icon: const Icon(Icons.workspace_premium),
+                label: Text(achievementText(appUiPreferences.language.name, 'Achievements', 'Достижения', 'Sasniegumi')),
+                onPressed: () => Navigator.of(context).push(appPageRoute(builder: (_) => AchievementsScreen(
+                  language: appUiPreferences.language.name,
+                  load: () async {
+                    final user = FirebaseAuth.instance.currentUser;
+                    if (user == null) throw StateError('Not signed in');
+                    final token = await user.getIdToken();
+                    final response = await postJsonToUrl(xpSyncUrls.first, {'action': 'achievements'},
+                      headers: {HttpHeaders.authorizationHeader: 'Bearer $token'});
+                    if (response['ok'] != true) throw StateError('Achievements unavailable');
+                    return Map<String, dynamic>.from(response['result'] as Map);
+                  },
+                ))),
+              ),
               const SizedBox(height: 12),
               if (cars.isEmpty) ...[
                 _EmptyGarageCard(onAdd: addCar),

@@ -69,7 +69,9 @@ function fixture(extra = {}) {
   };
   const firebase = { db, admin: {
     firestore: { FieldValue: { serverTimestamp: () => 'SERVER_TIMESTAMP' } },
-    auth: () => ({ verifyIdToken: async (token) => ({ uid: token }) }),
+    auth: () => ({ verifyIdToken: async (token) => ({ uid: token }),
+      getUser: async (uid) => ({uid, metadata: {creationTime:
+        rows.get(`auth_test_metadata/${uid}`)?.creationTime || '2026-09-01T00:00:00Z'}}) }),
   } };
   const modules = new Map();
   function load(relative) {

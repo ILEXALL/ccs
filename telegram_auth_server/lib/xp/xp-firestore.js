@@ -23,6 +23,10 @@ async function awardXp(input, options = {}) {
     let normalized = normalizedInput;
     const configSnapshot = await transaction.get(configRef);
     const config = xpConfigFromDocument(configSnapshot.data());
+    if (normalized.action === 'achievement.unlock' &&
+        configSnapshot.data()?.achievements_enabled !== true) {
+      return { awarded: false, status: 'blocked', reason: 'ACHIEVEMENTS_DISABLED' };
+    }
     const weekKey = weekKeyFor(options.now || new Date(), config.timeZone);
     const weekRef = db
       .collection('xp_user_weeks')
@@ -305,6 +309,7 @@ function xpConfigFromDocument(data) {
 }
 
 function isOneTimeAward(input) {
+  if (input.action === 'achievement.unlock' && input.objectType === 'achievement') return true;
   return [
     'profile.avatar', 'profile.bio', 'profile.city', 'profile.social', 'profile.full',
     'garage.first_car', 'garage.first_car_photo', 'garage.first_car_description',
