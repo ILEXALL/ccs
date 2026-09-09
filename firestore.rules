@@ -2169,6 +2169,7 @@ service cloud.firestore {
         && (
           !chatExists(chatId)
           || currentUid() in resource.data.memberIds
+          || (resource.data.get('isGroup', false) == true && isGlobalModerator())
         );
       allow list: if isSignedIn()
         && currentUid() in resource.data.memberIds;
@@ -2176,6 +2177,14 @@ service cloud.firestore {
         && request.resource.data.memberIds is list
         && currentUid() in request.resource.data.memberIds
         && request.resource.data.memberIds.size() >= 2
+        && (
+          request.resource.data.get('isGroup', false) != true
+          || !request.resource.data.keys().hasAny(['countryCode'])
+          || (
+            validCommunityCountryCode(request.resource.data.countryCode)
+            && currentUserCountryMatchesCode(request.resource.data.countryCode)
+          )
+        )
         && (
           request.resource.data.get('isGroup', false) == true
           || !directMemberIdsBlocked(request.resource.data.memberIds)
@@ -2221,8 +2230,13 @@ service cloud.firestore {
           )
         );
 
+      match /join_requests/{uid} {
+        allow read, write: if false;
+      }
+
       match /messages/{messageId} {
-        allow read: if isChatMember(chatId);
+        allow read: if isChatMember(chatId)
+          || (chatData(chatId).get('isGroup', false) == true && isGlobalModerator());
         allow create: if isChatMember(chatId)
           && !directChatBlocked(chatId)
           && request.resource.data.senderUid == currentUid()
