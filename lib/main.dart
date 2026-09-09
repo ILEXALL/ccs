@@ -1628,6 +1628,13 @@ Future<void> initializeMaintenanceMode() async {
 }
 
 const _ruText = <String, String>{
+  'Could not load users. Tap to retry.':
+      'Не удалось загрузить пользователей. Нажмите, чтобы повторить.',
+  'Type at least 2 characters to search.':
+      'Введите минимум 2 символа для поиска.',
+  'Showing saved groups. Tap to retry.':
+      'Показан сохранённый список групп. Нажмите, чтобы обновить.',
+  'Select country': 'Выберите страну',
   'Could not open spot review. Please try again.':
       'Не удалось открыть проверку спота. Попробуйте снова.',
   'Could not connect to the review server. Please try again.':
@@ -2590,9 +2597,55 @@ const _ruText = <String, String>{
       'Будьте первым, кто ответит в этой теме.',
   'Reply in topic': 'Ответить в теме',
   'Temporary events': 'Временные ивенты',
+  // Private group discovery and owner review.
+  'Private groups': 'Закрытые группы',
+  'Private group': 'Закрытая группа',
+  'My public groups': 'Мои открытые группы',
+  'Open group': 'Открыть группу',
+  'Monitor (read only)': 'Просмотр без участия',
+  'Request pending': 'Заявка на рассмотрении',
+  'Request rejected': 'Заявка отклонена',
+  'Request already used': 'Заявка уже отправлялась',
+  'You were mentioned': 'Вас упомянули',
+  'Request to join': 'Подать заявку',
+  'Request to join?': 'Подать заявку в группу?',
+  'The group owner will receive your request. You can only request to join this group once.':
+      'Владелец группы получит вашу заявку. Подать заявку в эту группу можно только один раз.',
+  'Join requests': 'Заявки на вступление',
+  'Group join request': 'Заявка на вступление в группу',
+  'No pending requests.': 'Нет заявок на рассмотрении.',
+  'No private groups yet.': 'Закрытых групп пока нет.',
+  'Could not load private groups. Tap to retry.':
+      'Не удалось загрузить закрытые группы. Нажмите, чтобы повторить.',
+  'Could not load requests. Tap to retry.':
+      'Не удалось загрузить заявки. Нажмите, чтобы повторить.',
+  'Could not load requests. Use refresh to retry.':
+      'Не удалось загрузить заявки. Нажмите «Обновить».',
+  'Wants to join your group': 'Хочет вступить в вашу группу',
+  'View profile': 'Открыть профиль',
+  'Profile preview unavailable. Open the profile to retry.':
+      'Не удалось загрузить сведения. Попробуйте открыть профиль.',
+  'Review each profile before granting access to your group.':
+      'Ознакомьтесь с профилем, прежде чем предоставить доступ к группе.',
+  'Read-only monitoring. You are not a member of this group.':
+      'Только просмотр. Вы не состоите в этой группе.',
+  'Group no longer exists.': 'Группа больше не существует.',
+  'Could not update group. Please retry.':
+      'Не удалось обновить группу. Попробуйте ещё раз.',
+  'Could not open group. Please retry.':
+      'Не удалось открыть группу. Попробуйте ещё раз.',
+  'Could not submit decision. Please retry.':
+      'Не удалось сохранить решение. Попробуйте ещё раз.',
 };
 
 const _lvText = <String, String>{
+  'Could not load users. Tap to retry.':
+      'Neizdevās ielādēt lietotājus. Pieskarieties, lai mēģinātu vēlreiz.',
+  'Type at least 2 characters to search.':
+      'Lai meklētu, ievadiet vismaz 2 rakstzīmes.',
+  'Showing saved groups. Tap to retry.':
+      'Tiek rādīts saglabātais grupu saraksts. Pieskarieties, lai atjauninātu.',
+  'Select country': 'Izvēlieties valsti',
   'Could not open spot review. Please try again.':
       'Neizdevās atvērt spota pārbaudi. Mēģiniet vēlreiz.',
   'Could not connect to the review server. Please try again.':
@@ -3549,6 +3602,45 @@ const _lvText = <String, String>{
       'Esiet pirmais, kas atbild šajā tēmā.',
   'Reply in topic': 'Atbildēt tēmā',
   'Temporary events': 'Pagaidu pasākumi',
+  // Private group discovery and owner review.
+  'Private groups': 'Privātās grupas',
+  'Private group': 'Privāta grupa',
+  'My public groups': 'Manas publiskās grupas',
+  'Open group': 'Atvērt grupu',
+  'Monitor (read only)': 'Skatīt bez dalības',
+  'Request pending': 'Pieprasījums tiek izskatīts',
+  'Request rejected': 'Pieprasījums noraidīts',
+  'Request already used': 'Pieprasījums jau izmantots',
+  'You were mentioned': 'Jūs pieminēja',
+  'Request to join': 'Pieteikties grupai',
+  'Request to join?': 'Pieteikties grupai?',
+  'The group owner will receive your request. You can only request to join this group once.':
+      'Grupas īpašnieks saņems jūsu pieprasījumu. Pieteikties šai grupai var tikai vienu reizi.',
+  'Join requests': 'Dalības pieprasījumi',
+  'Group join request': 'Grupas dalības pieprasījums',
+  'No pending requests.': 'Nav neizskatītu pieprasījumu.',
+  'No private groups yet.': 'Pagaidām nav privātu grupu.',
+  'Could not load private groups. Tap to retry.':
+      'Neizdevās ielādēt privātās grupas. Pieskarieties, lai mēģinātu vēlreiz.',
+  'Could not load requests. Tap to retry.':
+      'Neizdevās ielādēt pieprasījumus. Pieskarieties, lai mēģinātu vēlreiz.',
+  'Could not load requests. Use refresh to retry.':
+      'Neizdevās ielādēt pieprasījumus. Mēģiniet atsvaidzināt.',
+  'Wants to join your group': 'Vēlas pievienoties jūsu grupai',
+  'View profile': 'Skatīt profilu',
+  'Profile preview unavailable. Open the profile to retry.':
+      'Profila priekšskatījums nav pieejams. Mēģiniet atvērt profilu.',
+  'Review each profile before granting access to your group.':
+      'Pirms piešķirat piekļuvi grupai, apskatiet katru profilu.',
+  'Read-only monitoring. You are not a member of this group.':
+      'Tikai skatīšanās. Jūs neesat šīs grupas dalībnieks.',
+  'Group no longer exists.': 'Grupa vairs nepastāv.',
+  'Could not update group. Please retry.':
+      'Neizdevās atjaunināt grupu. Mēģiniet vēlreiz.',
+  'Could not open group. Please retry.':
+      'Neizdevās atvērt grupu. Mēģiniet vēlreiz.',
+  'Could not submit decision. Please retry.':
+      'Neizdevās saglabāt lēmumu. Mēģiniet vēlreiz.',
 };
 
 String trText(String value, {AppLanguage? language}) {
@@ -3566,10 +3658,49 @@ String trText(String value, {AppLanguage? language}) {
     };
   }
 
+  final mention = RegExp(
+    r'^@(.+?) mentioned you: ([\s\S]*)$',
+  ).firstMatch(value);
+  if (mention != null) {
+    return switch (selectedLanguage) {
+      AppLanguage.en => value,
+      AppLanguage.ru =>
+        '@${mention.group(1)} упомянул(а) вас: ${mention.group(2)}',
+      AppLanguage.lv =>
+        '@${mention.group(1)} jūs pieminēja: ${mention.group(2)}',
+    };
+  }
   final exact = translations[value];
 
   if (exact != null) {
     return exact;
+  }
+
+  final groupRequest = RegExp(
+    r'^@(.+) wants to join (.+)\.$',
+  ).firstMatch(value);
+  if (groupRequest != null) {
+    final username = groupRequest.group(1)!;
+    final group = groupRequest.group(2)!;
+    return switch (selectedLanguage) {
+      AppLanguage.en => value,
+      AppLanguage.ru => '@$username хочет вступить в группу «$group».',
+      AppLanguage.lv => '@$username vēlas pievienoties grupai «$group».',
+    };
+  }
+  final groupDecision = RegExp(
+    r'^Your request to join (.+) was (accepted|rejected)\.$',
+  ).firstMatch(value);
+  if (groupDecision != null) {
+    final group = groupDecision.group(1)!;
+    final accepted = groupDecision.group(2) == 'accepted';
+    return switch (selectedLanguage) {
+      AppLanguage.en => value,
+      AppLanguage.ru =>
+        'Ваша заявка в группу «$group» ${accepted ? 'одобрена' : 'отклонена'}.',
+      AppLanguage.lv =>
+        'Jūsu pieprasījums pievienoties grupai «$group» ir ${accepted ? 'apstiprināts' : 'noraidīts'}.',
+    };
   }
 
   final showMoreMatch = RegExp(r'^Show (\d+) more$').firstMatch(value);
@@ -10794,7 +10925,10 @@ Future<void> sendCommunityPushNotificationEvent({
     preferenceKey: preferenceKey,
     communityCountryCode: communityCountryCode,
   );
-  if (recipients != null && recipients.isEmpty) {
+  if (recipients != null &&
+      recipients.isEmpty &&
+      type != 'global_chat_message' &&
+      type != 'forum_reply') {
     debugPrint(
       'Community push skipped because no eligible recipients were found. '
       'type=$type notificationId=$notificationId',
@@ -11955,7 +12089,7 @@ Future<void> unblockUserById(String userId) async {
 }
 
 const double friendNearbyRadiusMeters = 5000;
-const double friendAtSpotRadiusMeters = 100;
+const double friendAtSpotRadiusMeters = 200;
 const Duration friendAtSpotNotificationDwellTime = Duration(minutes: 5);
 const Duration friendLocationNotificationCooldown = Duration(minutes: 30);
 const Duration temporarySpotReminderLeadTime = Duration(hours: 5);
@@ -13091,6 +13225,7 @@ Future<String> createGroupChat({
 
   await doc.debugSet({
     'isGroup': true,
+    'countryCode': currentUserHomeCountryCode(),
     'name': name.trim().isEmpty ? fallbackName : name.trim(),
     'memberIds': memberIds,
     'memberUsernames': memberUsernames,
@@ -13709,6 +13844,14 @@ Future<void> editChatMessage({
     'updatedAt': FieldValue.serverTimestamp(),
   }, SetOptions(merge: true));
 
+  unawaited(
+    sendPushNotificationEvent({
+      'type': 'chat_message',
+      'chatId': chatId,
+      'messageId': message.id,
+      'mentionsOnly': true,
+    }),
+  );
   try {
     await chatsCollection().doc(chatId).debugSet({
       'lastMessage': cleanText,
@@ -17429,6 +17572,13 @@ Future<void> editSpotReview({
     'comment': cleanComment,
     'updatedAt': FieldValue.serverTimestamp(),
   });
+  unawaited(
+    sendPushNotificationEvent({
+      'type': 'spot_comment',
+      'reviewId': review.id,
+      'mentionsOnly': true,
+    }),
+  );
 }
 
 Future<void> deleteSpotReview({
@@ -18654,33 +18804,35 @@ NotificationCenterItem notificationCenterItemFromDocument(
   final comment = pickString('comment', '');
   final friendUsername = pickString('friendUsername', '');
   // Always use the canonical title for each type — ignore whatever Firebase stored.
-  final title = switch (type) {
-    'spot_like' => 'Likes on my spots',
-    'spot_comment' => 'Comments',
-    'spot_review_update' => 'Spot review updates',
-    'chat_message' => chatNotificationTitle(actorUsername),
-    'new_spot' => 'New spots',
-    'temporary_event' => 'Temporary events',
-    'temporary_spot_today' => 'Temporary spot starts in 5 hours',
-    'global_chat_message' || 'global_chat_admin' => 'Global chat',
-    'forum_reply' => pickString('title', 'Forum'),
-    'forum_topic_pending' => 'Forum topic waiting for review',
-    'forum_reply_admin' => 'New forum reply',
-    'spot_pending_review' =>
-      pickString('reviewKind', '') == 'edited'
-          ? 'Spot edited — approval required'
-          : 'Spot review updates',
-    'user_report_new' => 'New user report',
-    'spot_removal_request' => 'Spot removal request',
-    'spot_approved_by_admin' ||
-    'spot_rejected_by_admin' => 'Spot review updates',
-    'friend_request' => 'New friend request',
-    'friend_nearby' ||
-    'friend_at_spot' ||
-    'friend_live_sharing' => 'Live location',
-    'project_news' => 'Project news',
-    _ => stringFromFirebase(data['title'], 'CCS'),
-  };
+  final title = pickString('notificationKind', '') == 'mention'
+      ? 'You were mentioned'
+      : switch (type) {
+          'spot_like' => 'Likes on my spots',
+          'spot_comment' => 'Comments',
+          'spot_review_update' => 'Spot review updates',
+          'chat_message' => chatNotificationTitle(actorUsername),
+          'new_spot' => 'New spots',
+          'temporary_event' => 'Temporary events',
+          'temporary_spot_today' => 'Temporary spot starts in 5 hours',
+          'global_chat_message' || 'global_chat_admin' => 'Global chat',
+          'forum_reply' => pickString('title', 'Forum'),
+          'forum_topic_pending' => 'Forum topic waiting for review',
+          'forum_reply_admin' => 'New forum reply',
+          'spot_pending_review' =>
+            pickString('reviewKind', '') == 'edited'
+                ? 'Spot edited — approval required'
+                : 'Spot review updates',
+          'user_report_new' => 'New user report',
+          'spot_removal_request' => 'Spot removal request',
+          'spot_approved_by_admin' ||
+          'spot_rejected_by_admin' => 'Spot review updates',
+          'friend_request' => 'New friend request',
+          'friend_nearby' ||
+          'friend_at_spot' ||
+          'friend_live_sharing' => 'Live location',
+          'project_news' => 'Project news',
+          _ => stringFromFirebase(data['title'], 'CCS'),
+        };
   var body = pickString('body', '');
   final spotName = rawSpotName.trim().isNotEmpty
       ? rawSpotName
@@ -20060,6 +20212,23 @@ Future<void> openNotificationCenterItem(
     Navigator.push(
       context,
       appPageRoute(builder: (_) => const AdminUserReportsScreen()),
+    );
+    return;
+  }
+
+  if (item.type == 'group_join_request') {
+    Navigator.push(
+      context,
+      appPageRoute(
+        builder: (_) => GroupJoinRequestsScreen(chatId: item.chatId),
+      ),
+    );
+    return;
+  }
+  if (item.type == 'group_join_decision') {
+    Navigator.push(
+      context,
+      appPageRoute(builder: (_) => const ChatScreen(initialTabIndex: 1)),
     );
     return;
   }
@@ -25980,7 +26149,6 @@ class _MapScreenState extends State<MapScreen>
   Timer? liveLocationUploadTimer;
   Timer? liveLocationPromptTimer;
   Timer? liveLocationAutoStopTimer;
-  Timer? friendAtSpotDwellTimer;
   Timer? liveLocationStaleSweepTimer;
   Timer? mapGestureIdleTimer;
   DateTime? lastMapCameraUiUpdateAt;
@@ -26010,9 +26178,6 @@ class _MapScreenState extends State<MapScreen>
   LatLng? lastGpsUserLocation;
   LatLng? lastUploadedLiveLocation;
   DateTime? lastGpsUserLocationAt;
-  String? friendAtSpotCandidateId;
-  String? friendAtSpotNotifiedSpotId;
-  LatLng? friendAtSpotCandidateLocation;
   double currentUserSpeedMetersPerSecond = 0;
   bool isLocatingUser = false;
   bool isAddingPoliceReport = false;
@@ -29397,88 +29562,6 @@ class _MapScreenState extends State<MapScreen>
     }
   }
 
-  void cancelFriendAtSpotDwellTimer() {
-    friendAtSpotDwellTimer?.cancel();
-    friendAtSpotDwellTimer = null;
-    friendAtSpotCandidateId = null;
-    friendAtSpotCandidateLocation = null;
-  }
-
-  CarSpot? nearestSpotForFriendPresence(LatLng location) {
-    CarSpot? nearestSpot;
-    var nearestDistance = double.infinity;
-
-    for (final spot in approvedPublicSpots()) {
-      if (spot.status != SpotStatus.approved ||
-          spot.id.trim().isEmpty ||
-          !spot.isVisibleOnMapNow) {
-        continue;
-      }
-
-      final distance = distanceBetweenLatLngMeters(location, spot.coordinates);
-      if (distance < nearestDistance) {
-        nearestDistance = distance;
-        nearestSpot = spot;
-      }
-    }
-
-    if (nearestSpot == null || nearestDistance > friendAtSpotRadiusMeters) {
-      return null;
-    }
-
-    return nearestSpot;
-  }
-
-  void monitorCurrentUserSpotPresenceForFriends(LatLng location) {
-    if (!isSharingLiveLocation) {
-      cancelFriendAtSpotDwellTimer();
-      return;
-    }
-
-    final spot = nearestSpotForFriendPresence(location);
-    if (spot == null) {
-      cancelFriendAtSpotDwellTimer();
-      return;
-    }
-
-    final spotId = spot.id.trim();
-    if (friendAtSpotNotifiedSpotId == spotId ||
-        friendAtSpotCandidateId == spotId) {
-      friendAtSpotCandidateLocation = location;
-      return;
-    }
-
-    cancelFriendAtSpotDwellTimer();
-    friendAtSpotCandidateId = spotId;
-    friendAtSpotCandidateLocation = location;
-    friendAtSpotDwellTimer = Timer(friendAtSpotNotificationDwellTime, () {
-      final dwellLocation = friendAtSpotCandidateLocation ?? location;
-      final currentSpot = approvedPublicSpots().firstWhere(
-        (item) => item.id == spotId,
-        orElse: () => spot,
-      );
-      final distance = distanceBetweenLatLngMeters(
-        dwellLocation,
-        currentSpot.coordinates,
-      );
-
-      if (!isSharingLiveLocation ||
-          distance > friendAtSpotRadiusMeters ||
-          friendAtSpotCandidateId != spotId) {
-        return;
-      }
-
-      friendAtSpotNotifiedSpotId = spotId;
-      unawaited(
-        notifyCurrentUserFriendsAboutSpotPresence(
-          coordinates: dwellLocation,
-          spot: currentSpot,
-          distanceMeters: distance,
-        ),
-      );
-    });
-  }
-
   void scheduleLiveLocationTimers() {
     final expiresAt = liveLocationExpiresAt;
 
@@ -29654,8 +29737,6 @@ class _MapScreenState extends State<MapScreen>
       isTogglingLiveLocation = false;
     });
 
-    monitorCurrentUserSpotPresenceForFriends(location);
-
     startNavigationTracking();
     updateFollowCamera(location, heading);
 
@@ -29716,8 +29797,6 @@ class _MapScreenState extends State<MapScreen>
         currentUserSpeedMetersPerSecond = speed;
       });
 
-      monitorCurrentUserSpotPresenceForFriends(location);
-
       if (mapCenteredOnCurrentUser) {
         updateFollowCamera(displayedUserLocation ?? location, heading);
       }
@@ -29744,8 +29823,6 @@ class _MapScreenState extends State<MapScreen>
       currentUserSpeedMetersPerSecond = speed;
     });
 
-    monitorCurrentUserSpotPresenceForFriends(location);
-
     if (mapCenteredOnCurrentUser) {
       updateFollowCamera(displayedUserLocation ?? location, heading);
     }
@@ -29761,6 +29838,10 @@ class _MapScreenState extends State<MapScreen>
     String? visibleToChatName,
     String? shareScope,
   }) async {
+    if (DateTime.now().difference(position.timestamp) >
+        const Duration(seconds: 90)) {
+      return;
+    }
     final firebaseUser = FirebaseAuth.instance.currentUser;
 
     if (firebaseUser == null) {
@@ -29830,6 +29911,9 @@ class _MapScreenState extends State<MapScreen>
       'updatedAt': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
 
+    // Use the newly saved sample for server-side five-minute arrival tracking.
+    unawaited(sendPushNotificationEvent({'type': 'friend_at_spot'}));
+
     await updateCurrentUserPresenceFields({
       'isSharingLiveLocation': true,
       'liveLocationExpiresAt': Timestamp.fromDate(expiresAt),
@@ -29857,14 +29941,13 @@ class _MapScreenState extends State<MapScreen>
 
     liveLocationUploadTimer?.cancel();
     liveLocationUploadTimer = null;
-    cancelFriendAtSpotDwellTimer();
-    friendAtSpotNotifiedSpotId = null;
     cancelLiveLocationTimers(keepUploadTimer: true);
     nativeLiveLocationBackgroundSignature = null;
     unawaited(stopNativeLiveLocationBackgroundService());
 
     if (firebaseUser != null) {
       await liveLocationsCollection().doc(firebaseUser.uid).debugDelete();
+      unawaited(sendPushNotificationEvent({'type': 'friend_at_spot'}));
       await updateCurrentUserPresenceFields({
         'isSharingLiveLocation': false,
         'liveLocationExpiresAt': null,
@@ -30036,7 +30119,6 @@ class _MapScreenState extends State<MapScreen>
     liveLocationUploadTimer?.cancel();
     liveLocationPromptTimer?.cancel();
     liveLocationAutoStopTimer?.cancel();
-    friendAtSpotDwellTimer?.cancel();
     liveLocationStaleSweepTimer?.cancel();
     mapGestureIdleTimer?.cancel();
     liveLocationSubscription?.cancel();
@@ -34101,7 +34183,7 @@ class _SpotReviewsSectionState extends State<SpotReviewsSection>
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              TextField(
+              MentionTextField(
                 controller: commentController,
                 minLines: 2,
                 maxLines: 4,
@@ -34279,7 +34361,7 @@ class SpotReviewCard extends StatelessWidget {
               return Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  TextField(
+                  MentionTextField(
                     controller: commentController,
                     minLines: 3,
                     maxLines: 5,
@@ -38365,27 +38447,23 @@ class _ChatScreenState extends State<ChatScreen>
                       ),
                     ),
                     Expanded(
-                      child: snapshot.connectionState == ConnectionState.waiting
-                          ? const Center(
-                              child: CircularProgressIndicator(color: blue),
-                            )
-                          : TabBarView(
-                              controller: tabController,
-                              children: [
-                                ChatsTab(
-                                  chats: directChats,
-                                  currentUid: firebaseUser.uid,
-                                  unreadCountsByChatId: unreadCountsByChatId,
-                                ),
-                                GroupsTab(
-                                  chats: groupChats,
-                                  currentUid: firebaseUser.uid,
-                                  unreadCountsByChatId: unreadCountsByChatId,
-                                ),
-                                GlobalChatTab(isActive: activeTabIndex == 2),
-                                const ForumTab(),
-                              ],
-                            ),
+                      child: TabBarView(
+                        controller: tabController,
+                        children: [
+                          ChatsTab(
+                            chats: directChats,
+                            currentUid: firebaseUser.uid,
+                            unreadCountsByChatId: unreadCountsByChatId,
+                          ),
+                          GroupsTab(
+                            chats: groupChats,
+                            currentUid: firebaseUser.uid,
+                            unreadCountsByChatId: unreadCountsByChatId,
+                          ),
+                          GlobalChatTab(isActive: activeTabIndex == 2),
+                          const ForumTab(),
+                        ],
+                      ),
                     ),
                   ],
                 ),
@@ -38496,6 +38574,950 @@ class _ChatsTabState extends State<ChatsTab>
   }
 }
 
+Future<Map<String, dynamic>> privateGroupAction(
+  Map<String, Object?> body,
+) async {
+  final token = await FirebaseAuth.instance.currentUser?.getIdToken();
+  if (token == null) throw StateError('Sign in first.');
+  return postJsonToUrl(
+    'https://ccs-telegram-auth-server.vercel.app/api/private-groups',
+    body,
+    headers: {HttpHeaders.authorizationHeader: 'Bearer $token'},
+  ).timeout(const Duration(seconds: 30));
+}
+
+// Directory metadata only: never cache messages or use cached membership to
+// authorize a write. The API and Firestore still validate every action.
+class GroupDirectoryCache {
+  static final Map<String, Map<String, dynamic>> _memory = {};
+  static const maxAge = Duration(days: 7);
+
+  static String key(String uid, String country, String access) =>
+      'group_directory_v1_${Uri.encodeComponent(uid)}_${country}_${Uri.encodeComponent(access)}';
+
+  static Map<String, dynamic>? peek(String key) => _memory[key];
+
+  static Future<Map<String, dynamic>?> read(String key) async {
+    if (_memory.containsKey(key)) return _memory[key];
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(key);
+      if (raw == null) return null;
+      final stored = jsonDecode(raw) as Map<String, dynamic>;
+      final age =
+          DateTime.now().millisecondsSinceEpoch -
+          (stored['savedAt'] as num).toInt();
+      if (age < 0 || age > maxAge.inMilliseconds) return null;
+      final data = stored['data'] as Map<String, dynamic>;
+      if (data['groups'] is! List || data['visibleGroupIds'] is! List) {
+        return null;
+      }
+      // A network response may already have arrived while storage was loading.
+      return _memory.putIfAbsent(key, () => data);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static Future<void> write(String key, Map<String, dynamic> data) async {
+    _memory[key] = data;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(
+        key,
+        jsonEncode({
+          'savedAt': DateTime.now().millisecondsSinceEpoch,
+          'data': data,
+        }),
+      );
+    } catch (_) {
+      // A full disk must not turn a successful directory refresh into an error.
+    }
+  }
+}
+
+class PrivateGroupDirectory extends StatefulWidget {
+  final Future<Map<String, dynamic>> Function(Map<String, Object?>)?
+  requestAction;
+  final String membershipRevision;
+  final List<ChatThreadData> chats;
+  final String currentUid;
+  final Map<String, int> unreadCountsByChatId;
+  const PrivateGroupDirectory({
+    super.key,
+    this.requestAction,
+    required this.membershipRevision,
+    required this.chats,
+    required this.currentUid,
+    required this.unreadCountsByChatId,
+  });
+  @override
+  State<PrivateGroupDirectory> createState() => _PrivateGroupDirectoryState();
+}
+
+class _PrivateGroupDirectoryState extends State<PrivateGroupDirectory>
+    with LanguageReactiveState {
+  late Future<Map<String, dynamic>> directory;
+  final Set<String> busy = {};
+  String? adminCountry;
+  late String profileCountry;
+  late bool adminAccess;
+  String get selectedCountry =>
+      adminAccess ? adminCountry ?? profileCountry : profileCountry;
+  Map<String, dynamic>? displayedDirectory;
+  String? displayedCacheKey;
+  int loadGeneration = 0;
+  String get accessScope => [
+    currentUser.role.name,
+    currentUser.globalChatModerator.toString(),
+  ].join(':');
+  late String lastAccessScope;
+  Future<Map<String, dynamic>> loadDirectory() async {
+    final generation = ++loadGeneration;
+    final country = selectedCountry;
+    final key = GroupDirectoryCache.key(
+      widget.currentUid,
+      country,
+      accessScope,
+    );
+    if (displayedCacheKey != key) {
+      displayedCacheKey = key;
+      displayedDirectory = GroupDirectoryCache.peek(key);
+    }
+    var networkFinished = false;
+    unawaited(
+      GroupDirectoryCache.read(key).then((saved) {
+        if (!mounted ||
+            generation != loadGeneration ||
+            networkFinished ||
+            saved == null) {
+          return;
+        }
+        if (saved['countryCode'] != country) return;
+        setState(() {
+          displayedDirectory = saved;
+        });
+      }),
+    );
+    final data = await (widget.requestAction ?? privateGroupAction)({
+      'action': 'directory',
+      if (adminAccess) 'countryCode': country,
+    });
+    networkFinished = true;
+    if (mounted &&
+        generation == loadGeneration &&
+        data['countryCode'] == country) {
+      displayedDirectory = data;
+      unawaited(GroupDirectoryCache.write(key, data));
+    }
+    return data;
+  }
+
+  void profileChanged() {
+    final nextCountry = currentUserHomeCountryCode();
+    final nextAdmin = currentUser.role == UserRole.admin;
+    if (nextCountry == profileCountry &&
+        nextAdmin == adminAccess &&
+        lastAccessScope == accessScope) {
+      return;
+    }
+    lastAccessScope = accessScope;
+    profileCountry = nextCountry;
+    adminAccess = nextAdmin;
+    adminCountry = null;
+    refresh();
+  }
+
+  @override
+  void dispose() {
+    currentUserProfileRevision.removeListener(profileChanged);
+    super.dispose();
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    lastAccessScope = accessScope;
+    profileCountry = currentUserHomeCountryCode();
+    adminAccess = currentUser.role == UserRole.admin;
+    currentUserProfileRevision.addListener(profileChanged);
+    directory = loadDirectory();
+  }
+
+  @override
+  void didUpdateWidget(covariant PrivateGroupDirectory oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.membershipRevision != widget.membershipRevision ||
+        oldWidget.currentUid != widget.currentUid) {
+      refresh();
+    }
+  }
+
+  void refresh() => setState(() {
+    directory = loadDirectory();
+  });
+
+  Future<void> openGroup(Map<String, dynamic> group) async {
+    final id = group['id'] as String;
+    if (!busy.add(id)) return;
+    setState(() {});
+    try {
+      if (group['isMember'] == true || group['canMonitor'] == true) {
+        final doc = await chatsCollection()
+            .doc(id)
+            .get(const GetOptions(source: Source.server));
+        if (!doc.exists) throw StateError('Group no longer exists.');
+        if (!mounted) return;
+        await Navigator.push(
+          context,
+          appPageRoute(
+            builder: (_) => ChatConversationScreen(
+              chat: ChatThreadData.fromFirestore(doc),
+              readOnly: group['isMember'] != true,
+            ),
+          ),
+        );
+      } else if ((group['requestStatus'] ?? '') == '') {
+        final confirmed = await showDialog<bool>(
+          context: context,
+          builder: (dialogContext) => AlertDialog(
+            backgroundColor: panel,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(22),
+            ),
+            icon: const Icon(Icons.group_add_outlined, color: blue),
+            title: Text(trText('Request to join?')),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  stringFromFirebase(group['name'], 'Group chat'),
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  trText(
+                    'The group owner will receive your request. You can only request to join this group once.',
+                  ),
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext, false),
+                child: Text(trText('Cancel')),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(dialogContext, true),
+                child: Text(trText('Request to join')),
+              ),
+            ],
+          ),
+        );
+        if (!mounted || confirmed != true) return;
+        final result = await privateGroupAction({
+          'action': 'request',
+          'chatId': id,
+        });
+        // Persist locally too, so a failed refresh never re-enables the request.
+        group['requestStatus'] = result['status'];
+        await sendPushNotificationEvent({
+          'type': 'group_join_request',
+          'chatId': id,
+        });
+      }
+      if (mounted) refresh();
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(trText('Could not open group. Please retry.')),
+          ),
+        );
+      }
+    } finally {
+      busy.remove(id);
+      if (mounted) setState(() {});
+    }
+  }
+
+  Widget groupCard(Map<String, dynamic> group, String label) {
+    final id = group['id'] as String;
+    final member = group['isMember'] == true;
+    final monitor = !member && group['canMonitor'] == true;
+    final status = group['requestStatus'] ?? '';
+    final isBusy = busy.contains(id);
+    final canOpen = member || monitor;
+    final canRequest = !canOpen && status == '';
+    final photoUrl = stringFromFirebase(group['photoUrl'], '').trim();
+    final description = stringFromFirebase(group['description'], '').trim();
+    final statusColor = status == 'rejected' ? Colors.white54 : blue;
+    final fallback = const UserAvatarFallback(
+      size: 58,
+      icon: Icons.groups_rounded,
+    );
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Material(
+        color: panelGlass,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(20),
+          side: BorderSide(color: Colors.white.withValues(alpha: 0.09)),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              InkWell(
+                onTap: canOpen && !isBusy ? () => openGroup(group) : null,
+                borderRadius: BorderRadius.circular(12),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    SizedBox(
+                      width: 58,
+                      height: 58,
+                      child: ClipOval(
+                        child: isNetworkUrl(photoUrl)
+                            ? Image.network(
+                                photoUrl,
+                                fit: BoxFit.cover,
+                                errorBuilder: (_, _, _) => fallback,
+                                loadingBuilder: (context, child, progress) =>
+                                    progress == null ? child : fallback,
+                              )
+                            : fallback,
+                      ),
+                    ),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              const Icon(
+                                Icons.lock_outline_rounded,
+                                size: 12,
+                                color: Colors.white54,
+                              ),
+                              const SizedBox(width: 5),
+                              Flexible(
+                                child: Text(
+                                  trText('Private group'),
+                                  style: const TextStyle(
+                                    color: Colors.white54,
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 5),
+                          Text(
+                            stringFromFirebase(group['name'], 'Group chat'),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 17,
+                              fontWeight: FontWeight.w800,
+                              height: 1.2,
+                            ),
+                          ),
+                          if (description.isNotEmpty) ...[
+                            const SizedBox(height: 6),
+                            Text(
+                              description,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: Colors.white60,
+                                fontSize: 12,
+                                height: 1.4,
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 14),
+              Divider(height: 1, color: Colors.white.withValues(alpha: 0.07)),
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 10,
+                runSpacing: 8,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [
+                  if (canOpen || canRequest)
+                    FilledButton.icon(
+                      onPressed: isBusy ? null : () => openGroup(group),
+                      style: FilledButton.styleFrom(
+                        backgroundColor: canRequest
+                            ? blue
+                            : blue.withValues(alpha: 0.12),
+                        foregroundColor: canRequest ? Colors.white : blue,
+                        minimumSize: Size(0, canRequest ? 32 : 40),
+                        tapTargetSize: MaterialTapTargetSize.padded,
+                        padding: EdgeInsets.symmetric(
+                          horizontal: canRequest ? 10 : 14,
+                          vertical: canRequest ? 6 : 10,
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(11),
+                        ),
+                        textStyle: TextStyle(
+                          fontSize: canRequest ? 11 : 12,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      icon: isBusy
+                          ? const SizedBox(
+                              width: 15,
+                              height: 15,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : Icon(
+                              monitor
+                                  ? Icons.visibility_outlined
+                                  : member
+                                  ? Icons.arrow_forward_rounded
+                                  : Icons.person_add_alt_1_rounded,
+                              size: canRequest ? 14 : 16,
+                            ),
+                      label: Text(trText(label)),
+                    )
+                  else
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 10),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            status == 'pending'
+                                ? Icons.schedule_rounded
+                                : Icons.lock_outline_rounded,
+                            size: 15,
+                            color: statusColor,
+                          ),
+                          const SizedBox(width: 7),
+                          Flexible(
+                            child: Text(
+                              trText(label),
+                              style: TextStyle(
+                                color: statusColor,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  if (group['isOwner'] == true)
+                    TextButton.icon(
+                      onPressed: isBusy
+                          ? null
+                          : () async {
+                              await Navigator.push(
+                                context,
+                                appPageRoute(
+                                  builder: (_) =>
+                                      GroupJoinRequestsScreen(chatId: id),
+                                ),
+                              );
+                              if (mounted) refresh();
+                            },
+                      style: TextButton.styleFrom(
+                        foregroundColor: Colors.white70,
+                        textStyle: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      icon: const Icon(
+                        Icons.person_add_alt_1_outlined,
+                        size: 16,
+                      ),
+                      label: Text(trText('Join requests')),
+                    ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      if (adminAccess)
+        Align(
+          alignment: Alignment.centerRight,
+          child: SizedBox(
+            width: 180,
+            child: DropdownButton<String>(
+              isExpanded: true,
+              value: _countryNamesByIso.containsKey(selectedCountry)
+                  ? selectedCountry
+                  : null,
+              hint: Text(trText('Select country')),
+              dropdownColor: panel,
+              underline: const SizedBox.shrink(),
+              icon: const Icon(Icons.keyboard_arrow_down, color: blue),
+              items: [
+                for (final code in _countryNamesByIso.keys)
+                  DropdownMenuItem(
+                    value: code,
+                    child: Text(
+                      localizedCountryName(code),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+              ],
+              onChanged: (code) {
+                if (code == null || code == selectedCountry) return;
+                adminCountry = code;
+                refresh();
+              },
+            ),
+          ),
+        ),
+      Row(
+        children: [
+          Expanded(
+            child: Text(
+              trText('Groups'),
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 20,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+          ),
+          IconButton(
+            onPressed: refresh,
+            tooltip: trText('Refresh'),
+            icon: const Icon(Icons.refresh, color: blue),
+          ),
+        ],
+      ),
+      FutureBuilder<Map<String, dynamic>>(
+        future: directory,
+        builder: (context, snapshot) {
+          if (displayedDirectory == null &&
+              snapshot.connectionState != ConnectionState.done) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          if (displayedDirectory == null && snapshot.hasError) {
+            return TextButton(
+              onPressed: refresh,
+              child: Text(
+                trText('Could not load private groups. Tap to retry.'),
+              ),
+            );
+          }
+          final groups = (displayedDirectory?['groups'] as List? ?? [])
+              .cast<Map<String, dynamic>>();
+          final visibleIds = stringListFromFirebase(
+            displayedDirectory?['visibleGroupIds'],
+            const [],
+          );
+          final publicChats = widget.chats
+              .where((chat) => !chat.isPrivate && visibleIds.contains(chat.id))
+              .toList();
+          if (groups.isEmpty && publicChats.isEmpty) {
+            return Text(
+              trText('No groups yet.'),
+              style: const TextStyle(color: Colors.white54),
+            );
+          }
+          return Column(
+            children: [
+              if (snapshot.hasError)
+                TextButton.icon(
+                  onPressed: refresh,
+                  icon: const Icon(Icons.refresh, size: 16),
+                  label: Text(trText('Showing saved groups. Tap to retry.')),
+                ),
+              if (publicChats.isNotEmpty) ...[
+                for (final chat in publicChats)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 10),
+                    child: ChatThreadTile(
+                      chat: chat,
+                      currentUid: widget.currentUid,
+                      unreadCount: widget.unreadCountsByChatId[chat.id] ?? 0,
+                    ),
+                  ),
+              ],
+              for (final group in groups)
+                Builder(
+                  builder: (context) {
+                    final member = group['isMember'] == true;
+                    final monitor = !member && group['canMonitor'] == true;
+                    final status = group['requestStatus'] ?? '';
+                    final label = member
+                        ? 'Open group'
+                        : monitor
+                        ? 'Monitor (read only)'
+                        : switch (status) {
+                            'pending' => 'Request pending',
+                            'rejected' => 'Request rejected',
+                            'accepted' => 'Request already used',
+                            _ => 'Request to join',
+                          };
+                    return groupCard(group, label);
+                  },
+                ),
+            ],
+          );
+        },
+      ),
+    ],
+  );
+}
+
+class GroupJoinRequestsScreen extends StatefulWidget {
+  final String chatId;
+  final Future<Map<String, dynamic>> Function(Map<String, Object?>)?
+  requestAction;
+  final Future<FriendUserData?> Function(String)? applicantLoader;
+  const GroupJoinRequestsScreen({
+    super.key,
+    required this.chatId,
+    this.requestAction,
+    this.applicantLoader,
+  });
+  @override
+  State<GroupJoinRequestsScreen> createState() =>
+      _GroupJoinRequestsScreenState();
+}
+
+class _GroupJoinRequestsScreenState extends State<GroupJoinRequestsScreen>
+    with LanguageReactiveState {
+  late Future<Map<String, dynamic>> requests;
+  final Map<String, Future<FriendUserData?>> profiles = {};
+  String? busyUid;
+  bool get busy => busyUid != null;
+
+  Future<Map<String, dynamic>> action(Map<String, Object?> body) =>
+      (widget.requestAction ?? privateGroupAction)(body);
+
+  @override
+  void initState() {
+    super.initState();
+    requests = load();
+  }
+
+  Future<Map<String, dynamic>> load() =>
+      action({'action': 'requests', 'chatId': widget.chatId});
+
+  void refresh() {
+    final nextRequests = load();
+    setState(() {
+      requests = nextRequests;
+    });
+  }
+
+  Future<FriendUserData?> loadProfile(String uid) => profiles.putIfAbsent(
+    uid,
+    () => widget.applicantLoader != null
+        ? widget.applicantLoader!(uid)
+        : usersCollection().doc(uid).get().then(friendUserFromSnapshot),
+  );
+
+  Future<void> decide(String uid, String decision) async {
+    if (busy) return;
+    setState(() {
+      busyUid = uid;
+    });
+    try {
+      await action({
+        'action': 'decide',
+        'chatId': widget.chatId,
+        'requesterUid': uid,
+        'decision': decision,
+      });
+      if (!mounted) return;
+      refresh();
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(trText('Could not submit decision. Please retry.')),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          busyUid = null;
+        });
+      }
+    }
+  }
+
+  Widget requestCard(Map<String, dynamic> item) {
+    final uid = item['uid'] as String;
+    return FutureBuilder<FriendUserData?>(
+      future: loadProfile(uid),
+      builder: (context, snapshot) {
+        final user = snapshot.data;
+        final username =
+            user?.username ?? stringFromFirebase(item['username'], 'driver');
+        final name = user?.name.trim() ?? '';
+        return Container(
+          margin: const EdgeInsets.only(bottom: 14),
+          padding: const EdgeInsets.all(18),
+          decoration: BoxDecoration(
+            color: panelGlass,
+            borderRadius: BorderRadius.circular(22),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.09)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  user == null
+                      ? const UserAvatarFallback(
+                          size: 62,
+                          icon: Icons.person_outline_rounded,
+                        )
+                      : UserAvatarCircle(user: user, size: 62),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          name.isEmpty ? displayUsername(username) : name,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 18,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        if (name.isNotEmpty) ...[
+                          const SizedBox(height: 4),
+                          Text(
+                            displayUsername(username),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: Colors.white60,
+                              fontSize: 13,
+                            ),
+                          ),
+                        ],
+                        if (user?.verified == true) ...[
+                          const SizedBox(height: 6),
+                          Row(
+                            children: [
+                              const Icon(
+                                Icons.verified_rounded,
+                                color: blue,
+                                size: 14,
+                              ),
+                              const SizedBox(width: 4),
+                              Text(
+                                trText('Verified'),
+                                style: const TextStyle(
+                                  color: blue,
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Text(
+                trText('Wants to join your group'),
+                style: const TextStyle(color: Colors.white54, fontSize: 12),
+              ),
+              TextButton.icon(
+                onPressed: () => openUserProfile(
+                  context,
+                  uid: uid,
+                  fallbackUsername: username,
+                ),
+                icon: const Icon(Icons.account_circle_outlined, size: 17),
+                label: Text(trText('View profile')),
+                style: TextButton.styleFrom(
+                  foregroundColor: blue,
+                  padding: EdgeInsets.zero,
+                ),
+              ),
+              if (snapshot.hasError)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: Text(
+                    trText(
+                      'Profile preview unavailable. Open the profile to retry.',
+                    ),
+                    style: const TextStyle(color: Colors.white54, fontSize: 12),
+                  ),
+                ),
+              Divider(height: 20, color: Colors.white.withValues(alpha: 0.08)),
+              if (busyUid == uid) ...[
+                const LinearProgressIndicator(minHeight: 2),
+                const SizedBox(height: 12),
+              ],
+              Row(
+                children: [
+                  Expanded(
+                    child: FilledButton.icon(
+                      onPressed: busy ? null : () => decide(uid, 'accepted'),
+                      style: FilledButton.styleFrom(
+                        backgroundColor: const Color(0xFF218654),
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 13),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      icon: const Icon(Icons.check_rounded, size: 18),
+                      label: Text(trText('Accept')),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: FilledButton.icon(
+                      onPressed: busy ? null : () => decide(uid, 'rejected'),
+                      style: FilledButton.styleFrom(
+                        backgroundColor: const Color(0xFFBA3945),
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 13),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      icon: const Icon(Icons.close_rounded, size: 18),
+                      label: Text(trText('Reject')),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    backgroundColor: panel,
+    appBar: AppBar(
+      backgroundColor: Colors.transparent,
+      title: Text(trText('Join requests')),
+      actions: [
+        IconButton(
+          onPressed: busy ? null : refresh,
+          tooltip: trText('Refresh'),
+          icon: const Icon(Icons.refresh),
+        ),
+      ],
+    ),
+    body: FutureBuilder<Map<String, dynamic>>(
+      future: requests,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState != ConnectionState.done) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        if (snapshot.hasError) {
+          return Center(
+            child: TextButton.icon(
+              onPressed: refresh,
+              icon: const Icon(Icons.refresh),
+              label: Text(trText('Could not load requests. Tap to retry.')),
+            ),
+          );
+        }
+        final items = (snapshot.data?['requests'] as List? ?? [])
+            .cast<Map<String, dynamic>>();
+        if (items.isEmpty) {
+          return Center(
+            child: Padding(
+              padding: const EdgeInsets.all(28),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(22),
+                    decoration: BoxDecoration(
+                      color: blue.withValues(alpha: 0.1),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      Icons.task_alt_rounded,
+                      color: blue,
+                      size: 34,
+                    ),
+                  ),
+                  const SizedBox(height: 18),
+                  Text(
+                    trText('No pending requests.'),
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 18,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        }
+        return ListView(
+          padding: const EdgeInsets.fromLTRB(20, 12, 20, 32),
+          children: [
+            Padding(
+              padding: const EdgeInsets.only(bottom: 18),
+              child: Text(
+                trText(
+                  'Review each profile before granting access to your group.',
+                ),
+                style: const TextStyle(
+                  color: Colors.white60,
+                  fontSize: 13,
+                  height: 1.5,
+                ),
+              ),
+            ),
+            for (final item in items) requestCard(item),
+          ],
+        );
+      },
+    ),
+  );
+}
+
 class GroupsTab extends StatefulWidget {
   final List<ChatThreadData> chats;
   final String currentUid;
@@ -38516,78 +39538,22 @@ class _GroupsTabState extends State<GroupsTab>
     with AutomaticKeepAliveClientMixin, LanguageReactiveState {
   @override
   bool get wantKeepAlive => true;
-
-  Widget sectionTitle(String title, int count) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 10),
-      child: Row(
-        children: [
-          Text(
-            trText(title),
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 20,
-              fontWeight: FontWeight.w900,
-            ),
-          ),
-          const SizedBox(width: 8),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-            decoration: BoxDecoration(
-              color: blue.withValues(alpha: 0.16),
-              borderRadius: BorderRadius.circular(999),
-            ),
-            child: Text(
-              '$count',
-              style: const TextStyle(
-                color: blue,
-                fontSize: 12,
-                fontWeight: FontWeight.w900,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     super.build(context);
-
     return ListView(
       padding: const EdgeInsets.fromLTRB(20, 18, 20, 92),
       children: [
-        Container(
-          padding: const EdgeInsets.all(14),
-          decoration: BoxDecoration(
-            color: panel.withValues(alpha: 0.58),
-            borderRadius: BorderRadius.circular(22),
-            border: Border.all(color: Colors.white12),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              sectionTitle('Groups', widget.chats.length),
-              if (widget.chats.isEmpty)
-                Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 12),
-                  child: Text(
-                    trText('No groups yet.'),
-                    style: const TextStyle(color: Colors.white54, height: 1.35),
-                  ),
-                )
-              else
-                for (final chat in widget.chats) ...[
-                  ChatThreadTile(
-                    chat: chat,
-                    currentUid: widget.currentUid,
-                    unreadCount: widget.unreadCountsByChatId[chat.id] ?? 0,
-                  ),
-                  const SizedBox(height: 10),
-                ],
-            ],
-          ),
+        PrivateGroupDirectory(
+          membershipRevision: widget.chats
+              .map(
+                (chat) =>
+                    '${chat.id}:${chat.isPrivate}:${chat.memberIds.join(',')}',
+              )
+              .join('|'),
+          chats: widget.chats,
+          currentUid: widget.currentUid,
+          unreadCountsByChatId: widget.unreadCountsByChatId,
         ),
       ],
     );
@@ -39211,7 +40177,7 @@ class _GlobalChatTabState extends State<GlobalChatTab>
               fontWeight: FontWeight.w900,
             ),
           ),
-          content: TextField(
+          content: MentionTextField(
             controller: controller,
             autofocus: true,
             minLines: 2,
@@ -39289,6 +40255,13 @@ class _GlobalChatTabState extends State<GlobalChatTab>
             SetOptions(merge: true),
             'global chat: edit own message',
           );
+      unawaited(
+        sendPushNotificationEvent({
+          'type': 'global_chat_message',
+          'messageId': doc.id,
+          'mentionsOnly': true,
+        }),
+      );
     } catch (error) {
       if (!mounted) {
         return;
@@ -40084,7 +41057,7 @@ class _GlobalChatTabState extends State<GlobalChatTab>
                       ),
                       const SizedBox(width: 4),
                       Expanded(
-                        child: TextField(
+                        child: MentionTextField(
                           controller: messageController,
                           focusNode: messageFocusNode,
                           minLines: 1,
@@ -42994,7 +43967,7 @@ class _ForumTopicPageState extends State<ForumTopicPage>
               fontWeight: FontWeight.w900,
             ),
           ),
-          content: TextField(
+          content: MentionTextField(
             controller: controller,
             autofocus: true,
             minLines: 2,
@@ -43072,6 +44045,14 @@ class _ForumTopicPageState extends State<ForumTopicPage>
             SetOptions(merge: true),
             'forum: edit own reply',
           );
+      unawaited(
+        sendPushNotificationEvent({
+          'type': 'forum_reply',
+          'topicId': widget.topicId,
+          'messageId': doc.id,
+          'mentionsOnly': true,
+        }),
+      );
     } catch (error) {
       if (!mounted) {
         return;
@@ -43677,7 +44658,7 @@ class _ForumTopicPageState extends State<ForumTopicPage>
                         ),
                         const SizedBox(width: 4),
                         Expanded(
-                          child: TextField(
+                          child: MentionTextField(
                             controller: replyController,
                             focusNode: replyFocusNode,
                             minLines: 1,
@@ -44679,7 +45660,7 @@ class _ChatThreadTileState extends State<ChatThreadTile> {
   Widget tile(BuildContext context, FriendUserData? directUser) {
     final title = !chat.isGroup && directUser != null
         ? displayUsername(directUser.username)
-        : chat.titleForCurrentUser(currentUid);
+        : '${chat.isPrivate ? '🔒 ' : ''}${chat.titleForCurrentUser(currentUid)}';
     final subtitle = chat.subtitleForCurrentUser(currentUid);
 
     return InkWell(
@@ -46896,7 +47877,13 @@ _chatOldestMessageDocSessionCache = {};
 class ChatConversationScreen extends StatefulWidget {
   final ChatThreadData chat;
 
-  const ChatConversationScreen({super.key, required this.chat});
+  final bool readOnly;
+
+  const ChatConversationScreen({
+    super.key,
+    required this.chat,
+    this.readOnly = false,
+  });
 
   @override
   State<ChatConversationScreen> createState() => _ChatConversationScreenState();
@@ -46904,6 +47891,12 @@ class ChatConversationScreen extends StatefulWidget {
 
 class _ChatConversationScreenState extends State<ChatConversationScreen>
     with LanguageReactiveState {
+  bool get readOnly =>
+      widget.readOnly ||
+      (widget.chat.isGroup &&
+          !widget.chat.memberIds.contains(
+            FirebaseAuth.instance.currentUser?.uid,
+          ));
   final messageController = TextEditingController();
   final messageFocusNode = FocusNode();
   final chatScrollController = ScrollController();
@@ -46968,6 +47961,7 @@ class _ChatConversationScreenState extends State<ChatConversationScreen>
   }
 
   void markCurrentChatNotificationsRead({Duration delay = Duration.zero}) {
+    if (readOnly) return;
     if (delay == Duration.zero) {
       unawaited(markChatNotificationsRead(widget.chat.id));
       return;
@@ -46992,6 +47986,7 @@ class _ChatConversationScreenState extends State<ChatConversationScreen>
   }
 
   Future<void> markVisibleMessagesRead() async {
+    if (readOnly) return;
     final currentUid =
         FirebaseAuth.instance.currentUser?.uid ?? currentUser.uid;
     if (currentUid.trim().isEmpty) {
@@ -47274,6 +48269,7 @@ class _ChatConversationScreenState extends State<ChatConversationScreen>
   }
 
   Future<void> attachPhoto() async {
+    if (readOnly) return;
     if (isUploadingPhotoAttachment) {
       return;
     }
@@ -47327,6 +48323,7 @@ class _ChatConversationScreenState extends State<ChatConversationScreen>
   }
 
   Future<void> sendMessage() async {
+    if (readOnly) return;
     final text = messageController.text.trim();
     final localPhotoPath = pendingPhotoAttachmentPath?.trim() ?? '';
     final hasPhoto = localPhotoPath.isNotEmpty;
@@ -47459,6 +48456,7 @@ class _ChatConversationScreenState extends State<ChatConversationScreen>
   }
 
   Future<void> shareLiveLocation() async {
+    if (readOnly) return;
     if (isSharingChatLocation) {
       return;
     }
@@ -47535,6 +48533,7 @@ class _ChatConversationScreenState extends State<ChatConversationScreen>
   }
 
   Future<void> openGroupSettings() async {
+    if (readOnly) return;
     final removed = await Navigator.push<bool>(
       context,
       appPageRoute(builder: (_) => GroupSettingsScreen(chat: widget.chat)),
@@ -47755,7 +48754,8 @@ class _ChatConversationScreenState extends State<ChatConversationScreen>
               fontWeight: FontWeight.w900,
             ),
           ),
-          content: TextField(
+          content: MentionTextField(
+            allowedUserIds: widget.chat.memberIds,
             controller: controller,
             autofocus: true,
             minLines: 2,
@@ -47973,7 +48973,7 @@ class _ChatConversationScreenState extends State<ChatConversationScreen>
 
   Widget groupChatTitle(String title) {
     return InkWell(
-      onTap: openGroupSettings,
+      onTap: readOnly ? null : openGroupSettings,
       borderRadius: BorderRadius.circular(12),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 5),
@@ -48015,7 +49015,7 @@ class _ChatConversationScreenState extends State<ChatConversationScreen>
             currentUser.globalChatModerator ||
             widget.chat.ownerUid == currentUid ||
             widget.chat.moderatorIds.contains(currentUid));
-    final canActOnMessage = !message.isLocalPending;
+    final canActOnMessage = !readOnly && !message.isLocalPending;
     final sender =
         usersById[message.senderUid] ?? fallbackMessageSender(message);
     final receiptState = mine
@@ -48191,13 +49191,14 @@ class _ChatConversationScreenState extends State<ChatConversationScreen>
                   ],
                 ],
               ),
-              messageReactionBar(
-                reactions: message.reactions,
-                currentUid: currentUid,
-                onEmojiTap: (emoji) => unawaited(
-                  reactToChatMessage(message, preferredEmoji: emoji),
+              if (!readOnly)
+                messageReactionBar(
+                  reactions: message.reactions,
+                  currentUid: currentUid,
+                  onEmojiTap: (emoji) => unawaited(
+                    reactToChatMessage(message, preferredEmoji: emoji),
+                  ),
                 ),
-              ),
             ],
           ),
         ),
@@ -48250,7 +49251,9 @@ class _ChatConversationScreenState extends State<ChatConversationScreen>
             : directChatTitle(currentUid, title, chatPhotoUrl),
         backgroundColor: Colors.transparent,
         foregroundColor: blue,
-        actions: widget.chat.isGroup
+        actions: readOnly
+            ? <Widget>[]
+            : widget.chat.isGroup
             ? [
                 if (canModerateGroupChat)
                   IconButton(
@@ -48440,144 +49443,158 @@ class _ChatConversationScreenState extends State<ChatConversationScreen>
               ),
             ),
           ),
-          SafeArea(
-            top: false,
-            bottom: !keyboardOpen,
-            child: Container(
-              padding: EdgeInsets.fromLTRB(8, 6, 8, keyboardOpen ? 0 : 8),
-              decoration: BoxDecoration(
-                color: panelGlass,
-                border: const Border(top: BorderSide(color: Colors.white12)),
+          if (readOnly)
+            SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Text(
+                  trText(
+                    'Read-only monitoring. You are not a member of this group.',
+                  ),
+                  style: const TextStyle(color: Colors.white70),
+                ),
               ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  if (replyingToMessage != null) ...[
-                    messageReplyPreviewCard(
-                      MessageReplyPreviewData(
-                        messageId: replyingToMessage!.id,
-                        username: replyingToMessage!.senderUsername,
-                        text: replyingToMessage!.text,
-                        photoUrl: replyingToMessage!.photoUrl,
-                      ),
-                      compact: true,
-                    ),
-                    Align(
-                      alignment: Alignment.centerRight,
-                      child: TextButton.icon(
-                        onPressed: () =>
-                            setState(() => replyingToMessage = null),
-                        icon: const Icon(Icons.close, size: 16),
-                        label: Text(trText('Cancel reply')),
-                      ),
-                    ),
-                  ],
-                  if (pendingPhotoAttachmentPath != null)
-                    stagedChatPhotoPreview(
-                      localPhotoPath: pendingPhotoAttachmentPath!,
-                      isBusy: isUploadingPhotoAttachment,
-                      onRemove: () {
-                        setState(() => pendingPhotoAttachmentPath = null);
-                      },
-                    ),
-                  Row(
-                    children: [
-                      IconButton(
-                        tooltip: 'Share location',
-                        onPressed: isSharingChatLocation
-                            ? null
-                            : shareLiveLocation,
-                        constraints: const BoxConstraints.tightFor(
-                          width: 38,
-                          height: 40,
+            )
+          else
+            SafeArea(
+              top: false,
+              bottom: !keyboardOpen,
+              child: Container(
+                padding: EdgeInsets.fromLTRB(8, 6, 8, keyboardOpen ? 0 : 8),
+                decoration: BoxDecoration(
+                  color: panelGlass,
+                  border: const Border(top: BorderSide(color: Colors.white12)),
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (replyingToMessage != null) ...[
+                      messageReplyPreviewCard(
+                        MessageReplyPreviewData(
+                          messageId: replyingToMessage!.id,
+                          username: replyingToMessage!.senderUsername,
+                          text: replyingToMessage!.text,
+                          photoUrl: replyingToMessage!.photoUrl,
                         ),
-                        padding: EdgeInsets.zero,
-                        visualDensity: VisualDensity.compact,
-                        style: IconButton.styleFrom(foregroundColor: blue),
-                        icon: Icon(
-                          isSharingChatLocation
-                              ? Icons.hourglass_top
-                              : Icons.my_location,
+                        compact: true,
+                      ),
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: TextButton.icon(
+                          onPressed: () =>
+                              setState(() => replyingToMessage = null),
+                          icon: const Icon(Icons.close, size: 16),
+                          label: Text(trText('Cancel reply')),
                         ),
                       ),
-                      IconButton(
-                        tooltip: trText('Photo'),
-                        onPressed: isUploadingPhotoAttachment
-                            ? null
-                            : attachPhoto,
-                        constraints: const BoxConstraints.tightFor(
-                          width: 38,
-                          height: 40,
-                        ),
-                        padding: EdgeInsets.zero,
-                        visualDensity: VisualDensity.compact,
-                        style: IconButton.styleFrom(foregroundColor: blue),
-                        icon: Icon(
-                          isUploadingPhotoAttachment
-                              ? Icons.hourglass_top
-                              : Icons.photo_camera_outlined,
-                        ),
+                    ],
+                    if (pendingPhotoAttachmentPath != null)
+                      stagedChatPhotoPreview(
+                        localPhotoPath: pendingPhotoAttachmentPath!,
+                        isBusy: isUploadingPhotoAttachment,
+                        onRemove: () {
+                          setState(() => pendingPhotoAttachmentPath = null);
+                        },
                       ),
-                      const SizedBox(width: 4),
-                      Expanded(
-                        child: TextField(
-                          controller: messageController,
-                          focusNode: messageFocusNode,
-                          minLines: 1,
-                          maxLines: 3,
-                          keyboardType: TextInputType.multiline,
-                          textInputAction: TextInputAction.newline,
-                          style: const TextStyle(color: Colors.white),
-                          decoration: InputDecoration(
-                            hintText: trText('Message'),
-                            hintStyle: const TextStyle(color: Colors.white38),
-                            filled: true,
-                            fillColor: Colors.white.withValues(alpha: 0.06),
-                            isDense: true,
-                            contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 12,
-                              vertical: 8,
-                            ),
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(16),
-                              borderSide: const BorderSide(
-                                color: Colors.white12,
+                    Row(
+                      children: [
+                        IconButton(
+                          tooltip: 'Share location',
+                          onPressed: isSharingChatLocation
+                              ? null
+                              : shareLiveLocation,
+                          constraints: const BoxConstraints.tightFor(
+                            width: 38,
+                            height: 40,
+                          ),
+                          padding: EdgeInsets.zero,
+                          visualDensity: VisualDensity.compact,
+                          style: IconButton.styleFrom(foregroundColor: blue),
+                          icon: Icon(
+                            isSharingChatLocation
+                                ? Icons.hourglass_top
+                                : Icons.my_location,
+                          ),
+                        ),
+                        IconButton(
+                          tooltip: trText('Photo'),
+                          onPressed: isUploadingPhotoAttachment
+                              ? null
+                              : attachPhoto,
+                          constraints: const BoxConstraints.tightFor(
+                            width: 38,
+                            height: 40,
+                          ),
+                          padding: EdgeInsets.zero,
+                          visualDensity: VisualDensity.compact,
+                          style: IconButton.styleFrom(foregroundColor: blue),
+                          icon: Icon(
+                            isUploadingPhotoAttachment
+                                ? Icons.hourglass_top
+                                : Icons.photo_camera_outlined,
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        Expanded(
+                          child: MentionTextField(
+                            allowedUserIds: widget.chat.memberIds,
+                            controller: messageController,
+                            focusNode: messageFocusNode,
+                            minLines: 1,
+                            maxLines: 3,
+                            keyboardType: TextInputType.multiline,
+                            textInputAction: TextInputAction.newline,
+                            style: const TextStyle(color: Colors.white),
+                            decoration: InputDecoration(
+                              hintText: trText('Message'),
+                              hintStyle: const TextStyle(color: Colors.white38),
+                              filled: true,
+                              fillColor: Colors.white.withValues(alpha: 0.06),
+                              isDense: true,
+                              contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 8,
                               ),
-                            ),
-                            enabledBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(16),
-                              borderSide: const BorderSide(
-                                color: Colors.white12,
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(16),
+                                borderSide: const BorderSide(
+                                  color: Colors.white12,
+                                ),
                               ),
-                            ),
-                            focusedBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(16),
-                              borderSide: const BorderSide(color: blue),
+                              enabledBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(16),
+                                borderSide: const BorderSide(
+                                  color: Colors.white12,
+                                ),
+                              ),
+                              focusedBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(16),
+                                borderSide: const BorderSide(color: blue),
+                              ),
                             ),
                           ),
                         ),
-                      ),
-                      const SizedBox(width: 8),
-                      IconButton.filled(
-                        onPressed: sendMessage,
-                        constraints: const BoxConstraints.tightFor(
-                          width: 40,
-                          height: 40,
+                        const SizedBox(width: 8),
+                        IconButton.filled(
+                          onPressed: sendMessage,
+                          constraints: const BoxConstraints.tightFor(
+                            width: 40,
+                            height: 40,
+                          ),
+                          padding: EdgeInsets.zero,
+                          visualDensity: VisualDensity.compact,
+                          style: IconButton.styleFrom(
+                            backgroundColor: blue,
+                            foregroundColor: Colors.white,
+                          ),
+                          icon: const Icon(Icons.send_rounded),
                         ),
-                        padding: EdgeInsets.zero,
-                        visualDensity: VisualDensity.compact,
-                        style: IconButton.styleFrom(
-                          backgroundColor: blue,
-                          foregroundColor: Colors.white,
-                        ),
-                        icon: const Icon(Icons.send_rounded),
-                      ),
-                    ],
-                  ),
-                ],
+                      ],
+                    ),
+                  ],
+                ),
               ),
             ),
-          ),
         ],
       ),
     );
@@ -51118,6 +52135,353 @@ class PublicUserProfileScreen extends StatelessWidget {
   }
 }
 
+String normalizeFriendSearch(String value) => value
+    .trim()
+    .toLowerCase()
+    .replaceFirst(RegExp(r'^@+'), '')
+    .replaceAll(RegExp(r'\s+'), ' ')
+    .trim();
+
+List<FriendUserData> matchingFriendUsers(
+  Iterable<FriendUserData> users,
+  String query,
+  String currentUid,
+) {
+  final key = normalizeFriendSearch(query);
+  if (key.runes.length < 2) return const [];
+  int rank(FriendUserData user) {
+    final username = normalizeFriendSearch(user.username);
+    final name = normalizeFriendSearch(user.name);
+    if (username == key) return 0;
+    if (name == key) return 1;
+    if (username.startsWith(key)) return 2;
+    if (name.startsWith(key)) return 3;
+    return 4;
+  }
+
+  final matches = users
+      .where(
+        (user) =>
+            user.uid != currentUid &&
+            user.canAppearInUserLists &&
+            (normalizeFriendSearch(user.username).contains(key) ||
+                normalizeFriendSearch(user.name).contains(key)),
+      )
+      .toList();
+  matches.sort((a, b) {
+    final relevance = rank(a).compareTo(rank(b));
+    if (relevance != 0) return relevance;
+    final username = a.username.toLowerCase().compareTo(
+      b.username.toLowerCase(),
+    );
+    return username != 0 ? username : a.uid.compareTo(b.uid);
+  });
+  return matches;
+}
+
+// One live directory subscription while the Friends screen is open, rather
+// than downloading the first 50 profiles on every keystroke. No usernameKey
+// ordering: legacy accounts without that field must remain searchable.
+// Match only the @token at the caret, never an email address or selected text.
+RegExpMatch? activeMention(TextEditingValue value) {
+  final selection = value.selection;
+  if (!selection.isValid ||
+      !selection.isCollapsed ||
+      selection.end > value.text.length) {
+    return null;
+  }
+  return RegExp(
+    r'(?<![A-Za-z0-9_@])@([A-Za-z0-9_]{2,30})$',
+  ).firstMatch(value.text.substring(0, selection.end));
+}
+
+class MentionTextField extends StatefulWidget {
+  final TextEditingController controller;
+  final FocusNode? focusNode;
+  final int? minLines, maxLines;
+  final TextInputType? keyboardType;
+  final TextInputAction? textInputAction;
+  final TextStyle? style;
+  final InputDecoration? decoration;
+  final ValueChanged<String>? onSubmitted;
+  final bool autofocus;
+  final List<String>? allowedUserIds;
+  final Stream<List<FriendUserData>> Function()? loadUsers;
+  final String? currentUid;
+  const MentionTextField({
+    super.key,
+    required this.controller,
+    this.focusNode,
+    this.minLines,
+    this.maxLines = 1,
+    this.keyboardType,
+    this.textInputAction,
+    this.style,
+    this.decoration,
+    this.onSubmitted,
+    this.autofocus = false,
+    this.allowedUserIds,
+    this.loadUsers,
+    this.currentUid,
+  });
+
+  @override
+  State<MentionTextField> createState() => _MentionTextFieldState();
+}
+
+class _MentionTextFieldState extends State<MentionTextField> {
+  late final FriendUserSearch search;
+  late FocusNode focus;
+  String query = '';
+  @override
+  void initState() {
+    super.initState();
+    focus = widget.focusNode ?? FocusNode();
+    search = FriendUserSearch(
+      currentUid:
+          widget.currentUid ?? FirebaseAuth.instance.currentUser?.uid ?? '',
+      loadUsers:
+          widget.loadUsers ??
+          () => usersCollection()
+              .debugSnapshots('mentions: searchable user directory')
+              .map(
+                (snapshot) =>
+                    snapshot.docs.map(FriendUserData.fromFirestore).toList(),
+              ),
+    );
+    widget.controller.addListener(changed);
+    focus.addListener(changed);
+  }
+
+  void changed() {
+    final next = focus.hasFocus
+        ? activeMention(widget.controller.value)?.group(1) ?? ''
+        : '';
+    if (next == query) return;
+    query = next;
+    search.search(next);
+  }
+
+  void selectUser(FriendUserData user) {
+    final value = widget.controller.value;
+    final match = activeMention(value);
+    if (match == null) return;
+    // Replace the entire token if the caret was moved into its middle.
+    final suffix = RegExp(
+      r'^[A-Za-z0-9_]*',
+    ).firstMatch(value.text.substring(value.selection.end))!;
+    var end = value.selection.end + suffix.end;
+    if (end < value.text.length && value.text[end] == ' ') end++;
+    final replacement = '@${user.username} ';
+    widget.controller.value = TextEditingValue(
+      text: value.text.replaceRange(match.start, end, replacement),
+      selection: TextSelection.collapsed(
+        offset: match.start + replacement.length,
+      ),
+    );
+    focus.requestFocus();
+  }
+
+  @override
+  void dispose() {
+    widget.controller.removeListener(changed);
+    focus.removeListener(changed);
+    if (widget.focusNode == null) focus.dispose();
+    search.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => Column(
+    mainAxisSize: MainAxisSize.min,
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      AnimatedBuilder(
+        animation: search,
+        builder: (context, _) {
+          if (query.length < 2) return const SizedBox.shrink();
+          final users = search.results
+              .where(
+                (user) =>
+                    widget.allowedUserIds == null ||
+                    widget.allowedUserIds!.contains(user.uid),
+              )
+              .take(6)
+              .toList();
+          return Container(
+            margin: const EdgeInsets.only(bottom: 6),
+            width: double.maxFinite,
+            height: search.loading || search.error != null || users.isEmpty
+                ? 48
+                : (users.length > 3 ? 180 : users.length * 60.0),
+            clipBehavior: Clip.antiAlias,
+            decoration: BoxDecoration(
+              color: const Color(0xFF20232B),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: Colors.white12),
+            ),
+            constraints: const BoxConstraints(maxHeight: 180),
+            child: search.loading
+                ? const Padding(
+                    padding: EdgeInsets.all(12),
+                    child: LinearProgressIndicator(),
+                  )
+                : search.error != null
+                ? TextButton(
+                    onPressed: search.retry,
+                    child: Text(trText('Retry')),
+                  )
+                : users.isEmpty
+                ? Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Text(
+                      trText('No users found'),
+                      style: const TextStyle(color: Colors.white54),
+                    ),
+                  )
+                : ListView.builder(
+                    padding: EdgeInsets.zero,
+                    shrinkWrap: true,
+                    itemCount: users.length,
+                    itemBuilder: (context, index) {
+                      final user = users[index];
+                      return Material(
+                        color: Colors.transparent,
+                        child: ListTile(
+                          dense: true,
+                          leading: CircleAvatar(
+                            backgroundColor: blue.withValues(alpha: 0.2),
+                            child: ClipOval(
+                              child: user.photoUrl?.isNotEmpty == true
+                                  ? Image.network(
+                                      user.photoUrl!,
+                                      width: 36,
+                                      height: 36,
+                                      fit: BoxFit.cover,
+                                      errorBuilder: (_, error, stack) =>
+                                          const Icon(
+                                            Icons.person,
+                                            color: Colors.white70,
+                                          ),
+                                    )
+                                  : const Icon(
+                                      Icons.person,
+                                      color: Colors.white70,
+                                    ),
+                            ),
+                          ),
+                          title: Text(
+                            '@${user.username}',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          subtitle: user.name.isEmpty
+                              ? null
+                              : Text(
+                                  user.name,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(color: Colors.white54),
+                                ),
+                          onTap: () => selectUser(user),
+                        ),
+                      );
+                    },
+                  ),
+          );
+        },
+      ),
+      TextField(
+        controller: widget.controller,
+        focusNode: focus,
+        minLines: widget.minLines,
+        maxLines: widget.maxLines,
+        keyboardType: widget.keyboardType,
+        textInputAction: widget.textInputAction,
+        style: widget.style,
+        decoration: widget.decoration,
+        onSubmitted: widget.onSubmitted,
+        autofocus: widget.autofocus,
+      ),
+    ],
+  );
+}
+
+class FriendUserSearch extends ChangeNotifier {
+  final Stream<List<FriendUserData>> Function() loadUsers;
+  final String currentUid;
+  FriendUserSearch({required this.loadUsers, required this.currentUid});
+  StreamSubscription<List<FriendUserData>>? _subscription;
+  Timer? _debounce;
+  List<FriendUserData>? _directory;
+  String query = '';
+  List<FriendUserData> results = const [];
+  bool loading = false;
+  Object? error;
+  bool _disposed = false;
+  int _generation = 0;
+
+  void search(String value) {
+    query = normalizeFriendSearch(value);
+    _debounce?.cancel();
+    results = const [];
+    error = null;
+    loading = query.runes.length >= 2;
+    notifyListeners();
+    if (!loading) return;
+    _debounce = Timer(const Duration(milliseconds: 300), () {
+      if (_directory != null) _apply();
+      if (_subscription == null) _listen();
+    });
+  }
+
+  void _apply() {
+    if (_disposed || query.runes.length < 2) return;
+    results = matchingFriendUsers(_directory ?? [], query, currentUid);
+    loading = false;
+    error = null;
+    notifyListeners();
+  }
+
+  void _listen() {
+    final generation = ++_generation;
+    _subscription = loadUsers().listen(
+      (users) {
+        if (_disposed || generation != _generation) return;
+        _directory = users;
+        if (!(_debounce?.isActive ?? false)) _apply();
+      },
+      onError: (Object failure) {
+        if (_disposed || generation != _generation) return;
+        loading = false;
+        error = failure;
+        notifyListeners();
+      },
+    );
+  }
+
+  void retry() {
+    _generation++;
+    _subscription?.cancel();
+    _subscription = null;
+    _directory = null;
+    search(query);
+  }
+
+  @override
+  void dispose() {
+    _disposed = true;
+    _generation++;
+    _debounce?.cancel();
+    _subscription?.cancel();
+    super.dispose();
+  }
+}
+
 class FriendsScreen extends StatefulWidget {
   final int initialTabIndex;
 
@@ -51130,74 +52494,36 @@ class FriendsScreen extends StatefulWidget {
 class _FriendsScreenState extends State<FriendsScreen>
     with LanguageReactiveState {
   final searchController = TextEditingController();
-  String searchText = '';
-  Timer? userSearchDebounce;
-  Future<List<FriendUserData>>? usersSearchFuture;
+  late final FriendUserSearch userSearch;
+  String get searchText => userSearch.query;
+
+  @override
+  void initState() {
+    super.initState();
+    userSearch = FriendUserSearch(
+      currentUid: FirebaseAuth.instance.currentUser?.uid ?? '',
+      loadUsers: () => usersCollection()
+          .debugSnapshots('friends: searchable user directory')
+          .map(
+            (snapshot) =>
+                snapshot.docs.map(FriendUserData.fromFirestore).toList(),
+          ),
+    );
+    userSearch.addListener(searchChanged);
+  }
+
+  void searchChanged() {
+    if (mounted) setState(() {});
+  }
+
+  void queueUsersSearch(String value) => userSearch.search(value);
 
   @override
   void dispose() {
-    userSearchDebounce?.cancel();
+    userSearch.removeListener(searchChanged);
+    userSearch.dispose();
     searchController.dispose();
     super.dispose();
-  }
-
-  void queueUsersSearch(String value) {
-    final nextSearchText = value.trim().toLowerCase();
-    userSearchDebounce?.cancel();
-
-    setState(() {
-      searchText = nextSearchText;
-      usersSearchFuture = null;
-    });
-
-    if (nextSearchText.length < 2) {
-      return;
-    }
-
-    userSearchDebounce = Timer(const Duration(milliseconds: 350), () {
-      if (!mounted || searchText != nextSearchText) {
-        return;
-      }
-
-      final nextFuture = searchUsersOnce(nextSearchText);
-      setState(() {
-        usersSearchFuture = nextFuture;
-      });
-    });
-  }
-
-  Future<List<FriendUserData>> searchUsersOnce(String queryText) async {
-    final firebaseUser = FirebaseAuth.instance.currentUser;
-    if (firebaseUser == null) {
-      return const [];
-    }
-
-    final snapshot = await usersCollection()
-        .orderBy('usernameKey')
-        .limit(50)
-        .debugGet(null, 'friends: find users search query');
-    final users = snapshot.docs
-        .map((doc) => FriendUserData.fromFirestore(doc))
-        .where((user) => user.canAppearInUserLists)
-        .where((user) => user.uid != firebaseUser.uid)
-        .where((user) {
-          return user.username.toLowerCase().contains(queryText) ||
-              user.name.toLowerCase().contains(queryText);
-        })
-        .toList();
-
-    users.sort((a, b) {
-      final onlineCompare = b.appearsOnline.toString().compareTo(
-        a.appearsOnline.toString(),
-      );
-      if (onlineCompare != 0) {
-        return onlineCompare;
-      }
-
-      return a.username.toLowerCase().compareTo(b.username.toLowerCase());
-    });
-
-    return users;
   }
 
   Future<FriendUserData?> loadFriendUser(String uid) async {
@@ -51757,18 +53083,16 @@ class _FriendsScreenState extends State<FriendsScreen>
           ),
         ),
         const SizedBox(height: 16),
-        if (searchText.length < 2)
+        if (searchText.runes.length < 2)
           const EmptyStateCard(
             icon: Icons.person_search,
             title: 'Search users',
             text: 'Type at least 2 characters to search.',
           )
         else
-          FutureBuilder<List<FriendUserData>>(
-            future: usersSearchFuture,
-            builder: (context, snapshot) {
-              if (usersSearchFuture == null ||
-                  snapshot.connectionState == ConnectionState.waiting) {
+          Builder(
+            builder: (context) {
+              if (userSearch.loading) {
                 return const Center(
                   child: Padding(
                     padding: EdgeInsets.all(24),
@@ -51777,15 +53101,15 @@ class _FriendsScreenState extends State<FriendsScreen>
                 );
               }
 
-              if (snapshot.hasError) {
-                return EmptyStateCard(
-                  icon: Icons.person_search,
-                  title: trText('No users found'),
-                  text: trText('Try searching by nickname or name.'),
+              if (userSearch.error != null) {
+                return TextButton.icon(
+                  onPressed: userSearch.retry,
+                  icon: const Icon(Icons.refresh),
+                  label: Text(trText('Could not load users. Tap to retry.')),
                 );
               }
 
-              final users = snapshot.data ?? const <FriendUserData>[];
+              final users = userSearch.results;
 
               if (users.isEmpty) {
                 return const EmptyStateCard(

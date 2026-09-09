@@ -275,6 +275,7 @@ async function sendPushToUser({
   deliveryKey,
   notificationId,
   notificationCollection = 'user_notifications',
+  pushEnabled = true,
   title,
   body,
   data = {},
@@ -324,6 +325,9 @@ async function sendPushToUser({
     },
     { merge: true },
   );
+  // Suppressed publications still appear in the notification bell.
+  if (!pushEnabled) return 0;
+
   // Notification history can contain legacy duplicates and items hidden only
   // on a particular device. It is not a reliable source for the OS badge.
   const badgeCount = 1;
@@ -484,6 +488,33 @@ async function requireStaff(userId) {
   }
 }
 
+const PERMANENT_SPOT_PUSH_COOLDOWN_MS = 5 * 60 * 60 * 1000;
+
+async function spotPublicationPushAllowed(spotId, isTemporary) {
+  if (isTemporary) return true;
+  const eventRef = db.collection('push_dispatches').doc(deliveryId(`spot_publication:${spotId}`, 'push_policy'));
+  const windowRef = db.collection('push_throttles').doc('permanent_spot_publications');
+  return db.runTransaction(async transaction => {
+    const [event, window] = await Promise.all([
+      transaction.get(eventRef), transaction.get(windowRef),
+    ]);
+    // Keep the original decision on retries. A suppressed publication must not
+    // send a delayed push when it is retried after the cooldown has expired.
+    if (event.exists) return event.data().pushAllowed === true;
+    const nowMillis = Date.now();
+    const lastPushAtMillis = Number(window.data()?.lastPushAtMillis || 0);
+    const allowed = !window.exists || nowMillis - lastPushAtMillis >= PERMANENT_SPOT_PUSH_COOLDOWN_MS;
+    transaction.set(eventRef, { spotId, pushAllowed: allowed, createdAt: admin.firestore.FieldValue.serverTimestamp() });
+    if (allowed) {
+      transaction.set(windowRef, {
+        lastPushAtMillis: nowMillis, lastSpotId: spotId,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+    }
+    return allowed;
+  });
+}
+
 async function notifyUsersAboutNewSpot({
   spotId,
   spot,
@@ -495,7 +526,9 @@ async function notifyUsersAboutNewSpot({
   const cityCountry = cleanText(spot.cityCountry);
   const spotCountry = countryFromCityCountry(cityCountry);
   const locationSuffix = cityCountry ? ` in ${cityCountry}` : '';
-  const isTemporary = notificationType === 'temporary_event' || spot.isTemporary === true;
+  const isTemporary = spot.isTemporary === true;
+  notificationType = isTemporary ? 'temporary_event' : 'new_spot';
+  const pushEnabled = await spotPublicationPushAllowed(spotId, isTemporary);
   const title = isTemporary ? 'New CCS event' : 'New CCS spot';
   const body = isTemporary
     ? `${spotName} event was added${locationSuffix}.`
@@ -510,7 +543,9 @@ async function notifyUsersAboutNewSpot({
           userId: doc.id,
           settingName: 'newSpotNotifications',
           spotCountry,
-          deliveryKey,
+          // Creation, approval and both backend hosts share the same claim.
+          deliveryKey: `spot_publication:${spotId}`,
+          pushEnabled,
           notificationId: `${notificationType}_${spotId}_${doc.id}`,
           title,
           body,
@@ -556,6 +591,89 @@ async function handleSpotLike(userId, payload) {
   ];
 }
 
+function mentionedUsernames(text) {
+  return [...new Set([...String(text || '').matchAll(/(?<![A-Za-z0-9_@])@([A-Za-z0-9_]{2,30})(?![A-Za-z0-9_])/g)]
+    .map(match => match[1].toLowerCase()))];
+}
+
+async function handleMentions(userId, type, payload) {
+  const validId = value => typeof value === 'string' && value.length > 0 && !value.includes('/');
+  let source, text, context, allowedIds = null, key, notificationBase;
+  if (type === 'chat_message' && validId(payload.chatId) && validId(payload.messageId)) {
+    const chatRef = db.collection('chats').doc(payload.chatId);
+    const [chatDoc, messageDoc] = await Promise.all([chatRef.get(), chatRef.collection('messages').doc(payload.messageId).get()]);
+    const chat = chatDoc.data();
+    source = messageDoc.data();
+    allowedIds = cleanStringArray(chat?.memberIds);
+    if (!chatDoc.exists || !messageDoc.exists || source.senderUid !== userId || !allowedIds.includes(userId)) return {recipients: [], results: []};
+    text = source.text;
+    context = {type, chatId: payload.chatId, messageId: payload.messageId};
+    key = `chat:${payload.chatId}:${payload.messageId}`;
+    notificationBase = `chat_${payload.chatId}_${payload.messageId}`;
+  } else if (type === 'global_chat_message' && validId(payload.messageId)) {
+    source = (await db.collection('global_chat').doc(payload.messageId).get()).data();
+    if (!source || source.userId !== userId) return {recipients: [], results: []};
+    text = source.text;
+    context = {type, messageId: payload.messageId, countryCode: countryKey(source.countryCode) || 'LV'};
+    key = `global:${payload.messageId}`;
+    notificationBase = `global_chat_${payload.messageId}`;
+  } else if (type === 'forum_reply' && validId(payload.topicId) && validId(payload.messageId)) {
+    const ref = db.collection('forum_topics').doc(payload.topicId);
+    const [topicDoc, replyDoc] = await Promise.all([ref.get(), ref.collection('replies').doc(payload.messageId).get()]);
+    source = replyDoc.data();
+    if (!topicDoc.exists || !source || source.userId !== userId || topicDoc.data().status !== 'approved') return {recipients: [], results: []};
+    text = source.text;
+    context = {type, topicId: payload.topicId, messageId: payload.messageId, topicTitle: cleanText(topicDoc.data().title, 'Forum')};
+    key = `forum:${payload.topicId}:${payload.messageId}`;
+    notificationBase = `forum_${payload.topicId}_${payload.messageId}`;
+  } else if (type === 'spot_comment' && validId(payload.reviewId)) {
+    source = (await db.collection('spot_reviews').doc(payload.reviewId).get()).data();
+    if (!source || source.userId !== userId || source.type !== 'comment' || !validId(source.spotId)) return {recipients: [], results: []};
+    const spot = (await db.collection('spots').doc(source.spotId).get()).data();
+    if (!spot || spot.status !== 'approved') return {recipients: [], results: []};
+    text = source.comment;
+    context = {type, spotId: source.spotId, reviewId: payload.reviewId, spotName: cleanText(spot.name)};
+    key = `comment:${payload.reviewId}`;
+    notificationBase = `spot_comment_${payload.reviewId}`;
+  } else return {recipients: [], results: []};
+
+  const handles = mentionedUsernames(text);
+  if (!handles.length) return {recipients: [], results: []};
+  const senderDoc = await db.collection('users').doc(userId).get();
+  const sender = senderDoc.data();
+  if (!sender || sender.deleted === true || userHasActiveBan(sender)) return {recipients: [], results: []};
+  // Query canonical handles first; legacy accounts may lack usernameKey.
+  // Fall back only for unresolved handles, comparing exact current usernames.
+  const found = new Map();
+  for (let start = 0; start < handles.length; start += 30) {
+    const snapshot = await db.collection('users').where('usernameKey', 'in', handles.slice(start, start + 30)).get();
+    for (const doc of snapshot.docs) {
+      const handle = cleanText(doc.data().username).replace(/^@/, '').toLowerCase();
+      if (handles.includes(handle)) found.set(handle, doc.id);
+    }
+  }
+  if (handles.some(handle => !found.has(handle))) {
+    const directory = await db.collection('users').select('username').get();
+    for (const doc of directory.docs) {
+      const handle = cleanText(doc.data().username).replace(/^@/, '').toLowerCase();
+      if (handles.includes(handle) && !found.has(handle)) found.set(handle, doc.id);
+    }
+  }
+  const recipients = [...new Set(found.values())].filter(uid => uid !== userId && (allowedIds === null || allowedIds.includes(uid)));
+  const senderUsername = cleanText(sender.username, 'driver');
+  const results = await Promise.all(recipients.map(uid => sendPushToUser({
+    userId: uid,
+    settingName: type === 'spot_comment' || type === 'forum_reply' ? 'commentNotifications' : 'newMessageNotifications',
+    deliveryKey: `mention:${key}`,
+    notificationId: `${notificationBase}_${uid}`,
+    title: 'You were mentioned',
+    body: `@${senderUsername} mentioned you: ${shortText(text)}`,
+    data: {...context, notificationKind: 'mention', senderUid: userId, actorUserId: userId, senderUsername},
+  })));
+  return {recipients, results};
+}
+
+
 async function handleSpotComment(userId, payload) {
   const reviewId = cleanText(payload.reviewId);
   const reviewSnapshot = await db.collection('spot_reviews').doc(reviewId).get();
@@ -575,7 +693,7 @@ async function handleSpotComment(userId, payload) {
   const spot = spotSnapshot.data();
   const ownerUid = spotNotificationOwnerUid(spot);
 
-  if (!ownerUid || ownerUid === userId) {
+  if (!ownerUid || ownerUid === userId || payload._mentionRecipientIds?.includes(ownerUid)) {
     return [];
   }
 
@@ -624,7 +742,7 @@ async function handleChatMessage(userId, payload) {
 
   return Promise.all(
     memberIds
-      .filter((memberId) => typeof memberId === 'string' && memberId !== userId)
+      .filter((memberId) => typeof memberId === 'string' && memberId !== userId && !payload._mentionRecipientIds?.includes(memberId))
       .map((memberId) =>
         sendPushToUser({
           userId: memberId,
@@ -636,6 +754,26 @@ async function handleChatMessage(userId, payload) {
         }),
       ),
   );
+}
+
+async function handleGroupJoinRequest(userId, payload) {
+  const chatId = cleanText(payload.chatId);
+  if (!chatId || chatId.includes('/')) return [];
+  const chatRef = db.collection('chats').doc(chatId);
+  const [chatDoc, requestDoc] = await Promise.all([chatRef.get(), chatRef.collection('join_requests').doc(userId).get()]);
+  if (!chatDoc.exists || !requestDoc.exists || requestDoc.data().status !== 'pending') return [];
+  const chat = chatDoc.data();
+  if (chat.isGroup !== true) return [];
+  const owner = chat.ownerUid || (chat.memberIds || [])[0];
+  if (!owner || owner === userId) return [];
+  return [await sendPushToUser({
+    userId: owner, settingName: 'friendRequestNotifications',
+    deliveryKey: `group_join_request:${chatId}:${userId}`,
+    notificationId: `group_request_${chatId}_${userId}`,
+    title: 'Group join request',
+    body: `@${cleanText(requestDoc.data().username, 'driver')} wants to join ${cleanText(chat.name, 'your group')}.`,
+    data: { type: 'group_join_request', chatId, actorUserId: userId },
+  })];
 }
 
 async function handleFriendRequest(userId, payload) {
@@ -965,52 +1103,114 @@ async function handleSpotPendingReview(userId, payload) {
   );
 }
 
-async function handleFriendAtSpot(userId, payload) {
-  const recipientUserIds = cleanStringArray(payload.recipientUserIds).filter(
-    (recipientUserId) => recipientUserId !== userId,
-  );
-  const spotId = cleanText(payload.spotId);
-  const spotName = cleanText(payload.spotName, 'a spot');
-  const fallbackNotificationBucket = String(Math.floor(Date.now() / 1800000));
-  const notificationBucket = payload.notificationBucket == null
-    ? fallbackNotificationBucket
-    : cleanText(String(payload.notificationBucket), fallbackNotificationBucket);
+const SPOT_PRESENCE_RADIUS_METERS = 200;
+const SPOT_PRESENCE_DWELL_MS = 5 * 60 * 1000;
+const SPOT_PRESENCE_MAX_SAMPLE_GAP_MS = 150 * 1000;
 
-  if (!recipientUserIds.length || !spotId) {
-    return [];
-  }
-
-  const senderSnapshot = await db.collection('users').doc(userId).get();
-  const sender = senderSnapshot.exists ? senderSnapshot.data() || {} : {};
-  const senderUsername = cleanText(sender.username, cleanText(payload.senderUsername, 'driver'));
-
-  return Promise.all(
-    recipientUserIds.map(async (recipientUserId) => {
-      if (!(await friendshipAccepted(userId, recipientUserId))) {
-        return 0;
-      }
-
-      return sendPushToUser({
-        userId: recipientUserId,
-        settingName: 'friendAtSpotNotifications',
-        deliveryKey: `friend_at_spot:${userId}:${recipientUserId}:${spotId}:${notificationBucket}`,
-        notificationId: `spot_${recipientUserId}_${userId}_${spotId}`,
-        title: 'Live location',
-        body: `@${senderUsername} is at ${spotName}.`,
-        data: {
-          type: 'friend_at_spot',
-          spotId,
-          spotName,
-          friendUid: userId,
-          friendUsername: senderUsername,
-          lat: payload.lat ?? '',
-          lng: payload.lng ?? '',
-        },
-      });
-    }),
-  );
+function presenceCoordinates(data = {}) {
+  const lat = data?.coordinates?.latitude ?? data?.lat;
+  const lng = data?.coordinates?.longitude ?? data?.lng;
+  return Number.isFinite(lat) && Number.isFinite(lng) && Math.abs(lat) <= 90 && Math.abs(lng) <= 180 ? {lat, lng} : null;
+}
+function presenceDistance(a, b) {
+  const radians = Math.PI / 180;
+  const dLat = (b.lat - a.lat) * radians;
+  const dLng = (b.lng - a.lng) * radians;
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(a.lat * radians) * Math.cos(b.lat * radians) * Math.sin(dLng / 2) ** 2;
+  return 6371000 * 2 * Math.asin(Math.sqrt(Math.min(1, h)));
 }
 
+function advanceSpotPresence(previous, live, spots, now) {
+  const position = presenceCoordinates(live);
+  const sampleAt = timestampToMillis(live?.updatedAt);
+  const session = timestampToMillis(live?.expiresAt);
+  const empty = {session, sampleAt, visits: {}};
+  if (!live || !position || session <= now || sampleAt <= 0 || sampleAt > now || now - sampleAt > SPOT_PRESENCE_MAX_SAMPLE_GAP_MS) return {state: empty, ready: []};
+  // Repeated calls for the same stored GPS sample do not advance dwell time.
+  if (previous.session === session && sampleAt <= (previous.sampleAt || 0)) return {state: previous, ready: []};
+  const continuous = previous.session === session && sampleAt - (previous.sampleAt || 0) <= SPOT_PRESENCE_MAX_SAMPLE_GAP_MS;
+  const visits = {};
+  const ready = [];
+  for (const spot of spots) {
+    const coordinates = presenceCoordinates(spot);
+    if (spot.status !== 'approved' || !coordinates || (spot.isTemporary === true && timestampToMillis(spot.expiresAt) <= now)) continue;
+    if (presenceDistance(position, coordinates) > SPOT_PRESENCE_RADIUS_METERS) continue;
+    const prior = continuous ? previous.visits?.[spot.id] : null;
+    const visit = prior || {enteredAt: now, notified: false};
+    visits[spot.id] = visit;
+    if (!visit.notified && now - visit.enteredAt >= SPOT_PRESENCE_DWELL_MS) ready.push({spot, enteredAt: visit.enteredAt});
+  }
+  return {state: {session, sampleAt, visits}, ready};
+}
+
+// Reuse public spot metadata between heartbeats on a warm backend instance.
+// Expiration is still checked per observation; rejected/deleted spots disappear
+// on the next refresh, and each ready notification re-reads its spot below.
+let presenceSpotsCache = null;
+let presenceSpotsCacheUntil = 0;
+async function presenceSpots() {
+  if (presenceSpotsCache && Date.now() < presenceSpotsCacheUntil) return presenceSpotsCache;
+  const snapshot = await db.collection('spots').where('status', '==', 'approved')
+    .select('name', 'coordinates', 'lat', 'lng', 'status', 'isTemporary', 'expiresAt').get();
+  presenceSpotsCache = snapshot.docs.map(doc => ({...doc.data(), id: doc.id}));
+  presenceSpotsCacheUntil = Date.now() + 60 * 1000;
+  return presenceSpotsCache;
+}
+
+async function handleFriendAtSpot(userId, payload) {
+  // Never trust caller-supplied coordinates, recipients, spot names or timers.
+  const senderDoc = await db.collection('users').doc(userId).get();
+  const sender = senderDoc.data() || {};
+  if (!senderDoc.exists || sender.deleted === true || userHasActiveBan(sender)) return [];
+  const spots = await presenceSpots();
+  const stateRef = db.collection('spot_presence').doc(userId);
+  const liveRef = db.collection('live_locations').doc(userId);
+  const observation = await db.runTransaction(async tx => {
+    const [stateDoc, liveDoc] = await Promise.all([tx.get(stateRef), tx.get(liveRef)]);
+    const live = liveDoc.data();
+    const advanced = advanceSpotPresence(stateDoc.data() || {}, live, spots, Date.now());
+    tx.set(stateRef, advanced.state);
+    return {...advanced, live};
+  });
+  if (!observation.ready.length) return [];
+  const friendships = await db.collection('friendships').where('userIds', 'array-contains', userId).get();
+  const friends = [...new Set(friendships.docs.flatMap(doc => cleanStringArray(doc.data().userIds)))]
+    .filter(uid => uid !== userId);
+  const results = [];
+  for (const {spot, enteredAt} of observation.ready) {
+    const [currentSpotDoc, currentLiveDoc] = await Promise.all([
+      db.collection('spots').doc(spot.id).get(), liveRef.get(),
+    ]);
+    const currentSpot = currentSpotDoc.data();
+    const currentLive = currentLiveDoc.data();
+    const livePosition = presenceCoordinates(currentLive);
+    const spotPosition = presenceCoordinates(currentSpot);
+    if (!currentSpotDoc.exists || currentSpot.status !== 'approved' || !currentLiveDoc.exists || !livePosition || !spotPosition ||
+        timestampToMillis(currentLive.expiresAt) !== observation.state.session || timestampToMillis(currentLive.expiresAt) <= Date.now() ||
+        Date.now() - timestampToMillis(currentLive.updatedAt) > SPOT_PRESENCE_MAX_SAMPLE_GAP_MS ||
+        (currentSpot.isTemporary === true && timestampToMillis(currentSpot.expiresAt) <= Date.now()) ||
+        presenceDistance(livePosition, spotPosition) > SPOT_PRESENCE_RADIUS_METERS) continue;
+    const senderUsername = cleanText(sender.username, 'driver');
+    const spotName = cleanText(currentSpot.name, 'a spot');
+    results.push(...await Promise.all(friends.map(friendUid => sendPushToUser({
+      userId: friendUid,
+      settingName: 'friendAtSpotNotifications',
+      deliveryKey: `friend_at_spot_visit:${userId}:${spot.id}:${enteredAt}`,
+      notificationId: `spot_visit_${friendUid}_${userId}_${spot.id}_${enteredAt}`,
+      title: 'Live location',
+      body: `@${senderUsername} is at ${spotName}.`,
+      data: {type: 'friend_at_spot', spotId: spot.id, spotName, friendUid: userId,
+        actorUserId: userId, friendUsername: senderUsername, lat: livePosition.lat, lng: livePosition.lng},
+    }))));
+    await db.runTransaction(async tx => {
+      const doc = await tx.get(stateRef);
+      const state = doc.data();
+      if (state?.session !== observation.state.session || state.visits?.[spot.id]?.enteredAt !== enteredAt) return;
+      tx.set(stateRef, {...state, visits: {...state.visits, [spot.id]: {...state.visits[spot.id], notified: true}}});
+    });
+  }
+  return results;
+}
 async function handleFriendLiveSharing(userId, payload) {
   const recipientUserIds = cleanStringArray(payload.recipientUserIds).filter(
     (recipientUserId) => recipientUserId !== userId,
@@ -1180,7 +1380,7 @@ async function handleGlobalChatMessage(userId, payload) {
 
   const results = [];
   const replyTarget = await globalChatReplyTarget(message, senderUid);
-  if (replyTarget) {
+  if (replyTarget && !payload._mentionRecipientIds?.includes(replyTarget.recipientUserId)) {
     try {
       results.push(
         await sendPushToUser({
@@ -1214,7 +1414,8 @@ async function handleGlobalChatMessage(userId, payload) {
   const recipientUserIds = (await communityRecipientIds(userId, payload)).filter(
     (recipientUserId) =>
       recipientUserId !== senderUid &&
-      recipientUserId !== replyTarget?.recipientUserId,
+      recipientUserId !== replyTarget?.recipientUserId &&
+      !payload._mentionRecipientIds?.includes(recipientUserId),
   );
   if (!recipientUserIds.length) {
     return results;
@@ -1325,7 +1526,7 @@ async function handleForumReply(userId, payload) {
   const communityCountry = countryKey(topic.countryCode) || 'LV';
 
   return Promise.all(
-    recipientUserIds.map((recipientUserId) =>
+    recipientUserIds.filter(uid => !payload._mentionRecipientIds?.includes(uid)).map((recipientUserId) =>
       sendPushToUser({
         userId: recipientUserId,
         settingName: 'commentNotifications',
@@ -1442,7 +1643,7 @@ async function sendCommunityModeratorPush({
   const body = fallbackBody;
 
   return Promise.all(
-    recipientUserIds.map((recipientUserId) =>
+    recipientUserIds.filter(uid => !payload._mentionRecipientIds?.includes(uid)).map((recipientUserId) =>
       sendPushToUser({
         userId: recipientUserId,
         settingName,
@@ -1640,6 +1841,7 @@ export default async function handler(request, response) {
       spot_comment: handleSpotComment,
       chat_message: handleChatMessage,
       friend_request: handleFriendRequest,
+      group_join_request: handleGroupJoinRequest,
       spot_decision: handleSpotDecision,
       spot_pending_review: handleSpotPendingReview,
       new_spot: handleNewSpot,
@@ -1660,7 +1862,11 @@ export default async function handler(request, response) {
       return;
     }
 
-    const results = await handler(user.uid, request.body || {});
+    const payload = {...(request.body || {}), _mentionRecipientIds: []};
+    const mentionType = type === 'global_chat_admin' ? 'global_chat_message' : type === 'forum_reply_admin' ? 'forum_reply' : type;
+    const mentions = await handleMentions(user.uid, mentionType, payload);
+    payload._mentionRecipientIds = mentions.recipients;
+    const results = [...mentions.results, ...(payload.mentionsOnly === true ? [] : await handler(user.uid, payload))];
     const delivered = results.reduce((total, count) => total + Number(count || 0), 0);
 
     response.status(200).json({
