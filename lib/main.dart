@@ -35179,6 +35179,14 @@ Widget chatAvatarWidget(ChatThreadData chat, String currentUid) {
   return Icon(chat.isGroup ? Icons.groups : Icons.person_outline, color: blue);
 }
 
+Tab communityTab({required Widget icon, required String label}) => Tab(
+  height: 62,
+  icon: icon,
+  child: SizedBox(width: double.infinity, child: FittedBox(
+    fit: BoxFit.scaleDown, child: Text(label, maxLines: 1,
+      style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800)))),
+);
+
 class ChatScreen extends StatefulWidget {
   final int initialTabIndex;
 
@@ -35198,10 +35206,10 @@ class _ChatScreenState extends State<ChatScreen>
   void initState() {
     super.initState();
     appUiPreferences.addListener(_handleLanguageChanged);
-    final initialIndex = widget.initialTabIndex.clamp(0, 3).toInt();
+    final initialIndex = widget.initialTabIndex.clamp(0, 4).toInt();
     activeTabIndex = initialIndex;
     tabController = TabController(
-      length: 4,
+      length: 5,
       vsync: this,
       initialIndex: initialIndex,
     );
@@ -35268,7 +35276,7 @@ class _ChatScreenState extends State<ChatScreen>
       return null;
     }
 
-    if (activeTabIndex == 3) {
+    if (activeTabIndex >= 3) {
       return null;
     }
 
@@ -35344,10 +35352,6 @@ class _ChatScreenState extends State<ChatScreen>
               body: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Padding(
-                    padding: EdgeInsets.fromLTRB(14, 4, 14, 12),
-                    child: CcsXpLeaderboardAction(),
-                  ),
                   Padding(
                     padding: const EdgeInsets.fromLTRB(0, 0, 0, 6),
                     child: Center(
@@ -35356,11 +35360,11 @@ class _ChatScreenState extends State<ChatScreen>
                         builder: (context, _) {
                           return TabBar(
                             controller: tabController,
-                            isScrollable: true,
-                            tabAlignment: TabAlignment.center,
+                            isScrollable: false,
+                            tabAlignment: TabAlignment.fill,
                             padding: EdgeInsets.zero,
                             labelPadding: const EdgeInsets.symmetric(
-                              horizontal: 13,
+                              horizontal: 2,
                             ),
                             indicatorColor: blue,
                             labelColor: blue,
@@ -35369,27 +35373,31 @@ class _ChatScreenState extends State<ChatScreen>
                               fontWeight: FontWeight.w900,
                             ),
                             tabs: [
-                              Tab(
+                              communityTab(
                                 icon: _SegmentBadgeIcon(
                                   icon: Icons.chat_bubble_outline,
                                   count: directUnreadCount,
                                 ),
-                                text: trText('Chats'),
+                                label: trText('Chats'),
                               ),
-                              Tab(
+                              communityTab(
                                 icon: _SegmentBadgeIcon(
                                   icon: Icons.groups,
                                   count: groupUnreadCount,
                                 ),
-                                text: trText('Groups'),
+                                label: trText('Groups'),
                               ),
-                              Tab(
+                              communityTab(
                                 icon: const Icon(Icons.public),
-                                text: trText('Global'),
+                                label: trText('Global'),
                               ),
-                              Tab(
+                              communityTab(
                                 icon: const Icon(Icons.forum_outlined),
-                                text: trText('Forum'),
+                                label: trText('Forum'),
+                              ),
+                              communityTab(
+                                icon: const Icon(Icons.emoji_events_outlined),
+                                label: achievementText(appUiPreferences.language.name, 'Ranking', 'Рейтинг', 'Reitings'),
                               ),
                             ],
                           );
@@ -35417,6 +35425,7 @@ class _ChatScreenState extends State<ChatScreen>
                               ),
                               const GlobalChatTab(),
                               const ForumTab(),
+                              const XpLeaderboardScreen(embedded: true),
                             ],
                           ),
                   ),
@@ -49289,7 +49298,8 @@ class _XpHistoryBadge extends StatelessWidget {
 }
 
 class XpLeaderboardScreen extends StatefulWidget {
-  const XpLeaderboardScreen({super.key});
+  final bool embedded;
+  const XpLeaderboardScreen({super.key, this.embedded = false});
 
   @override
   State<XpLeaderboardScreen> createState() => _XpLeaderboardScreenState();
@@ -49311,7 +49321,7 @@ class _XpLeaderboardScreenState extends State<XpLeaderboardScreen> {
 
   Future<void> refresh() async {
     final nextFuture = loadEntries();
-    setState(() => entriesFuture = nextFuture);
+    setState(() { entriesFuture = nextFuture; });
     await nextFuture;
   }
 
@@ -49331,8 +49341,8 @@ class _XpLeaderboardScreenState extends State<XpLeaderboardScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.transparent,
-      appBar: AppBar(
-        title: const Text('XP Leaderboard'),
+      appBar: widget.embedded ? null : AppBar(
+        title: Text(achievementText(appUiPreferences.language.name, 'Ranking', 'Рейтинг', 'Reitings')),
         backgroundColor: Colors.transparent,
         foregroundColor: blue,
         actions: ccsAppBarActions(showXpLeaderboard: false),

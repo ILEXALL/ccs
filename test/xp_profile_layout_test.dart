@@ -8,6 +8,29 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  testWidgets('all five community tabs fit and ranking opens at 320px', (tester) async {
+    tester.view.physicalSize = const Size(320, 700);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final labels = ['Чаты', 'Группы', 'Глобальный', 'Форум', 'Рейтинг'];
+    await tester.pumpWidget(MaterialApp(home: DefaultTabController(length: 5,
+      child: Scaffold(body: Column(children: [TabBar(isScrollable: false,
+        labelPadding: const EdgeInsets.symmetric(horizontal: 2),
+        tabs: [for (final label in labels) app.communityTab(icon: const Icon(Icons.people), label: label)]),
+        Expanded(child: TabBarView(children: [for (var i = 0; i < 5; i++) Center(child: Text('page-$i'))])),
+      ])))));
+    await tester.pumpAndSettle();
+    for (final label in labels) {
+      final rect = tester.getRect(find.text(label));
+      expect(rect.left, greaterThanOrEqualTo(0));
+      expect(rect.right, lessThanOrEqualTo(320));
+    }
+    await tester.tap(find.text('Рейтинг'));
+    await tester.pumpAndSettle();
+    expect(find.text('page-4'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
   test('shared app bars no longer include Top 100', () {
     expect(
       app.ccsAppBarActions().whereType<app.CcsXpLeaderboardAction>(),
