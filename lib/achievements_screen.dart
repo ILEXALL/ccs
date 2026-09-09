@@ -32,11 +32,13 @@ class _AchievementsScreenState extends State<AchievementsScreen> {
       if (snapshot.connectionState != ConnectionState.done) {
         return const Center(child: CircularProgressIndicator());
       }
-      if (snapshot.hasError) return Center(child: Column(mainAxisSize: MainAxisSize.min, children: [
+      if (snapshot.hasError) {
+        return Center(child: Column(mainAxisSize: MainAxisSize.min, children: [
         Text(t('Could not load achievements', 'Не удалось загрузить достижения', 'Neizdevās ielādēt sasniegumus')),
         TextButton(onPressed: () { refresh().catchError((Object _) {}); },
           child: Text(t('Retry', 'Повторить', 'Mēģināt vēlreiz'))),
       ]));
+      }
       final data = snapshot.data!;
       final items = (data['items'] as List).map((e) => Map<String, dynamic>.from(e as Map)).toList();
       final groups = <String, String>{'all': t('All', 'Все', 'Visi')};

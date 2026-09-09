@@ -45202,6 +45202,8 @@ class XpTransactionData {
 
 String xpTransactionActionLabel(String action) {
   switch (action.trim().toLowerCase()) {
+    case 'achievement.unlock':
+      return achievementText(appUiPreferences.language.name, 'Achievement unlocked', 'Достижение получено', 'Sasniegums iegūts');
     case 'profile.avatar':
       return 'Profile avatar';
     case 'profile.bio':
@@ -45237,6 +45239,8 @@ String xpTransactionActionLabel(String action) {
 
 String xpTransactionObjectTypeLabel(String objectType) {
   switch (objectType.trim().toLowerCase()) {
+    case 'achievement':
+      return achievementText(appUiPreferences.language.name, 'Achievement', 'Достижение', 'Sasniegums');
     case 'profile':
       return 'Profile';
     case 'garage_car':
