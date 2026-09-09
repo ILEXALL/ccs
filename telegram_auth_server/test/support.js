@@ -16,6 +16,7 @@ function fixture(extra = {}) {
   const snapshot = (key) => ({ id: key.split('/')[1], exists: rows.has(key),
     data: () => structuredClone(rows.get(key)) });
   const db = {
+    async getAll(...refs) { return refs.map(ref => snapshot(ref.key)); },
     collection(name) {
       const filters = [];
       let order;

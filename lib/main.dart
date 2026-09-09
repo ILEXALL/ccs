@@ -35406,19 +35406,17 @@ class _ChatScreenState extends State<ChatScreen>
                     ),
                   ),
                   Expanded(
-                    child: snapshot.connectionState == ConnectionState.waiting
-                        ? const Center(
-                            child: CircularProgressIndicator(color: blue),
-                          )
-                        : TabBarView(
+                    child: TabBarView(
                             controller: tabController,
                             children: [
-                              ChatsTab(
+                              snapshot.connectionState == ConnectionState.waiting
+                                ? const Center(child: CircularProgressIndicator(color: blue)) : ChatsTab(
                                 chats: directChats,
                                 currentUid: firebaseUser.uid,
                                 unreadCountsByChatId: unreadCountsByChatId,
                               ),
-                              GroupsTab(
+                              snapshot.connectionState == ConnectionState.waiting
+                                ? const Center(child: CircularProgressIndicator(color: blue)) : GroupsTab(
                                 chats: groupChats,
                                 currentUid: firebaseUser.uid,
                                 unreadCountsByChatId: unreadCountsByChatId,
@@ -47527,6 +47525,10 @@ class PublicUserProfileScreen extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(14, 12, 14, 24),
       children: [
         profileHeader(context, profile),
+        Align(alignment: Alignment.centerRight, child: TextButton.icon(
+          onPressed: () => openPublicAchievements(context, profile.uid),
+          icon: const Icon(Icons.workspace_premium_outlined),
+          label: Text(achievementText(appUiPreferences.language.name, 'Achievements', 'Достижения', 'Sasniegumi')))),
         if (canReadXpStatsForUser(profile.uid)) ...[
           const SizedBox(height: 12),
           XpSummaryCard(
@@ -48750,6 +48752,14 @@ void openAchievements(BuildContext context) {
   )));
 }
 
+void openPublicAchievements(BuildContext context, String userId) {
+  if (userId == currentUser.uid) { openAchievements(context); return; }
+  Navigator.of(context).push(appPageRoute(builder: (_) => AchievementsScreen(
+    language: appUiPreferences.language.name,
+    load: () => xpScreenRequest('public_achievements', {'userId': userId}),
+  )));
+}
+
 class FeaturedAchievement extends StatelessWidget {
   final String userId;
   const FeaturedAchievement({super.key, required this.userId});
@@ -48763,14 +48773,14 @@ class FeaturedAchievement extends StatelessWidget {
       return Padding(padding: const EdgeInsets.only(left: 8), child: InkWell(
         onTap: () {
           if (userId == currentUser.uid) { openAchievements(context); return; }
-          showDialog<void>(context: context, builder: (_) => AlertDialog(
-            title: Text((item['title'] as Map)[appUiPreferences.language.name] as String? ?? (item['title'] as Map)['en'] as String),
-            content: Column(mainAxisSize: MainAxisSize.min, children: [AchievementBadge(item: item),
-              Text(achievementRequirement(item, appUiPreferences.language.name)), Text('+${item['xp']} XP')]),
-            actions: [TextButton(onPressed: () => Navigator.pop(context), child: Text(trText('Close')))],
-          ));
+          openPublicAchievements(context, userId);
         },
-        child: SizedBox(width: 60, height: 66, child: FittedBox(child: AchievementBadge(item: item))),
+        child: SizedBox(width: 86, child: Column(mainAxisSize: MainAxisSize.min, children: [
+          SizedBox(width: 66, height: 72, child: FittedBox(child: AchievementBadge(item: item))),
+          const SizedBox(height: 4),
+          Text(achievementCategoryLabel(item['category'] as String, appUiPreferences.language.name),
+            textAlign: TextAlign.center, style: const TextStyle(fontSize: 10.5, fontWeight: FontWeight.w700, color: Colors.white70)),
+        ])),
       ));
     },
   );
@@ -49305,7 +49315,11 @@ class XpLeaderboardScreen extends StatefulWidget {
   State<XpLeaderboardScreen> createState() => _XpLeaderboardScreenState();
 }
 
-class _XpLeaderboardScreenState extends State<XpLeaderboardScreen> {
+class _XpLeaderboardScreenState extends State<XpLeaderboardScreen> with AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true;
+  final Map<XpLeaderboardPeriod, Future<List<XpLeaderboardEntry>>> periodEntries = {};
+  final Map<XpLeaderboardPeriod, DateTime> periodLoadedAt = {};
   XpLeaderboardPeriod selectedPeriod = XpLeaderboardPeriod.allTime;
   late Future<List<XpLeaderboardEntry>> entriesFuture;
 
@@ -49316,10 +49330,22 @@ class _XpLeaderboardScreenState extends State<XpLeaderboardScreen> {
   }
 
   Future<List<XpLeaderboardEntry>> loadEntries() {
-    return loadXpLeaderboardEntries(period: selectedPeriod);
+    return loadPeriod(selectedPeriod);
+  }
+
+  Future<List<XpLeaderboardEntry>> loadPeriod(XpLeaderboardPeriod period) {
+    final loadedAt = periodLoadedAt[period];
+    if (loadedAt == null || DateTime.now().difference(loadedAt) > const Duration(seconds: 60)) {
+      periodEntries.remove(period);
+    }
+    return periodEntries.putIfAbsent(period, () {
+      periodLoadedAt[period] = DateTime.now();
+      return loadXpLeaderboardEntries(period: period);
+    });
   }
 
   Future<void> refresh() async {
+    periodEntries.remove(selectedPeriod);
     final nextFuture = loadEntries();
     setState(() { entriesFuture = nextFuture; });
     await nextFuture;
@@ -49330,7 +49356,7 @@ class _XpLeaderboardScreenState extends State<XpLeaderboardScreen> {
       return;
     }
 
-    final nextFuture = loadXpLeaderboardEntries(period: period);
+    final nextFuture = loadPeriod(period);
     setState(() {
       selectedPeriod = period;
       entriesFuture = nextFuture;
@@ -49339,6 +49365,7 @@ class _XpLeaderboardScreenState extends State<XpLeaderboardScreen> {
 
   @override
   Widget build(BuildContext context) {
+    super.build(context);
     return Scaffold(
       backgroundColor: Colors.transparent,
       appBar: widget.embedded ? null : AppBar(
@@ -49556,126 +49583,67 @@ class XpLeaderboardTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return InkWell(
-      onTap: () => openUserProfile(
-        context,
-        uid: entry.userId,
-        fallbackUsername: entry.displayName,
-      ),
-      borderRadius: BorderRadius.circular(16),
-      child: Container(
-        margin: const EdgeInsets.only(bottom: 10),
-        padding: const EdgeInsets.all(13),
-        decoration: BoxDecoration(
-          color: panelGlass,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: Colors.white12),
-        ),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Container(
-              width: 34,
-              height: 48,
-              alignment: Alignment.center,
-              child: Text(
-                '#${entry.rank}',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  color: rankColor,
-                  fontSize: entry.rank <= 3 ? 15 : 13,
-                  fontWeight: FontWeight.w900,
-                ),
-              ),
-            ),
-            const SizedBox(width: 8),
-            avatar(),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Flexible(
-                        child: Text(
-                          entry.displayName,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 16,
-                            fontWeight: FontWeight.w900,
-                          ),
-                        ),
-                      ),
-                      if (entry.verified) ...[
-                        const SizedBox(width: 5),
-                        const Icon(
-                          Icons.verified_rounded,
-                          color: blue,
-                          size: 15,
-                        ),
-                      ],
-                    ],
-                  ),
-                  if (entry.locationLabel.isNotEmpty) ...[
-                    const SizedBox(height: 3),
-                    Text(
-                      entry.locationLabel,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: Colors.white54,
-                        fontSize: 11.5,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ],
-                  const SizedBox(height: 8),
-                  Wrap(
-                    spacing: 6,
-                    runSpacing: 6,
-                    children: [
-                      _XpHistoryBadge(
-                        label: '${trText('Level')} ${entry.level}',
-                        color: blue,
-                      ),
-                      if (period == XpLeaderboardPeriod.week) ...[
-                        _XpHistoryBadge(
-                          label:
-                              '${formatXpValue(entry.weeklyXp)} ${trText('Weekly XP')}',
-                          color: const Color(0xFFFFB300),
-                        ),
-                        _XpHistoryBadge(
-                          label:
-                              '${formatXpValue(entry.xpTotal)} ${trText('Total XP')}',
-                          color: Colors.white54,
-                        ),
-                      ] else ...[
-                        _XpHistoryBadge(
-                          label:
-                              '${formatXpValue(entry.xpTotal)} ${trText('Total XP')}',
-                          color: Colors.white54,
-                        ),
-                        _XpHistoryBadge(
-                          label:
-                              '${formatXpValue(entry.weeklyXp)} ${trText('Weekly XP')}',
-                          color: Colors.white54,
-                        ),
-                      ],
-                    ],
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(width: 8),
-            const Icon(Icons.chevron_right, color: Colors.white38),
-          ],
-        ),
-      ),
+    final podium = entry.rank <= 3;
+    final highlighted = entry.rank <= 10;
+    final accent = rankColor;
+    Widget metric(String label, String value, Color color) => Expanded(
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text(label, maxLines: 1, overflow: TextOverflow.ellipsis,
+          style: const TextStyle(color: Colors.white54, fontSize: 10)),
+        const SizedBox(height: 4),
+        FittedBox(fit: BoxFit.scaleDown, child: Text(value,
+          style: TextStyle(color: color, fontSize: 14, fontWeight: FontWeight.w800))),
+      ]),
     );
+    return Padding(padding: const EdgeInsets.only(bottom: 10), child: Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: () => openUserProfile(context, uid: entry.userId, fallbackUsername: entry.displayName),
+        borderRadius: BorderRadius.circular(8),
+        child: Container(
+          padding: const EdgeInsets.all(13),
+          decoration: BoxDecoration(
+            color: panelGlass,
+            gradient: highlighted ? LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight,
+              colors: [accent.withValues(alpha: podium ? .16 : .09), const Color(0xED11151D)]) : null,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: highlighted ? accent.withValues(alpha: podium ? .55 : .3) : Colors.white12),
+            boxShadow: podium ? [BoxShadow(color: accent.withValues(alpha: .08), blurRadius: 12, offset: const Offset(0, 3))] : null,
+          ),
+          child: Column(children: [
+            Row(children: [
+              SizedBox(width: 32, height: 48, child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+                if (highlighted) Icon(podium ? Icons.emoji_events_rounded : Icons.star_rounded, size: podium ? 19 : 13, color: accent),
+                Text('#${entry.rank}', style: TextStyle(color: accent, fontSize: 13, fontWeight: FontWeight.w900)),
+              ])),
+              const SizedBox(width: 8), avatar(), const SizedBox(width: 10),
+              Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Row(children: [
+                  Flexible(child: Text(entry.displayName, maxLines: 1, overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w800))),
+                  if (entry.verified) const Padding(padding: EdgeInsets.only(left: 4),
+                    child: Icon(Icons.verified_rounded, color: blue, size: 14)),
+                ]),
+                if (entry.locationLabel.isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  Text(entry.locationLabel, maxLines: 1, overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(color: Colors.white54, fontSize: 11)),
+                ],
+              ])),
+              const Icon(Icons.chevron_right, color: Colors.white38, size: 18),
+            ]),
+            const SizedBox(height: 12),
+            Row(children: [
+              metric(trText('Level'), '${entry.level}', blue),
+              const SizedBox(width: 8),
+              metric(trText('Total XP'), formatXpValue(entry.xpTotal), const Color(0xFF8CD5FF)),
+              const SizedBox(width: 8),
+              metric(trText('Weekly XP'), formatXpValue(entry.weeklyXp), const Color(0xFFA8B3C4)),
+            ]),
+          ]),
+        ),
+      ),
+    ));
   }
 }
 

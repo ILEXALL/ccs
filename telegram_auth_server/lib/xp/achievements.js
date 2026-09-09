@@ -101,4 +101,26 @@ async function selectAchievement(userId, achievementId) {
   });
 }
 
-module.exports = { catalog, completedMonths, syncAchievements, selectAchievement };
+async function publicAchievements(actorId, userId) {
+  if (typeof userId !== 'string' || !userId || userId.includes('/')) throw new Error('Invalid user');
+  const [actorDoc, targetDoc] = await db.getAll(db.collection('users').doc(actorId), db.collection('users').doc(userId));
+  const actor = actorDoc.data();
+  const target = targetDoc.data();
+  if (!actor || actor.banned === true || actor.deleted === true || !target ||
+      target.banned === true || target.deleted === true ||
+      target.publicProfile === false || target.settings?.publicProfile === false ||
+      (target.blockedUserIds || []).includes(actorId) || (actor.blockedUserIds || []).includes(userId)) {
+    throw new Error('Profile unavailable');
+  }
+  const items = catalog();
+  // Read only known achievement awards; never serialize private XP transactions.
+  const awards = await db.getAll(...items.map(item => db.collection('xp_transactions').doc(
+    buildXpTransactionId({userId, action: 'achievement.unlock', objectType: 'achievement',
+      objectId: item.id, stage: 'unlocked', amount: item.xp}))));
+  return {enabled: true, public: true, items: items.filter((item, index) => {
+    const award = awards[index].data();
+    return award?.status === 'confirmed' && award.userId === userId;
+  }).map(item => ({...item, status: 'confirmed', progress: item.threshold}))};
+}
+
+module.exports = { catalog, completedMonths, syncAchievements, selectAchievement, publicAchievements };

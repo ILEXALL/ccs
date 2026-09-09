@@ -1610,7 +1610,13 @@ service cloud.firestore {
     match /xp_featured_achievements/{userId} {
       allow get: if isActiveUser()
         && userDoc(userId).data.get('deleted', false) != true
-        && userDoc(userId).data.get('banned', false) != true;
+        && userDoc(userId).data.get('banned', false) != true
+        && (userId == currentUid() || (
+          userDoc(userId).data.get('publicProfile', true) != false
+          && userDoc(userId).data.get('settings', {}).get('publicProfile', true) != false
+          && !(currentUid() in userDoc(userId).data.get('blockedUserIds', []))
+          && !(userId in currentUserData().get('blockedUserIds', []))
+        ));
       allow list, create, update, delete: if false;
     }
 

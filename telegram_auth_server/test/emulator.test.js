@@ -71,6 +71,14 @@ test('[rules badges] badge is readable without exposing XP, but cannot be forged
   await assertFails(getDoc(doc(env.unauthenticatedContext().firestore(), 'xp_featured_achievements/owner')));
 });
 
+test('[rules badges] private or blocked users cannot expose their badge to another account', async () => {
+  for (const fields of [{publicProfile: false}, {settings: {publicProfile: false}}, {blockedUserIds: ['other']}]) {
+    await seed({'users/owner': {role: 'user', ...fields}, 'xp_featured_achievements/owner': {item: {id: 'spots.1'}}});
+    await assertFails(getDoc(doc(client('other'), 'xp_featured_achievements/owner')));
+    await assertSucceeds(getDoc(doc(client('owner'), 'xp_featured_achievements/owner')));
+  }
+});
+
 test('[rules spots] user creates pending spot but cannot self-approve or forge author', async () => {
   await assertSucceeds(setDoc(doc(client('owner'), 'spots/new'), spot()));
   await assertFails(setDoc(doc(client('owner'), 'spots/approved'), spot('owner', 'approved')));

@@ -252,6 +252,20 @@ test('legacy weekly pages are complete and users in both schemas are not duplica
   assert.equal(response.body.result.entries[0].weeklyXp, 3000);
 });
 
+test('all-time ranking paginates past private leaders and resets stale weekly values', async () => {
+  const f = fixture();
+  for (let i = 0; i < 350; i++) {
+    const uid = `u${String(i).padStart(4, '0')}`;
+    f.rows.set(`users/${uid}`, {publicProfile: i >= 250});
+    f.rows.set(`xp_user_stats/${uid}`, {userId: uid, xpTotal: 10000 - i, weeklyXp: 3000, weeklyXpWeek: '2020-01-01'});
+  }
+  const response = await leaderboard(f, 'tester', 'all_time');
+  assert.equal(response.code, 200);
+  assert.equal(response.body.result.entries.length, 100);
+  assert.equal(response.body.result.entries[0].userId, 'u0250');
+  assert.equal(response.body.result.entries[0].weeklyXp, 0);
+});
+
 test('weekly ranking continues past 250 hidden leaders to fill top 100', async () => {
   const f = fixture();
   const weekKey = engine.weekKeyFor(new Date());

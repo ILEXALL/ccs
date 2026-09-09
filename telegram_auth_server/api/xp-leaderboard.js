@@ -3,7 +3,7 @@ const { weekKeyFor } = require('../lib/xp/xp-engine');
 
 const DEFAULT_LIMIT = 100;
 const MAX_LIMIT = 100;
-const STATS_FETCH_LIMIT = 250;
+const STATS_FETCH_LIMIT = 100;
 const WEEK_FETCH_LIMIT = 1000;
 const LEADERBOARD_PERIODS = new Set(['all_time', 'weekly']);
 
@@ -117,26 +117,25 @@ function xpFromWeekDoc(data = {}) {
     numberValue(data.revokedXp));
 }
 
-async function loadAllTimeLeaderboard(limit) {
-  const statsSnapshot = await db
+async function loadAllTimeLeaderboard(limit, weekKey) {
+  const query = db
     .collection('xp_user_stats')
     .orderBy('xpTotal', 'desc')
-    .limit(STATS_FETCH_LIMIT)
-    .get();
-
-  const statsDocs = statsSnapshot.docs.filter((doc) => {
+    .limit(STATS_FETCH_LIMIT);
+  const entries = [];
+  let cursor;
+  while (entries.length < limit) {
+    const statsSnapshot = await (cursor ? query.startAfter(cursor) : query).get();
+    const statsDocs = statsSnapshot.docs.filter((doc) => {
     const data = doc.data() || {};
     return data.xpBlocked !== true && numberValue(data.xpTotal) > 0;
   });
-  const userSnapshots = await Promise.all(
-    statsDocs.map((doc) => {
+  const userRefs = statsDocs.map((doc) => {
       const data = doc.data() || {};
       const userId = cleanString(data.userId, doc.id);
-      return db.collection('users').doc(userId).get();
-    }),
-  );
-
-  const entries = [];
+      return db.collection('users').doc(userId);
+    });
+  const userSnapshots = userRefs.length ? await db.getAll(...userRefs) : [];
 
   for (let index = 0; index < statsDocs.length; index += 1) {
     const userSnapshot = userSnapshots[index];
@@ -151,13 +150,17 @@ async function loadAllTimeLeaderboard(limit) {
 
     const stats = statsDocs[index].data() || {};
     const userId = cleanString(stats.userId, statsDocs[index].id);
-    entries.push(publicEntry(entries.length + 1, userId, stats, user));
+    entries.push(publicEntry(entries.length + 1, userId, stats, user,
+      stats.weeklyXpWeek === weekKey ? numberValue(stats.weeklyXp) : 0));
 
     if (entries.length >= limit) {
       break;
     }
   }
 
+    if (statsSnapshot.docs.length < STATS_FETCH_LIMIT) break;
+    cursor = statsSnapshot.docs[statsSnapshot.docs.length - 1];
+  }
   return entries;
 }
 
@@ -204,10 +207,8 @@ async function loadWeeklyLeaderboard(limit, weekKey) {
   for (let offset = 0; offset < weeks.length && entries.length < limit; offset += MAX_LIMIT) {
     const batch = weeks.slice(offset, offset + MAX_LIMIT);
     const [statsSnapshots, userSnapshots] = await Promise.all([
-      Promise.all(batch.map((week) =>
-        db.collection('xp_user_stats').doc(week.userId).get())),
-      Promise.all(batch.map((week) =>
-        db.collection('users').doc(week.userId).get())),
+      db.getAll(...batch.map((week) => db.collection('xp_user_stats').doc(week.userId))),
+      db.getAll(...batch.map((week) => db.collection('users').doc(week.userId))),
     ]);
 
     for (let index = 0; index < batch.length; index += 1) {
@@ -249,7 +250,7 @@ async function loadLeaderboard(limit, period, config) {
   }
 
   return {
-    entries: await loadAllTimeLeaderboard(limit),
+    entries: await loadAllTimeLeaderboard(limit, weekKey),
     weekKey,
   };
 }

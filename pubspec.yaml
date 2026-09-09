@@ -54,5 +54,31 @@ flutter:
     - assets/spot_icons/
     - assets/user_cars/
     - assets/xp_wheels/
-    - assets/achievements/
+    - assets/achievements/austria.png
+    - assets/achievements/belgium.png
+    - assets/achievements/bulgaria.png
+    - assets/achievements/croatia.png
+    - assets/achievements/cyprus.png
+    - assets/achievements/czechia.png
+    - assets/achievements/denmark.png
+    - assets/achievements/estonia.png
+    - assets/achievements/finland.png
+    - assets/achievements/france.png
+    - assets/achievements/germany.png
+    - assets/achievements/greece.png
+    - assets/achievements/hungary.png
+    - assets/achievements/ireland.png
+    - assets/achievements/italy.png
+    - assets/achievements/latvia.png
+    - assets/achievements/lithuania.png
+    - assets/achievements/luxembourg.png
+    - assets/achievements/malta.png
+    - assets/achievements/netherlands.png
+    - assets/achievements/poland.png
+    - assets/achievements/portugal.png
+    - assets/achievements/romania.png
+    - assets/achievements/slovakia.png
+    - assets/achievements/slovenia.png
+    - assets/achievements/spain.png
+    - assets/achievements/sweden.png
     - assets/ccs_logo.png

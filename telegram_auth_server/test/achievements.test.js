@@ -47,6 +47,37 @@ test('reward guide uses evaluator amounts and only own original confirmed reward
   const spot = result.items.find(item => item.id === 'spot.approved');
   assert.equal(spot.earnedXp, 50); assert.equal(spot.completed, 1); assert.equal(spot.pending, 1);
 });
+test('public achievements expose only unlocked catalogue items and never award XP', async () => {
+  const f = setup();
+  f.rows.get('app_config/xp').achievements_enabled = true;
+  f.rows.set('spots/one', {addedByUid: 'tester', status: 'approved'});
+  await f.syncAchievements('tester', now);
+  f.rows.set('users/viewer', {});
+  f.rows.set('xp_transactions/private', {userId: 'tester', action: 'profile.avatar', status: 'confirmed', amount: 50, secret: 'private'});
+  const before = JSON.stringify([...f.rows]);
+  const result = await f.publicAchievements('viewer', 'tester');
+  assert.equal(result.items.length, 1);
+  assert.equal(result.items[0].id, 'spots.1');
+  assert.equal(result.items[0].status, 'confirmed');
+  assert.equal(JSON.stringify(result).includes('private'), false);
+  assert.equal(JSON.stringify([...f.rows]), before);
+  const reward = [...f.rows.values()].find(row => row.action === 'achievement.unlock');
+  reward.status = 'revoked';
+  assert.equal((await f.publicAchievements('viewer', 'tester')).items.length, 0);
+});
+
+test('public achievements respect privacy, blocks and account status', async () => {
+  for (const target of [{publicProfile: false}, {settings: {publicProfile: false}},
+    {banned: true}, {deleted: true}, {blockedUserIds: ['viewer']}]) {
+    const f = setup(); f.rows.set('users/viewer', {}); f.rows.set('users/tester', target);
+    await assert.rejects(f.publicAchievements('viewer', 'tester'), /unavailable/);
+  }
+  const f = setup(); f.rows.set('users/viewer', {blockedUserIds: ['tester']});
+  await assert.rejects(f.publicAchievements('viewer', 'tester'), /unavailable/);
+  await assert.rejects(f.publicAchievements('missing', 'tester'), /unavailable/);
+  await assert.rejects(f.publicAchievements('viewer', 'x/y'), /Invalid/);
+});
+
 test('achievement catalog has unique identities, approved rewards and three languages', () => {
   const f = setup(); const items = f.catalog();
   assert.equal(new Set(items.map(i => i.id)).size, items.length);
