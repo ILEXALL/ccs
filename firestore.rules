@@ -23,6 +23,104 @@ service cloud.firestore {
       return userDoc(currentUid()).data;
     }
 
+    function currentUserCountryMatchesCode(code) {
+      let country = currentUserData().get('country', '');
+      return (code == 'AL' && country in ['Albania', 'Албания', 'Albānija'])
+        || (code == 'AM' && country in ['Armenia', 'Армения', 'Armēnija'])
+        || (code == 'AU' && country in ['Australia', 'Австралия', 'Austrālija'])
+        || (code == 'AT' && country in ['Austria', 'Австрия', 'Austrija'])
+        || (code == 'AZ' && country in ['Azerbaijan', 'Азербайджан', 'Azerbaidžāna'])
+        || (code == 'BY' && country in ['Belarus', 'Беларусь', 'Baltkrievija'])
+        || (code == 'BE' && country in ['Belgium', 'Бельгия', 'Beļģija'])
+        || (code == 'BA' && country in ['Bosnia and Herzegovina', 'Босния и Герцеговина', 'Bosnija un Hercegovina'])
+        || (code == 'BR' && country in ['Brazil', 'Бразилия', 'Brazīlija'])
+        || (code == 'BG' && country in ['Bulgaria', 'Болгария', 'Bulgārija'])
+        || (code == 'CA' && country in ['Canada', 'Канада', 'Kanāda'])
+        || (code == 'CN' && country in ['China', 'Китай', 'Ķīna'])
+        || (code == 'HR' && country in ['Croatia', 'Хорватия', 'Horvātija'])
+        || (code == 'CY' && country in ['Cyprus', 'Кипр', 'Kipra'])
+        || (code == 'CZ' && country in ['Czechia', 'Чехия', 'Čehija'])
+        || (code == 'DK' && country in ['Denmark', 'Дания', 'Dānija'])
+        || (code == 'EE' && country in ['Estonia', 'Эстония', 'Igaunija'])
+        || (code == 'FI' && country in ['Finland', 'Финляндия', 'Somija'])
+        || (code == 'FR' && country in ['France', 'Франция', 'Francija'])
+        || (code == 'GE' && country in ['Georgia', 'Грузия', 'Gruzija'])
+        || (code == 'DE' && country in ['Germany', 'Германия', 'Vācija'])
+        || (code == 'GR' && country in ['Greece', 'Греция', 'Grieķija'])
+        || (code == 'HU' && country in ['Hungary', 'Венгрия', 'Ungārija'])
+        || (code == 'IS' && country in ['Iceland', 'Исландия', 'Islande'])
+        || (code == 'IN' && country in ['India', 'Индия', 'Indija'])
+        || (code == 'IE' && country in ['Ireland', 'Ирландия', 'Īrija'])
+        || (code == 'IT' && country in ['Italy', 'Италия', 'Itālija'])
+        || (code == 'JP' && country in ['Japan', 'Япония', 'Japāna'])
+        || (code == 'LV' && country in ['', 'Latvia', 'Латвия', 'Latvija'])
+        || (code == 'LT' && country in ['Lithuania', 'Литва', 'Lietuva'])
+        || (code == 'LU' && country in ['Luxembourg', 'Люксембург', 'Luksemburga'])
+        || (code == 'MT' && country in ['Malta', 'Мальта'])
+        || (code == 'MX' && country in ['Mexico', 'Мексика', 'Meksika'])
+        || (code == 'MD' && country in ['Moldova', 'Молдова'])
+        || (code == 'ME' && country in ['Montenegro', 'Черногория', 'Melnkalne'])
+        || (code == 'NL' && country in ['Netherlands', 'Нидерланды', 'Nīderlande'])
+        || (code == 'NZ' && country in ['New Zealand', 'Новая Зеландия', 'Jaunzēlande'])
+        || (code == 'MK' && country in ['North Macedonia', 'Северная Македония', 'Ziemeļmaķedonija'])
+        || (code == 'NO' && country in ['Norway', 'Норвегия', 'Norvēģija'])
+        || (code == 'PL' && country in ['Poland', 'Польша', 'Polija'])
+        || (code == 'PT' && country in ['Portugal', 'Португалия', 'Portugāle'])
+        || (code == 'RO' && country in ['Romania', 'Румыния', 'Rumānija'])
+        || (code == 'RU' && country in ['Russia', 'Россия', 'Krievija'])
+        || (code == 'RS' && country in ['Serbia', 'Сербия', 'Serbija'])
+        || (code == 'SK' && country in ['Slovakia', 'Словакия', 'Slovākija'])
+        || (code == 'SI' && country in ['Slovenia', 'Словения', 'Slovēnija'])
+        || (code == 'KR' && country in ['South Korea', 'Южная Корея', 'Dienvidkoreja'])
+        || (code == 'ES' && country in ['Spain', 'Испания', 'Spānija'])
+        || (code == 'SE' && country in ['Sweden', 'Швеция', 'Zviedrija'])
+        || (code == 'CH' && country in ['Switzerland', 'Швейцария', 'Šveice'])
+        || (code == 'TR' && country in ['Turkey', 'Турция', 'Turcija'])
+        || (code == 'UA' && country in ['Ukraine', 'Украина', 'Ukraina'])
+        || (code == 'AE' && country in ['United Arab Emirates', 'Объединённые Арабские Эмираты', 'Apvienotie Arābu Emirāti'])
+        || (code == 'GB' && country in ['United Kingdom', 'Великобритания', 'Apvienotā Karaliste'])
+        || (code == 'US' && country in ['United States', 'США', 'Amerikas Savienotās Valstis']);
+    }
+
+    function validCommunityCountryCode(code) {
+      return code is string && code in [
+        'AL', 'AM', 'AU', 'AT', 'AZ', 'BY', 'BE', 'BA', 'BR', 'BG', 'CA',
+        'CN', 'HR', 'CY', 'CZ', 'DK', 'EE', 'FI', 'FR', 'GE', 'DE', 'GR',
+        'HU', 'IS', 'IN', 'IE', 'IT', 'JP', 'LV', 'LT', 'LU', 'MT', 'MX',
+        'MD', 'ME', 'NL', 'NZ', 'MK', 'NO', 'PL', 'PT', 'RO', 'RU', 'RS',
+        'SK', 'SI', 'KR', 'ES', 'SE', 'CH', 'TR', 'UA', 'AE', 'GB', 'US'
+      ];
+    }
+
+    function validOwnCommunityCountry(data) {
+      return data.keys().hasAll([
+          'countryCode',
+          'authorCountryCode',
+          'country'
+        ])
+        && validCommunityCountryCode(data.countryCode)
+        && validCommunityCountryCode(data.authorCountryCode)
+        && data.country is string
+        && data.country == currentUserData().get('country', '')
+        && currentUserCountryMatchesCode(data.authorCountryCode);
+    }
+
+    // Keeps the first regional app build working while users update. That
+    // version can post only to its own country and has no authorCountryCode.
+    function validPreviousRegionalCommunityData(data) {
+      return data.keys().hasAll(['countryCode', 'country'])
+        && !data.keys().hasAny(['authorCountryCode'])
+        && validCommunityCountryCode(data.countryCode)
+        && data.country is string
+        && data.country == currentUserData().get('country', '')
+        && currentUserCountryMatchesCode(data.countryCode);
+    }
+
+    function validLegacyLatvianCommunityData(data) {
+      return !data.keys().hasAny(['countryCode', 'country'])
+        && currentUserCountryMatchesCode('LV');
+    }
+
     function regionalFeaturesAllowed() {
       let configPath = /databases/$(database)/documents/app_config/main;
       let country = currentUserData().get('country', '');
@@ -42,9 +140,65 @@ service cloud.firestore {
         || request.resource.data.get('isSharingLiveLocation', false) != true;
     }
 
+    function validUserPresence(userId) {
+      let data = request.resource.data;
+      return data.keys().hasOnly([
+          'isOnline',
+          'lastSeenAt',
+          'updatedAt',
+          'isSharingLiveLocation',
+          'liveLocationExpiresAt',
+          'liveLocationShareDurationMinutes',
+          'liveLocationVisibleToUserIds'
+        ])
+        && data.keys().hasAll(['isOnline', 'lastSeenAt', 'updatedAt'])
+        && data.isOnline is bool
+        && data.lastSeenAt is timestamp
+        && data.updatedAt == request.time
+        && (
+          !data.keys().hasAny(['isSharingLiveLocation'])
+          || data.isSharingLiveLocation is bool
+        )
+        && (
+          !data.keys().hasAny(['liveLocationExpiresAt'])
+          || data.liveLocationExpiresAt == null
+          || data.liveLocationExpiresAt is timestamp
+        )
+        && (
+          !data.keys().hasAny(['liveLocationShareDurationMinutes'])
+          || data.liveLocationShareDurationMinutes == null
+          || (
+            data.liveLocationShareDurationMinutes is int
+            && data.liveLocationShareDurationMinutes > 0
+            && data.liveLocationShareDurationMinutes <= 1440
+          )
+        )
+        && (
+          !data.keys().hasAny(['liveLocationVisibleToUserIds'])
+          || (
+            data.liveLocationVisibleToUserIds is list
+            && data.liveLocationVisibleToUserIds.size() <= 500
+          )
+        )
+        && (
+          data.get('isSharingLiveLocation', false) != true
+          || (
+            regionalFeaturesAllowed()
+            && data.liveLocationExpiresAt is timestamp
+            && data.liveLocationExpiresAt > request.time
+            && data.liveLocationVisibleToUserIds is list
+            && userId in data.liveLocationVisibleToUserIds
+          )
+        );
+    }
+
     function validRegionalCountryChange() {
-      return regionalFeaturesAllowed()
-        || request.resource.data.get('country', '') == resource.data.get('country', '');
+      // Every active owner may correct their profile, including an incorrectly
+      // assigned restricted country. Regional feature checks remain separate.
+      return request.resource.data.get('country', '') is string
+        && request.resource.data.get('country', '').size() <= 100
+        && request.resource.data.get('city', '') is string
+        && request.resource.data.get('city', '').size() <= 120;
     }
 
     function isNotBanned() {
@@ -247,7 +401,6 @@ service cloud.firestore {
       return request.resource.data.keys().hasOnly([
           'levels_enabled',
           'xp_awards_enabled',
-          'achievements_enabled',
           'enabledUserIds',
           'weeklyLimit',
           'timezone',
@@ -257,8 +410,6 @@ service cloud.firestore {
         ])
         && request.resource.data.levels_enabled is bool
         && request.resource.data.xp_awards_enabled is bool
-        && (!request.resource.data.keys().hasAny(['achievements_enabled'])
-          || request.resource.data.achievements_enabled is bool)
         && request.resource.data.weeklyLimit is int
         && request.resource.data.weeklyLimit >= 0
         && request.resource.data.weeklyLimit <= 3000
@@ -491,7 +642,7 @@ service cloud.firestore {
     function canReadSpot() {
       return isActiveUser()
         && (
-          isAdmin()
+          isStaff()
           || moderatorCanManageExistingSpot()
           || resource.data.addedByUid == currentUid()
           || (
@@ -532,7 +683,6 @@ service cloud.firestore {
           || (
             request.resource.data.get('ownerUid', '') == ''
             && request.resource.data.get('ownerUsername', '') == ''
-            && request.resource.data.get('rating', 0) == 0
           )
         );
     }
@@ -603,21 +753,6 @@ service cloud.firestore {
         ]);
     }
 
-    function signedInUserCanRefreshSpotRating() {
-      return isActiveUser()
-        && request.resource.data.rating is number
-        && request.resource.data.rating >= 0
-        && request.resource.data.rating <= 5
-        && request.resource.data.ratingCount is int
-        && request.resource.data.ratingCount >= 0
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-          'rating',
-          'ratingCount',
-          'reviewCount',
-          'reviewUpdatedAt',
-          'updatedAt'
-        ]);
-    }
 
     function signedInUserCanUpdateSpotCounters() {
       return isActiveUser()
@@ -808,6 +943,41 @@ service cloud.firestore {
       return get(/databases/$(database)/documents/forum_topics/$(topicId)).data;
     }
 
+    // Forum replies are written first, then the existing Dart client updates
+    // the parent topic counter in a separate write. Keep this permission narrow:
+    // a normal active user may only change the counter by exactly one together
+    // with the timestamp field used by the current client.
+    function validForumReplyCounterIncrement() {
+      let beforeCount = resource.data.get('repliesCount', 0);
+      let afterCount = request.resource.data.get('repliesCount', 0);
+      return isActiveUser()
+        && beforeCount is int
+        && afterCount is int
+        && afterCount == beforeCount + 1
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'repliesCount',
+          'lastReplyAt'
+        ])
+        && request.resource.data.get('lastReplyAt', null) == request.time;
+    }
+
+    // The current Dart client also decrements repliesCount after a permitted
+    // reply deletion. This allows only that exact counter/timestamp mutation.
+    function validForumReplyCounterDecrement() {
+      let beforeCount = resource.data.get('repliesCount', 0);
+      let afterCount = request.resource.data.get('repliesCount', 0);
+      return isActiveUser()
+        && beforeCount is int
+        && afterCount is int
+        && beforeCount > 0
+        && afterCount == beforeCount - 1
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'repliesCount',
+          'updatedAt'
+        ])
+        && request.resource.data.get('updatedAt', null) == request.time;
+    }
+
     function canManageForumTopic(topicId) {
       return isStaff()
         || isGlobalModerator()
@@ -832,6 +1002,34 @@ service cloud.firestore {
         && exists(/databases/$(database)/documents/spots/$(data.spotId))
         && topicId == 'temporary_spot_' + data.spotId
         && data.temporarySpotId == data.spotId
+        && (
+          (
+            data.keys().hasAll([
+              'countryCode',
+              'authorCountryCode',
+              'country'
+            ])
+            && data.countryCode == spot.get('countryCode', 'LV')
+            && validCommunityCountryCode(data.countryCode)
+            && validCommunityCountryCode(data.authorCountryCode)
+            && data.country is string
+          )
+          || (
+            data.keys().hasAll(['countryCode', 'country'])
+            && !data.keys().hasAny(['authorCountryCode'])
+            && data.countryCode == spot.get('countryCode', 'LV')
+            && validCommunityCountryCode(data.countryCode)
+            && data.country is string
+          )
+          || (
+            !data.keys().hasAny([
+              'countryCode',
+              'authorCountryCode',
+              'country'
+            ])
+            && spot.get('countryCode', 'LV') == 'LV'
+          )
+        )
         && spot.get('isTemporary', false) == true
         && spot.expiresAt is timestamp
         && spot.expiresAt > request.time
@@ -1215,6 +1413,134 @@ service cloud.firestore {
         );
     }
 
+    // CCS Partners
+    // All active signed-in app users may read the partner directory. The app
+    // listens to the full collection and filters inactive partners client-side,
+    // so reads cannot be restricted to active == true at the rules layer.
+    // Only administrators may create, edit, deactivate, or delete partners.
+    function validPartnerPhotoUrls(photoUrls) {
+      return photoUrls is list
+        && photoUrls.size() <= 4
+        && (
+          photoUrls.size() < 1
+          || (
+            photoUrls[0] is string
+            && photoUrls[0].size() >= 1
+            && photoUrls[0].size() <= 2000
+          )
+        )
+        && (
+          photoUrls.size() < 2
+          || (
+            photoUrls[1] is string
+            && photoUrls[1].size() >= 1
+            && photoUrls[1].size() <= 2000
+          )
+        )
+        && (
+          photoUrls.size() < 3
+          || (
+            photoUrls[2] is string
+            && photoUrls[2].size() >= 1
+            && photoUrls[2].size() <= 2000
+          )
+        )
+        && (
+          photoUrls.size() < 4
+          || (
+            photoUrls[3] is string
+            && photoUrls[3].size() >= 1
+            && photoUrls[3].size() <= 2000
+          )
+        );
+    }
+
+    function validPartnerData(data) {
+      return data.keys().hasOnly([
+          'name',
+          'logoUrl',
+          'bio',
+          'phone',
+          'website',
+          'instagram',
+          'telegram',
+          'photoUrls',
+          'active',
+          'createdByUid',
+          'createdByUsername',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.keys().hasAll([
+          'name',
+          'logoUrl',
+          'bio',
+          'phone',
+          'website',
+          'instagram',
+          'telegram',
+          'photoUrls',
+          'active',
+          'createdByUid',
+          'createdByUsername',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.name is string
+        && data.name.size() >= 1
+        && data.name.size() <= 120
+        && data.logoUrl is string
+        && data.logoUrl.size() >= 1
+        && data.logoUrl.size() <= 2000
+        && data.bio is string
+        && data.bio.size() <= 1200
+        && data.phone is string
+        && data.phone.size() <= 80
+        && data.website is string
+        && data.website.size() <= 1000
+        && data.instagram is string
+        && data.instagram.size() <= 1000
+        && data.telegram is string
+        && data.telegram.size() <= 1000
+        && validPartnerPhotoUrls(data.photoUrls)
+        && data.active is bool
+        && data.createdByUid is string
+        && data.createdByUid.size() >= 1
+        && data.createdByUid.size() <= 128
+        && data.createdByUsername is string
+        && data.createdByUsername.size() <= 80
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function validPartnerCreate() {
+      let data = request.resource.data;
+      return isAdmin()
+        && validPartnerData(data)
+        && data.createdByUid == currentUid()
+        && data.createdByUsername
+          == currentUserData().get('username', '')
+        && data.createdAt == request.time
+        && data.updatedAt == request.time;
+    }
+
+    function validPartnerUpdate() {
+      let data = request.resource.data;
+      return isAdmin()
+        && validPartnerData(data)
+        && data.createdByUid == resource.data.createdByUid
+        && data.createdByUsername == resource.data.createdByUsername
+        && data.createdAt == resource.data.createdAt
+        && data.updatedAt == request.time;
+    }
+
+    match /partners/{partnerId} {
+      allow read: if isActiveUser();
+      allow create: if validPartnerCreate();
+      allow update: if validPartnerUpdate();
+      allow delete: if isAdmin();
+    }
+
     match /app_config/{configId} {
       allow read: if configId in ['main', 'global_chat'];
       allow create, update: if (
@@ -1259,17 +1585,20 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
+    // Presence contains no coordinates; coordinate access remains protected by
+    // /live_locations/{userId} below.
+    match /user_presence/{userId} {
+      allow read: if isActiveUser();
+      allow create, update: if isOwner(userId)
+        && isActiveUser()
+        && validUserPresence(userId);
+      allow delete: if isOwner(userId) || isStaff();
+    }
+
     match /xp_user_stats/{userId} {
       allow read: if isActiveUser()
         && (userId == currentUid() || isStaff());
       allow create, update, delete: if false;
-    }
-
-    match /xp_featured_achievements/{userId} {
-      allow get: if isActiveUser()
-        && get(/databases/$(database)/documents/users/$(userId)).data.get('deleted', false) != true
-        && get(/databases/$(database)/documents/users/$(userId)).data.get('banned', false) != true;
-      allow list, create, update, delete: if false;
     }
 
     match /xp_transactions/{transactionId} {
@@ -1377,26 +1706,8 @@ service cloud.firestore {
             && request.resource.data.rejectionReason.size() >= 1
           )
         )
-        && (
-          (
-            request.resource.data.status == 'approved'
-            && request.resource.data.rating is number
-            && (
-              request.resource.data.rating == resource.data.get('rating', 0)
-              || (
-                resource.data.get('rating', 0) == 0
-                && request.resource.data.rating == 4.5
-              )
-            )
-          )
-          || (
-            request.resource.data.status == 'rejected'
-            && request.resource.data.rating == resource.data.get('rating', 0)
-          )
-        )
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           'status',
-          'rating',
           'reviewedBy',
           'reviewedByUid',
           'reviewedAt',
@@ -1409,20 +1720,53 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    function staffCanTransferSpotOwnership(spotId) {
+      let targetUid = request.resource.data.get('addedByUid', '');
+      let target = /databases/$(database)/documents/users/$(targetUid);
+      return isActiveUser() && isStaff()
+        && !spotReviewLocked(spotId)
+        && targetUid is string && targetUid.size() > 0
+        && exists(target)
+        && get(target).data.get('deleted', false) != true
+        && (
+          get(target).data.get('banned', false) != true
+          || (get(target).data.get('bannedUntil', null) is timestamp
+            && get(target).data.bannedUntil <= request.time)
+        )
+        && get(target).data.get('username', '') is string
+        && get(target).data.get('username', '').size() > 0
+        && request.resource.data.addedBy == get(target).data.username
+        && request.resource.data.ownerUid == targetUid
+        && request.resource.data.ownerUsername == get(target).data.username
+        && request.resource.data.ownershipTransferredFromUid == resource.data.get('addedByUid', '')
+        && request.resource.data.previousBusinessOwnerUid == resource.data.get('ownerUid', '')
+        && request.resource.data.ownershipTransferredByUid == currentUid()
+        && request.resource.data.ownershipTransferredAt == request.time
+        && request.resource.data.updatedAt == request.time
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'addedByUid', 'addedBy', 'ownerUid', 'ownerUsername',
+          'ownershipTransferredFromUid', 'previousBusinessOwnerUid',
+          'ownershipTransferredByUid', 'ownershipTransferredAt', 'updatedAt'
+        ]);
+    }
+
     match /spots/{spotId} {
       allow read: if canReadSpot();
       allow create: if isActiveUser()
         && regionalFeaturesAllowed()
         && validNewSpot();
-      allow update: if ((isAdmin() || moderatorCanUpdateSpot())
+      allow update: if staffCanTransferSpotOwnership(spotId)
+        || (!request.resource.data.diff(resource.data).affectedKeys().hasAny([
+          'addedByUid', 'addedBy', 'ownershipTransferredFromUid',
+          'previousBusinessOwnerUid', 'ownershipTransferredByUid', 'ownershipTransferredAt'
+        ]) && (((isAdmin() || moderatorCanUpdateSpot())
           && (
             spotReviewDecisionUpdateAllowed(spotId)
             || (spotReviewDecisionUnchanged() && spotReviewEditorAllowed(spotId))
           ))
         || (!spotReviewLocked(spotId) && (ownerCanEditSpot() || businessOwnerCanEditSpot()))
-        || signedInUserCanRefreshSpotRating()
-        || signedInUserCanUpdateSpotCounters();
-      allow delete: if (isAdmin() || moderatorCanManageExistingSpot())
+        || signedInUserCanUpdateSpotCounters()));
+      allow delete: if isAdmin()
         && (!spotReviewLocked(spotId)
           || get(/databases/$(database)/documents/spot_review_locks/$(spotId)).data.reviewerUid == currentUid());
     }
@@ -1433,10 +1777,7 @@ service cloud.firestore {
         && request.resource.data.userId == currentUid()
         && request.resource.data.spotId is string
         && request.resource.data.username is string
-        && (
-          request.resource.data.get('type', 'comment')
-            in ['comment', 'rating']
-        );
+        && request.resource.data.get('type', 'comment') == 'comment';
       allow update: if isActiveUser()
         && resource.data.userId == currentUid()
         && request.resource.data.userId == resource.data.userId
@@ -1444,8 +1785,6 @@ service cloud.firestore {
         && request.resource.data.username == resource.data.username
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           'comment',
-          'rating',
-          'ratingDayKey',
           'edited',
           'updatedAt'
         ]);
@@ -1922,6 +2261,9 @@ service cloud.firestore {
       allow create: if isActiveUser()
         && request.resource.data.keys().hasOnly([
           'userId',
+          'countryCode',
+          'authorCountryCode',
+          'country',
           'username',
           'avatarUrl',
           'role',
@@ -1939,6 +2281,11 @@ service cloud.firestore {
           'replyToPhotoUrl'
         ])
         && request.resource.data.userId == currentUid()
+        && (
+          validOwnCommunityCountry(request.resource.data)
+          || validPreviousRegionalCommunityData(request.resource.data)
+          || validLegacyLatvianCommunityData(request.resource.data)
+        )
         && request.resource.data.username is string
         && request.resource.data.username.size() >= 1
         && request.resource.data.username.size() <= 40
@@ -2035,6 +2382,9 @@ service cloud.firestore {
       allow create: if isActiveUser()
         && request.resource.data.keys().hasOnly([
           'title',
+          'countryCode',
+          'authorCountryCode',
+          'country',
           'category',
           'description',
           'avatarUrl',
@@ -2063,6 +2413,12 @@ service cloud.firestore {
         ])
         && (
           request.resource.data.authorId == currentUid()
+          || validTemporarySpotAutoForumTopicCreate(topicId)
+        )
+        && (
+          validOwnCommunityCountry(request.resource.data)
+          || validPreviousRegionalCommunityData(request.resource.data)
+          || validLegacyLatvianCommunityData(request.resource.data)
           || validTemporarySpotAutoForumTopicCreate(topicId)
         )
         && request.resource.data.title is string
@@ -2126,20 +2482,35 @@ service cloud.firestore {
         && request.resource.data.createdAt == request.time
         && request.resource.data.lastReplyAt == request.time;
 
-      allow update: if isStaff()
-        || isGlobalModerator()
-        || (
-          isActiveUser()
-          && resource.data.authorId == currentUid()
-          && request.resource.data.authorId == resource.data.authorId
-          && request.resource.data.status == resource.data.status
-          && request.resource.data.isPinned == resource.data.isPinned
-          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-            'title',
-            'description',
-            'avatarUrl',
-            'updatedAt'
-          ])
+      allow update: if request.resource.data.get('countryCode', 'LV')
+          == resource.data.get('countryCode', 'LV')
+        && request.resource.data.get(
+            'authorCountryCode',
+            resource.data.get('authorCountryCode', '')
+          ) == resource.data.get('authorCountryCode', '')
+        && (
+          !resource.data.keys().hasAny(['country'])
+          || request.resource.data.get('country', '')
+            == resource.data.get('country', '')
+        )
+        && (
+          isStaff()
+          || isGlobalModerator()
+          || validForumReplyCounterIncrement()
+          || validForumReplyCounterDecrement()
+          || (
+            isActiveUser()
+            && resource.data.authorId == currentUid()
+            && request.resource.data.authorId == resource.data.authorId
+            && request.resource.data.status == resource.data.status
+            && request.resource.data.isPinned == resource.data.isPinned
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+              'title',
+              'description',
+              'avatarUrl',
+              'updatedAt'
+            ])
+          )
         );
 
       allow delete: if isStaff()
@@ -2154,6 +2525,22 @@ service cloud.firestore {
 
         allow create: if isActiveUser()
           && request.resource.data.userId == currentUid()
+          && (
+            (
+              validOwnCommunityCountry(request.resource.data)
+              && request.resource.data.countryCode
+                == forumTopicData(topicId).get('countryCode', 'LV')
+            )
+            || (
+              validPreviousRegionalCommunityData(request.resource.data)
+              && request.resource.data.countryCode
+                == forumTopicData(topicId).get('countryCode', 'LV')
+            )
+            || (
+              validLegacyLatvianCommunityData(request.resource.data)
+              && forumTopicData(topicId).get('countryCode', 'LV') == 'LV'
+            )
+          )
           && request.resource.data.username is string
           && request.resource.data.avatarUrl is string
           && request.resource.data.text is string
