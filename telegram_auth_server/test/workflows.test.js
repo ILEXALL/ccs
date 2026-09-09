@@ -21,6 +21,18 @@ test('[profiles] own profile sync awards once and ignores supplied user ID', asy
   assert.equal(f.rows.has('xp_user_stats/other'), false);
 });
 
+test('[achievements] selection and reward progress are scoped to authenticated user', async () => {
+  const f = fixture({'users/other': {}, 'xp_featured_achievements/other': {item: {id: 'spots.50'}},
+    'xp_transactions/other': {userId: 'other', action: 'profile.avatar', amount: 50, status: 'confirmed'}});
+  assert.equal((await request(f, 'xp-sync', 'tester', {
+    action: 'select_achievement', achievementId: null, userId: 'other',
+  })).code, 200);
+  assert.equal(f.rows.get('xp_featured_achievements/other').item.id, 'spots.50');
+  const rewards = await request(f, 'xp-sync', 'tester', {action: 'rewards', userId: 'other'});
+  assert.equal(rewards.body.result.items.find(i => i.id === 'profile.avatar').earnedXp, 0);
+  assert.equal((await request(f, 'xp-sync', null, {action: 'select_achievement', achievementId: null})).code, 401);
+});
+
 test('[profiles] regular user cannot sync another profile', async () => {
   const f = fixture({ 'users/other': { photoUrl: 'avatar' } });
   assert.equal((await request(f, 'xp-sync', 'tester', {

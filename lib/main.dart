@@ -1771,6 +1771,7 @@ const _ruText = <String, String>{
   'History': 'История',
   'XP History': 'История XP',
   'XP Leaderboard': 'Рейтинг XP',
+  'Top 100': 'Топ-100',
   'All time': 'За всё время',
   'Top drivers': 'Лучшие водители',
   'Top this week': 'Лучшие за неделю',
@@ -2774,6 +2775,7 @@ const _lvText = <String, String>{
   'History': 'Vēsture',
   'XP History': 'XP vēsture',
   'XP Leaderboard': 'XP reitings',
+  'Top 100': 'Top 100',
   'All time': 'Visu laiku',
   'Top drivers': 'Labākie braucēji',
   'Top this week': 'Labākie šonedēļ',
@@ -19202,8 +19204,8 @@ class CcsXpLeaderboardAction extends StatelessWidget {
               );
             },
             child: Container(
-              height: 34,
-              padding: const EdgeInsets.symmetric(horizontal: 9),
+              height: 44,
+              padding: const EdgeInsets.symmetric(horizontal: 14),
               decoration: BoxDecoration(
                 color: blue.withValues(alpha: 0.12),
                 borderRadius: BorderRadius.circular(12),
@@ -19212,7 +19214,7 @@ class CcsXpLeaderboardAction extends StatelessWidget {
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: const [
-                  Icon(Icons.emoji_events_outlined, color: blue, size: 17),
+                  Icon(Icons.emoji_events_outlined, color: blue, size: 23),
                   SizedBox(width: 5),
                   Text(
                     'Top 100',
@@ -19220,7 +19222,7 @@ class CcsXpLeaderboardAction extends StatelessWidget {
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
                       color: blue,
-                      fontSize: 11,
+                      fontSize: 15,
                       fontWeight: FontWeight.w900,
                     ),
                   ),
@@ -19235,7 +19237,7 @@ class CcsXpLeaderboardAction extends StatelessWidget {
 }
 
 List<Widget> ccsAppBarActions({
-  bool showXpLeaderboard = true,
+  bool showXpLeaderboard = false,
   List<Widget> afterXpActions = const <Widget>[],
 }) {
   return [
@@ -21023,7 +21025,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                               builder: (context, unreadCountsByChatId, _) {
                                 return _CcsBottomNavItem(
                                   icon: Icons.chat_bubble_outline,
-                                  label: trText('Chat'),
+                                  label: achievementText(appUiPreferences.language.name, 'Community', 'Сообщество', 'Kopiena'),
                                   selected: index == 3,
                                   badgeCount: totalChatUnreadCount(
                                     unreadCountsByChatId,
@@ -35342,6 +35344,10 @@ class _ChatScreenState extends State<ChatScreen>
               body: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  const Padding(
+                    padding: EdgeInsets.fromLTRB(14, 4, 14, 12),
+                    child: CcsXpLeaderboardAction(),
+                  ),
                   Padding(
                     padding: const EdgeInsets.fromLTRB(0, 0, 0, 6),
                     child: Center(
@@ -45169,7 +45175,16 @@ class XpTransactionData {
 
   bool get isPositive => status == 'confirmed' && amount > 0;
 
-  String get title => xpTransactionActionLabel(action);
+  String get title {
+    if (action == 'achievement.unlock') {
+      final parts = objectId.split('.');
+      if (parts.length == 2) {
+        final requirement = achievementRequirement({'category': parts.first, 'threshold': parts.last}, appUiPreferences.language.name);
+        return '${xpTransactionActionLabel(action)}: $requirement${parts.first == 'tourist' ? ' (${parts.last})' : ''}';
+      }
+    }
+    return xpTransactionActionLabel(action);
+  }
 
   String get category => xpTransactionObjectTypeLabel(objectType);
 
@@ -46020,22 +46035,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
               ),
               const SizedBox(height: 12),
               XpSummaryCard(userId: currentUser.uid, onTap: openXpHistory),
-              TextButton.icon(
-                icon: const Icon(Icons.workspace_premium),
-                label: Text(achievementText(appUiPreferences.language.name, 'Achievements', 'Достижения', 'Sasniegumi')),
-                onPressed: () => Navigator.of(context).push(appPageRoute(builder: (_) => AchievementsScreen(
-                  language: appUiPreferences.language.name,
-                  load: () async {
-                    final user = FirebaseAuth.instance.currentUser;
-                    if (user == null) throw StateError('Not signed in');
-                    final token = await user.getIdToken();
-                    final response = await postJsonToUrl(xpSyncUrls.first, {'action': 'achievements'},
-                      headers: {HttpHeaders.authorizationHeader: 'Bearer $token'});
-                    if (response['ok'] != true) throw StateError('Achievements unavailable');
-                    return Map<String, dynamic>.from(response['result'] as Map);
-                  },
-                ))),
-              ),
               const SizedBox(height: 12),
               if (cars.isEmpty) ...[
                 _EmptyGarageCard(onAdd: addCar),
@@ -47261,6 +47260,7 @@ class PublicUserProfileScreen extends StatelessWidget {
                   ],
                 ),
               ),
+              FeaturedAchievement(userId: profile.uid),
             ],
           ),
           if (profile.bio.trim().isNotEmpty) ...[
@@ -48689,6 +48689,7 @@ class _ProfileHeader extends StatelessWidget {
                   ],
                 ),
               ),
+              FeaturedAchievement(userId: currentUser.uid),
             ],
           ),
           const SizedBox(height: 10),
@@ -48714,6 +48715,56 @@ class _ProfileHeader extends StatelessWidget {
       ),
     );
   }
+}
+
+Future<Map<String, dynamic>> xpScreenRequest(String action, [Map<String, dynamic> extra = const {}]) async {
+  final user = FirebaseAuth.instance.currentUser;
+  if (user == null) throw StateError('Not signed in');
+  final token = await user.getIdToken();
+  Object? lastError;
+  for (final url in xpSyncUrls) {
+    try {
+      final response = await postJsonToUrl(url, {'action': action, ...extra},
+        headers: {HttpHeaders.authorizationHeader: 'Bearer $token'});
+      if (response['ok'] != true) throw StateError('XP unavailable');
+      return Map<String, dynamic>.from(response['result'] as Map);
+    } catch (error) { lastError = error; }
+  }
+  throw lastError ?? StateError('XP unavailable');
+}
+
+void openAchievements(BuildContext context) {
+  Navigator.of(context).push(appPageRoute(builder: (_) => AchievementsScreen(
+    language: appUiPreferences.language.name,
+    load: () => xpScreenRequest('achievements'),
+    select: (id) async { await xpScreenRequest('select_achievement', {'achievementId': id}); },
+  )));
+}
+
+class FeaturedAchievement extends StatelessWidget {
+  final String userId;
+  const FeaturedAchievement({super.key, required this.userId});
+  @override
+  Widget build(BuildContext context) => StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+    stream: FirebaseFirestore.instance.collection('xp_featured_achievements').doc(userId).snapshots(),
+    builder: (context, snapshot) {
+      final value = snapshot.data?.data()?['item'];
+      if (snapshot.hasError || value is! Map) return const SizedBox.shrink();
+      final item = Map<String, dynamic>.from(value);
+      return Padding(padding: const EdgeInsets.only(left: 8), child: InkWell(
+        onTap: () {
+          if (userId == currentUser.uid) { openAchievements(context); return; }
+          showDialog<void>(context: context, builder: (_) => AlertDialog(
+            title: Text((item['title'] as Map)[appUiPreferences.language.name] as String? ?? (item['title'] as Map)['en'] as String),
+            content: Column(mainAxisSize: MainAxisSize.min, children: [AchievementBadge(item: item),
+              Text(achievementRequirement(item, appUiPreferences.language.name)), Text('+${item['xp']} XP')]),
+            actions: [TextButton(onPressed: () => Navigator.pop(context), child: Text(trText('Close')))],
+          ));
+        },
+        child: SizedBox(width: 60, height: 66, child: FittedBox(child: AchievementBadge(item: item))),
+      ));
+    },
+  );
 }
 
 class XpSummaryCard extends StatelessWidget {
@@ -48743,7 +48794,7 @@ class XpSummaryCard extends StatelessWidget {
             ? XpUserStats.fromFirestore(doc)
             : XpUserStats.empty(cleanUserId);
 
-        return _XpSummaryContent(
+        return XpSummaryContent(
           stats: stats,
           loading: loading,
           unavailable: snapshot.hasError,
@@ -48830,13 +48881,14 @@ class XpLevelWheel extends StatelessWidget {
   }
 }
 
-class _XpSummaryContent extends StatelessWidget {
+class XpSummaryContent extends StatelessWidget {
   final XpUserStats stats;
   final bool loading;
   final bool unavailable;
   final VoidCallback? onTap;
 
-  const _XpSummaryContent({
+  const XpSummaryContent({
+    super.key,
     required this.stats,
     required this.loading,
     required this.unavailable,
@@ -48846,7 +48898,6 @@ class _XpSummaryContent extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final totalLabel = loading ? '...' : '${formatXpValue(stats.xpTotal)} XP';
-    final weeklyLabel = loading ? '...' : '${formatXpValue(stats.weeklyXp)} XP';
     final levelLabel = loading ? '...' : '${stats.level}';
     final displayedLevel = loading
         ? 1
@@ -48986,101 +49037,20 @@ class _XpSummaryContent extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 12),
-          Row(
-            children: [
-              _XpSummaryMetric(label: 'This week XP', value: weeklyLabel),
-              const SizedBox(width: 10),
-              _XpSummaryMetric(label: 'Total XP', value: totalLabel),
-              const SizedBox(width: 10),
-              _XpSummaryMetric(label: 'Next level', value: nextLabel),
-            ],
-          ),
-          if (onTap != null) ...[
-            const SizedBox(height: 12),
-            Align(
-              alignment: Alignment.centerRight,
-              child: Container(
-                height: 32,
-                padding: const EdgeInsets.symmetric(horizontal: 11),
-                decoration: BoxDecoration(
-                  color: blue.withValues(alpha: 0.13),
-                  borderRadius: BorderRadius.circular(999),
-                  border: Border.all(color: blue.withValues(alpha: 0.32)),
-                ),
-                child: const Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(Icons.history, color: blue, size: 15),
-                    SizedBox(width: 6),
-                    Text(
-                      'History',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 11.5,
-                        fontWeight: FontWeight.w900,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ],
+          if (stats.userId == currentUser.uid)
+            XpProfileActions(language: appUiPreferences.language.name,
+              onAchievements: () => openAchievements(context),
+              onRewards: () => Navigator.of(context).push(appPageRoute(builder: (_) => XpRewardsScreen(
+                language: appUiPreferences.language.name, load: () => xpScreenRequest('rewards')))),
+              onHistory: onTap),
+          if (stats.userId != currentUser.uid && onTap != null)
+            Align(alignment: Alignment.centerRight, child: TextButton.icon(
+              onPressed: onTap, icon: const Icon(Icons.history), label: Text(trText('History')))),
         ],
       ),
     );
 
-    if (onTap == null) {
-      return card;
-    }
-
-    return Material(
-      color: Colors.transparent,
-      borderRadius: BorderRadius.circular(18),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(18),
-        child: card,
-      ),
-    );
-  }
-}
-
-class _XpSummaryMetric extends StatelessWidget {
-  final String label;
-  final String value;
-
-  const _XpSummaryMetric({required this.label, required this.value});
-
-  @override
-  Widget build(BuildContext context) {
-    return Expanded(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            label,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              color: Colors.white38,
-              fontSize: 10.5,
-              fontWeight: FontWeight.w800,
-            ),
-          ),
-          const SizedBox(height: 3),
-          Text(
-            value,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 13,
-              fontWeight: FontWeight.w900,
-            ),
-          ),
-        ],
-      ),
-    );
+    return card;
   }
 }
 
@@ -49223,8 +49193,6 @@ class XpTransactionTile extends StatelessWidget {
               children: [
                 Text(
                   transaction.title,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
                     color: Colors.white,
                     fontSize: 15.5,

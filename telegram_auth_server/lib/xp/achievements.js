@@ -1,5 +1,6 @@
 const { db, admin } = require('../firebase-admin');
 const { awardManyXp } = require('./xp-firestore');
+const { buildXpTransactionId } = require('./xp-engine');
 
 const categories = [
   ['spots', ['Spots', 'Споты', 'Vietas'], [[1,50],[5,100],[10,200],[25,400],[50,750]], 'count'],
@@ -78,8 +79,26 @@ async function syncAchievements(userId, options = {}) {
   const transactions = await db.collection('xp_transactions').where('userId', '==', userId).get();
   const earned = new Map(transactions.docs.map(doc => doc.data())
     .filter(data => data.action === 'achievement.unlock').map(data => [data.objectId, data]));
-  return { enabled, items: catalog().map(item => ({...item, progress: progress[item.category] || 0,
+  const featured = (await db.collection('xp_featured_achievements').doc(userId).get()).data();
+  return { enabled, selectedId: featured?.item?.id || null, items: catalog().map(item => ({...item, progress: progress[item.category] || 0,
     status: earned.get(item.id)?.status || 'locked'})) };
 }
 
-module.exports = { catalog, completedMonths, syncAchievements };
+async function selectAchievement(userId, achievementId) {
+  const item = catalog().find(entry => entry.id === achievementId);
+  if (achievementId !== null && !item) throw new Error('Unknown achievement');
+  return db.runTransaction(async tx => {
+    const user = (await tx.get(db.collection('users').doc(userId))).data();
+    if (!user || user.deleted === true || user.banned === true) throw new Error('User unavailable');
+    if (item) {
+      const id = buildXpTransactionId({userId, action: 'achievement.unlock', objectType: 'achievement',
+        objectId: item.id, stage: 'unlocked', amount: item.xp});
+      const award = (await tx.get(db.collection('xp_transactions').doc(id))).data();
+      if (award?.status !== 'confirmed' || award.userId !== userId) throw new Error('Achievement not unlocked');
+    }
+    tx.set(db.collection('xp_featured_achievements').doc(userId), {item: item || null});
+    return {selectedId: item?.id || null};
+  });
+}
+
+module.exports = { catalog, completedMonths, syncAchievements, selectAchievement };

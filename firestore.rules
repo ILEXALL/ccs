@@ -1265,6 +1265,13 @@ service cloud.firestore {
       allow create, update, delete: if false;
     }
 
+    match /xp_featured_achievements/{userId} {
+      allow get: if isActiveUser()
+        && get(/databases/$(database)/documents/users/$(userId)).data.get('deleted', false) != true
+        && get(/databases/$(database)/documents/users/$(userId)).data.get('banned', false) != true;
+      allow list, create, update, delete: if false;
+    }
+
     match /xp_transactions/{transactionId} {
       allow read: if isActiveUser()
         && (resource.data.userId == currentUid() || isStaff());

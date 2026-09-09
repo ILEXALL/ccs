@@ -1,6 +1,7 @@
 const { admin, db } = require('../lib/firebase-admin');
 const { adjustXp } = require('../lib/xp/xp-adjustments');
-const { syncAchievements } = require('../lib/xp/achievements');
+const { syncAchievements, selectAchievement } = require('../lib/xp/achievements');
+const { rewardProgress } = require('../lib/xp/rewards');
 const {
   awardManyXp,
   settlePendingXp,
@@ -115,6 +116,8 @@ async function syncSpot(actor, body) {
 }
 
 const handlers = {
+  rewards: (actor) => rewardProgress(actor.uid),
+  select_achievement: (actor, body) => selectAchievement(actor.uid, body.achievementId),
   achievements: (actor) => syncAchievements(actor.uid),
   adjust_xp: (actor, body) => adjustXp(actor.uid, body),
   ensure_config: async (actor) => {

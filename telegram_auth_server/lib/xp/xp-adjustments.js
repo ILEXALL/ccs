@@ -67,6 +67,9 @@ async function adjustXp(actorId, input) {
         !Number.isSafeInteger(revoked) || revoked < 0 || revoked > consumed) {
       throw new Error('Inconsistent weekly XP balance');
     }
+    const featuredRef = db.collection('xp_featured_achievements').doc(source.userId);
+    const featured = source.action === 'achievement.unlock'
+      ? (await tx.get(featuredRef)).data() : null;
     const timestamp = admin.firestore.FieldValue.serverTimestamp();
     const correctionId = `adjustment_${id}`;
     const result = { transactionId, correctionId, delta, xpTotal: total,
@@ -78,6 +81,9 @@ async function adjustXp(actorId, input) {
       } : {}),
       xpUpdatedAt: timestamp, xpLastTransactionId: correctionId });
     tx.update(weekRef, { revokedXp: revoked, updatedAt: timestamp });
+    if (operation === 'revoke' && featured?.item?.id === source.objectId) {
+      tx.set(featuredRef, {item: null});
+    }
     tx.update(sourceRef, { status: operation === 'revoke' ? 'revoked' : 'confirmed',
       adjustmentRevision: result.revision, adjustmentReason: reason.trim(),
       [operation === 'revoke' ? 'revokedAt' : 'restoredAt']: timestamp });

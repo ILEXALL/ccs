@@ -50,6 +50,16 @@ test('[rules XP] owner reads own stats, outsider cannot, no client can write XP'
   }
 });
 
+test('[rules badges] badge is readable without exposing XP, but cannot be forged', async () => {
+  await seed({'xp_featured_achievements/owner': {item: {id: 'spots.1'}}});
+  await assertSucceeds(getDoc(doc(client('other'), 'xp_featured_achievements/owner')));
+  for (const uid of ['owner', 'other', 'admin', 'banned']) {
+    await assertFails(setDoc(doc(client(uid), 'xp_featured_achievements/owner'), {item: {id: 'spots.50'}}));
+  }
+  await assertFails(getDoc(doc(client('banned'), 'xp_featured_achievements/owner')));
+  await assertFails(getDoc(doc(env.unauthenticatedContext().firestore(), 'xp_featured_achievements/owner')));
+});
+
 test('[rules spots] user creates pending spot but cannot self-approve or forge author', async () => {
   await assertSucceeds(setDoc(doc(client('owner'), 'spots/new'), spot()));
   await assertFails(setDoc(doc(client('owner'), 'spots/approved'), spot('owner', 'approved')));

@@ -15,6 +15,14 @@ function setup() {
 const request = {transactionId: 'reward', requestId: 'one', reason: 'Confirmed error',
   operation: 'revoke', expectedRevision: 0};
 
+test('revoking the featured achievement removes its public badge atomically', async () => {
+  const f = setup();
+  Object.assign(f.rows.get('xp_transactions/reward'), {action: 'achievement.unlock', objectType: 'achievement', objectId: 'spots.1'});
+  f.rows.set('xp_featured_achievements/tester', {item: {id: 'spots.1'}});
+  await f.adjust('admin', request);
+  assert.equal(f.rows.get('xp_featured_achievements/tester').item, null);
+});
+
 test('revoke and restore create signed corrections and recalculate level once', async () => {
   const f = setup();
   const result = await f.adjust('admin', request);

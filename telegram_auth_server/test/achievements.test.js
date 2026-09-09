@@ -7,6 +7,46 @@ function setup() {
   const module = f.load('../lib/xp/achievements.js');
   return {...f, ...module};
 }
+test('featured achievement requires ownership and confirmation, supports replacement and removal', async () => {
+  const f = setup();
+  await assert.rejects(f.selectAchievement('tester', 'spots.1'), /not unlocked/);
+  await assert.rejects(f.selectAchievement('tester', 'forged'), /Unknown/);
+  f.rows.get('app_config/xp').achievements_enabled = true;
+  f.rows.set('spots/one', {addedByUid: 'tester', status: 'approved'});
+  f.rows.set('auth_test_metadata/tester', {creationTime: '2026-06-08T12:00:00Z'});
+  await f.syncAchievements('tester', now);
+  await f.selectAchievement('tester', 'spots.1');
+  assert.equal(f.rows.get('xp_featured_achievements/tester').item.id, 'spots.1');
+  assert.equal((await f.syncAchievements('tester', now)).selectedId, 'spots.1');
+  await f.selectAchievement('tester', 'tenure.3');
+  assert.equal(f.rows.get('xp_featured_achievements/tester').item.id, 'tenure.3');
+  f.rows.set('users/other', {});
+  await assert.rejects(f.selectAchievement('other', 'spots.1'), /not unlocked/);
+  const reward = [...f.rows.values()].find(row => row.action === 'achievement.unlock' && row.objectId === 'spots.1');
+  for (const status of ['pending', 'blocked', 'revoked']) {
+    reward.status = status;
+    await assert.rejects(f.selectAchievement('tester', 'spots.1'), /not unlocked/);
+  }
+  await f.selectAchievement('tester', null);
+  assert.equal(f.rows.get('xp_featured_achievements/tester').item, null);
+  f.rows.get('users/tester').banned = true;
+  await assert.rejects(f.selectAchievement('tester', null), /unavailable/);
+});
+
+test('reward guide uses evaluator amounts and only own original confirmed rewards', async () => {
+  const f = setup(); const rewards = f.load('../lib/xp/rewards.js');
+  const catalog = rewards.rewardCatalog();
+  assert.equal(catalog.length, 14);
+  assert.equal(catalog.reduce((sum, row) => sum + row.xp, 0), 600);
+  for (const item of catalog) for (const lang of ['en', 'ru', 'lv']) assert.ok(item.title[lang]);
+  f.rows.set('xp_transactions/a', {userId: 'tester', action: 'spot.approved', amount: 50, status: 'confirmed'});
+  f.rows.set('xp_transactions/b', {userId: 'tester', action: 'spot.approved', amount: 50, status: 'revoked'});
+  f.rows.set('xp_transactions/c', {userId: 'tester', action: 'spot.approved', amount: 0, status: 'pending'});
+  f.rows.set('xp_transactions/d', {userId: 'other', action: 'spot.approved', amount: 50, status: 'confirmed'});
+  const result = await rewards.rewardProgress('tester');
+  const spot = result.items.find(item => item.id === 'spot.approved');
+  assert.equal(spot.earnedXp, 50); assert.equal(spot.completed, 1); assert.equal(spot.pending, 1);
+});
 test('achievement catalog has unique identities, approved rewards and three languages', () => {
   const f = setup(); const items = f.catalog();
   assert.equal(new Set(items.map(i => i.id)).size, items.length);
