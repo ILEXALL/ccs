@@ -401,6 +401,7 @@ service cloud.firestore {
       return request.resource.data.keys().hasOnly([
           'levels_enabled',
           'xp_awards_enabled',
+          'achievements_enabled',
           'enabledUserIds',
           'weeklyLimit',
           'timezone',
@@ -410,6 +411,10 @@ service cloud.firestore {
         ])
         && request.resource.data.levels_enabled is bool
         && request.resource.data.xp_awards_enabled is bool
+        && (
+          !request.resource.data.keys().hasAny(['achievements_enabled'])
+          || request.resource.data.achievements_enabled is bool
+        )
         && request.resource.data.weeklyLimit is int
         && request.resource.data.weeklyLimit >= 0
         && request.resource.data.weeklyLimit <= 3000
@@ -1599,6 +1604,14 @@ service cloud.firestore {
       allow read: if isActiveUser()
         && (userId == currentUid() || isStaff());
       allow create, update, delete: if false;
+    }
+
+    // Only the selected badge is public; XP history remains private.
+    match /xp_featured_achievements/{userId} {
+      allow get: if isActiveUser()
+        && userDoc(userId).data.get('deleted', false) != true
+        && userDoc(userId).data.get('banned', false) != true;
+      allow list, create, update, delete: if false;
     }
 
     match /xp_transactions/{transactionId} {

@@ -21024,7 +21024,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                               valueListenable: chatUnreadCountsByChatId,
                               builder: (context, unreadCountsByChatId, _) {
                                 return _CcsBottomNavItem(
-                                  icon: Icons.chat_bubble_outline,
+                                  icon: Icons.diversity_3_outlined,
                                   label: achievementText(appUiPreferences.language.name, 'Community', 'Сообщество', 'Kopiena'),
                                   selected: index == 3,
                                   badgeCount: totalChatUnreadCount(

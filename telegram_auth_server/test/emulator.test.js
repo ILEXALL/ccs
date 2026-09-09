@@ -19,7 +19,6 @@ const decision = (uid, status = 'approved') => ({
   status, reviewedByUid: uid, reviewedBy: uid,
   reviewedAt: serverTimestamp(), updatedAt: serverTimestamp(),
   rejectionReason: status === 'rejected' ? 'Test rejection' : '',
-  rating: status === 'approved' ? 4.5 : 0,
 });
 async function seed(rows) {
   await env.withSecurityRulesDisabled(async (context) => {
@@ -39,6 +38,18 @@ beforeEach(async () => {
   });
 });
 after(async () => { if (env) await env.cleanup(); });
+
+test('[rules XP config] achievement flag is optional, boolean and admin-only', async () => {
+  const config = {levels_enabled: true, xp_awards_enabled: true, weeklyLimit: 3000,
+    timezone: 'Europe/Riga', rulesVersion: 'ccs-xp-v1.0', updatedAt: serverTimestamp()};
+  const ref = doc(client('admin'), 'app_config/xp');
+  await assertSucceeds(setDoc(ref, config));
+  await assertSucceeds(setDoc(ref, {...config, achievements_enabled: true}));
+  await assertSucceeds(setDoc(ref, {...config, achievements_enabled: false}));
+  await assertFails(setDoc(ref, {...config, achievements_enabled: 'true'}));
+  await assertFails(setDoc(ref, {...config, achievements_enabled: true, weeklyLimit: 3001}));
+  await assertFails(setDoc(doc(client('owner'), 'app_config/xp'), {...config, achievements_enabled: true}));
+});
 
 test('[rules XP] owner reads own stats, outsider cannot, no client can write XP', async () => {
   await seed({ 'xp_user_stats/owner': { userId: 'owner', xpTotal: 50 } });
