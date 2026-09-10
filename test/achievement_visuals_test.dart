@@ -44,9 +44,15 @@ void main() {
               item: {'category':category, 'tier':tier, 'threshold': tier}))),
           ])),
       ]))))));
+    await tester.runAsync(() => precacheImage(const AssetImage('assets/ccs_logo.png'), key.currentContext!));
     await tester.pumpAndSettle(); expect(tester.takeException(), isNull);
     expect(find.byType(AchievementBadge), findsNWidgets(40));
-    expect(find.byType(Image), findsNothing);
+    expect(find.byType(Image), findsNWidgets(5));
+    expect(find.byIcon(Icons.diamond_outlined), findsNothing);
+    expect(find.byIcon(Icons.auto_awesome), findsNothing);
+    for (final image in tester.widgetList<Image>(find.byType(Image))) {
+      expect((image.image as AssetImage).assetName, 'assets/ccs_logo.png');
+    }
     await capture(tester, key, 'emblems-five-tiers');
   });
   testWidgets('public achievement list is read-only and has an empty state', (tester) async {

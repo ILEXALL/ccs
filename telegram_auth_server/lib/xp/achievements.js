@@ -5,12 +5,12 @@ const { buildXpTransactionId } = require('./xp-engine');
 const categories = [
   ['spots', ['Spots', 'Споты', 'Vietas'], [[1,50],[5,100],[10,200],[25,400],[50,750]], 'count'],
   ['visits', ['Visits', 'Посещения', 'Apmeklējumi'], [[1,25],[10,100],[25,200],[50,350],[100,600]], 'count'],
-  ['meets', ['Organized meets', 'Организованные миты', 'Organizētas tikšanās'], [[1,50],[5,150],[10,300],[25,600]], 'count'],
-  ['topics', ['Active topics', 'Активные темы', 'Aktīvas tēmas'], [[1,25],[5,100],[10,200],[25,400]], 'count'],
-  ['tenure', ['CCS membership', 'Стаж CCS', 'Dalība CCS'], [[3,50],[6,100],[12,250],[24,500]], 'months'],
-  ['moderator', ['Moderator service', 'Стаж модератора', 'Moderatora stāžs'], [[3,1000],[6,1500],[12,2000],[24,3000]], 'months'],
-  ['reports', ['Confirmed reports', 'Подтверждённые репорты', 'Apstiprināti ziņojumi'], [[1,25],[5,50],[10,100],[25,200]], 'count'],
-  ['groups', ['Group owner', 'Владелец группы', 'Grupas īpašnieks'], [[10,100],[25,250],[50,500],[100,1000]], 'members_month'],
+  ['meets', ['Organized meets', 'Организованные миты', 'Organizētas tikšanās'], [[1,50],[5,150],[10,300],[25,600],[50,1000]], 'count'],
+  ['topics', ['Active topics', 'Активные темы', 'Aktīvas tēmas'], [[1,25],[5,100],[10,200],[25,400],[50,750]], 'count'],
+  ['tenure', ['CCS membership', 'Стаж CCS', 'Dalība CCS'], [[3,50],[6,100],[12,250],[24,500],[36,750]], 'months'],
+  ['moderator', ['Moderator service', 'Стаж модератора', 'Moderatora stāžs'], [[3,1000],[6,1500],[12,2000],[24,3000],[36,3000]], 'months'],
+  ['reports', ['Confirmed reports', 'Подтверждённые репорты', 'Apstiprināti ziņojumi'], [[1,25],[5,50],[10,100],[25,200],[50,350]], 'count'],
+  ['groups', ['Group owner', 'Владелец группы', 'Grupas īpašnieks'], [[10,100],[25,250],[50,500],[100,1000],[250,1500]], 'members_month'],
 ];
 const countries = [
   ['AT','austria','Austria','Австрия','Austrija'],['BE','belgium','Belgium','Бельгия','Beļģija'],
@@ -101,7 +101,7 @@ async function selectAchievement(userId, achievementId) {
   });
 }
 
-async function publicAchievements(actorId, userId) {
+async function assertPublicXpAccess(actorId, userId) {
   if (typeof userId !== 'string' || !userId || userId.includes('/')) throw new Error('Invalid user');
   const [actorDoc, targetDoc] = await db.getAll(db.collection('users').doc(actorId), db.collection('users').doc(userId));
   const actor = actorDoc.data();
@@ -112,6 +112,10 @@ async function publicAchievements(actorId, userId) {
       (target.blockedUserIds || []).includes(actorId) || (actor.blockedUserIds || []).includes(userId)) {
     throw new Error('Profile unavailable');
   }
+}
+
+async function publicAchievements(actorId, userId) {
+  await assertPublicXpAccess(actorId, userId);
   const items = catalog();
   // Read only known achievement awards; never serialize private XP transactions.
   const awards = await db.getAll(...items.map(item => db.collection('xp_transactions').doc(
@@ -123,4 +127,4 @@ async function publicAchievements(actorId, userId) {
   }).map(item => ({...item, status: 'confirmed', progress: item.threshold}))};
 }
 
-module.exports = { catalog, completedMonths, syncAchievements, selectAchievement, publicAchievements };
+module.exports = { catalog, completedMonths, syncAchievements, selectAchievement, publicAchievements, assertPublicXpAccess };

@@ -58,46 +58,40 @@ class AchievementEmblem extends StatelessWidget {
           children: [
             Positioned.fill(
               child: CustomPaint(
-                painter: _EmblemSurface(color, tier, category == 'moderator'),
+                painter: _EmblemSurface(
+                  color,
+                  tier,
+                  category == 'moderator',
+                  category == 'tenure',
+                ),
               ),
             ),
             Positioned(
-              top: category == 'tenure' ? 24 : 26,
-              child: Icon(
-                icon,
-                size: category == 'tenure' ? 29 : 35,
-                color: color,
-                shadows: [
-                  const Shadow(
-                    color: Colors.black,
-                    offset: Offset(0, 2),
-                    blurRadius: 2,
-                  ),
-                  Shadow(color: color.withValues(alpha: .32), blurRadius: 8),
-                ],
-              ),
+              top: category == 'tenure' ? 32 : 26,
+              child: category == 'tenure'
+                  ? Image.asset(
+                      'assets/ccs_logo.png',
+                      width: 59,
+                      height: 24,
+                      fit: BoxFit.contain,
+                    )
+                  : Icon(
+                      icon,
+                      size: category == 'tenure' ? 29 : 35,
+                      color: color,
+                      shadows: [
+                        const Shadow(
+                          color: Colors.black,
+                          offset: Offset(0, 2),
+                          blurRadius: 2,
+                        ),
+                        Shadow(
+                          color: color.withValues(alpha: .32),
+                          blurRadius: 8,
+                        ),
+                      ],
+                    ),
             ),
-            if (category == 'tenure')
-              Positioned(
-                top: 55,
-                child: Text(
-                  'CCS',
-                  style: TextStyle(
-                    color: color,
-                    fontWeight: FontWeight.w900,
-                    fontSize: 9,
-                  ),
-                ),
-              ),
-            if (tier >= 4)
-              Positioned(
-                top: 8,
-                child: Icon(
-                  tier == 4 ? Icons.diamond_outlined : Icons.auto_awesome,
-                  size: 12,
-                  color: Color.lerp(color, Colors.white, .35),
-                ),
-              ),
             Positioned(
               bottom: 7,
               child: Container(
@@ -130,8 +124,13 @@ class _EmblemSurface extends CustomPainter {
   final Color color;
   final int tier;
   final bool shield;
-  const _EmblemSurface(this.color, this.tier, this.shield);
+  final bool circle;
+  const _EmblemSurface(this.color, this.tier, this.shield, this.circle);
   Path shape(Rect rect) {
+    if (circle)
+      return Path()..addOval(
+        Rect.fromCircle(center: rect.center, radius: rect.shortestSide / 2),
+      );
     if (shield) {
       return Path()
         ..moveTo(rect.center.dx, rect.top)
@@ -178,6 +177,12 @@ class _EmblemSurface extends CustomPainter {
     canvas.drawPath(
       outer,
       Paint()
+        ..color = color.withValues(alpha: .28)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 5),
+    );
+    canvas.drawPath(
+      outer,
+      Paint()
         ..shader = LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
@@ -189,7 +194,7 @@ class _EmblemSurface extends CustomPainter {
           ],
         ).createShader(rect),
     );
-    final inner = shape(rect.deflate(4));
+    final inner = shape(rect.deflate(5));
     canvas.drawPath(
       inner,
       Paint()
@@ -201,6 +206,19 @@ class _EmblemSurface extends CustomPainter {
     );
     canvas.save();
     canvas.clipPath(inner);
+    canvas.drawRect(
+      rect,
+      Paint()
+        ..shader = LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            color.withValues(alpha: .19),
+            Colors.transparent,
+            color.withValues(alpha: .07),
+          ],
+        ).createShader(rect),
+    );
     // Fixed microtexture, not randomized on repaint: stable at profile-icon sizes.
     final grain = Paint()..color = Colors.white.withValues(alpha: .055);
     for (var y = 10; y < 88; y += 4) {
@@ -220,19 +238,12 @@ class _EmblemSurface extends CustomPainter {
         ..strokeWidth = .7
         ..color = color.withValues(alpha: .36),
     );
-    final marks = Paint()
-      ..strokeWidth = 2
-      ..strokeCap = StrokeCap.round
-      ..color = color;
-    for (var i = 0; i < tier; i++) {
-      final x = size.width / 2 + (i - (tier - 1) / 2) * 5;
-      canvas.drawLine(Offset(x, 68), Offset(x, 71), marks);
-    }
   }
 
   @override
   bool shouldRepaint(_EmblemSurface oldDelegate) =>
       color != oldDelegate.color ||
       tier != oldDelegate.tier ||
-      shield != oldDelegate.shield;
+      shield != oldDelegate.shield ||
+      circle != oldDelegate.circle;
 }

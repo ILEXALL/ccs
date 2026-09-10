@@ -83,7 +83,16 @@ test('achievement catalog has unique identities, approved rewards and three lang
   assert.equal(new Set(items.map(i => i.id)).size, items.length);
   assert.equal(items.filter(i => i.category === 'tourist').length, 27);
   assert.equal(items.filter(i => i.category === 'spots').reduce((a,i) => a+i.xp,0), 1500);
-  assert.equal(items.filter(i => i.category === 'moderator').reduce((a,i) => a+i.xp,0), 7500);
+  assert.equal(items.filter(i => i.category === 'moderator').reduce((a,i) => a+i.xp,0), 10500);
+  for (const category of ['spots', 'visits', 'meets', 'topics', 'tenure', 'moderator', 'reports', 'groups']) {
+    const tiers = items.filter(item => item.category === category);
+    assert.equal(tiers.length, 5);
+    tiers.forEach((item, index) => {
+      assert.equal(item.tier, index + 1);
+      assert.ok(item.xp > 0 && item.xp <= 3000);
+      if (index) assert.ok(item.threshold > tiers[index - 1].threshold);
+    });
+  }
   for (const i of items) for (const lang of ['en','ru','lv']) assert.ok(i.title[lang]);
 });
 test('achievement flag defaults off; no balance writes from viewing catalog', async () => {
@@ -91,6 +100,17 @@ test('achievement flag defaults off; no balance writes from viewing catalog', as
   const result = await f.syncAchievements('tester', now);
   assert.equal(result.enabled, false);
   assert.equal(f.rows.has('xp_user_stats/tester'), false);
+});
+
+test('fifth tenure milestone awards once and preserves the previous four milestones', async () => {
+  const f = setup();
+  f.rows.get('app_config/xp').achievements_enabled = true;
+  f.rows.set('auth_test_metadata/tester', {creationTime: '2023-09-08T12:00:00Z'});
+  const first = await f.syncAchievements('tester', now);
+  assert.equal(first.items.find(item => item.id === 'tenure.36').status, 'confirmed');
+  assert.equal(f.rows.get('xp_user_stats/tester').xpTotal, 1650);
+  await f.syncAchievements('tester', now);
+  assert.equal(f.rows.get('xp_user_stats/tester').xpTotal, 1650);
 });
 test('approved owned permanent spots count once and achievement retry cannot duplicate XP', async () => {
   const f = setup();
@@ -104,16 +124,16 @@ test('approved owned permanent spots count once and achievement retry cannot dup
   assert.equal(f.rows.get('xp_user_stats/tester').xpTotal, 50);
   assert.equal(first.items.find(i => i.id === 'groups.10').available, false);
 });
-test('achievement waits at cap and cannot settle while achievement flag is disabled', async () => {
+test('achievement awards in full above the weekly cap', async () => {
   const f = setup();
   f.rows.get('app_config/xp').achievements_enabled = true;
   f.rows.set('spots/one', {addedByUid: 'tester', status: 'approved'});
   f.rows.set('xp_user_weeks/tester_2026-09-07', {confirmedXp: 2999});
   const first = await f.syncAchievements('tester', now);
-  assert.equal(first.items.find(i => i.id === 'spots.1').status, 'pending');
-  f.rows.get('app_config/xp').achievements_enabled = false;
-  await f.awards.settlePendingXp('tester', {now: new Date('2026-09-14T12:00:00Z')});
-  assert.equal(f.rows.has('xp_user_stats/tester'), false);
+  assert.equal(first.items.find(i => i.id === 'spots.1').status, 'confirmed');
+  assert.equal(f.rows.get('xp_user_weeks/tester_2026-09-07').confirmedXp, 3049);
+  assert.equal(f.rows.get('xp_user_weeks/tester_2026-09-07').achievementBonusXp, 50);
+  assert.equal(f.rows.get('xp_user_stats/tester').weeklyConsumedXp, 2999);
 });
 test('membership uses Auth registration instead of editable profile timestamps', async () => {
   const f = setup(); f.rows.get('app_config/xp').achievements_enabled = true;

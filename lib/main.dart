@@ -47525,11 +47525,7 @@ class PublicUserProfileScreen extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(14, 12, 14, 24),
       children: [
         profileHeader(context, profile),
-        Align(alignment: Alignment.centerRight, child: TextButton.icon(
-          onPressed: () => openPublicAchievements(context, profile.uid),
-          icon: const Icon(Icons.workspace_premium_outlined),
-          label: Text(achievementText(appUiPreferences.language.name, 'Achievements', 'Достижения', 'Sasniegumi')))),
-        if (canReadXpStatsForUser(profile.uid)) ...[
+        ...[
           const SizedBox(height: 12),
           XpSummaryCard(
             userId: profile.uid,
@@ -48796,8 +48792,8 @@ class XpSummaryCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final cleanUserId = userId.trim();
 
-    if (!canReadXpStatsForUser(cleanUserId)) {
-      return const SizedBox.shrink();
+    if (cleanUserId != currentUser.uid) {
+      return PublicXpSummaryCard(userId: cleanUserId, onHistory: onTap);
     }
 
     return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
@@ -48822,6 +48818,42 @@ class XpSummaryCard extends StatelessWidget {
       },
     );
   }
+}
+
+class PublicXpSummaryCard extends StatefulWidget {
+  final String userId;
+  final VoidCallback? onHistory;
+  const PublicXpSummaryCard({super.key, required this.userId, this.onHistory});
+  @override
+  State<PublicXpSummaryCard> createState() => _PublicXpSummaryCardState();
+}
+
+class _PublicXpSummaryCardState extends State<PublicXpSummaryCard> {
+  late Future<Map<String, dynamic>> request;
+  void load() { request = xpScreenRequest('public_xp', {'userId': widget.userId, 'section': 'stats'}); }
+  @override
+  void initState() { super.initState(); load(); }
+  @override
+  void didUpdateWidget(PublicXpSummaryCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.userId != widget.userId) load();
+  }
+  @override
+  Widget build(BuildContext context) => FutureBuilder<Map<String, dynamic>>(
+    future: request,
+    builder: (context, snapshot) {
+      final total = intFromFirebase(snapshot.data?['xpTotal'], 0);
+      return Column(children: [
+        XpSummaryContent(stats: XpUserStats(userId: widget.userId, xpTotal: total,
+          level: xpLevelFromTotal(total), weeklyXp: 0, weeklyXpWeek: '',
+          xpBlocked: false, xpLastTransactionId: ''),
+          loading: snapshot.connectionState == ConnectionState.waiting,
+          unavailable: snapshot.hasError, onTap: widget.onHistory),
+        if (snapshot.hasError) TextButton(onPressed: () => setState(load),
+          child: Text(achievementText(appUiPreferences.language.name, 'Retry', 'Повторить', 'Mēģināt vēlreiz'))),
+      ]);
+    },
+  );
 }
 
 class XpLevelWheel extends StatelessWidget {
@@ -49056,15 +49088,13 @@ class XpSummaryContent extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 12),
-          if (stats.userId == currentUser.uid)
-            XpProfileActions(language: appUiPreferences.language.name,
-              onAchievements: () => openAchievements(context),
+          XpProfileActions(language: appUiPreferences.language.name,
+              onAchievements: () => openPublicAchievements(context, stats.userId),
               onRewards: () => Navigator.of(context).push(appPageRoute(builder: (_) => XpRewardsScreen(
-                language: appUiPreferences.language.name, load: () => xpScreenRequest('rewards')))),
+                language: appUiPreferences.language.name, load: () => stats.userId == currentUser.uid
+                  ? xpScreenRequest('rewards')
+                  : xpScreenRequest('public_xp', {'userId': stats.userId, 'section': 'rewards'})))),
               onHistory: onTap),
-          if (stats.userId != currentUser.uid && onTap != null)
-            Align(alignment: Alignment.centerRight, child: TextButton.icon(
-              onPressed: onTap, icon: const Icon(Icons.history), label: Text(trText('History')))),
         ],
       ),
     );
@@ -49081,6 +49111,8 @@ class XpHistoryScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final cleanUserId = userId.trim();
+
+    if (cleanUserId != currentUser.uid) return PublicXpHistoryScreen(userId: cleanUserId);
 
     return Scaffold(
       backgroundColor: Colors.transparent,
@@ -49166,6 +49198,53 @@ class XpHistoryScreen extends StatelessWidget {
             ),
     );
   }
+}
+
+class PublicXpHistoryScreen extends StatefulWidget {
+  final String userId;
+  const PublicXpHistoryScreen({super.key, required this.userId});
+  @override
+  State<PublicXpHistoryScreen> createState() => _PublicXpHistoryScreenState();
+}
+
+class _PublicXpHistoryScreenState extends State<PublicXpHistoryScreen> {
+  late Future<Map<String, dynamic>> request;
+  void load() { request = xpScreenRequest('public_xp', {'userId': widget.userId, 'section': 'history'}); }
+  @override
+  void initState() { super.initState(); load(); }
+  @override
+  void didUpdateWidget(PublicXpHistoryScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.userId != widget.userId) load();
+  }
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    backgroundColor: Colors.transparent,
+    appBar: AppBar(title: const Text('XP History'), actions: [
+      IconButton(icon: const Icon(Icons.refresh), tooltip: trText('Retry'), onPressed: () => setState(load)),
+    ]),
+    body: FutureBuilder<Map<String, dynamic>>(future: request, builder: (context, snapshot) {
+      if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
+      if (snapshot.hasError) return Center(child: Column(mainAxisSize: MainAxisSize.min, children: [
+        const Text('Could not load XP history.'),
+        TextButton(onPressed: () => setState(load), child: Text(achievementText(appUiPreferences.language.name,
+          'Retry', 'Повторить', 'Mēģināt vēlreiz'))),
+      ]));
+      final items = (snapshot.data?['items'] as List? ?? []).cast<Map>();
+      if (items.isEmpty) {
+        return const Center(child: Text('No XP history yet'));
+      }
+      return ListView(padding: const EdgeInsets.all(14), children: [
+        for (final item in items) XpTransactionTile(transaction: XpTransactionData(
+          id: '', userId: widget.userId, action: item['action'] as String,
+          objectType: item['objectType'] as String, objectId: item['achievementId'] as String? ?? '',
+          stage: '', status: 'confirmed', reason: '', weekKey: '',
+          amount: intFromFirebase(item['amount'], 0), requestedAmount: 0,
+          createdAtMillis: intFromFirebase(item['createdAtMillis'], 0), metadata: const {},
+        )),
+      ]);
+    }),
+  );
 }
 
 class XpTransactionTile extends StatelessWidget {

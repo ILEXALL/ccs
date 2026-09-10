@@ -138,7 +138,14 @@ async function awardXp(input, options = {}) {
 
     const week = weekSnapshot.data() || {};
     const currentWeekXp = numberValue(week.confirmedXp);
-    const remainingWeeklyXp = Math.max(0, config.weeklyLimit - currentWeekXp);
+    const bonusXp = numberValue(week.achievementBonusXp);
+    const capExempt = isAchievementBonus(normalized);
+    // confirmedXp remains the gross total for rankings and adjustment accounting.
+    // Legacy awards without this separate counter keep their original cap usage.
+    const consumedXp = Math.max(0, currentWeekXp - bonusXp);
+    const remainingWeeklyXp = capExempt
+      ? normalized.amount
+      : Math.max(0, config.weeklyLimit - consumedXp);
 
     if (isOneTimeAward(normalized) && remainingWeeklyXp < normalized.amount) {
       if (!resumePending) transaction.create(transactionRef,
@@ -208,6 +215,7 @@ async function awardXp(input, options = {}) {
         userId: normalized.userId,
         weekKey,
         confirmedXp: currentWeekXp + appliedAmount,
+        achievementBonusXp: bonusXp + (capExempt ? appliedAmount : 0),
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         createdAt: weekSnapshot.exists
           ? week.createdAt || admin.firestore.FieldValue.serverTimestamp()
@@ -223,7 +231,7 @@ async function awardXp(input, options = {}) {
         xpTotal: nextTotalXp,
         level: nextLevel,
         weeklyXp: Math.max(0, currentWeekXp + appliedAmount - numberValue(week.revokedXp)),
-        weeklyConsumedXp: currentWeekXp + appliedAmount,
+        weeklyConsumedXp: consumedXp + (capExempt ? 0 : appliedAmount),
         weeklyXpWeek: weekKey,
         xpBlocked: user.xpBlocked === true,
         xpUpdatedAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -302,10 +310,14 @@ function xpConfigFromDocument(data) {
     levelsEnabled: data.levels_enabled === true,
     awardsEnabled: data.xp_awards_enabled === true,
     enabledUserIds: stringArray(data.enabledUserIds, 500),
-    weeklyLimit: weeklyLimit > 0 ? weeklyLimit : defaults.weeklyLimit,
+    weeklyLimit: weeklyLimit > 0 ? Math.min(Math.floor(weeklyLimit), defaults.weeklyLimit) : defaults.weeklyLimit,
     timeZone: stringValue(data.timezone) || defaults.timeZone,
     rulesVersion: stringValue(data.rulesVersion) || XP_RULES_VERSION,
   };
+}
+
+function isAchievementBonus(input) {
+  return input.action === 'achievement.unlock' && input.objectType === 'achievement';
 }
 
 function isOneTimeAward(input) {
@@ -385,6 +397,7 @@ function transactionData(input, transactionId, uniqueKey, weekKey, result) {
     amount: result.amount,
     requestedAmount: input.amount,
     status: result.status,
+    weeklyCapExempt: isAchievementBonus(input),
     weekKey,
     reason: result.reason || null,
     rulesVersion: XP_RULES_VERSION,

@@ -77,7 +77,8 @@ async function adjustXp(actorId, input) {
     // Weekly earning capacity stays consumed, preventing revoke/earn/restore farming.
     tx.update(statsRef, { xpTotal: total, level: result.level,
       ...(stats.weeklyXpWeek === source.weekKey ? {
-        weeklyXp: consumed - revoked, weeklyConsumedXp: consumed,
+        weeklyXp: consumed - revoked,
+        weeklyConsumedXp: Math.max(0, consumed - (week.achievementBonusXp || 0)),
       } : {}),
       xpUpdatedAt: timestamp, xpLastTransactionId: correctionId });
     tx.update(weekRef, { revokedXp: revoked, updatedAt: timestamp });

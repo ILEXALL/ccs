@@ -8,6 +8,27 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  for (final language in app.AppLanguage.values) {
+    testWidgets('other profile uses the same three XP actions ${language.name}', (tester) async {
+      app.appUiPreferences.language = language;
+      tester.view.physicalSize = const Size(320, 760);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      await tester.pumpWidget(MaterialApp(home: Scaffold(body: Padding(
+        padding: const EdgeInsets.all(14),
+        child: app.XpSummaryContent(stats: app.XpUserStats.empty('other-person'),
+          loading: false, unavailable: false, onTap: () {}),
+      ))));
+      await tester.pumpAndSettle();
+      expect(find.byType(XpProfileActions), findsOneWidget);
+      final actions = tester.widget<XpProfileActions>(find.byType(XpProfileActions));
+      expect(actions.onAchievements, isNotNull);
+      expect(actions.onRewards, isNotNull);
+      expect(actions.onHistory, isNotNull);
+      expect(tester.takeException(), isNull);
+    });
+  }
   testWidgets('all five community tabs fit and ranking opens at 320px', (tester) async {
     tester.view.physicalSize = const Size(320, 700);
     tester.view.devicePixelRatio = 1;
