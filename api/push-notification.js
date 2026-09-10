@@ -130,6 +130,15 @@ function userAllowsSpotCountry(user, spotCountry) {
   return profileCountry ? profileCountry === targetCountry : true;
 }
 
+function userMatchesCommunityCountry(user, communityCountry) {
+  const targetCountry = countryKey(communityCountry);
+  if (!targetCountry) return true;
+  // Existing profiles without a country predate regional communities and
+  // belong to the original Latvian community.
+  const profileCountry = countryKey(user.country) || 'LV';
+  return profileCountry === targetCountry;
+}
+
 function settingEnabled(user, settingName) {
   const settings = user.settings || {};
   const fallback = defaultNotificationSettings[settingName] === true;
@@ -262,6 +271,7 @@ async function sendPushToUser({
   userId,
   settingName,
   spotCountry = '',
+  communityCountry = '',
   deliveryKey,
   notificationId,
   notificationCollection = 'user_notifications',
@@ -287,10 +297,14 @@ async function sendPushToUser({
     user.deleted === true ||
     userHasActiveBan(user) ||
     !settingEnabled(user, settingName) ||
+    !userMatchesCommunityCountry(user, communityCountry) ||
     !userAllowsSpotCountry(user, spotCountry)
   ) {
     return 0;
   }
+
+  if (notificationCollection === 'admin_notifications' &&
+      !userCanModerateCommunityCountry(user, data.countryCode)) return 0;
 
   const deliveryRef = await claimDelivery(deliveryKey, userId);
   if (!deliveryRef) {
@@ -588,6 +602,7 @@ function mentionedUsernames(text) {
 async function handleMentions(userId, type, payload) {
   const validId = value => typeof value === 'string' && value.length > 0 && !value.includes('/');
   let source, text, context, allowedIds = null, key, notificationBase;
+  let forumPushRecipients = null;
   if (type === 'chat_message' && validId(payload.chatId) && validId(payload.messageId)) {
     const chatRef = db.collection('chats').doc(payload.chatId);
     const [chatDoc, messageDoc] = await Promise.all([chatRef.get(), chatRef.collection('messages').doc(payload.messageId).get()]);
@@ -611,6 +626,11 @@ async function handleMentions(userId, type, payload) {
     const [topicDoc, replyDoc] = await Promise.all([ref.get(), ref.collection('replies').doc(payload.messageId).get()]);
     source = replyDoc.data();
     if (!topicDoc.exists || !source || source.userId !== userId || topicDoc.data().status !== 'approved') return {recipients: [], results: []};
+    forumPushRecipients = new Set([cleanText(topicDoc.data().authorId)]);
+    if (validId(source.replyToMessageId)) {
+      const original = await ref.collection('replies').doc(source.replyToMessageId).get();
+      forumPushRecipients.add(cleanText(original.data()?.userId));
+    }
     text = source.text;
     context = {type, topicId: payload.topicId, messageId: payload.messageId, topicTitle: cleanText(topicDoc.data().title, 'Forum')};
     key = `forum:${payload.topicId}:${payload.messageId}`;
@@ -653,7 +673,8 @@ async function handleMentions(userId, type, payload) {
   const results = await Promise.all(recipients.map(uid => sendPushToUser({
     userId: uid,
     settingName: type === 'spot_comment' || type === 'forum_reply' ? 'commentNotifications' : 'newMessageNotifications',
-    deliveryKey: `mention:${key}`,
+    pushEnabled: forumPushRecipients === null || forumPushRecipients.has(uid),
+    deliveryKey: type === 'forum_reply' ? `forum_reply:${payload.topicId}:${payload.messageId}` : `mention:${key}`,
     notificationId: `${notificationBase}_${uid}`,
     title: 'You were mentioned',
     body: `@${senderUsername} mentioned you: ${shortText(text)}`,
@@ -972,7 +993,7 @@ async function handleSpotPendingReview(userId, payload) {
   const addedBy = cleanText(spot.addedBy, cleanText(payload.addedBy, 'driver'));
   const cityCountry = cleanText(spot.cityCountry, cleanText(payload.cityCountry));
   const spotCountryCode = countryKey(
-    cleanText(spot.countryCode, cleanText(payload.countryCode, countryFromCityCountry(cityCountry))),
+    cleanText(spot.countryCode),
   );
 
   return Promise.all(
@@ -1166,19 +1187,23 @@ async function communityRecipientIds(userId, payload, fallbackUserIds = []) {
   const explicitRecipients = cleanStringArray(payload.recipientUserIds).filter(
     (recipientUserId) => recipientUserId !== userId,
   );
+  const fallbackRecipients = cleanStringArray(fallbackUserIds).filter(
+    (recipientUserId) => recipientUserId !== userId,
+  );
 
   if (explicitRecipients.length) {
-    return explicitRecipients;
+    // Explicit recipients are normally the residents of the selected
+    // community. Always retain targeted recipients too (for example a topic
+    // author who is participating in another country's forum).
+    return [...new Set([...explicitRecipients, ...fallbackRecipients])];
   }
 
   if (cleanText(payload.audience) === 'all_users') {
-    const usersSnapshot = await db.collection('users').limit(500).get();
-    return usersSnapshot.docs.map((doc) => doc.id).filter((id) => id !== userId);
+    const usersSnapshot = await db.collection('users').get();
+    return [...new Set([...usersSnapshot.docs.map((doc) => doc.id), ...fallbackRecipients])].filter((id) => id !== userId);
   }
 
-  return cleanStringArray(fallbackUserIds).filter(
-    (recipientUserId) => recipientUserId !== userId,
-  );
+  return fallbackRecipients;
 }
 
 function recipientNotificationId(payload, fallbackBase, recipientUserId) {
@@ -1352,6 +1377,38 @@ async function handleGlobalChatMessage(userId, payload) {
   return [...results, ...broadcastResults];
 }
 
+async function handleForumTopicCreated(userId, payload) {
+  const topicId = cleanText(payload.topicId);
+  if (!topicId || topicId.includes('/')) return [];
+  const snapshot = await db.collection('forum_topics').doc(topicId).get();
+  const topic = snapshot.data();
+  if (!topic || topic.status !== 'approved') return [];
+  const authorId = cleanText(topic.authorId);
+  if (userId !== authorId) {
+    const actor = (await db.collection('users').doc(userId).get()).data() || {};
+    if (!userCanModerateCommunityCountry(actor, savedCommunityCountry(topic))) {
+      throw new Error('This topic is outside your assigned countries');
+    }
+  }
+  const users = await db.collection('users').get();
+  const topicTitle = cleanText(topic.title, 'Forum topic');
+  const results = [];
+  for (let start = 0; start < users.docs.length; start += 50) {
+    results.push(...await Promise.all(users.docs.slice(start, start + 50)
+      .filter(doc => doc.id !== authorId)
+      .map(doc => sendPushToUser({
+        userId: doc.id,
+        settingName: 'commentNotifications',
+        deliveryKey: `forum_topic_created:${topicId}`,
+        notificationId: `forum_topic_created_${topicId}_${doc.id}`,
+        title: `New forum topic: ${topicTitle}`,
+        body: shortText(topic.description, `@${cleanText(topic.authorName, 'driver')} created a topic.`),
+        data: {type: 'forum_topic_created', topicId, topicTitle, senderUid: authorId},
+      }))));
+  }
+  return results;
+}
+
 async function handleForumReply(userId, payload) {
   const topicId = cleanText(payload.topicId);
   const messageId = cleanText(payload.messageId);
@@ -1368,15 +1425,32 @@ async function handleForumReply(userId, payload) {
   const topic = topicSnapshot.data() || {};
   const reply = replySnapshot.data() || {};
 
-  if (cleanText(reply.userId) !== userId) {
+  if (topic.status !== 'approved' || cleanText(reply.userId) !== userId) {
     return [];
   }
 
   const authorId = cleanText(topic.authorId);
+  const replyToMessageId = cleanText(reply.replyToMessageId);
+  let repliedToUserId = '';
+  if (replyToMessageId) {
+    const originalReplySnapshot = await topicRef
+      .collection('replies')
+      .doc(replyToMessageId)
+      .get();
+    repliedToUserId = cleanText(originalReplySnapshot.data()?.userId);
+    if (repliedToUserId === userId) {
+      repliedToUserId = '';
+    }
+  }
+  const targetedRecipientIds = new Set(
+    [authorId, repliedToUserId].filter(
+      (recipientUserId) => recipientUserId && recipientUserId !== userId,
+    ),
+  );
   const recipientUserIds = await communityRecipientIds(
     userId,
-    payload,
-    authorId ? [authorId] : [],
+    {...payload, audience: 'all_users'},
+    [...targetedRecipientIds],
   );
   if (!recipientUserIds.length) {
     return [];
@@ -1396,12 +1470,20 @@ async function handleForumReply(userId, payload) {
   );
   const title = `Forum: ${topicTitle}`;
   const body = `@${senderUsername}: ${text}`;
+  const communityCountry = countryKey(topic.countryCode) || 'LV';
 
   return Promise.all(
     recipientUserIds.filter(uid => !payload._mentionRecipientIds?.includes(uid)).map((recipientUserId) =>
       sendPushToUser({
         userId: recipientUserId,
         settingName: 'commentNotifications',
+        pushEnabled: targetedRecipientIds.has(recipientUserId),
+        // Regional filtering applies to the general audience. Topic authors
+        // and directly replied-to participants must still receive replies
+        // while taking part in another country's forum.
+        communityCountry: targetedRecipientIds.has(recipientUserId)
+          ? ''
+          : communityCountry,
         deliveryKey: `forum_reply:${topicId}:${messageId}`,
         notificationId: recipientNotificationId(
           payload,
@@ -1423,6 +1505,24 @@ async function handleForumReply(userId, payload) {
   );
 }
 
+function userCanModerateCommunityCountry(user, countryCode) {
+  if (user.deleted === true || userHasActiveBan(user)) return false;
+  if (user.role === 'admin') return true;
+  const code = countryKey(countryCode);
+  return !!code && (user.role === 'moderator' || user.globalModerator === true ||
+    user.globalChatModerator === true) && cleanStringArray(user.moderatorCountryCodes).includes(code);
+}
+
+function savedCommunityCountry(data) {
+  return Object.hasOwn(data, 'countryCode') ? countryKey(data.countryCode) : 'LV';
+}
+
+async function communityReviewRecipientIds(senderUid, country) {
+  const snapshot = await db.collection('users').get();
+  return snapshot.docs.filter(doc => doc.id !== senderUid &&
+    userCanModerateCommunityCountry(doc.data() || {}, country)).map(doc => doc.id);
+}
+
 async function configuredCommunityModeratorIds() {
   try {
     const snapshot = await db.collection('app_config').doc('global_chat').get();
@@ -1437,7 +1537,7 @@ async function configuredCommunityModeratorIds() {
   }
 }
 
-async function verifiedCommunityModeratorIds(userId, payload) {
+async function verifiedCommunityModeratorIds(userId, payload, country) {
   const requestedIds = cleanStringArray(payload.recipientUserIds).filter(
     (recipientUserId) => recipientUserId !== userId,
   );
@@ -1445,7 +1545,6 @@ async function verifiedCommunityModeratorIds(userId, payload) {
     return [];
   }
 
-  const configuredIds = await configuredCommunityModeratorIds();
   const snapshots = await Promise.all(
     requestedIds.map((recipientUserId) => db.collection('users').doc(recipientUserId).get()),
   );
@@ -1460,10 +1559,7 @@ async function verifiedCommunityModeratorIds(userId, payload) {
       return (
         recipient.deleted !== true &&
         !userHasActiveBan(recipient) &&
-        (userIsStaff(recipient) ||
-          recipient.globalChatModerator === true ||
-          recipient.globalModerator === true ||
-          configuredIds.has(snapshot.id))
+        userCanModerateCommunityCountry(recipient, country)
       );
     })
     .map((snapshot) => snapshot.id);
@@ -1544,7 +1640,7 @@ async function handleForumTopicPending(userId, payload) {
     return [];
   }
 
-  const recipientUserIds = await activeStaffUserIdsExcept(userId);
+  const recipientUserIds = await communityReviewRecipientIds(userId, savedCommunityCountry(topic));
   if (!recipientUserIds.length) {
     return [];
   }
@@ -1564,6 +1660,7 @@ async function handleForumTopicPending(userId, payload) {
     fallbackBody: `${topicTitle} was submitted by @${authorName}.`,
     data: {
       type: 'forum_topic_pending',
+      countryCode: savedCommunityCountry(topic),
       topicId,
       topicTitle,
       categoryId,
@@ -1586,7 +1683,7 @@ async function handleGlobalChatAdmin(userId, payload) {
     return [];
   }
 
-  const recipientUserIds = await verifiedCommunityModeratorIds(userId, payload);
+  const recipientUserIds = await verifiedCommunityModeratorIds(userId, payload, savedCommunityCountry(message));
   if (!recipientUserIds.length) {
     return [];
   }
@@ -1607,6 +1704,7 @@ async function handleGlobalChatAdmin(userId, payload) {
     fallbackBody: `@${senderUsername}: ${messageText}`,
     data: {
       type: 'global_chat_admin',
+      countryCode: savedCommunityCountry(message),
       messageId,
       senderUid: userId,
       senderUsername,
@@ -1614,58 +1712,9 @@ async function handleGlobalChatAdmin(userId, payload) {
   });
 }
 
+// Legacy clients use the same recipient policy and delivery claims.
 async function handleForumReplyAdmin(userId, payload) {
-  const topicId = cleanText(payload.topicId);
-  const messageId = cleanText(payload.messageId);
-  const topicRef = db.collection('forum_topics').doc(topicId);
-  const [topicSnapshot, replySnapshot] = await Promise.all([
-    topicRef.get(),
-    topicRef.collection('replies').doc(messageId).get(),
-  ]);
-
-  if (!topicSnapshot.exists || !replySnapshot.exists) {
-    return [];
-  }
-
-  const topic = topicSnapshot.data() || {};
-  const reply = replySnapshot.data() || {};
-  if (cleanText(reply.userId) !== userId) {
-    return [];
-  }
-
-  const recipientUserIds = await verifiedCommunityModeratorIds(userId, payload);
-  if (!recipientUserIds.length) {
-    return [];
-  }
-
-  const senderUsername = cleanText(reply.username, 'driver');
-  const topicTitle = cleanText(topic.title, cleanText(payload.topicTitle, 'Forum topic'));
-  const messageText = shortText(
-    reply.text,
-    reply.photoUrl ? 'Photo' : 'New reply',
-  );
-
-  return sendCommunityModeratorPush({
-    userId,
-    payload,
-    recipientUserIds,
-    // Older app versions also send this staff-only event. Share the normal
-    // forum-reply delivery claim so staff receive exactly one notification.
-    deliveryKey: `forum_reply:${topicId}:${messageId}`,
-    fallbackNotificationId: `forum_${topicId}_${messageId}`,
-    fallbackTitle: `Forum: ${topicTitle}`,
-    fallbackBody: `@${senderUsername}: ${messageText}`,
-    settingName: 'commentNotifications',
-    notificationCollection: 'user_notifications',
-    data: {
-      type: 'forum_reply',
-      topicId,
-      topicTitle,
-      messageId,
-      senderUid: userId,
-      senderUsername,
-    },
-  });
+  return handleForumReply(userId, payload);
 }
 
 export default async function handler(request, response) {
@@ -1716,6 +1765,7 @@ export default async function handler(request, response) {
       friend_live_sharing: handleFriendLiveSharing,
       global_chat_message: handleGlobalChatMessage,
       global_chat_admin: handleGlobalChatAdmin,
+      forum_topic_created: handleForumTopicCreated,
       forum_reply: handleForumReply,
       forum_topic_pending: handleForumTopicPending,
       forum_reply_admin: handleForumReplyAdmin,

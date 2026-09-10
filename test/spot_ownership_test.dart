@@ -16,8 +16,11 @@ app.AppUser actor(app.UserRole role, {bool banned = false}) => app.AppUser(
 void main() {
   test('only active admins and moderators can initiate transfers', () {
     expect(app.canTransferSpotOwnership(actor(app.UserRole.admin)), isTrue);
-    // Transfer permission is independent of the regional edit assignment.
-    expect(app.canTransferSpotOwnership(actor(app.UserRole.moderator)), isTrue);
+    // A moderator without an assigned country cannot transfer a spot.
+    expect(
+      app.canTransferSpotOwnership(actor(app.UserRole.moderator)),
+      isFalse,
+    );
     expect(app.canTransferSpotOwnership(actor(app.UserRole.user)), isFalse);
     expect(
       app.canTransferSpotOwnership(actor(app.UserRole.admin, banned: true)),

@@ -5212,6 +5212,7 @@ String notificationPreferenceKeyForRemoteMessage(RemoteMessage message) {
     'spot_rejected_by_admin' => 'reviewNotifications',
     'spot_like' => 'likeNotifications',
     'spot_comment' ||
+    'forum_topic_created' ||
     'forum_reply' ||
     'forum_reply_admin' => 'commentNotifications',
     'chat_message' ||
@@ -5246,6 +5247,7 @@ bool remoteMessageTargetsGlobalChat(RemoteMessage message) {
 }
 
 Future<void> showForegroundSystemNotification(RemoteMessage message) async {
+  if (!moderationNotificationAllowed(message.data)) return;
   if (!Platform.isAndroid) {
     return;
   }
@@ -7490,6 +7492,52 @@ bool userRoleIsStaff(UserRole role) {
   return role == UserRole.admin || role == UserRole.moderator;
 }
 
+bool currentUserCanModerateCountry(
+  String countryCode, {
+  bool community = false,
+}) {
+  if (currentUser.role == UserRole.admin) return true;
+  final code = countryCode.trim().toUpperCase();
+  return (currentUser.role == UserRole.moderator ||
+          (community && currentUser.globalChatModerator)) &&
+      _countryNamesByIso.containsKey(code) &&
+      currentUser.moderatorCountryCodes.contains(code);
+}
+
+bool currentUserCanModerateCommunityData(Map<String, dynamic> data) =>
+    currentUserCanModerateCountry(
+      stringFromFirebase(data['countryCode'], 'LV'),
+      community: true,
+    );
+
+bool currentUserCanManageProfileCountry(String country) =>
+    currentUserCanModerateCountry(countryIsoCode(country) ?? '');
+
+bool moderationNotificationAllowed(Map<String, dynamic> data) {
+  final type = stringFromFirebase(data['type'], '');
+  if (!const {
+    'spot_pending_review',
+    'forum_topic_pending',
+    'global_chat_admin',
+    'spot_removal_request',
+    'user_report_new',
+    'moderator_user_banned',
+  }.contains(type)) {
+    return true;
+  }
+  if (currentUser.role == UserRole.admin) return true;
+  if (type == 'moderator_user_banned') return false;
+  final nested = mapFromFirebase(data['data']);
+  final code = stringFromFirebase(
+    data['countryCode'],
+    stringFromFirebase(nested['countryCode'], ''),
+  ).trim().toUpperCase();
+  return currentUserCanModerateCountry(
+    code,
+    community: type == 'forum_topic_pending' || type == 'global_chat_admin',
+  );
+}
+
 bool currentUserCanModerateSpot(CarSpot spot) {
   if (currentUser.role == UserRole.admin) {
     return true;
@@ -9023,41 +9071,11 @@ Future<Map<String, dynamic>> sendModerationAction(
 }
 
 Future<bool> currentUserHasCommunityModerationAccess() async {
-  final firebaseUser = FirebaseAuth.instance.currentUser;
-
-  if (firebaseUser == null) {
-    return false;
-  }
-
-  if (userRoleIsStaff(currentUser.role)) {
-    return true;
-  }
-
-  try {
-    final snapshots = await Future.wait([
-      usersCollection()
-          .doc(firebaseUser.uid)
-          .debugGet(null, 'community moderation: user lookup'),
-      FirebaseFirestore.instance
-          .collection('app_config')
-          .doc('global_chat')
-          .debugGet(null, 'community moderation: config lookup'),
-    ]);
-    final userData = snapshots[0].data();
-    final configData = snapshots[1].data();
-    final moderatorIds = [
-      ...stringListFromFirebase(configData?['moderatorIds'], const []),
-      ...stringListFromFirebase(configData?['globalModeratorIds'], const []),
-    ];
-
-    return userData?['globalChatModerator'] == true ||
-        userData?['globalModerator'] == true ||
-        moderatorIds.contains(firebaseUser.uid);
-  } catch (error, stack) {
-    debugPrint('Community moderation access lookup failed: $error');
-    debugPrint('$stack');
-    return false;
-  }
+  if (FirebaseAuth.instance.currentUser == null) return false;
+  return currentUser.role == UserRole.admin ||
+      ((currentUser.role == UserRole.moderator ||
+              currentUser.globalChatModerator) &&
+          currentUser.moderatorCountryCodes.isNotEmpty);
 }
 
 final Map<String, int> _recentPushEventSentAtMillis = <String, int>{};
@@ -10303,8 +10321,14 @@ class SpotOwnerAssignment {
   const SpotOwnerAssignment({required this.uid, required this.username});
 }
 
-bool canTransferSpotOwnership(AppUser user) =>
-    user.uid.isNotEmpty && userRoleIsStaff(user.role) && !user.banActive;
+bool canTransferSpotOwnership(AppUser user, {String countryCode = ''}) =>
+    user.uid.isNotEmpty &&
+    !user.banActive &&
+    (user.role == UserRole.admin ||
+        (user.role == UserRole.moderator &&
+            user.moderatorCountryCodes.contains(
+              countryCode.trim().toUpperCase(),
+            )));
 
 Map<String, Object?> spotOwnershipTransferFields({
   required Map<String, dynamic> spot,
@@ -10342,7 +10366,10 @@ Future<CarSpot> transferSpotOwnership(
   final uid = FirebaseAuth.instance.currentUser?.uid;
   if (uid == null ||
       uid != currentUser.uid ||
-      !canTransferSpotOwnership(currentUser)) {
+      !canTransferSpotOwnership(
+        currentUser,
+        countryCode: expected.countryCode,
+      )) {
     throw StateError('Only admins and moderators can transfer ownership.');
   }
   final ref = spotsCollection().doc(expected.id);
@@ -10921,6 +10948,17 @@ Future<void> sendCommunityPushNotificationEvent({
   String communityCountryCode = '',
   Map<String, Object?> extra = const <String, Object?>{},
 }) async {
+  if (type == 'forum_reply') {
+    // The server resolves both the bell audience and targeted push recipients.
+    await sendPushNotificationEvent({
+      ...extra,
+      'type': type,
+      'notificationId': notificationId,
+      'audience': 'all_users',
+    });
+    return;
+  }
+
   final recipients = await communityPushRecipientUserIds(
     preferenceKey: preferenceKey,
     communityCountryCode: communityCountryCode,
@@ -12251,6 +12289,7 @@ String localizedFriendActionError(Object error, String fallbackKey) {
 
 class ChatThreadData {
   final String id;
+  final String countryCode;
   final bool isGroup;
   final String name;
   final String photoUrl;
@@ -12270,6 +12309,7 @@ class ChatThreadData {
 
   const ChatThreadData({
     required this.id,
+    this.countryCode = '',
     required this.isGroup,
     required this.name,
     this.photoUrl = '',
@@ -12295,6 +12335,7 @@ class ChatThreadData {
 
     return ChatThreadData(
       id: doc.id,
+      countryCode: stringFromFirebase(data['countryCode'], ''),
       isGroup: data['isGroup'] == true,
       name: stringFromFirebase(data['name'], ''),
       photoUrl: stringFromFirebase(data['photoUrl'], ''),
@@ -13792,13 +13833,16 @@ Future<void> shareChatLiveLocation(
 Future<bool> currentUserCanModerateChat(String chatId) async {
   final firebaseUser = FirebaseAuth.instance.currentUser;
   if (firebaseUser == null) return false;
-  if (userRoleIsStaff(currentUser.role) || currentUser.globalChatModerator) {
-    return true;
-  }
 
   final snapshot = await chatsCollection().doc(chatId).debugGet();
   final data = snapshot.data();
   if (data == null || data['isGroup'] != true) return false;
+  if (currentUserCanModerateCountry(
+    stringFromFirebase(data['countryCode'], ''),
+    community: true,
+  ))
+    return true;
+  if (currentUser.role == UserRole.moderator) return false;
 
   final memberIds = stringListFromFirebase(data['memberIds'], const []);
   if (!memberIds.contains(firebaseUser.uid)) return false;
@@ -13958,7 +14002,9 @@ Future<void> deleteGroupChat(ChatThreadData chat) async {
   final firebaseUser = FirebaseAuth.instance.currentUser;
   final uid = firebaseUser?.uid ?? currentUser.uid;
   final canDelete =
-      chat.isGroup && (chat.isOwner(uid) || userRoleIsStaff(currentUser.role));
+      chat.isGroup &&
+      (chat.isOwner(uid) ||
+          currentUserCanModerateCountry(chat.countryCode, community: true));
 
   if (!canDelete) {
     throw FirebaseException(
@@ -14577,7 +14623,10 @@ Future<void> createMeetSpotNotificationsForNearbyUsers(CarSpot spot) async {
   }
 }
 
-Future<List<String>> staffUserIdsExcept({String? excludedUid}) async {
+Future<List<String>> staffUserIdsExcept({
+  String? excludedUid,
+  String countryCode = '',
+}) async {
   final adminSnapshot = await usersCollection()
       .where('role', isEqualTo: 'admin')
       .debugGet(null, 'users: admin user ids query');
@@ -14591,7 +14640,14 @@ Future<List<String>> staffUserIdsExcept({String? excludedUid}) async {
     final uid = stringFromFirebase(data['uid'], doc.id).trim();
     final deleted = data['deleted'] == true;
     final banned = data['banned'] == true;
-    if (uid.isNotEmpty && uid != excludedUid && !deleted && !banned) {
+    if (uid.isNotEmpty &&
+        uid != excludedUid &&
+        !deleted &&
+        !banned &&
+        (data['role'] == 'admin' ||
+            moderatorCountryCodesFromFirebase(
+              data['moderatorCountryCodes'],
+            ).contains(countryCode))) {
       ids.add(uid);
     }
   }
@@ -14603,7 +14659,7 @@ Future<List<String>> spotReviewStaffUserIdsExcept(
   CarSpot spot, {
   String? excludedUid,
 }) async {
-  final countryCode = spot.effectiveCountryCode;
+  final countryCode = spot.countryCode.trim().toUpperCase();
   final adminSnapshot = await usersCollection()
       .where('role', isEqualTo: 'admin')
       .debugGet(null, 'users: spot review admin ids query');
@@ -14645,57 +14701,25 @@ Future<List<String>> spotReviewStaffUserIdsExcept(
 
 Future<List<String>> communityModerationUserIdsExcept({
   String? excludedUid,
+  required String countryCode,
 }) async {
-  final ids = <String>{...await staffUserIdsExcept(excludedUid: excludedUid)};
-
-  Future<void> addFlaggedUsers(String field, String label) async {
-    try {
-      final snapshot = await usersCollection()
-          .where(field, isEqualTo: true)
-          .debugGet(null, label);
-      for (final doc in snapshot.docs) {
+  final snapshot = await usersCollection().debugGet();
+  return snapshot.docs
+      .where((doc) {
         final data = doc.data();
-        final uid = stringFromFirebase(data['uid'], doc.id).trim();
-        if (uid.isNotEmpty &&
-            uid != excludedUid &&
-            data['deleted'] != true &&
-            data['banned'] != true) {
-          ids.add(uid);
-        }
-      }
-    } catch (error, stack) {
-      debugPrint('Community moderator lookup failed for $field: $error');
-      debugPrint('$stack');
-    }
-  }
-
-  await addFlaggedUsers(
-    'globalChatModerator',
-    'users: global chat moderator ids query',
-  );
-  await addFlaggedUsers('globalModerator', 'users: global moderator ids query');
-
-  try {
-    final config = await FirebaseFirestore.instance
-        .collection('app_config')
-        .doc('global_chat')
-        .debugGet(null, 'community moderation: notification recipients config');
-    final data = config.data();
-    for (final uid in <String>{
-      ...stringListFromFirebase(data?['moderatorIds'], const []),
-      ...stringListFromFirebase(data?['globalModeratorIds'], const []),
-    }) {
-      final cleanUid = uid.trim();
-      if (cleanUid.isNotEmpty && cleanUid != excludedUid) {
-        ids.add(cleanUid);
-      }
-    }
-  } catch (error, stack) {
-    debugPrint('Community moderator config lookup failed: $error');
-    debugPrint('$stack');
-  }
-
-  return ids.toList();
+        if (doc.id == excludedUid ||
+            data['deleted'] == true ||
+            data['banned'] == true)
+          return false;
+        if (data['role'] == 'admin') return true;
+        return (data['role'] == 'moderator' ||
+                userDataHasCommunityModerationAccess(data)) &&
+            moderatorCountryCodesFromFirebase(
+              data['moderatorCountryCodes'],
+            ).contains(countryCode);
+      })
+      .map((doc) => doc.id)
+      .toList();
 }
 
 Future<List<String>> adminUserIdsExcept({String? excludedUid}) async {
@@ -14730,7 +14754,10 @@ Future<void> notifyStaffAboutCommunityEvent({
   final senderUid = FirebaseAuth.instance.currentUser?.uid ?? currentUser.uid;
   final recipientUids = resolveRecipientsOnServer
       ? const <String>[]
-      : await communityModerationUserIdsExcept(excludedUid: senderUid);
+      : await communityModerationUserIdsExcept(
+          excludedUid: senderUid,
+          countryCode: stringFromFirebase(extra['countryCode'], ''),
+        );
   if (recipientUids.isEmpty && !resolveRecipientsOnServer) {
     debugPrint(
       'Community moderation notification skipped because no recipients were found.',
@@ -14943,7 +14970,10 @@ Future<void> createAdminUserReportNotifications({
     return;
   }
 
-  final staffUids = await staffUserIdsExcept(excludedUid: reporterUid);
+  final staffUids = await staffUserIdsExcept(
+    excludedUid: reporterUid,
+    countryCode: countryIsoCode(reportedUser.country) ?? '',
+  );
   if (staffUids.isEmpty) {
     return;
   }
@@ -14958,6 +14988,7 @@ Future<void> createAdminUserReportNotifications({
     batch.debugSet(adminNotificationsCollection().doc(notificationId), {
       'userId': staffUid,
       'type': 'user_report_new',
+      'countryCode': countryIsoCode(reportedUser.country) ?? '',
       'title': 'New user report',
       'body':
           '$cleanReporter reported $cleanReported${cleanReason.isEmpty ? '.' : ': $cleanReason'}',
@@ -18456,9 +18487,11 @@ IconData notificationCenterIcon(NotificationCenterItem item) {
           : Icons.check_circle,
     'spot_pending_review' => Icons.fact_check,
     'global_chat_message' || 'global_chat_admin' => Icons.public,
+    'forum_topic_created' ||
     'forum_reply' ||
     'forum_topic_pending' ||
     'forum_reply_admin' => Icons.forum_outlined,
+    'moderator_user_banned' => Icons.gavel,
     'user_report_new' => Icons.report_outlined,
     'spot_approved_by_admin' => Icons.check_circle,
     'spot_rejected_by_admin' => Icons.cancel,
@@ -18492,6 +18525,7 @@ Color notificationCenterColor(NotificationCenterItem item) {
     'spot_pending_review' => blue,
     'global_chat_message' ||
     'global_chat_admin' ||
+    'forum_topic_created' ||
     'forum_reply' ||
     'forum_topic_pending' ||
     'forum_reply_admin' => blue,
@@ -18815,6 +18849,7 @@ NotificationCenterItem notificationCenterItemFromDocument(
           'temporary_event' => 'Temporary events',
           'temporary_spot_today' => 'Temporary spot starts in 5 hours',
           'global_chat_message' || 'global_chat_admin' => 'Global chat',
+          'forum_topic_created' => pickString('title', 'New forum topic'),
           'forum_reply' => pickString('title', 'Forum'),
           'forum_topic_pending' => 'Forum topic waiting for review',
           'forum_reply_admin' => 'New forum reply',
@@ -18866,6 +18901,7 @@ NotificationCenterItem notificationCenterItemFromDocument(
             : '$spotName starts in about 5 hours.',
       'global_chat_message' ||
       'global_chat_admin' => 'New message in global chat.',
+      'forum_topic_created' => 'A new forum topic was created.',
       'forum_reply' => 'A new reply was posted in the forum.',
       'forum_topic_pending' => 'A forum topic is waiting for review.',
       'forum_reply_admin' => 'A new reply was posted in the forum.',
@@ -19511,28 +19547,7 @@ Future<List<NotificationCenterItem>> loadNotificationCenterItems() async {
       );
       for (final doc in snapshot.docs) {
         final data = doc.data();
-        if (currentUser.role == UserRole.moderator &&
-            data['type'] == 'spot_pending_review') {
-          final pushData = mapFromFirebase(data['data']);
-          final countryCode = stringFromFirebase(
-            data['countryCode'],
-            stringFromFirebase(
-              pushData['countryCode'],
-              countryIsoCode(
-                    spotCountryFromCityCountry(
-                      stringFromFirebase(
-                        data['cityCountry'],
-                        stringFromFirebase(pushData['cityCountry'], ''),
-                      ),
-                    ),
-                  ) ??
-                  '',
-            ),
-          ).toUpperCase();
-          if (!currentUser.moderatorCountryCodes.contains(countryCode)) {
-            continue;
-          }
-        }
+        if (!moderationNotificationAllowed(data)) continue;
         items.add(notificationCenterItemFromDocument(doc));
       }
     } catch (error, stack) {
@@ -20165,7 +20180,8 @@ Future<void> openNotificationCenterItem(
     return;
   }
 
-  if ((item.type == 'forum_reply' ||
+  if ((item.type == 'forum_topic_created' ||
+          item.type == 'forum_reply' ||
           item.type == 'forum_topic_pending' ||
           item.type == 'forum_reply_admin') &&
       item.topicId.trim().isNotEmpty) {
@@ -20205,6 +20221,15 @@ Future<void> openNotificationCenterItem(
         ),
       );
     }
+    return;
+  }
+
+  if (item.type == 'moderator_user_banned' &&
+      currentUser.role == UserRole.admin) {
+    Navigator.push(
+      context,
+      appPageRoute(builder: (_) => const AdminUsersScreen()),
+    );
     return;
   }
 
@@ -21744,6 +21769,7 @@ class _MainScreenState extends State<_MainContentScreen>
               }
 
               final data = change.doc.data() ?? {};
+              if (!moderationNotificationAllowed(data)) continue;
               if (data['read'] == true) {
                 continue;
               }
@@ -32985,7 +33011,10 @@ class _SpotDetailScreenState extends State<SpotDetailScreen>
             padding: const EdgeInsets.only(right: 6),
             child: Center(child: SaveSpotButton(spot: spot, compact: true)),
           ),
-          if (canTransferSpotOwnership(currentUser))
+          if (canTransferSpotOwnership(
+            currentUser,
+            countryCode: spot.countryCode,
+          ))
             IconButton(
               tooltip: communityText(
                 en: 'Transfer ownership',
@@ -32998,7 +33027,7 @@ class _SpotDetailScreenState extends State<SpotDetailScreen>
                 if (updated != null && mounted) setState(() => spot = updated);
               },
             ),
-          if (userRoleIsStaff(currentUser.role) ||
+          if (currentUserCanModerateSpot(spot) ||
               spot.addedByUid == currentUser.uid)
             IconButton(
               tooltip: trText('Edit spot'),
@@ -39598,7 +39627,6 @@ class _GlobalChatTabState extends State<GlobalChatTab>
   String? pendingPhotoAttachmentPath;
   QueryDocumentSnapshot<Map<String, dynamic>>? replyingToGlobalMessage;
   int? _lastGlobalChatMessageSentAtMillis;
-  bool hasGlobalChatModeratorAccess = false;
 
   @override
   bool get wantKeepAlive => true;
@@ -39668,8 +39696,10 @@ class _GlobalChatTabState extends State<GlobalChatTab>
         .limit(activeGlobalChatQueryPageSize);
   }
 
-  bool get canModerateGlobalChat =>
-      userRoleIsStaff(currentUser.role) || hasGlobalChatModeratorAccess;
+  bool get canModerateGlobalChat => currentUserCanModerateCountry(
+    selectedCommunityCountryCode,
+    community: true,
+  );
 
   Future<void> loadGlobalChatModeratorAccess() async {
     final firebaseUser = FirebaseAuth.instance.currentUser;
@@ -39677,9 +39707,9 @@ class _GlobalChatTabState extends State<GlobalChatTab>
       return;
     }
 
-    final hasAccess = await currentUserHasCommunityModerationAccess();
+    await currentUserHasCommunityModerationAccess();
     if (mounted) {
-      setState(() => hasGlobalChatModeratorAccess = hasAccess);
+      setState(() {});
     }
   }
 
@@ -41266,7 +41296,14 @@ Future<String> createForumTopic({
     final isStaffCreator =
         userRoleIsStaff(creatorRole) ||
         (currentUser.uid == user.uid && userRoleIsStaff(currentUser.role));
-    final topicStatus = isStaffCreator ? 'approved' : 'pending';
+    final topicStatus =
+        isStaffCreator &&
+            currentUserCanModerateCountry(
+              communityCountrySelection.value,
+              community: true,
+            )
+        ? 'approved'
+        : 'pending';
 
     final docRef = await FirebaseFirestore.instance
         .collection('forum_topics')
@@ -41290,8 +41327,10 @@ Future<String> createForumTopic({
           'isPinned': false,
           'status': topicStatus,
           'rejectionReason': null,
-          'reviewedBy': isStaffCreator ? user.uid : null,
-          'reviewedAt': isStaffCreator ? FieldValue.serverTimestamp() : null,
+          'reviewedBy': topicStatus == 'approved' ? user.uid : null,
+          'reviewedAt': topicStatus == 'approved'
+              ? FieldValue.serverTimestamp()
+              : null,
           'createdAt': FieldValue.serverTimestamp(),
           'lastReplyAt': FieldValue.serverTimestamp(),
         });
@@ -41310,6 +41349,13 @@ Future<String> createForumTopic({
         },
         resolveRecipientsOnServer: true,
       );
+    }
+
+    if (topicStatus == 'approved') {
+      await sendPushNotificationEvent({
+        'type': 'forum_topic_created',
+        'topicId': docRef.id,
+      });
     }
 
     debugPrint('SUCCESS: Topic $topicStatus: ${docRef.id}');
@@ -41501,7 +41547,12 @@ Future<void> ensureTemporarySpotForumTopic(
             (authorUid == firebaseUser.uid &&
                 userRoleIsStaff(currentUser.role)) ||
             backfillFromExistingSpot);
-    final topicStatus = canApproveOwnAutoTopic ? 'approved' : 'pending';
+    final topicStatus =
+        canApproveOwnAutoTopic &&
+            (currentUser.role != UserRole.moderator ||
+                currentUserCanModerateSpot(spot))
+        ? 'approved'
+        : 'pending';
 
     await topicRef.debugSet(
       temporarySpotForumTopicData(
@@ -41526,6 +41577,13 @@ Future<void> ensureTemporarySpotForumTopic(
           : 'forum: auto temporary spot topic create',
     );
     forumTopicsRefreshTick.value++;
+
+    if (topicStatus == 'approved' && !backfillFromExistingSpot) {
+      await sendPushNotificationEvent({
+        'type': 'forum_topic_created',
+        'topicId': topicRef.id,
+      });
+    }
 
     if (topicStatus == 'pending') {
       await notifyStaffAboutCommunityEvent(
@@ -43325,7 +43383,6 @@ class _ForumTopicPageState extends State<ForumTopicPage>
   bool isUploadingPhotoAttachment = false;
   String? pendingPhotoAttachmentPath;
   QueryDocumentSnapshot<Map<String, dynamic>>? replyingToForumReply;
-  bool hasCommunityModerationAccess = false;
   late String _topicCountryCode;
   late bool _topicCountryResolved;
   bool _hasLoadedReplies = false;
@@ -43365,7 +43422,8 @@ class _ForumTopicPageState extends State<ForumTopicPage>
       topicDocument.collection('replies');
 
   bool get canModerateForumTopic =>
-      userRoleIsStaff(currentUser.role) || hasCommunityModerationAccess;
+      _topicCountryResolved &&
+      currentUserCanModerateCountry(_topicCountryCode, community: true);
 
   bool get canPostInForumTopic =>
       !_topicCountryResolved ||
@@ -43396,9 +43454,9 @@ class _ForumTopicPageState extends State<ForumTopicPage>
   }
 
   Future<void> loadCommunityModerationAccess() async {
-    final hasAccess = await currentUserHasCommunityModerationAccess();
+    await currentUserHasCommunityModerationAccess();
     if (mounted) {
-      setState(() => hasCommunityModerationAccess = hasAccess);
+      setState(() {});
     }
   }
 
@@ -46656,12 +46714,17 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen>
   }
 
   bool get currentUserCanOverridePrivateGroup {
+    if (currentUser.role == UserRole.moderator &&
+        !currentUserCanModerateCountry(widget.chat.countryCode))
+      return false;
     return isCurrentUserGroupOwner ||
-        userRoleIsStaff(currentUser.role) ||
-        currentUser.globalChatModerator;
+        currentUserCanModerateCountry(widget.chat.countryCode, community: true);
   }
 
   bool get canManageGroupMembers {
+    if (currentUser.role == UserRole.moderator &&
+        !currentUserCanModerateCountry(widget.chat.countryCode))
+      return false;
     if (isPrivate) {
       return currentUserCanOverridePrivateGroup;
     }
@@ -46673,6 +46736,7 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen>
   bool get canEditGroupDetails => canManageGroupMembers;
 
   ChatThreadData get localChatData => ChatThreadData(
+    countryCode: widget.chat.countryCode,
     id: widget.chat.id,
     isGroup: widget.chat.isGroup,
     name: widget.chat.name,
@@ -49011,8 +49075,10 @@ class _ChatConversationScreenState extends State<ChatConversationScreen>
     final mine = message.senderUid == currentUid;
     final canDeleteMessage =
         widget.chat.isGroup &&
-        (userRoleIsStaff(currentUser.role) ||
-            currentUser.globalChatModerator ||
+        (currentUserCanModerateCountry(
+              widget.chat.countryCode,
+              community: true,
+            ) ||
             widget.chat.ownerUid == currentUid ||
             widget.chat.moderatorIds.contains(currentUid));
     final canActOnMessage = !readOnly && !message.isLocalPending;
@@ -49238,8 +49304,10 @@ class _ChatConversationScreenState extends State<ChatConversationScreen>
         widget.chat.isGroup &&
         (widget.chat.isOwner(currentUid) ||
             widget.chat.moderatorIds.contains(currentUid) ||
-            userRoleIsStaff(currentUser.role) ||
-            currentUser.globalChatModerator);
+            currentUserCanModerateCountry(
+              widget.chat.countryCode,
+              community: true,
+            ));
 
     return Scaffold(
       backgroundColor: Colors.transparent,
@@ -50904,6 +50972,7 @@ Future<void> submitUserReport({
           'reportedName': reportedUser.name,
           'reportedEmail': reportedUser.email,
           'reportedRole': roleName(reportedUser.role),
+          'countryCode': countryIsoCode(reportedUser.country) ?? '',
           'reporterUid': reporterUid,
           'reporterUsername': reporterUsername,
           'reporterName': reporterName,
@@ -51449,10 +51518,10 @@ Future<void> setProfileVerifiedStatus(
   PublicUserProfileData profile,
   bool verified,
 ) async {
-  if (!userRoleIsStaff(currentUser.role)) {
+  if (!currentUserCanManageProfileCountry(profile.country)) {
     showAdminActionError(
       context,
-      message: 'Only admins and moderators can change verified status',
+      message: 'This user is outside your assigned countries',
       error: 'not-staff',
     );
     return;
@@ -55792,6 +55861,7 @@ class AdminUserData {
   final String username;
   final String name;
   final String email;
+  final String country;
   final UserRole role;
   final bool verified;
   final bool banned;
@@ -55809,6 +55879,7 @@ class AdminUserData {
     required this.username,
     required this.name,
     required this.email,
+    this.country = '',
     required this.role,
     required this.verified,
     required this.banned,
@@ -55869,6 +55940,7 @@ class AdminUserData {
       username: stringFromFirebase(data['username'], 'ccs_driver'),
       name: stringFromFirebase(data['name'], 'CCS Driver'),
       email: stringFromFirebase(data['email'], ''),
+      country: stringFromFirebase(data['country'], ''),
       role: roleFromFirebase(data['role']),
       verified:
           roleFromFirebase(data['role']) == UserRole.admin ||
@@ -56053,6 +56125,14 @@ class _AdminUsersScreenState extends State<AdminUsersScreen>
   }
 
   Future<bool> canManageUser(BuildContext context, AdminUserData user) async {
+    if (!currentUserCanManageProfileCountry(user.country)) {
+      showAdminActionError(
+        context,
+        message: 'This user is outside your assigned countries',
+        error: 'regional-moderator-scope',
+      );
+      return false;
+    }
     if (user.uid == currentUser.uid) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -56097,6 +56177,7 @@ class _AdminUsersScreenState extends State<AdminUsersScreen>
   }
 
   bool canShowManagementActions(AdminUserData user) {
+    if (!currentUserCanManageProfileCountry(user.country)) return false;
     if (user.uid == currentUser.uid || user.role == UserRole.admin) {
       return false;
     }
@@ -56387,8 +56468,16 @@ class _AdminUsersScreenState extends State<AdminUsersScreen>
       return;
     }
 
+    Set<String>? assignedCountries;
+    if (makeModerator) {
+      assignedCountries = await requestModeratorCountryCodes(context, user);
+      if (assignedCountries == null || assignedCountries.isEmpty) return;
+    }
+
     try {
       await usersCollection().doc(user.uid).debugSet({
+        if (assignedCountries != null)
+          'moderatorCountryCodes': assignedCountries.toList()..sort(),
         'globalChatModerator': makeModerator,
         'globalModerator': makeModerator,
         'globalModeratorUpdatedByUid': currentUser.uid,
@@ -56538,125 +56627,31 @@ class _AdminUsersScreenState extends State<AdminUsersScreen>
   }
 
   Future<void> banUser(BuildContext context, AdminUserData user) async {
-    if (!await canManageUser(context, user)) {
-      return;
-    }
-
+    if (!await canManageUser(context, user)) return;
     final input = await requestBanInput(context, user);
-    if (input == null) {
-      return;
-    }
-
-    final bannedUntil = Timestamp.fromDate(
-      DateTime.now().add(Duration(days: input.days)),
-    );
-    final banData = <String, Object?>{
-      'banned': true,
-      'bannedUntil': bannedUntil,
-      'banReason': input.reason,
-      'bannedByUid': currentUser.uid,
-      'bannedBy': currentUser.username,
-      'bannedAt': FieldValue.serverTimestamp(),
-      'knownDeviceIdsAtBan': user.deviceIds,
-      'updatedAt': FieldValue.serverTimestamp(),
-    };
-
-    if (!context.mounted) {
-      return;
-    }
-
-    final messenger = ScaffoldMessenger.of(context);
-    messenger.showSnackBar(
-      SnackBar(
-        duration: const Duration(seconds: 2),
-        backgroundColor: blue,
-        content: Text(
-          trText('Banning user...'),
-          style: const TextStyle(
-            color: Colors.white,
-            fontWeight: FontWeight.w700,
-          ),
-        ),
-      ),
-    );
-
+    if (input == null) return;
+    final requestId = usersCollection().doc().id;
     try {
-      await usersCollection()
-          .doc(user.uid)
-          .debugSet(banData, SetOptions(merge: true))
-          .timeout(const Duration(seconds: 12));
-
-      for (final deviceId in user.deviceIds) {
-        await saveDeviceBanForUser(
-          deviceId: deviceId,
-          user: user,
-          bannedUntil: bannedUntil,
-          reason: input.reason,
-        ).timeout(const Duration(seconds: 12));
-      }
-
+      await sendModerationAction({
+        'action': 'ban_user',
+        'targetUserId': user.uid,
+        'days': input.days,
+        'reason': input.reason,
+        'requestId': requestId,
+      });
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            backgroundColor: Colors.redAccent,
-            content: Text(
-              trText('User banned.'),
-              style: const TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ),
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(trText('User banned.'))));
+      }
+    } catch (error) {
+      if (context.mounted) {
+        showAdminActionError(
+          context,
+          message: trText('Could not ban user'),
+          error: error,
         );
       }
-    } on FirebaseException catch (error) {
-      if (error.code == 'permission-denied' &&
-          banData.containsKey('banReason')) {
-        try {
-          final legacyBanData = Map<String, Object?>.from(banData)
-            ..remove('banReason')
-            ..remove('knownDeviceIdsAtBan');
-          await usersCollection()
-              .doc(user.uid)
-              .debugSet(legacyBanData, SetOptions(merge: true))
-              .timeout(const Duration(seconds: 12));
-
-          if (context.mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                backgroundColor: Colors.redAccent,
-                content: Text(
-                  '${trText('User banned.')} ${trText('Deploy Firebase Rules to save ban reasons.')}',
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ),
-            );
-          }
-          return;
-        } catch (fallbackError) {
-          showAdminActionError(
-            context,
-            message: trText('Could not ban user'),
-            error: fallbackError,
-          );
-          return;
-        }
-      }
-
-      showAdminActionError(
-        context,
-        message: trText('Could not ban user'),
-        error: error,
-      );
-    } catch (error) {
-      showAdminActionError(
-        context,
-        message: trText('Could not ban user'),
-        error: error,
-      );
     }
   }
 
@@ -57417,6 +57412,67 @@ class UserReportData {
   }
 }
 
+Stream<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
+regionalUserReportsStream() {
+  if (currentUser.role == UserRole.admin) {
+    return userReportsCollection()
+        .orderBy('createdAtMillis', descending: true)
+        .limit(200)
+        .debugSnapshots('admin: user reports')
+        .map((snapshot) => snapshot.docs);
+  }
+  final countries = currentUser.moderatorCountryCodes.toList();
+  if (currentUser.role != UserRole.moderator || countries.isEmpty) {
+    return Stream.value(const []);
+  }
+  final subscriptions =
+      <StreamSubscription<QuerySnapshot<Map<String, dynamic>>>>[];
+  final pages = <int, List<QueryDocumentSnapshot<Map<String, dynamic>>>>{};
+  late StreamController<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
+  controller;
+  controller = StreamController(
+    onListen: () {
+      for (var start = 0; start < countries.length; start += 30) {
+        final page = start;
+        subscriptions.add(
+          userReportsCollection()
+              .where(
+                'countryCode',
+                whereIn: countries.sublist(
+                  start,
+                  math.min(start + 30, countries.length),
+                ),
+              )
+              .debugSnapshots('moderator: regional user reports')
+              .listen((snapshot) {
+                pages[page] = snapshot.docs;
+                if (pages.length == (countries.length / 30).ceil()) {
+                  final documents = pages.values.expand((docs) => docs).toList()
+                    ..sort(
+                      (a, b) =>
+                          timestampMillisFromFirebase(
+                            b.data()['createdAtMillis'],
+                          ).compareTo(
+                            timestampMillisFromFirebase(
+                              a.data()['createdAtMillis'],
+                            ),
+                          ),
+                    );
+                  controller.add(documents);
+                }
+              }, onError: controller.addError),
+        );
+      }
+    },
+    onCancel: () async {
+      for (final subscription in subscriptions) {
+        await subscription.cancel();
+      }
+    },
+  );
+  return controller.stream;
+}
+
 class AdminUserReportsScreen extends StatelessWidget {
   const AdminUserReportsScreen({super.key});
 
@@ -57638,15 +57694,12 @@ class AdminUserReportsScreen extends StatelessWidget {
         backgroundColor: Colors.transparent,
         foregroundColor: blue,
       ),
-      body: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-        stream: userReportsCollection()
-            .orderBy('createdAtMillis', descending: true)
-            .limit(200)
-            .debugSnapshots('admin: user reports list listener'),
+      body: StreamBuilder<List<QueryDocumentSnapshot<Map<String, dynamic>>>>(
+        stream: regionalUserReportsStream(),
         builder: (context, snapshot) {
           final reports =
-              snapshot.data?.docs
-                  .map((doc) => UserReportData.fromFirestore(doc))
+              snapshot.data
+                  ?.map((doc) => UserReportData.fromFirestore(doc))
                   .toList() ??
               const <UserReportData>[];
           final openCount = reports.where((report) => report.isOpen).length;
@@ -58062,6 +58115,7 @@ Future<void> deleteAdminSpot(
 
 Future<void> createForumReviewNotification({
   required Map<String, dynamic> topic,
+  required String topicId,
   required String status,
   String rejectionReason = '',
 }) async {
@@ -58083,6 +58137,8 @@ Future<void> createForumReviewNotification({
     await userNotificationsCollection().debugAdd({
       'userId': authorId,
       'type': 'forum_reviewed',
+      'topicId': topicId,
+      'actorUserId': currentUser.uid,
       'status': status,
       'title': title,
       'body': body,
@@ -58104,6 +58160,9 @@ Future<void> approveForumTopic(String topicId) async {
       .doc(topicId);
   final snapshot = await topicRef.debugGet(null, 'forum: approve topic lookup');
   final topic = snapshot.data() ?? const <String, dynamic>{};
+  if (!snapshot.exists || !currentUserCanModerateCommunityData(topic)) {
+    throw StateError('This topic is outside your assigned countries');
+  }
 
   await topicRef.debugSet({
     'status': 'approved',
@@ -58111,7 +58170,15 @@ Future<void> approveForumTopic(String topicId) async {
     'reviewedAt': FieldValue.serverTimestamp(),
   }, SetOptions(merge: true));
 
-  await createForumReviewNotification(topic: topic, status: 'approved');
+  await sendPushNotificationEvent({
+    'type': 'forum_topic_created',
+    'topicId': topicId,
+  });
+  await createForumReviewNotification(
+    topic: topic,
+    topicId: topicId,
+    status: 'approved',
+  );
   forumTopicsRefreshTick.value++;
 }
 
@@ -58123,6 +58190,9 @@ Future<void> rejectForumTopic(String topicId, String reason) async {
       .doc(topicId);
   final snapshot = await topicRef.debugGet(null, 'forum: reject topic lookup');
   final topic = snapshot.data() ?? const <String, dynamic>{};
+  if (!snapshot.exists || !currentUserCanModerateCommunityData(topic)) {
+    throw StateError('This topic is outside your assigned countries');
+  }
 
   await topicRef.debugSet({
     'status': 'rejected',
@@ -58133,6 +58203,7 @@ Future<void> rejectForumTopic(String topicId, String reason) async {
 
   await createForumReviewNotification(
     topic: topic,
+    topicId: topicId,
     status: 'rejected',
     rejectionReason: cleanReason,
   );
@@ -58331,12 +58402,14 @@ class ForumModerationScreen extends StatelessWidget {
         stream: FirebaseFirestore.instance
             .collection('forum_topics')
             .where('status', isEqualTo: 'pending')
-            .limit(50)
             .debugSnapshots('forum: pending moderation listener'),
         builder: (context, snapshot) {
           final topics =
               (snapshot.data?.docs ??
                       const <QueryDocumentSnapshot<Map<String, dynamic>>>[])
+                  .where(
+                    (doc) => currentUserCanModerateCommunityData(doc.data()),
+                  )
                   .toList()
                 ..sort((a, b) {
                   final aMillis = timestampMillisFromFirebase(

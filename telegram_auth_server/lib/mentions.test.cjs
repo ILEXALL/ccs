@@ -59,6 +59,7 @@ for(const relative of ['../api/push-notification.js','../../api/push-notificatio
     assert.equal(f.delivered.length,4);
     assert.equal(f.delivered.filter(x=>x.userId==='legacy').length,2);
     assert.equal(f.delivered.at(-1).data.reviewId,'review');
+    assert.equal(f.delivered.find(x=>x.data.type==='forum_reply').pushEnabled,false);
     assert.ok(f.delivered.every(x=>x.body.includes('mentioned you')));
   });
   test(`${relative}: forged authors, missing documents, pending topics, and inactive senders cannot notify`,async()=>{

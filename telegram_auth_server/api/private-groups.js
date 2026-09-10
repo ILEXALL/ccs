@@ -1,4 +1,5 @@
 const { admin, db } = require('../lib/firebase-admin');
+const { canModerateCountry } = require('../lib/regional-moderation');
 const { ownerUid, directoryEntry, acceptedMemberFields, countryCode, profileCountry, directoryCountry } = require('../lib/private-groups');
 
 // Legacy records have no historical country. Assign the owner's current country
@@ -38,7 +39,7 @@ module.exports = async function handler(req, res) {
     const actorDoc = await db.collection('users').doc(uid).get();
     const actor = actorDoc.data();
     if (!actor || actor.deleted === true || actor.banned === true) fail(403, 'Account unavailable.');
-    const canMonitor = ['admin', 'moderator'].includes(actor.role) || actor.globalChatModerator === true || actor.globalModerator === true;
+    const canMonitor = country => canModerateCountry(actor, country, true);
     const { action, chatId, requesterUid, decision } = req.body || {};
     if (action === 'directory') {
       const selectedCountry = directoryCountry(actor, req.body.countryCode);
@@ -49,7 +50,7 @@ module.exports = async function handler(req, res) {
       const visible = snapshot.docs.filter((doc, i) => countries[i] === selectedCountry);
       const groups = visible.filter(doc => doc.data().isPrivate === true);
       const requests = groups.length ? await db.getAll(...groups.map(doc => doc.ref.collection('join_requests').doc(uid))) : [];
-      return res.status(200).json({ countryCode: selectedCountry, visibleGroupIds: visible.map(doc => doc.id), groups: groups.map((doc, i) => directoryEntry(doc.id, doc.data(), uid, canMonitor, requests[i].data()?.status || '')) });
+      return res.status(200).json({ countryCode: selectedCountry, visibleGroupIds: visible.map(doc => doc.id), groups: groups.map((doc, i) => directoryEntry(doc.id, doc.data(), uid, canMonitor(selectedCountry), requests[i].data()?.status || '')) });
     }
     if (!validId(chatId)) fail(400, 'Invalid group.');
     const chatRef = db.collection('chats').doc(chatId);

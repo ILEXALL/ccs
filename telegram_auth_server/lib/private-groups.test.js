@@ -4,11 +4,12 @@ const vm = require('node:vm');
 const fs = require('node:fs');
 const path = require('node:path');
 const helpers = require('./private-groups');
+const regional = require('./regional-moderation');
 
 function fixture() {
   const data = new Map(Object.entries({
     'users/owner': { username: 'owner', country: 'Latvia' }, 'users/alice': { username: 'alice', country: 'Latvia', photoUrl: 'alice.jpg' },
-    'users/bob': { username: 'bob', country: 'Latvia' }, 'users/staff': { role: 'moderator', country: 'Latvia' },
+    'users/bob': { username: 'bob', country: 'Latvia' }, 'users/staff': { role: 'moderator', country: 'Latvia', moderatorCountryCodes: ['LV'] },
     'chats/group': { isGroup: true, isPrivate: true, ownerUid: 'owner', name: 'Private', memberIds: ['owner'], memberUsernames: ['owner'], lastMessage: 'secret' },
     'chats/direct': { isGroup: false, memberIds: ['owner', 'bob'], lastMessage: 'secret direct' },
   }));
@@ -35,7 +36,7 @@ function fixture() {
     return result;
   } };
   const admin = { auth: () => ({ verifyIdToken: async uid => ({ uid }) }), firestore: { FieldValue: { serverTimestamp: () => 123 } } };
-  const context = { module: { exports: {} }, console, require: name => name === '../lib/firebase-admin' ? {admin, db} : helpers };
+  const context = { module: { exports: {} }, console, require: name => name === '../lib/firebase-admin' ? {admin, db} : name === '../lib/regional-moderation' ? regional : helpers };
   vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../api/private-groups.js'),'utf8'),context);
   async function call(uid, body) {
     const res = { setHeader() {}, status(code) { this.code=code; return this; }, json(body) { this.body=body; } };
@@ -155,4 +156,13 @@ test('public group IDs are also filtered and missing country fails closed', asyn
   assert.deepEqual((await call('alice',{action:'directory'})).body.visibleGroupIds,['group']);
   data.get('users/alice').country='';
   assert.equal((await call('alice',{action:'directory'})).code,400);
+});
+
+test('staff monitoring requires assignment even when profile country matches', async () => {
+  const {call,data} = fixture();
+  data.get('users/staff').moderatorCountryCodes=['EE'];
+  data.get('users/staff').globalModerator=true;
+  const result=await call('staff',{action:'directory'});
+  assert.equal(result.code,200);
+  assert.equal(result.body.groups[0].canMonitor,false);
 });

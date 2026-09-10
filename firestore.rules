@@ -241,6 +241,95 @@ service cloud.firestore {
         );
     }
 
+    // Assignment is always explicit. Missing/invalid countries fail closed.
+    function profileCountryCode(data) {
+      let country = data.get('country', '');
+      return country in ['Albania', 'Албания', 'Albānija'] || country == 'AL' ? 'AL' :
+        country in ['Armenia', 'Армения', 'Armēnija'] || country == 'AM' ? 'AM' :
+        country in ['Australia', 'Австралия', 'Austrālija'] || country == 'AU' ? 'AU' :
+        country in ['Austria', 'Австрия', 'Austrija'] || country == 'AT' ? 'AT' :
+        country in ['Azerbaijan', 'Азербайджан', 'Azerbaidžāna'] || country == 'AZ' ? 'AZ' :
+        country in ['Belarus', 'Беларусь', 'Baltkrievija'] || country == 'BY' ? 'BY' :
+        country in ['Belgium', 'Бельгия', 'Beļģija'] || country == 'BE' ? 'BE' :
+        country in ['Bosnia and Herzegovina', 'Босния и Герцеговина', 'Bosnija un Hercegovina'] || country == 'BA' ? 'BA' :
+        country in ['Brazil', 'Бразилия', 'Brazīlija'] || country == 'BR' ? 'BR' :
+        country in ['Bulgaria', 'Болгария', 'Bulgārija'] || country == 'BG' ? 'BG' :
+        country in ['Canada', 'Канада', 'Kanāda'] || country == 'CA' ? 'CA' :
+        country in ['China', 'Китай', 'Ķīna'] || country == 'CN' ? 'CN' :
+        country in ['Croatia', 'Хорватия', 'Horvātija'] || country == 'HR' ? 'HR' :
+        country in ['Cyprus', 'Кипр', 'Kipra'] || country == 'CY' ? 'CY' :
+        country in ['Czechia', 'Чехия', 'Čehija'] || country == 'CZ' ? 'CZ' :
+        country in ['Denmark', 'Дания', 'Dānija'] || country == 'DK' ? 'DK' :
+        country in ['Estonia', 'Эстония', 'Igaunija'] || country == 'EE' ? 'EE' :
+        country in ['Finland', 'Финляндия', 'Somija'] || country == 'FI' ? 'FI' :
+        country in ['France', 'Франция', 'Francija'] || country == 'FR' ? 'FR' :
+        country in ['Georgia', 'Грузия', 'Gruzija'] || country == 'GE' ? 'GE' :
+        country in ['Germany', 'Германия', 'Vācija'] || country == 'DE' ? 'DE' :
+        country in ['Greece', 'Греция', 'Grieķija'] || country == 'GR' ? 'GR' :
+        country in ['Hungary', 'Венгрия', 'Ungārija'] || country == 'HU' ? 'HU' :
+        country in ['Iceland', 'Исландия', 'Islande'] || country == 'IS' ? 'IS' :
+        country in ['India', 'Индия', 'Indija'] || country == 'IN' ? 'IN' :
+        country in ['Ireland', 'Ирландия', 'Īrija'] || country == 'IE' ? 'IE' :
+        country in ['Italy', 'Италия', 'Itālija'] || country == 'IT' ? 'IT' :
+        country in ['Japan', 'Япония', 'Japāna'] || country == 'JP' ? 'JP' :
+        country in ['Latvia', 'Латвия', 'Latvija'] || country == 'LV' ? 'LV' :
+        country in ['Lithuania', 'Литва', 'Lietuva'] || country == 'LT' ? 'LT' :
+        country in ['Luxembourg', 'Люксембург', 'Luksemburga'] || country == 'LU' ? 'LU' :
+        country in ['Malta', 'Мальта'] || country == 'MT' ? 'MT' :
+        country in ['Mexico', 'Мексика', 'Meksika'] || country == 'MX' ? 'MX' :
+        country in ['Moldova', 'Молдова'] || country == 'MD' ? 'MD' :
+        country in ['Montenegro', 'Черногория', 'Melnkalne'] || country == 'ME' ? 'ME' :
+        country in ['Netherlands', 'Нидерланды', 'Nīderlande'] || country == 'NL' ? 'NL' :
+        country in ['New Zealand', 'Новая Зеландия', 'Jaunzēlande'] || country == 'NZ' ? 'NZ' :
+        country in ['North Macedonia', 'Северная Македония', 'Ziemeļmaķedonija'] || country == 'MK' ? 'MK' :
+        country in ['Norway', 'Норвегия', 'Norvēģija'] || country == 'NO' ? 'NO' :
+        country in ['Poland', 'Польша', 'Polija'] || country == 'PL' ? 'PL' :
+        country in ['Portugal', 'Португалия', 'Portugāle'] || country == 'PT' ? 'PT' :
+        country in ['Romania', 'Румыния', 'Rumānija'] || country == 'RO' ? 'RO' :
+        country in ['Russia', 'Россия', 'Krievija'] || country == 'RU' ? 'RU' :
+        country in ['Serbia', 'Сербия', 'Serbija'] || country == 'RS' ? 'RS' :
+        country in ['Slovakia', 'Словакия', 'Slovākija'] || country == 'SK' ? 'SK' :
+        country in ['Slovenia', 'Словения', 'Slovēnija'] || country == 'SI' ? 'SI' :
+        country in ['South Korea', 'Южная Корея', 'Dienvidkoreja'] || country == 'KR' ? 'KR' :
+        country in ['Spain', 'Испания', 'Spānija'] || country == 'ES' ? 'ES' :
+        country in ['Sweden', 'Швеция', 'Zviedrija'] || country == 'SE' ? 'SE' :
+        country in ['Switzerland', 'Швейцария', 'Šveice'] || country == 'CH' ? 'CH' :
+        country in ['Turkey', 'Турция', 'Turcija'] || country == 'TR' ? 'TR' :
+        country in ['Ukraine', 'Украина', 'Ukraina'] || country == 'UA' ? 'UA' :
+        country in ['United Arab Emirates', 'Объединённые Арабские Эмираты', 'Apvienotie Arābu Emirāti'] || country == 'AE' ? 'AE' :
+        country in ['United Kingdom', 'Великобритания', 'Apvienotā Karaliste'] || country == 'GB' ? 'GB' :
+        country in ['United States', 'США', 'Amerikas Savienotās Valstis'] || country == 'US' ? 'US' : '';
+    }
+
+    function canModerateCountry(code) {
+      return isAdmin() || (isModerator() && validCommunityCountryCode(code)
+        && code in currentUserData().get('moderatorCountryCodes', []));
+    }
+
+    function canModerateCommunity(data) {
+      let code = data.get('countryCode', 'LV');
+      return isAdmin() || (isGlobalModerator() && validCommunityCountryCode(code)
+        && code in currentUserData().get('moderatorCountryCodes', []));
+    }
+
+    function canModerateUser(userId) {
+      return canModerateCountry(profileCountryCode(userDoc(userId).data));
+    }
+
+    function canModerateRecord(data) {
+      return canModerateCountry(data.get('countryCode', ''));
+    }
+
+    function canModerateGroup(chatId) {
+      let data = chatData(chatId);
+      return isAdmin() || (data.get('isGroup', false) == true
+        && canModerateCommunityGroup(data));
+    }
+
+    function canModerateCommunityGroup(data) {
+      return isAdmin() || (data.keys().hasAny(['countryCode']) && canModerateCommunity(data));
+    }
+
     function isVerifiedOrStaff() {
       return isActiveUser()
         && (
@@ -543,6 +632,7 @@ service cloud.firestore {
           'reportedName',
           'reportedEmail',
           'reportedRole',
+          'countryCode',
           'reporterUid',
           'reporterUsername',
           'reporterName',
@@ -553,6 +643,7 @@ service cloud.firestore {
           'createdAtMillis',
           'updatedAt'
         ])
+        && request.resource.data.get('countryCode', '') == profileCountryCode(userDoc(request.resource.data.reportedUid).data)
         && request.resource.data.reporterUid == currentUid()
         && request.resource.data.reportedUid is string
         && request.resource.data.reportedUid.size() > 0
@@ -590,7 +681,8 @@ service cloud.firestore {
     }
 
     function userReportIdentityUnchanged() {
-      return request.resource.data.reportedUid == resource.data.reportedUid
+      return request.resource.data.get('countryCode', '') == resource.data.get('countryCode', '')
+        && request.resource.data.reportedUid == resource.data.reportedUid
         && request.resource.data.reportedUsername == resource.data.reportedUsername
         && request.resource.data.reportedName == resource.data.reportedName
         && request.resource.data.reportedEmail == resource.data.reportedEmail
@@ -606,6 +698,12 @@ service cloud.firestore {
 
     function moderatorCanUpdateUser() {
       return isModerator()
+        && canModerateCountry(profileCountryCode(resource.data))
+        // Bans must use the backend, which atomically notifies administrators.
+        && (request.resource.data.get('banned', false) != true
+          || !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+            'banned', 'bannedUntil', 'banReason', 'bannedByUid', 'bannedBy', 'bannedAt'
+          ]))
         && resource.data.get('role', 'user') == 'user'
         && request.resource.data.get('role', 'user')
           == resource.data.get('role', 'user')
@@ -629,6 +727,7 @@ service cloud.firestore {
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           'banned',
           'bannedUntil',
+          'knownDeviceIdsAtBan',
           'banReason',
           'bannedByUid',
           'bannedBy',
@@ -647,7 +746,7 @@ service cloud.firestore {
     function canReadSpot() {
       return isActiveUser()
         && (
-          isStaff()
+          isAdmin()
           || moderatorCanManageExistingSpot()
           || resource.data.addedByUid == currentUid()
           || (
@@ -795,7 +894,7 @@ service cloud.firestore {
     function policeReportRemovalAllowed() {
       return request.resource.data.status != 'removed'
         || resource.data.uid == currentUid()
-        || isStaff()
+        || canModerateRecord(resource.data)
         || (
           currentUid() in request.resource.data.notThereBy
           && request.resource.data.notThereBy.size() >= 3
@@ -929,11 +1028,13 @@ service cloud.firestore {
     }
 
     function canManageChat(chatId) {
-      return isChatOwner(chatId) || isChatModerator(chatId) || isStaff();
+      return (!isModerator() || canModerateGroup(chatId))
+        && (isChatOwner(chatId) || isChatModerator(chatId) || canModerateGroup(chatId));
     }
 
     function canOverridePrivateGroup(chatId) {
-      return isChatOwner(chatId) || isStaff() || isGlobalModerator();
+      return (!isModerator() || canModerateGroup(chatId))
+        && (isChatOwner(chatId) || canModerateGroup(chatId));
     }
 
     function canManageChatMembers(chatId) {
@@ -984,8 +1085,7 @@ service cloud.firestore {
     }
 
     function canManageForumTopic(topicId) {
-      return isStaff()
-        || isGlobalModerator()
+      return canModerateCommunity(forumTopicData(topicId))
         || (
           isActiveUser()
           && forumTopicData(topicId).authorId == currentUid()
@@ -1077,7 +1177,7 @@ service cloud.firestore {
 
     function managedGroupChatUpdateAllowed(chatId) {
       let ownerUid = chatOwnerUid(chatId);
-      return (canManageChat(chatId) || isGlobalModerator())
+      return (canManageChat(chatId) || canModerateGroup(chatId))
         && resource.data.get('isGroup', false) == true
         && request.resource.data.get('isGroup', false) == true
         && request.resource.data.get('ownerUid', ownerUid) == ownerUid
@@ -1357,6 +1457,7 @@ service cloud.firestore {
           'body',
           'actorUserId',
           'actorUsername',
+          'countryCode',
           'reportedUid',
           'reportedUsername',
           'reportId',
@@ -1366,8 +1467,10 @@ service cloud.firestore {
           'createdAtMillis'
         ])
         && data.userId is string
-        && isStaffUid(data.userId)
+        && (isAdminUid(data.userId) || isRegionalModeratorForCountryUid(
+          data.userId, profileCountryCode(userDoc(data.reportedUid).data)))
         && data.userId != currentUid()
+        && data.get('countryCode', '') == profileCountryCode(userDoc(data.reportedUid).data)
         && data.type == 'user_report_new'
         && data.title is string
         && data.title.size() >= 1
@@ -1408,7 +1511,12 @@ service cloud.firestore {
         && data.body is string
         && data.read == false
         && (
-          isStaff()
+          isAdmin()
+          || (data.type == 'forum_reviewed' && data.topicId is string
+            && canModerateCommunity(forumTopicData(data.topicId))
+            && data.userId == forumTopicData(data.topicId).authorId)
+          || (data.get('spotId', '') != ''
+            && canModerateRecord(get(/databases/$(database)/documents/spots/$(data.spotId)).data))
           || validSpotLikeNotification()
           || validSpotCommentNotification()
           || validSpotPendingReviewNotification()
@@ -1597,12 +1705,12 @@ service cloud.firestore {
       allow create, update: if isOwner(userId)
         && isActiveUser()
         && validUserPresence(userId);
-      allow delete: if isOwner(userId) || isStaff();
+      allow delete: if isOwner(userId) || canModerateUser(userId);
     }
 
     match /xp_user_stats/{userId} {
       allow read: if isActiveUser()
-        && (userId == currentUid() || isStaff());
+        && (userId == currentUid() || canModerateUser(userId));
       allow create, update, delete: if false;
     }
 
@@ -1622,13 +1730,13 @@ service cloud.firestore {
 
     match /xp_transactions/{transactionId} {
       allow read: if isActiveUser()
-        && (resource.data.userId == currentUid() || isStaff());
+        && (resource.data.userId == currentUid() || canModerateUser(resource.data.userId));
       allow create, update, delete: if false;
     }
 
     match /xp_user_weeks/{weekId} {
       allow read: if isActiveUser()
-        && (resource.data.userId == currentUid() || isStaff());
+        && (resource.data.userId == currentUid() || canModerateUser(resource.data.userId));
       allow create, update, delete: if false;
     }
 
@@ -1636,8 +1744,8 @@ service cloud.firestore {
       // A signed-in app instance may directly check its own generated device-ban document.
       // Listing is staff-only so users cannot browse banned devices.
       allow get: if isSignedIn();
-      allow list: if isStaff();
-      allow create, update: if isStaff()
+      allow list: if isAdmin();
+      allow create, update: if isAdmin()
         && request.resource.data.keys().hasOnly([
           'deviceId',
           'userId',
@@ -1656,7 +1764,14 @@ service cloud.firestore {
         && request.resource.data.deviceId.size() >= 8
         && request.resource.data.deviceId.size() <= 128
         && request.resource.data.get('banned', true) == true;
-      allow delete: if isStaff();
+      allow update: if (isAdmin() || canModerateUser(resource.data.get('userId', resource.data.get('sourceUserUid', ''))))
+        && request.resource.data.get('userId', '') == resource.data.get('userId', '')
+        && request.resource.data.get('sourceUserUid', '') == resource.data.get('sourceUserUid', '')
+        && request.resource.data.banned == false
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'banned', 'unbannedByUid', 'unbannedBy', 'unbannedAt', 'updatedAt'
+        ]);
+      allow delete: if isAdmin() || canModerateUser(resource.data.get('userId', resource.data.get('sourceUserUid', '')));
     }
 
     match /usernames/{usernameKey} {
@@ -1742,7 +1857,7 @@ service cloud.firestore {
     function staffCanTransferSpotOwnership(spotId) {
       let targetUid = request.resource.data.get('addedByUid', '');
       let target = /databases/$(database)/documents/users/$(targetUid);
-      return isActiveUser() && isStaff()
+      return isActiveUser() && (isAdmin() || moderatorCanManageExistingSpot())
         && !spotReviewLocked(spotId)
         && targetUid is string && targetUid.size() > 0
         && exists(target)
@@ -1808,7 +1923,7 @@ service cloud.firestore {
           'updatedAt'
         ]);
       allow delete: if isActiveUser()
-        && (resource.data.userId == currentUid() || isStaff());
+        && (resource.data.userId == currentUid() || canModerateRecord(get(/databases/$(database)/documents/spots/$(resource.data.spotId)).data));
     }
 
     match /spot_comment_daily_counts/{countId} {
@@ -1851,7 +1966,7 @@ service cloud.firestore {
         && request.resource.data.get('targetType', 'spot') == 'spot'
         && request.resource.data.get('spotId', '') != '';
       allow delete: if isActiveUser()
-        && (resource.data.userId == currentUid() || isStaff());
+        && (resource.data.userId == currentUid() || canModerateRecord(get(/databases/$(database)/documents/spots/$(resource.data.spotId)).data));
       allow update: if false;
     }
 
@@ -1888,7 +2003,7 @@ service cloud.firestore {
         && (
           !request.resource.data.keys().hasAny(['removedByUid'])
           || request.resource.data.removedByUid == currentUid()
-          || isStaff()
+          || canModerateRecord(resource.data)
         )
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           'stillThereBy',
@@ -1898,7 +2013,7 @@ service cloud.firestore {
           'removedByUid',
           'removedAt'
         ]);
-      allow delete: if isStaff();
+      allow delete: if canModerateRecord(resource.data);
     }
 
     match /sos_reports/{reportId} {
@@ -1907,7 +2022,7 @@ service cloud.firestore {
       allow update: if ownerCanRestartSos(reportId)
         || (
           isActiveUser()
-          && (resource.data.uid == currentUid() || isStaff())
+          && (resource.data.uid == currentUid() || canModerateRecord(resource.data))
           && resource.data.status == 'active'
           && request.resource.data.uid == resource.data.uid
           && request.resource.data.username == resource.data.username
@@ -1929,17 +2044,17 @@ service cloud.firestore {
           && (
             !request.resource.data.keys().hasAny(['removedByUid'])
             || request.resource.data.removedByUid == currentUid()
-            || isStaff()
+            || canModerateRecord(resource.data)
           )
         );
-      allow delete: if isStaff();
+      allow delete: if canModerateRecord(resource.data);
     }
 
     match /live_locations/{userId} {
       allow read: if isActiveUser()
         && (
           userId == currentUid()
-          || isStaff()
+          || canModerateUser(userId)
           || currentUid() in resource.data.visibleToUserIds
           || '__public__' in resource.data.visibleToUserIds
         );
@@ -1954,13 +2069,13 @@ service cloud.firestore {
         && request.resource.data.visibleToUserIds is list
         && currentUid() in request.resource.data.visibleToUserIds
         && request.resource.data.expiresAt is timestamp;
-      allow delete: if isOwner(userId) || isStaff();
+      allow delete: if isOwner(userId) || canModerateUser(userId);
     }
 
     match /meet_notifications/{notificationId} {
       allow read: if isActiveUser()
         && resource.data.userId == currentUid();
-      allow create: if isStaff()
+      allow create: if canModerateRecord(get(/databases/$(database)/documents/spots/$(request.resource.data.spotId)).data)
         && request.resource.data.userId is string
         && request.resource.data.spotId is string
         && request.resource.data.spotName is string
@@ -1973,7 +2088,7 @@ service cloud.firestore {
           'read',
           'readAt'
         ]);
-      allow delete: if isStaff()
+      allow delete: if isAdmin()
         || (isActiveUser() && resource.data.userId == currentUid());
     }
 
@@ -1990,13 +2105,13 @@ service cloud.firestore {
                 isAdminUid(request.resource.data.userId)
                 || isRegionalModeratorForCountryUid(
                   request.resource.data.userId,
-                  request.resource.data.get('countryCode', '')
+                  get(/databases/$(database)/documents/spots/$(request.resource.data.spotId)).data.get('countryCode', '')
                 )
               )
             )
             || (
               request.resource.data.type != 'spot_pending_review'
-              && isStaffUid(request.resource.data.userId)
+              && isAdminUid(request.resource.data.userId)
             )
           )
           && request.resource.data.type is string
@@ -2004,7 +2119,9 @@ service cloud.firestore {
           && request.resource.data.spotName is string
           && request.resource.data.read == false
           && (
-            isStaff()
+            isAdmin()
+            || (request.resource.data.type == 'spot_removal_request'
+              && canModerateRecord(get(/databases/$(database)/documents/spots/$(request.resource.data.spotId)).data))
             || (
               request.resource.data.type == 'spot_pending_review'
               && request.resource.data.addedByUid == currentUid()
@@ -2019,7 +2136,7 @@ service cloud.firestore {
           'read',
           'readAt'
         ]);
-      allow delete: if isStaff()
+      allow delete: if isAdmin()
         || (isActiveUser() && resource.data.userId == currentUid());
     }
 
@@ -2039,7 +2156,7 @@ service cloud.firestore {
         isActiveUser()
         && validFriendLocationNotificationRefresh()
       );
-      allow delete: if isStaff()
+      allow delete: if isAdmin()
         || (isActiveUser() && resource.data.userId == currentUid());
     }
 
@@ -2079,7 +2196,7 @@ service cloud.firestore {
           'createdAt',
           'updatedAt'
         ]);
-      allow delete: if isStaff()
+      allow delete: if isAdmin()
         || (isActiveUser() && resource.data.userId == currentUid());
     }
 
@@ -2105,13 +2222,13 @@ service cloud.firestore {
             resource.data.toUid == currentUid()
             && request.resource.data.status in ['accepted', 'declined']
           )
-          || isStaff()
+          || isAdmin()
         );
       allow delete: if isActiveUser()
         && (
           resource.data.fromUid == currentUid()
           || resource.data.toUid == currentUid()
-          || isStaff()
+          || isAdmin()
         );
     }
 
@@ -2175,7 +2292,7 @@ service cloud.firestore {
         && (
           !chatExists(chatId)
           || currentUid() in resource.data.memberIds
-          || (resource.data.get('isGroup', false) == true && isGlobalModerator())
+          || (resource.data.get('isGroup', false) == true && canModerateGroup(chatId))
         );
       allow list: if isSignedIn()
         && currentUid() in resource.data.memberIds;
@@ -2222,14 +2339,15 @@ service cloud.firestore {
           )
           || (
             resource.data.get('isGroup', false) == true
-            && (isStaff() || isGlobalModerator())
+            && canModerateGroup(chatId)
             && managedGroupChatUpdateAllowed(chatId)
           )
         );
-      allow delete: if isStaff()
+      allow delete: if canModerateGroup(chatId)
         || (
           isSignedIn()
           && resource.data.get('isGroup', false) == true
+          && (!isModerator() || canModerateGroup(chatId))
           && currentUid() == resource.data.get(
             'ownerUid',
             resource.data.memberIds[0]
@@ -2242,7 +2360,7 @@ service cloud.firestore {
 
       match /messages/{messageId} {
         allow read: if isChatMember(chatId)
-          || (chatData(chatId).get('isGroup', false) == true && isGlobalModerator());
+          || (chatData(chatId).get('isGroup', false) == true && canModerateGroup(chatId));
         allow create: if isChatMember(chatId)
           && !directChatBlocked(chatId)
           && request.resource.data.senderUid == currentUid()
@@ -2285,7 +2403,7 @@ service cloud.firestore {
         allow delete: if (
           isChatMember(chatId)
           && resource.data.senderUid == currentUid()
-        ) || canManageChat(chatId) || isGlobalModerator();
+        ) || canManageChat(chatId) || canModerateGroup(chatId);
       }
     }
 
@@ -2372,7 +2490,7 @@ service cloud.firestore {
             && request.resource.data.updatedAt == request.time
           )
         );
-      allow delete: if isGlobalModerator()
+      allow delete: if canModerateCommunity(resource.data)
         || (
           isActiveUser()
           && resource.data.userId == currentUid()
@@ -2381,11 +2499,11 @@ service cloud.firestore {
 
 
     match /user_reports/{reportId} {
-      allow read: if isStaff();
+      allow read: if canModerateRecord(resource.data);
 
       allow create: if validNewUserReport();
 
-      allow update: if isStaff()
+      allow update: if canModerateUser(resource.data.reportedUid)
         && userReportIdentityUnchanged()
         && request.resource.data.status in ['open', 'reviewed', 'resolved']
         && request.resource.data.get('reviewedByUid', currentUid()) == currentUid()
@@ -2401,11 +2519,11 @@ service cloud.firestore {
           'updatedAt'
         ]);
 
-      allow delete: if isStaff();
+      allow delete: if canModerateUser(resource.data.reportedUid);
     }
 
     match /moderation_logs/{logId} {
-      allow read: if isStaff();
+      allow read: if canModerateRecord(resource.data);
       allow create, update, delete: if false;
     }
 
@@ -2505,7 +2623,7 @@ service cloud.firestore {
             && request.resource.data.reviewedAt == null
           )
           || (
-            (isStaff() || validTemporarySpotAutoForumTopicCreate(topicId))
+            (canModerateCommunity(request.resource.data) || validTemporarySpotAutoForumTopicCreate(topicId))
             && request.resource.data.status == 'approved'
             && request.resource.data.rejectionReason == null
             && request.resource.data.reviewedBy == currentUid()
@@ -2527,8 +2645,7 @@ service cloud.firestore {
             == resource.data.get('country', '')
         )
         && (
-          isStaff()
-          || isGlobalModerator()
+          canModerateCommunity(resource.data)
           || validForumReplyCounterIncrement()
           || validForumReplyCounterDecrement()
           || (
@@ -2546,8 +2663,7 @@ service cloud.firestore {
           )
         );
 
-      allow delete: if isStaff()
-        || isGlobalModerator()
+      allow delete: if canModerateCommunity(resource.data)
         || (
           isActiveUser()
           && resource.data.authorId == currentUid()
@@ -2604,17 +2720,17 @@ service cloud.firestore {
           && request.resource.data.timestamp == request.time;
 
         allow update: if messageReactionUpdateOnly()
-          || isStaff()
-          || isGlobalModerator()
-          || forumTopicData(topicId).authorId == currentUid()
+          || canModerateCommunity(forumTopicData(topicId))
+          || (forumTopicData(topicId).authorId == currentUid()
+            && (!isModerator() || canModerateCommunity(forumTopicData(topicId))))
           || (
             isActiveUser()
             && resource.data.userId == currentUid()
           );
 
-        allow delete: if isStaff()
-          || isGlobalModerator()
-          || forumTopicData(topicId).authorId == currentUid()
+        allow delete: if canModerateCommunity(forumTopicData(topicId))
+          || (forumTopicData(topicId).authorId == currentUid()
+            && (!isModerator() || canModerateCommunity(forumTopicData(topicId))))
           || (
             isActiveUser()
             && resource.data.userId == currentUid()
