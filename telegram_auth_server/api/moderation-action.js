@@ -1,5 +1,6 @@
 const { admin, db } = require('../lib/firebase-admin');
 const { spotReviewAction } = require('../lib/spot-review');
+const { forumReviewAction } = require('../lib/forum-review');
 const { banUserAction } = require('../lib/user-ban');
 const { canModerateCountry, communityCountry } = require('../lib/regional-moderation');
 
@@ -518,6 +519,7 @@ async function deleteForumReply({ actor, body }) {
 const handlers = {
   ban_user: banUserAction,
   spot_review: spotReviewAction,
+  forum_review: forumReviewAction,
   set_chat_moderator: setChatModerator,
   remove_chat_member: removeChatMember,
   add_chat_members: addChatMembers,

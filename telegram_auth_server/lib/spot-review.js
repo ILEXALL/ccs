@@ -75,6 +75,29 @@ async function spotReviewAction({ actor, body }) {
     if (!['pending', 'edited', 'rejected'].includes(spot.status)) {
       throw new Error('Spot is no longer awaiting this review');
     }
+    if (spot.visibility === 'group') {
+      const topicRef = db.collection('forum_topics').doc(`temporary_spot_${spotId}`);
+      const topicSnapshot = await transaction.get(topicRef);
+      transaction.set(topicRef, {
+        ...(!topicSnapshot.exists ? {
+          title: spot.name, description: spot.description || 'Group event', category: 'Meets & Events', categoryId: 'meets_events',
+          authorId: spot.addedByUid, authorName: spot.addedBy, avatarUrl: spot.photoUrl || '',
+          repliesCount: 0, isPinned: false, source: 'temporary_spot', isSpotTopic: true,
+          spotId, temporarySpotId: spotId, createdAt: admin.firestore.FieldValue.serverTimestamp(),
+          lastReplyAt: admin.firestore.FieldValue.serverTimestamp(),
+        } : {}),
+        visibility: 'group', sharedGroupIds: spot.sharedGroupIds, sharedGroups: spot.sharedGroups || [],
+        countryCode: spot.countryCode, temporarySpotStartsAt: spot.startsAt,
+        temporarySpotExpiresAt: spot.expiresAt, autoExpiresAt: spot.expiresAt,
+        status, rejectionReason: reason, reviewedBy: actor.uid,
+        reviewedAt: admin.firestore.FieldValue.serverTimestamp(),
+      }, { merge: true });
+      for (const groupId of spot.sharedGroupIds) {
+        transaction.set(db.collection('chats').doc(groupId).collection('spot_links').doc(spotId), {
+          spotId, authorUid: spot.addedByUid, published: status === 'approved',
+        });
+      }
+    }
     transaction.update(spotRef, {
       status, rejectionReason: reason,
       reviewedBy: text(user.username), reviewedByUid: actor.uid,

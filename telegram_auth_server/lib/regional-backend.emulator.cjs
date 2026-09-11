@@ -87,3 +87,18 @@ test('global clear only touches the chosen assigned country',async()=>{
   assert.equal((await db.doc('global_chat/clearEE').get()).exists,false);
   assert.equal((await db.doc('global_chat/clearLV').get()).exists,true);
 });
+
+test('group spot approval publishes forum and group links in the same transaction', async()=>{
+  await db.doc('users/groupReviewer').set({role:'admin',username:'Reviewer',banned:false,deleted:false});
+  const spotId='groupApproval'+Date.now();
+  await db.doc('spots/'+spotId).set({visibility:'group',sharedGroupIds:['approvalGroup'],sharedGroups:[{id:'approvalGroup',name:'Private group',avatarUrl:''}],name:'Group event',description:'Private event',photoUrl:'',addedByUid:'creator',addedBy:'Creator',countryCode:'LV',status:'pending',isTemporary:true,startsAt:admin.firestore.Timestamp.fromMillis(Date.now()+3600000),expiresAt:admin.firestore.Timestamp.fromMillis(Date.now()+7200000)});
+  const args={actor:{uid:'groupReviewer'},body:{spotId,sessionId:'group_review_session_123',operation:'acquire'}};
+  await actions.spot_review(args);
+  await actions.spot_review({...args,body:{...args.body,operation:'decide',status:'approved'}});
+  const spot=(await db.doc('spots/'+spotId).get()).data();
+  const topic=(await db.doc('forum_topics/temporary_spot_'+spotId).get()).data();
+  const link=(await db.doc('chats/approvalGroup/spot_links/'+spotId).get()).data();
+  assert.equal(spot.status,'approved');assert.equal(topic.status,'approved');
+  assert.equal(topic.visibility,'group');assert.deepEqual(topic.sharedGroupIds,['approvalGroup']);
+  assert.equal(link.published,true);assert.equal(link.spotId,spotId);
+});

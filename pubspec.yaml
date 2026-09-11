@@ -48,6 +48,7 @@ flutter:
   uses-material-design: true
 
   assets:
+    - assets/country_outlines.json
     - assets/bg.png
     - assets/bg_map.png
     - assets/spot_icons/

@@ -1,6 +1,15 @@
 import crypto from 'node:crypto';
 import admin from 'firebase-admin';
 
+function groupSpot(spot) { return spot && spot.visibility === 'group'; }
+async function groupSpotMemberIds(spot) {
+  if (!groupSpot(spot)) return null;
+  const ids = Array.isArray(spot.sharedGroupIds) ? [...new Set(spot.sharedGroupIds)] : [];
+  if (!ids.length || ids.length > 8 || ids.some(id => typeof id !== 'string' || !id || id.includes('/'))) return [];
+  const groups = await Promise.all(ids.map(id => db.collection('chats').doc(id).get()));
+  return [...new Set(groups.flatMap(doc => doc.exists && doc.data().isGroup === true ? doc.data().memberIds || [] : []))];
+}
+
 function serviceAccountFromEnvironment() {
   const rawJson = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
 
@@ -284,6 +293,20 @@ async function sendPushToUser({
     return 0;
   }
 
+  if (data.topicId) {
+    const topicDoc = await db.collection('forum_topics').doc(data.topicId).get();
+    if (topicDoc.exists && groupSpot(topicDoc.data())) {
+      const members = await groupSpotMemberIds(topicDoc.data());
+      if (!members.includes(userId) && notificationCollection !== 'admin_notifications') return 0;
+    }
+  }
+  if (data.spotId) {
+    const source = await db.collection('spots').doc(data.spotId).get();
+    if (source.exists && groupSpot(source.data())) {
+      const members = await groupSpotMemberIds(source.data());
+      if (!members.includes(userId) && notificationCollection !== 'admin_notifications') return 0;
+    }
+  }
   const userRef = db.collection('users').doc(userId);
   const userSnapshot = await userRef.get();
 
@@ -524,6 +547,15 @@ async function notifyUsersAboutNewSpot({
   deliveryKey,
   notificationType = 'new_spot',
 }) {
+  if (groupSpot(spot)) {
+    const members = await groupSpotMemberIds(spot);
+    return Promise.all(members.map(userId => sendPushToUser({
+      userId, settingName: 'newSpotNotifications', deliveryKey: `spot_publication:${spotId}`,
+      notificationId: `temporary_event_${spotId}_${userId}`, pushEnabled: true,
+      title: 'New group event', body: `${cleanText(spot.name, 'Group event')} was published for your group.`,
+      data: { type: 'temporary_event', spotId },
+    })));
+  }
   const ownerUid = spotNotificationOwnerUid(spot);
   const spotName = cleanText(spot.name, 'New car spot');
   const cityCountry = cleanText(spot.cityCountry);
@@ -1161,8 +1193,8 @@ let presenceSpotsCacheUntil = 0;
 async function presenceSpots() {
   if (presenceSpotsCache && Date.now() < presenceSpotsCacheUntil) return presenceSpotsCache;
   const snapshot = await db.collection('spots').where('status', '==', 'approved')
-    .select('name', 'coordinates', 'lat', 'lng', 'status', 'isTemporary', 'expiresAt').get();
-  presenceSpotsCache = snapshot.docs.map(doc => ({...doc.data(), id: doc.id}));
+    .select('name', 'coordinates', 'lat', 'lng', 'status', 'isTemporary', 'expiresAt', 'visibility').get();
+  presenceSpotsCache = snapshot.docs.filter(doc => doc.data().visibility !== 'group').map(doc => ({...doc.data(), id: doc.id}));
   presenceSpotsCacheUntil = Date.now() + 60 * 1000;
   return presenceSpotsCache;
 }
@@ -1477,7 +1509,7 @@ async function handleForumTopicCreated(userId, payload) {
   if (!topicId || topicId.includes('/')) return [];
   const snapshot = await db.collection('forum_topics').doc(topicId).get();
   const topic = snapshot.data();
-  if (!topic || topic.status !== 'approved') return [];
+  if (!topic || topic.status !== 'approved' || groupSpot(topic)) return [];
   const authorId = cleanText(topic.authorId);
   if (userId !== authorId) {
     const actor = (await db.collection('users').doc(userId).get()).data() || {};
@@ -1542,7 +1574,7 @@ async function handleForumReply(userId, payload) {
       (recipientUserId) => recipientUserId && recipientUserId !== userId,
     ),
   );
-  const recipientUserIds = await communityRecipientIds(
+  const recipientUserIds = groupSpot(topic) ? (await groupSpotMemberIds(topic)).filter(uid => uid !== userId) : await communityRecipientIds(
     userId,
     {...payload, audience: 'all_users'},
     [...targetedRecipientIds],
@@ -1576,7 +1608,7 @@ async function handleForumReply(userId, payload) {
         // Regional filtering applies to the general audience. Topic authors
         // and directly replied-to participants must still receive replies
         // while taking part in another country's forum.
-        communityCountry: targetedRecipientIds.has(recipientUserId)
+        communityCountry: groupSpot(topic) || targetedRecipientIds.has(recipientUserId)
           ? ''
           : communityCountry,
         deliveryKey: `forum_reply:${topicId}:${messageId}`,

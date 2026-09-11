@@ -51,7 +51,7 @@ function fixture(sourcePath) {
   async function publish(id,temporary=false,type=temporary?'temporary_event':'new_spot') {
     return context.exports.publish({spotId:id,spot:{name:id,cityCountry:'Riga, Latvia',addedByUid:'owner',isTemporary:temporary},notificationType:type,deliveryKey:'caller-supplied:'+id});
   }
-  return {...context.exports,publish,pushes,records,advance:ms=>{now+=ms;},bells:()=>[...records.keys()].filter(p=>p.startsWith('user_notifications/')).length};
+  return {...context.exports,publishSpot:context.exports.publish,publish,pushes,records,advance:ms=>{now+=ms;},bells:()=>[...records.keys()].filter(p=>p.startsWith('user_notifications/')).length};
 }
 
 
@@ -124,5 +124,38 @@ for (const source of ['../api/push-notification.js','../../api/push-notification
     for(let i=0;i<505;i++) f.records.set('users/extra'+i,{fcmTokens:['extra'+i]});
     await f.topic('owner',payload);
     assert.equal(f.bells(),509);
+  });
+}
+
+for(const source of ['../api/push-notification.js','../../api/push-notification.js']) {
+  test(`${source}: group publication is member-only, deduplicated and ignores public country filters`, async()=>{
+    const f=fixture(path.resolve(__dirname,source));
+    f.records.set('users/foreign',{country:'Estonia',fcmTokens:['foreign-token']});
+    f.records.set('chats/a',{isGroup:true,memberIds:['owner','alice','foreign']});
+    f.records.set('chats/b',{isGroup:true,memberIds:['alice']});
+    const spot={visibility:'group',sharedGroupIds:['a','b'],isTemporary:true,status:'approved',addedByUid:'owner',name:'Secret',cityCountry:'Riga, Latvia'};
+    f.records.set('spots/private',spot);
+    await f.publishSpot({spotId:'private',spot});
+    assert.equal(f.bells(),3);assert.equal(f.pushes.length,3);
+    assert(!f.records.has('user_notifications/temporary_event_private_bob'));
+    await f.publishSpot({spotId:'private',spot});assert.equal(f.pushes.length,3);
+    f.records.set('chats/a',{isGroup:true,memberIds:['owner']});
+    f.records.set('chats/b',{isGroup:true,memberIds:[]});
+    f.records.set('spots/private2',spot);await f.publishSpot({spotId:'private2',spot});
+    assert.equal(f.pushes.length,4);
+  });
+}
+
+for(const source of ['../api/push-notification.js','../../api/push-notification.js']) {
+  test(`${source}: private forum replies reach only members, including foreign-country members`,async()=>{
+    const f=fixture(path.resolve(__dirname,source));
+    f.records.set('users/foreign',{country:'Estonia',fcmTokens:['foreign-token']});
+    f.records.set('chats/g',{isGroup:true,memberIds:['owner','alice','foreign']});
+    f.records.set('forum_topics/private',{visibility:'group',sharedGroupIds:['g'],status:'approved',authorId:'owner',countryCode:'LV',title:'Private'});
+    f.records.set('forum_topics/private/replies/r',{userId:'alice',text:'Hello',username:'alice'});
+    await f.reply('alice',{topicId:'private',messageId:'r'});
+    assert.equal(f.bells(),2);assert.equal(f.pushes.length,1);
+    assert.deepEqual(Array.from(f.pushes[0].tokens),['owner-token']);
+    assert(![...f.records.entries()].some(([key,value])=>key.startsWith('user_notifications/')&&value.userId==='bob'));
   });
 }

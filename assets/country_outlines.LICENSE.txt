@@ -1,0 +1,5 @@
+Natural Earth 1:50m Admin 0 Countries, public domain.
+Source: https://github.com/nvkelso/natural-earth-vector/blob/master/geojson/ne_50m_admin_0_countries.geojson
+https://www.naturalearthdata.com/about/terms-of-use/
+Geometry rounded to four decimal places; all other properties except country code removed.
+Generalized outlines for visual guidance, not pin validation.

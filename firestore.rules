@@ -121,6 +121,25 @@ service cloud.firestore {
         && currentUserCountryMatchesCode('LV');
     }
 
+    function spotCreationRegionAllowed(data) {
+      let config = get(/databases/$(database)/documents/app_config/main).data;
+      let code = data.get('countryCode', '');
+      let country = currentUserData().get('country', '');
+      return validCommunityCountryCode(code) && (config == null || (
+        !(code in config.get('bannedCountryCodes', []))
+        && !(code.lower() in config.get('bannedCountryKeys', []))
+        && !(country.lower() in config.get('bannedCountryKeys', []))));
+    }
+
+    function spotRegionAllowed(data) {
+      let code = data.get('countryCode', '');
+      let configPath = /databases/$(database)/documents/app_config/main;
+      return validCommunityCountryCode(code)
+        && (!exists(configPath)
+          || (!(code in get(configPath).data.get('bannedCountryCodes', []))
+            && !(code.lower() in get(configPath).data.get('bannedCountryKeys', []))));
+    }
+
     function regionalFeaturesAllowed() {
       let configPath = /databases/$(database)/documents/app_config/main;
       let country = currentUserData().get('country', '');
@@ -743,8 +762,74 @@ service cloud.firestore {
         ]);
     }
 
+    function spotGroupMember(groupId, uid) {
+      let group = get(/databases/$(database)/documents/chats/$(groupId)).data;
+      return groupId is string && group.get('isGroup', false)
+        && uid in group.get('memberIds', []);
+    }
+
+    function hasSpotGroupAccess(data, uid) {
+      let ids = data.get('sharedGroupIds', []);
+      return ids is list && ids.size() > 0 && ids.size() <= 8 && (
+        spotGroupMember(ids[0], uid)
+        || (ids.size() > 1 && spotGroupMember(ids[1], uid))
+        || (ids.size() > 2 && spotGroupMember(ids[2], uid))
+        || (ids.size() > 3 && spotGroupMember(ids[3], uid))
+        || (ids.size() > 4 && spotGroupMember(ids[4], uid))
+        || (ids.size() > 5 && spotGroupMember(ids[5], uid))
+        || (ids.size() > 6 && spotGroupMember(ids[6], uid))
+        || (ids.size() > 7 && spotGroupMember(ids[7], uid)));
+    }
+
+    function spotAudienceAllowed(data) {
+      return data.get('visibility', 'public') == 'public'
+        || isAdmin() || canModerateRecord(data) || hasSpotGroupAccess(data, currentUid());
+    }
+
+    function validSpotAudience(data) {
+      let ids = data.get('sharedGroupIds', []);
+      return (data.get('visibility', 'public') == 'public' && ids == [])
+        || (data.get('visibility', '') == 'group' && data.get('isTemporary', false)
+          && data.get('verifiedOnly', false) == false
+          && ids is list && ids.size() > 0 && ids.size() <= 8
+          && ids.toSet().size() == ids.size()
+          && spotGroupMember(ids[0], currentUid())
+          && (ids.size() < 2 || spotGroupMember(ids[1], currentUid()))
+          && (ids.size() < 3 || spotGroupMember(ids[2], currentUid()))
+          && (ids.size() < 4 || spotGroupMember(ids[3], currentUid()))
+          && (ids.size() < 5 || spotGroupMember(ids[4], currentUid()))
+          && (ids.size() < 6 || spotGroupMember(ids[5], currentUid()))
+          && (ids.size() < 7 || spotGroupMember(ids[6], currentUid()))
+          && (ids.size() < 8 || spotGroupMember(ids[7], currentUid())));
+    }
+
+    function readableSpotById(spotId) {
+      return spotAudienceAllowed(get(/databases/$(database)/documents/spots/$(spotId)).data);
+    }
+
+    // Client notification fan-out cannot publish a private group's content.
+    function publicClientSpotNotification(data) {
+      let id = data.get('spotId', '');
+      let topicId = data.get('topicId', '');
+      return (id == '' || get(/databases/$(database)/documents/spots/$(id)).data.get('visibility', 'public') != 'group')
+        && (topicId == '' || get(/databases/$(database)/documents/forum_topics/$(topicId)).data.get('visibility', 'public') != 'group');
+    }
+
+    match /chats/{groupId}/spot_links/{spotId} {
+      allow read: if isActiveUser() && spotGroupMember(groupId, currentUid());
+      allow create: if isActiveUser() && spotGroupMember(groupId, currentUid())
+        && request.resource.data.keys().hasOnly(['spotId', 'published', 'authorUid'])
+        && request.resource.data.authorUid == currentUid()
+        && request.resource.data.published == (getAfter(/databases/$(database)/documents/spots/$(spotId)).data.status == 'approved')
+        && request.resource.data.spotId == spotId
+        && getAfter(/databases/$(database)/documents/spots/$(spotId)).data.addedByUid == currentUid()
+        && getAfter(/databases/$(database)/documents/spots/$(spotId)).data.visibility == 'group'
+        && groupId in getAfter(/databases/$(database)/documents/spots/$(spotId)).data.sharedGroupIds;
+      allow update, delete: if false;
+    }
+
     function canReadSpot() {
-      return isActiveUser()
+      return isActiveUser() && spotAudienceAllowed(resource.data)
         && (
           isAdmin()
           || moderatorCanManageExistingSpot()
@@ -1094,17 +1179,19 @@ service cloud.firestore {
 
 
     function temporarySpotData(spotId) {
-      return get(/databases/$(database)/documents/spots/$(spotId)).data;
+      return getAfter(/databases/$(database)/documents/spots/$(spotId)).data;
     }
 
     function validTemporarySpotAutoForumTopicCreate(topicId) {
       let data = request.resource.data;
       let spot = temporarySpotData(data.spotId);
-      return data.source == 'temporary_spot'
+      return data.get('visibility', 'public') == spot.get('visibility', 'public')
+        && data.get('sharedGroupIds', []) == spot.get('sharedGroupIds', [])
+        && data.source == 'temporary_spot'
         && data.get('isSpotTopic', true) == true
         && data.spotId is string
         && data.spotId.size() >= 1
-        && exists(/databases/$(database)/documents/spots/$(data.spotId))
+        && existsAfter(/databases/$(database)/documents/spots/$(data.spotId))
         && topicId == 'temporary_spot_' + data.spotId
         && data.temporarySpotId == data.spotId
         && (
@@ -1887,9 +1974,14 @@ service cloud.firestore {
     match /spots/{spotId} {
       allow read: if canReadSpot();
       allow create: if isActiveUser()
-        && regionalFeaturesAllowed()
+        && spotCreationRegionAllowed(request.resource.data)
+        && validSpotAudience(request.resource.data)
         && validNewSpot();
-      allow update: if staffCanTransferSpotOwnership(spotId)
+      allow update: if request.resource.data.get('visibility', 'public') == resource.data.get('visibility', 'public')
+        && request.resource.data.get('sharedGroupIds', []) == resource.data.get('sharedGroupIds', [])
+        && request.resource.data.get('sharedGroups', []) == resource.data.get('sharedGroups', [])
+        && (resource.data.get('visibility', 'public') != 'group' || request.resource.data.isTemporary == true)
+        && (staffCanTransferSpotOwnership(spotId)
         || (!request.resource.data.diff(resource.data).affectedKeys().hasAny([
           'addedByUid', 'addedBy', 'ownershipTransferredFromUid',
           'previousBusinessOwnerUid', 'ownershipTransferredByUid', 'ownershipTransferredAt'
@@ -1899,15 +1991,15 @@ service cloud.firestore {
             || (spotReviewDecisionUnchanged() && spotReviewEditorAllowed(spotId))
           ))
         || (!spotReviewLocked(spotId) && (ownerCanEditSpot() || businessOwnerCanEditSpot()))
-        || signedInUserCanUpdateSpotCounters()));
+        || signedInUserCanUpdateSpotCounters())));
       allow delete: if isAdmin()
         && (!spotReviewLocked(spotId)
           || get(/databases/$(database)/documents/spot_review_locks/$(spotId)).data.reviewerUid == currentUid());
     }
 
     match /spot_reviews/{reviewId} {
-      allow read: if isActiveUser();
-      allow create: if isActiveUser()
+      allow read: if isActiveUser() && (resource.data.userId == currentUid() || readableSpotById(resource.data.spotId));
+      allow create: if isActiveUser() && readableSpotById(request.resource.data.spotId)
         && request.resource.data.userId == currentUid()
         && request.resource.data.spotId is string
         && request.resource.data.username is string
@@ -1960,8 +2052,8 @@ service cloud.firestore {
     }
 
     match /spot_likes/{likeId} {
-      allow read: if isActiveUser();
-      allow create: if isActiveUser()
+      allow read: if isActiveUser() && (resource.data.userId == currentUid() || readableSpotById(resource.data.spotId));
+      allow create: if isActiveUser() && readableSpotById(request.resource.data.spotId)
         && request.resource.data.userId == currentUid()
         && request.resource.data.get('targetType', 'spot') == 'spot'
         && request.resource.data.get('spotId', '') != '';
@@ -2143,7 +2235,7 @@ service cloud.firestore {
     match /user_notifications/{notificationId} {
       allow read: if isActiveUser()
         && resource.data.userId == currentUid();
-      allow create: if validUserNotificationCreate();
+      allow create: if publicClientSpotNotification(request.resource.data) && validUserNotificationCreate();
       allow update: if (
         isActiveUser()
         && resource.data.userId == currentUid()
@@ -2527,11 +2619,64 @@ service cloud.firestore {
       allow create, update, delete: if false;
     }
 
-    match /forum_topics/{topicId} {
-      allow read: if isActiveUser();
+    function validForumTopicPhoto(url) {
+      return url is string && url.size() <= 1200 && url.matches('https://.+');
+    }
 
-      allow create: if isActiveUser()
+    function validForumTopicPhotos(data) {
+      let photos = data.get('photoUrls', []);
+      return photos is list && photos.size() <= 4
+        && (photos.size() < 1 || validForumTopicPhoto(photos[0]))
+        && (photos.size() < 2 || validForumTopicPhoto(photos[1]))
+        && (photos.size() < 3 || validForumTopicPhoto(photos[2]))
+        && (photos.size() < 4 || validForumTopicPhoto(photos[3]));
+    }
+
+    function validGroupSpotTopic(topicId) {
+      let data = request.resource.data;
+      let spot = getAfter(/databases/$(database)/documents/spots/$(data.spotId)).data;
+      return isActiveUser() && data.get('visibility', '') == 'group'
+        && spot.get('visibility', '') == 'group'
+        && hasSpotGroupAccess(spot, currentUid())
+        && data.keys().hasOnly(['visibility','sharedGroupIds','sharedGroups','title','countryCode','authorCountryCode','country','category','description','avatarUrl','categoryId','authorId','authorName','authorRole','authorVerified','authorGlobalChatModerator','authorGlobalModerator','repliesCount','isPinned','status','rejectionReason','reviewedBy','reviewedAt','createdAt','lastReplyAt','source','isSpotTopic','spotId','temporarySpotId','temporarySpotStartsAt','temporarySpotExpiresAt','autoExpiresAt'])
+        && data.source == 'temporary_spot' && data.isSpotTopic == true
+        && topicId == 'temporary_spot_' + data.spotId && data.temporarySpotId == data.spotId
+        && spot.addedByUid == currentUid() && data.authorId == spot.addedByUid
+        && data.authorName == spot.addedBy && data.title == spot.name
+        && data.avatarUrl == spot.photoUrl && data.countryCode == spot.countryCode
+        && data.description is string && data.description.size() <= 4000
+        && data.categoryId == 'meets_events' && data.repliesCount == 0 && data.isPinned == false
+        && data.sharedGroupIds == spot.sharedGroupIds && data.sharedGroups == spot.sharedGroups
+        && spot.isTemporary == true && data.status == spot.status && data.status in ['pending','approved']
+        && data.temporarySpotStartsAt == spot.startsAt && data.temporarySpotExpiresAt == spot.expiresAt
+        && data.autoExpiresAt == spot.expiresAt && spot.expiresAt > request.time
+        && data.createdAt == request.time && data.lastReplyAt == request.time;
+    }
+
+    match /forum_review_locks/{countryCode} {
+      allow read, write: if false;
+    }
+
+    // Manual topic decisions are made atomically by the country review server.
+    // Spot-generated topics continue to mirror the canonical spot decision.
+    function forumDecisionWriteAllowed() {
+      return !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+        'status', 'reviewedBy', 'reviewedAt', 'rejectionReason', 'reviewSessionId'
+      ]) || (resource.data.get('source', '') == 'temporary_spot'
+        && canModerateCommunity(resource.data)
+        && request.resource.data.status == get(/databases/$(database)/documents/spots/$(resource.data.spotId)).data.status);
+    }
+
+    match /forum_topics/{topicId} {
+      allow read: if isActiveUser() && spotAudienceAllowed(resource.data);
+
+      allow create: if (request.resource.data.get('visibility', 'public') == 'group' && validGroupSpotTopic(topicId))
+        || (request.resource.data.get('visibility', 'public') == 'public'
+          && (request.resource.data.get('source', '') != 'temporary_spot' || getAfter(/databases/$(database)/documents/spots/$(request.resource.data.spotId)).data.get('visibility', 'public') == 'public')
+          && (isActiveUser()
+        && (request.resource.data.get('visibility', 'public') == 'public' || validTemporarySpotAutoForumTopicCreate(topicId))
         && request.resource.data.keys().hasOnly([
+          'visibility', 'sharedGroupIds', 'sharedGroups',
           'title',
           'countryCode',
           'authorCountryCode',
@@ -2539,6 +2684,7 @@ service cloud.firestore {
           'category',
           'description',
           'avatarUrl',
+          'photoUrls',
           'categoryId',
           'authorId',
           'authorName',
@@ -2580,6 +2726,7 @@ service cloud.firestore {
         && request.resource.data.description is string
         && request.resource.data.description.size() >= 1
         && request.resource.data.description.size() <= 2000
+        && validForumTopicPhotos(request.resource.data)
         && request.resource.data.avatarUrl is string
         && request.resource.data.avatarUrl.size() <= 1200
         && request.resource.data.authorName is string
@@ -2631,9 +2778,14 @@ service cloud.firestore {
           )
         )
         && request.resource.data.createdAt == request.time
-        && request.resource.data.lastReplyAt == request.time;
+        && request.resource.data.lastReplyAt == request.time));
 
-      allow update: if request.resource.data.get('countryCode', 'LV')
+      allow update: if forumDecisionWriteAllowed() && spotAudienceAllowed(resource.data)
+        && request.resource.data.get('visibility', 'public') == resource.data.get('visibility', 'public')
+        && request.resource.data.get('sharedGroupIds', []) == resource.data.get('sharedGroupIds', [])
+        && request.resource.data.get('sharedGroups', []) == resource.data.get('sharedGroups', [])
+        && validForumTopicPhotos(request.resource.data)
+        && request.resource.data.get('countryCode', 'LV')
           == resource.data.get('countryCode', 'LV')
         && request.resource.data.get(
             'authorCountryCode',
@@ -2670,9 +2822,9 @@ service cloud.firestore {
         );
 
       match /replies/{replyId} {
-        allow read: if isActiveUser();
+        allow read: if isActiveUser() && spotAudienceAllowed(forumTopicData(topicId));
 
-        allow create: if isActiveUser()
+        allow create: if isActiveUser() && spotAudienceAllowed(forumTopicData(topicId))
           && request.resource.data.userId == currentUid()
           && (
             (
