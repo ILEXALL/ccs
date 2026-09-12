@@ -216,3 +216,14 @@ test('automatic topic status can only follow the canonical spot decision', async
   const allowed=await request('forum_topics/forum_auto_guard','ee','PATCH',{status:'approved'});
   assert.equal(allowed.status,200,await allowed.text());
 });
+
+test('even admins must use coordinated backend spot deletion',async()=>{
+ await seed('spots/deleteViaServer',{visibility:'public',countryCode:'LV'});
+ const res=await request('spots/deleteViaServer','admin','DELETE');
+ assert.equal(res.status,403,await res.text());
+});
+test('direct reply links to a deleted forum topic are denied',async()=>{
+ await seed('forum_topics/deletedEvent/replies/orphan',{userId:'admin',text:'old reply'});
+ const res=await request('forum_topics/deletedEvent/replies/orphan','admin');
+ assert.equal(res.status,403,await res.text());
+});

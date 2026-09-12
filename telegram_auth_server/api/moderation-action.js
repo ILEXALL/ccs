@@ -1,3 +1,5 @@
+const {deleteSpotAction} = require('../lib/spot-delete');
+const {drainForumPublications} = require('../lib/forum-publications');
 const { admin, db } = require('../lib/firebase-admin');
 const { spotReviewAction } = require('../lib/spot-review');
 const { forumReviewAction } = require('../lib/forum-review');
@@ -517,6 +519,7 @@ async function deleteForumReply({ actor, body }) {
 }
 
 const handlers = {
+  delete_spot: deleteSpotAction,
   ban_user: banUserAction,
   spot_review: spotReviewAction,
   forum_review: forumReviewAction,
@@ -553,6 +556,15 @@ module.exports = async function handler(req, res) {
     }
 
     const result = await actionHandler({ actor, body: req.body || {} });
+    if (action === 'forum_review') {
+      try {
+        const {handleForumTopicCreated} = await import('./push-notification.js');
+        await drainForumPublications(handleForumTopicCreated);
+      } catch (error) {
+        // The decision is already committed; never report it as a failed save.
+        console.error('Forum publication retry deferred:', error.message);
+      }
+    }
     return res.status(200).json({ ok: true, ...(result || {}) });
   } catch (error) {
     return res.status(403).json({

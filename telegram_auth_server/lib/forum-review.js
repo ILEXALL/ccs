@@ -80,6 +80,11 @@ async function forumReviewAction({ actor, body }) {
       throw new Error('Topic is no longer pending review');
     }
     saveRegistry();
+    if (status === 'approved' && topic.visibility !== 'group') {
+      tx.set(db.collection('forum_publications').doc(topicId), {
+        topicId, createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+    }
     tx.update(ref, {status, rejectionReason: reason || null, reviewedBy: actor.uid,
       reviewSessionId: sessionId, reviewedAt: admin.firestore.FieldValue.serverTimestamp()});
     if (text(topic.authorId)) tx.set(db.collection('user_notifications').doc(`forum_reviewed_${topicId}`), {

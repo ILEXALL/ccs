@@ -102,3 +102,24 @@ test('group spot approval publishes forum and group links in the same transactio
   assert.equal(topic.visibility,'group');assert.deepEqual(topic.sharedGroupIds,['approvalGroup']);
   assert.equal(link.published,true);assert.equal(link.spotId,spotId);
 });
+
+test('spot deletion removes its topic and all group links atomically and is retryable', async () => {
+  const id='delete-group-event';
+  await db.doc('spots/'+id).set({visibility:'group',isTemporary:true,sharedGroupIds:['one','two']});
+  await db.doc('forum_topics/temporary_spot_'+id).set({status:'approved',visibility:'group'});
+  for(const group of ['one','two']) await db.doc(`chats/${group}/spot_links/${id}`).set({published:true});
+  const args={actor:await actor('banAdmin'),body:{spotId:id}};
+  assert.equal((await actions.delete_spot(args)).deleted,true);
+  for(const path of ['spots/'+id,'forum_topics/temporary_spot_'+id,`chats/one/spot_links/${id}`,`chats/two/spot_links/${id}`])
+    assert.equal((await db.doc(path).get()).exists,false,path);
+  assert.equal((await actions.delete_spot(args)).deleted,true);
+});
+test('spot deletion rejects moderators and preserves another reviewer lock', async () => {
+  const id='delete-locked-event';
+  await db.doc('spots/'+id).set({countryCode:'EE',visibility:'public'});
+  await assert.rejects(actions.delete_spot({actor:await actor('banMod'),body:{spotId:id}}),/Only admins/);
+  await db.doc('spot_review_locks/'+id).set({reviewerUid:'banAdminOther',reviewerUsername:'Other',expiresAt:admin.firestore.Timestamp.fromMillis(Date.now()+90000)});
+  await assert.rejects(actions.delete_spot({actor:await actor('banAdmin'),body:{spotId:id}}),/being reviewed/);
+  assert.equal((await db.doc('spots/'+id).get()).exists,true);
+  assert.equal((await actions.delete_spot({actor:await actor('banAdminOther'),body:{spotId:id}})).deleted,true);
+});

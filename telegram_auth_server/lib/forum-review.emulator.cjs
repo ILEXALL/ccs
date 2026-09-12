@@ -8,6 +8,7 @@ const call=(uid,operation,extra={})=>action({actor:{uid},body:{operation,session
 const topic=(id,code,extra={})=>db.doc('forum_topics/'+id).set({countryCode:code,status:'pending',title:id,authorId:'user',...extra});
 test.beforeEach(async()=>{
  await db.doc('forum_review_locks/sessions').delete();
+ for(const doc of (await db.collection('forum_publications').get()).docs)await doc.ref.delete();
  for(const doc of (await db.collection('forum_topics').get()).docs)await doc.ref.delete();
  for(const [uid,role,countries]of [['a','admin',[]],['b','admin',[]],['ee','moderator',['EE']],['ee2','moderator',['EE']],['lv','moderator',['LV']],['both','moderator',['EE','LV']],['user','user',['EE']]])
    await db.doc('users/'+uid).set({role,moderatorCountryCodes:countries,username:uid});
@@ -72,4 +73,52 @@ test('event topics are excluded and old country-mode clients must update',async(
  assert.equal((await call('ee2','acquire')).acquired,true);
  await assert.rejects(call('ee','decide',{topicId:'event',status:'approved'}));
  await assert.rejects(call('ee','acquire',{countryCode:'EE'}));
+});
+
+test('committed approval queues publication even when renewal fails; retry clears the job',async()=>{
+ await topic('publish','EE',{visibility:'public'});
+ await call('ee','acquire');
+ await call('ee','decide',{topicId:'publish',status:'approved'});
+ await db.doc('forum_review_locks/sessions').delete();
+ await assert.rejects(call('ee','renew'));
+ const job=db.doc('forum_publications/publish');
+ assert.equal((await job.get()).exists,true);
+ const {drainForumPublications}=require('./forum-publications');
+ let attempts=0;
+ await drainForumPublications(async()=>{attempts++;throw Error('offline');});
+ assert.equal((await job.get()).exists,true);
+ await drainForumPublications(async(uid,payload)=>{attempts++;assert.equal(uid,'user');assert.equal(payload.topicId,'publish');});
+ assert.equal((await job.get()).exists,false);
+ await drainForumPublications(async()=>{attempts++;});
+ assert.equal(attempts,2);
+});
+test('rejection never queues a publication',async()=>{
+ await topic('reject','EE');await call('ee','acquire');
+ await call('ee','decide',{topicId:'reject',status:'rejected',rejectionReason:'Duplicate'});
+ assert.equal((await db.doc('forum_publications/reject').get()).exists,false);
+});
+test('the production push module can be imported from the moderation backend',async()=>{
+ const push=await import('../api/push-notification.js');
+ assert.equal(typeof push.handleForumTopicCreated,'function');
+ // No push tokens are seeded, so this verifies wiring using the emulator only.
+ await topic('dispatch','EE',{status:'approved',visibility:'public'});
+ const results=await push.handleForumTopicCreated('user',{topicId:'dispatch'});
+ assert.ok(Array.isArray(results));
+});
+
+test('concurrent retry cannot discard another dispatch that later fails',async()=>{
+ await topic('concurrent','EE',{status:'approved',visibility:'public'});
+ const job=db.doc('forum_publications/concurrent');await job.set({topicId:'concurrent'});
+ const {drainForumPublications}=require('./forum-publications');
+ let entered, rejectDispatch;
+ const started=new Promise(resolve=>{entered=resolve;});
+ const first=drainForumPublications(async()=>{entered();await new Promise((_,reject)=>{rejectDispatch=reject;});});
+ await started;
+ let secondCalls=0;
+ await drainForumPublications(async()=>{secondCalls++;});
+ assert.equal(secondCalls,0);assert.equal((await job.get()).exists,true);
+ rejectDispatch(Error('first request lost connection'));await first;
+ assert.equal((await job.get()).exists,true);
+ await drainForumPublications(async()=>{secondCalls++;});
+ assert.equal(secondCalls,1);assert.equal((await job.get()).exists,false);
 });

@@ -1,3 +1,4 @@
+import publications from '../lib/forum-publications.js';
 import crypto from 'node:crypto';
 import admin from 'firebase-admin';
 
@@ -339,6 +340,7 @@ async function sendPushToUser({
     .collection(notificationCollection)
     .doc(cleanText(notificationId, deliveryRef.id));
 
+  try {
   await notificationRef.set(
     {
       userId,
@@ -363,7 +365,6 @@ async function sendPushToUser({
     return 0;
   }
 
-  try {
     const result = await admin.messaging().sendEachForMulticast({
       tokens,
       notification: { title, body },
@@ -1504,7 +1505,7 @@ async function handleGlobalChatMessage(userId, payload) {
   return [...results, ...broadcastResults];
 }
 
-async function handleForumTopicCreated(userId, payload) {
+export async function handleForumTopicCreated(userId, payload) {
   const topicId = cleanText(payload.topicId);
   if (!topicId || topicId.includes('/')) return [];
   const snapshot = await db.collection('forum_topics').doc(topicId).get();
@@ -1854,6 +1855,8 @@ export default async function handler(request, response) {
     }
 
     if (request.method === 'GET') {
+      await publications.drainForumPublications(handleForumTopicCreated)
+        .catch(error => console.error('Forum publication retry deferred:', error.message));
       response.status(200).json({
         status: 'ok',
         notifications: await notificationCenterItems(user.uid),

@@ -131,15 +131,6 @@ service cloud.firestore {
         && !(country.lower() in config.get('bannedCountryKeys', []))));
     }
 
-    function spotRegionAllowed(data) {
-      let code = data.get('countryCode', '');
-      let configPath = /databases/$(database)/documents/app_config/main;
-      return validCommunityCountryCode(code)
-        && (!exists(configPath)
-          || (!(code in get(configPath).data.get('bannedCountryCodes', []))
-            && !(code.lower() in get(configPath).data.get('bannedCountryKeys', []))));
-    }
-
     function regionalFeaturesAllowed() {
       let configPath = /databases/$(database)/documents/app_config/main;
       let country = currentUserData().get('country', '');
@@ -364,13 +355,6 @@ service cloud.firestore {
     function isAdminUid(userId) {
       let data = userDoc(userId).data;
       return data.get('role', 'user') == 'admin'
-        && data.get('deleted', false) != true
-        && data.get('banned', false) != true;
-    }
-
-    function isStaffUid(userId) {
-      let data = userDoc(userId).data;
-      return data.get('role', 'user') in ['admin', 'moderator']
         && data.get('deleted', false) != true
         && data.get('banned', false) != true;
     }
@@ -1167,14 +1151,6 @@ service cloud.firestore {
           'updatedAt'
         ])
         && request.resource.data.get('updatedAt', null) == request.time;
-    }
-
-    function canManageForumTopic(topicId) {
-      return canModerateCommunity(forumTopicData(topicId))
-        || (
-          isActiveUser()
-          && forumTopicData(topicId).authorId == currentUid()
-        );
     }
 
 
@@ -1992,9 +1968,8 @@ service cloud.firestore {
           ))
         || (!spotReviewLocked(spotId) && (ownerCanEditSpot() || businessOwnerCanEditSpot()))
         || signedInUserCanUpdateSpotCounters())));
-      allow delete: if isAdmin()
-        && (!spotReviewLocked(spotId)
-          || get(/databases/$(database)/documents/spot_review_locks/$(spotId)).data.reviewerUid == currentUid());
+      // The backend deletes the spot, auto topic and group links atomically.
+      allow delete: if false;
     }
 
     match /spot_reviews/{reviewId} {
@@ -2052,6 +2027,10 @@ service cloud.firestore {
     }
 
     match /spot_likes/{likeId} {
+      // A first-like transaction reads its document before creating it.
+      // Missing documents have no resource.data; only allow that absence check.
+      allow get: if isActiveUser()
+        && !exists(/databases/$(database)/documents/spot_likes/$(likeId));
       allow read: if isActiveUser() && (resource.data.userId == currentUid() || readableSpotById(resource.data.spotId));
       allow create: if isActiveUser() && readableSpotById(request.resource.data.spotId)
         && request.resource.data.userId == currentUid()
@@ -2822,7 +2801,9 @@ service cloud.firestore {
         );
 
       match /replies/{replyId} {
-        allow read: if isActiveUser() && spotAudienceAllowed(forumTopicData(topicId));
+        allow read: if isActiveUser()
+          && exists(/databases/$(database)/documents/forum_topics/$(topicId))
+          && spotAudienceAllowed(forumTopicData(topicId));
 
         allow create: if isActiveUser() && spotAudienceAllowed(forumTopicData(topicId))
           && request.resource.data.userId == currentUid()

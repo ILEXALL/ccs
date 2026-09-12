@@ -25,6 +25,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import 'firebase_options.dart';
 import 'in_app_badges.dart';
+import 'query_pages.dart';
 
 final inAppBadges = InAppBadgeController(
   FirebaseFirestore.instance,
@@ -94,7 +95,6 @@ const Duration maxTemporarySpotDuration = Duration(hours: 12);
 // TEST KILL SWITCH: disable repeating friend-location notification polling.
 // Re-enable only after Firebase reads confirm this is not the overnight drain.
 const bool friendLocationNotificationPollingEnabled = false;
-const double temporarySpotHidePermanentRadiusMeters = 500;
 const double minimumPermanentSpotDistanceMeters = 100;
 const int maxGaragePhotos = 4;
 const int r2SpotPhotoMaxLongSide = 1280;
@@ -16427,7 +16427,7 @@ void _listenToSpotQuery({
 void startApprovedSpotsLiveSync(int generation, String scope) {
   startGroupSpotSync(generation, scope);
   // No arbitrary document-ID limit: new and older verified spots must both
-  // participate in the live feed. The map still caps rendered markers.
+  // participate in the live feed and remain available to the map.
   _listenToSpotQuery(
     source: 'approved',
     query: approvedSpotsForCurrentUserQuery(),
@@ -17537,6 +17537,8 @@ Future<void> toggleSpotLike(
 
     try {
       await FirebaseFirestore.instance.runTransaction((transaction) async {
+        // Firestore can rerun this callback after a concurrent write.
+        likeDelta = 0;
         final likeSnapshot = await transaction.debugGet(likeRef);
         DocumentSnapshot<Map<String, dynamic>>? spotSnapshot;
         if (spotRef != null) {
@@ -17589,7 +17591,9 @@ Future<void> toggleSpotLike(
         writeSafeSpotLikeCount(-1, 'spot like counter safe decrement');
         likeDelta = -1;
       });
-    } catch (error) {
+    } catch (error, stack) {
+      debugPrint('Spot like save failed for $spotId: $error');
+      debugPrint('$stack');
       setCurrentUserSpotLikedLocally(spotId, currentlyLiked);
       if (context.mounted) {
         await showSpotLikeSaveErrorDialog(context);
@@ -18112,6 +18116,23 @@ List<CarSpot> approvedPublicSpots() {
       .toList();
 }
 
+// MarkerLayer culls off-screen markers. Do not drop eligible spots based on
+// distance, density, or nearby events: those cuts make live spots disappear.
+List<CarSpot> mapVisibleSpots(Iterable<CarSpot> spots) {
+  final categories = spotCategoryFilters.value;
+  if (categories.isEmpty || spotCountryFilters.value.isEmpty) return const [];
+  return spots
+      .where(
+        (spot) =>
+            spot.status == SpotStatus.approved &&
+            spotMatchesSelectedCountries(spot) &&
+            spot.categories.any(categories.contains) &&
+            spot.isVisibleOnMapNow &&
+            isValidLatLng(spot.coordinates),
+      )
+      .toList();
+}
+
 List<CarSpot> pendingReviewSpots() {
   return reviewSpots.value
       .where((spot) => spot.status == SpotStatus.pending)
@@ -18362,7 +18383,8 @@ Future<void> updateSpotStatus(
 
 Future<void> deleteSpotFromFirebase(CarSpot spot) async {
   if (spot.id.isNotEmpty) {
-    await spotsCollection().doc(spot.id).debugDelete();
+    await sendModerationAction({'action': 'delete_spot', 'spotId': spot.id});
+    forumTopicsRefreshTick.value++;
   }
 
   removeSpotFromLocalImmediateCache(spot);
@@ -26940,17 +26962,6 @@ class _MapScreenState extends State<MapScreen>
     });
   }
 
-  double get currentMapLoadRadiusMeters {
-    // Keep the candidate area continuous when crossing a zoom boundary.
-    if (currentMapZoom >= 12) {
-      return 42000 - 18000 * mapZoomOpacity(hiddenZoom: 12, visibleZoom: 14);
-    }
-    if (currentMapZoom >= 10) {
-      return 72000 - 30000 * mapZoomOpacity(hiddenZoom: 10, visibleZoom: 12);
-    }
-    return 120000 - 48000 * mapZoomOpacity(hiddenZoom: 8, visibleZoom: 10);
-  }
-
   double mapZoomOpacity({
     required double hiddenZoom,
     required double visibleZoom,
@@ -26963,94 +26974,12 @@ class _MapScreenState extends State<MapScreen>
     return progress * progress * (3 - 2 * progress);
   }
 
-  int get currentMapMarkerLimit {
-    // Retain each extra batch until its two-zoom-level fade reaches zero.
-    if (currentMapZoom > 13) return 420;
-    if (currentMapZoom > 11) return 260;
-    if (currentMapZoom > 9) return 160;
-    return 90;
-  }
-
-  double spotDensityOpacity(int index) {
-    if (index >= 260) {
-      return mapZoomOpacity(hiddenZoom: 13, visibleZoom: 15);
-    }
-    if (index >= 160) {
-      return mapZoomOpacity(hiddenZoom: 11, visibleZoom: 13);
-    }
-    if (index >= 90) {
-      return mapZoomOpacity(hiddenZoom: 9, visibleZoom: 11);
-    }
-    return 1;
-  }
-
   List<CarSpot> get visibleSpots {
     final routeSpot = routePreviewSpot;
     if (routePreviewMode && routeSpot != null) {
       return isValidLatLng(routeSpot.coordinates) ? [routeSpot] : const [];
     }
-
-    final enabledCategoryFilters = spotCategoryFilters.value;
-    final enabledCountryFilters = spotCountryFilters.value;
-
-    if (enabledCategoryFilters.isEmpty || enabledCountryFilters.isEmpty) {
-      return const [];
-    }
-
-    final candidates = <MapEntry<CarSpot, double>>[];
-    for (final spot in approvedPublicSpots()) {
-      if (spot.status != SpotStatus.approved ||
-          !spotMatchesSelectedCountries(spot) ||
-          !spot.categories.any(enabledCategoryFilters.contains) ||
-          !spot.isVisibleOnMapNow) {
-        continue;
-      }
-
-      final distance = distanceBetweenLatLngMeters(
-        currentMapCenter,
-        spot.coordinates,
-      );
-      if (distance <= currentMapLoadRadiusMeters) {
-        candidates.add(MapEntry(spot, distance));
-      }
-    }
-
-    final visibleTemporarySpots = candidates
-        .map((entry) => entry.key)
-        .where((spot) => spot.isTemporary && spot.isTemporaryMapVisibleNow)
-        .toList();
-
-    final withPermanentSpotsSuppressed = candidates.where((entry) {
-      final spot = entry.key;
-      if (spot.isTemporary) {
-        return true;
-      }
-
-      return !visibleTemporarySpots.any(
-        (temporarySpot) =>
-            distanceBetweenLatLngMeters(
-              spot.coordinates,
-              temporarySpot.coordinates,
-            ) <=
-            temporarySpotHidePermanentRadiusMeters,
-      );
-    }).toList();
-
-    withPermanentSpotsSuppressed.sort((a, b) {
-      final aTemporary = a.key.isTemporary && a.key.isTemporaryMapVisibleNow;
-      final bTemporary = b.key.isTemporary && b.key.isTemporaryMapVisibleNow;
-
-      if (aTemporary != bTemporary) {
-        return aTemporary ? -1 : 1;
-      }
-
-      return a.value.compareTo(b.value);
-    });
-
-    return withPermanentSpotsSuppressed
-        .take(currentMapMarkerLimit)
-        .map((entry) => entry.key)
-        .toList();
+    return mapVisibleSpots(approvedPublicSpots());
   }
 
   Future<void> showMapCategoryFilterSheet() async {
@@ -27262,13 +27191,6 @@ class _MapScreenState extends State<MapScreen>
 
   List<Marker> get markers {
     final showFullIcons = currentMapZoom >= fullSpotIconMinZoom;
-    final zoomOpacity = mapZoomOpacity(
-      hiddenZoom: 5,
-      visibleZoom: fullSpotIconMinZoom,
-    );
-    if (zoomOpacity == 0 && !routePreviewMode) {
-      return const <Marker>[];
-    }
     final compactZoomProgress =
         ((currentMapZoom - 3) / (fullSpotIconMinZoom - 3))
             .clamp(0.0, 1.0)
@@ -27311,21 +27233,8 @@ class _MapScreenState extends State<MapScreen>
       maxValue: 1,
     ).clamp(0.0, 1.0).toDouble();
 
-    return visibleSpots.asMap().entries.map((entry) {
-      final spot = entry.value;
-      final distance = distanceBetweenLatLngMeters(
-        currentMapCenter,
-        spot.coordinates,
-      );
-      final loadRadius = currentMapLoadRadiusMeters;
-      final edgeProgress = ((loadRadius - distance) / (loadRadius * 0.2))
-          .clamp(0.0, 1.0)
-          .toDouble();
-      final edgeOpacity = edgeProgress * edgeProgress * (3 - 2 * edgeProgress);
-      // Route-preview destinations must remain visible regardless of zoom.
-      final visibilityOpacity = routePreviewMode
-          ? 1.0
-          : zoomOpacity * spotDensityOpacity(entry.key) * edgeOpacity;
+    return visibleSpots.map((spot) {
+      const visibilityOpacity = 1.0;
       final closedNow = spotIsClosedNow(spot);
       final isTemporaryActive = spot.isTemporaryActiveNow;
       final isTemporaryUpcoming = spot.isTemporaryUpcomingOnMap;
@@ -33304,7 +33213,10 @@ enum SpotDetailNavigationResult { showMap }
 class SpotDetailScreen extends StatefulWidget {
   final CarSpot spot;
 
-  const SpotDetailScreen({super.key, required this.spot});
+  // Optional stream keeps detail reconciliation independently testable.
+  final Stream<CarSpot?>? spotUpdates;
+
+  const SpotDetailScreen({super.key, required this.spot, this.spotUpdates});
 
   @override
   State<SpotDetailScreen> createState() => _SpotDetailScreenState();
@@ -33313,13 +33225,47 @@ class SpotDetailScreen extends StatefulWidget {
 class _SpotDetailScreenState extends State<SpotDetailScreen>
     with LanguageReactiveState {
   late CarSpot spot;
+  StreamSubscription<CarSpot?>? spotSubscription;
+  bool spotUnavailable = false;
 
   @override
   void initState() {
     super.initState();
     spot = widget.spot;
+    final updates =
+        widget.spotUpdates ??
+        (spot.id.isEmpty
+            ? null
+            : spotsCollection()
+                  .doc(spot.id)
+                  .snapshots(includeMetadataChanges: true)
+                  // A cache miss is not proof that the server deleted the spot.
+                  .where(
+                    (snapshot) =>
+                        snapshot.exists || !snapshot.metadata.isFromCache,
+                  )
+                  .map(
+                    (snapshot) => snapshot.exists
+                        ? CarSpot.fromFirestore(snapshot)
+                        : null,
+                  ));
+    spotSubscription = updates?.listen(
+      (current) {
+        if (!mounted) return;
+        setState(() {
+          spotUnavailable = current == null;
+          if (current != null) spot = current;
+        });
+      },
+      onError: (Object error) {
+        if (mounted &&
+            error is FirebaseException &&
+            (error.code == 'permission-denied' || error.code == 'not-found')) {
+          setState(() => spotUnavailable = true);
+        }
+      },
+    );
     memberSpotGroups.addListener(groupAccessChanged);
-    reviewSpots.addListener(syncSpotFromLocalCache);
   }
 
   void groupAccessChanged() {
@@ -33329,26 +33275,8 @@ class _SpotDetailScreenState extends State<SpotDetailScreen>
   @override
   void dispose() {
     memberSpotGroups.removeListener(groupAccessChanged);
-    reviewSpots.removeListener(syncSpotFromLocalCache);
+    spotSubscription?.cancel();
     super.dispose();
-  }
-
-  void syncSpotFromLocalCache() {
-    for (final currentSpot in reviewSpots.value) {
-      if (!isSameSpot(currentSpot, spot)) {
-        continue;
-      }
-
-      if (currentSpot.likeCount == spot.likeCount &&
-          currentSpot.commentCount == spot.commentCount) {
-        return;
-      }
-
-      if (mounted) {
-        setState(() => spot = currentSpot);
-      }
-      return;
-    }
   }
 
   void showSpotOnMap() {
@@ -33415,6 +33343,12 @@ class _SpotDetailScreenState extends State<SpotDetailScreen>
 
   @override
   Widget build(BuildContext context) {
+    if (spotUnavailable) {
+      return Scaffold(
+        appBar: AppBar(),
+        body: Center(child: Text(trText('This spot is no longer available.'))),
+      );
+    }
     if (!canViewGroupSpot(spot))
       return Scaffold(
         appBar: AppBar(),
@@ -36044,373 +35978,400 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
       return;
     }
 
-    if (currentUserRegionIsRestricted) {
-      await showRegionFeatureUnavailableDialog(context);
-      return;
-    }
-
-    final firebaseUser = FirebaseAuth.instance.currentUser;
-
-    if (firebaseUser == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          backgroundColor: Colors.redAccent,
-          content: Text(
-            'Sign in with Google before submitting a spot.',
-            style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
-          ),
-        ),
-      );
-      return;
-    }
-
-    final cleanSpotName = nameController.text.trim();
-    final cleanDescription = descriptionController.text.trim();
-    final allowedSpotNamePattern = RegExp(
-      r"^[A-Za-z0-9ĀāČčĒēĢģĪīĶķĻļŅņŠšŪūŽž .,'’&()\/-]+$",
-    );
-
-    if (cleanSpotName.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          backgroundColor: Colors.redAccent,
-          content: Text(
-            'Spot name is required.',
-            style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
-          ),
-        ),
-      );
-      return;
-    }
-
-    if (!allowedSpotNamePattern.hasMatch(cleanSpotName)) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          backgroundColor: Colors.redAccent,
-          content: Text(
-            'Spot name can use only English or Latvian letters, numbers, spaces, and simple punctuation.',
-            style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
-          ),
-        ),
-      );
-      return;
-    }
-
-    if (selectedLocation == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          backgroundColor: Colors.redAccent,
-          content: Text(
-            'Location is required. Pin it on the map, find exact address, or use current location first.',
-            style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
-          ),
-        ),
-      );
-      return;
-    }
-
-    if (isDetectingCityCountry || isUsingCurrentLocation) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          backgroundColor: Colors.orangeAccent,
-          content: Text(
-            'Wait for the location address to finish loading.',
-            style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
-          ),
-        ),
-      );
-      return;
-    }
-
-    if (selectedRegion?.allowed != true) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          backgroundColor: Colors.redAccent,
-          content: Text(
-            trText(selectedRegion?.warning ?? unknownSpotRegionMessage),
-          ),
-        ),
-      );
-      return;
-    }
-
-    if (cleanDescription.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          backgroundColor: Colors.redAccent,
-          content: Text(
-            'Description is required.',
-            style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
-          ),
-        ),
-      );
-      return;
-    }
-
-    if (selectedPhotoPaths.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          backgroundColor: Colors.redAccent,
-          content: Text(
-            'Upload at least 1 photo before creating the spot.',
-            style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
-          ),
-        ),
-      );
-      return;
-    }
-
-    if (isTemporarySpot) {
-      final startsAt = temporaryStartsAt;
-      final expiresAt = temporaryExpiresAt;
-
-      if (startsAt == null || expiresAt == null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            backgroundColor: Colors.redAccent,
-            content: Text(
-              'Choose both start and end time for a temporary spot.',
-              style: TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ),
-        );
-        return;
-      }
-
-      if (!expiresAt.isAfter(startsAt)) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            backgroundColor: Colors.redAccent,
-            content: Text(
-              'End time must be after start time.',
-              style: TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ),
-        );
-        return;
-      }
-
-      if (expiresAt.difference(startsAt) > maxTemporarySpotDuration) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            backgroundColor: Colors.redAccent,
-            content: Text(
-              'Temporary spots can be active for maximum 12 hours.',
-              style: TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ),
-        );
-        return;
-      }
-
-      if (!expiresAt.isAfter(DateTime.now())) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            backgroundColor: Colors.redAccent,
-            content: Text(
-              trText('End time must be in the future.'),
-              style: const TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ),
-        );
-        return;
-      }
-
-      if (temporaryShowOnMapAtEnabled) {
-        final showOnMapAt = temporaryShowOnMapAt;
-        if (showOnMapAt == null) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              backgroundColor: Colors.redAccent,
-              content: Text(
-                trText(
-                  'Choose when the temporary spot location should appear on the map.',
-                ),
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ),
-          );
-          return;
-        }
-
-        if (!showOnMapAt.isBefore(expiresAt)) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              backgroundColor: Colors.redAccent,
-              content: Text(
-                trText('Show on map time must be before the end time.'),
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ),
-          );
-          return;
-        }
-      }
-    }
-
-    final sharingGroups = isTemporarySpot && groupVisibility
-        ? memberSpotGroups.value
-              .where((group) => selectedGroupIds.contains(group.id))
-              .toList()
-        : <ChatThreadData>[];
-    if (isTemporarySpot && groupVisibility && sharingGroups.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(trText('Select at least one group.'))),
-      );
-      return;
-    }
-    if (isTemporarySpot &&
-        groupVisibility &&
-        sharingGroups.length != selectedGroupIds.length) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            trText(
-              'Some selected groups are unavailable. Check your group membership before submitting.',
-            ),
-          ),
-        ),
-      );
-      return;
-    }
-    final location = selectedLocation!;
-    final region = selectedRegion!;
-
-    if (!isTemporarySpot) {
-      final nearbySpot = await findNearbySpotBlockingPermanentSpotCreation(
-        location,
-      );
-
-      if (nearbySpot != null) {
-        final distance = distanceBetweenLatLngMeters(
-          location,
-          nearbySpot.coordinates,
-        );
-        final distanceLabel = distance >= 1000
-            ? '${(distance / 1000).toStringAsFixed(1)} km'
-            : '${distance.round()} m';
-
-        if (!mounted) {
-          return;
-        }
-
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            backgroundColor: Colors.redAccent,
-            content: Text(
-              'Permanent spots must be at least ${minimumPermanentSpotDistanceMeters.round()} m apart. "${nearbySpot.name}" is $distanceLabel away. Temporary spots are allowed to overlap existing spots.',
-              style: const TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ),
-        );
-        return;
-      }
-    }
-
-    final categories = [selectedCategory];
-    final supportsContacts = spotCategorySupportsContacts(selectedCategory);
-    final cleanDetectedCityCountry = region.cityCountry.trim();
-    final cityCountry =
-        isSelectableSpotCountry(
-          spotCountryFromCityCountry(cleanDetectedCityCountry),
-        )
-        ? cleanDetectedCityCountry
-        : 'Unknown location';
-    final countryCode = region.countryCode!;
-    if (!spotCountryIsSupported(countryCode)) return;
-    final canCreateApprovedSpot =
-        currentUser.role == UserRole.admin ||
-        (currentUser.role == UserRole.moderator &&
-            currentUser.moderatorCountryCodes.contains(countryCode));
-    final owner = supportsContacts && canCreateApprovedSpot
-        ? selectedOwner
-        : null;
-
-    final initialStatus = canCreateApprovedSpot
-        ? SpotStatus.approved
-        : SpotStatus.pending;
-    final spotRef = spotsCollection().doc();
-
-    var newSpot = CarSpot(
-      id: spotRef.id,
-      name: cleanSpotName,
-      cityCountry: cityCountry,
-      countryCode: countryCode,
-      coordinates: location,
-      description: cleanDescription,
-      categories: categories,
-      photoUrl: '',
-      localPhotoPath: selectedPhotoPaths.isEmpty
-          ? null
-          : selectedPhotoPaths.first,
-      reelLink: reelController.text.trim(),
-      contactPhone: supportsContacts ? phoneController.text.trim() : '',
-      contactInstagram: supportsContacts ? instagramController.text.trim() : '',
-      contactEmail: supportsContacts ? emailController.text.trim() : '',
-      openingHours: supportsContacts ? openingHours : const {},
-      ownerUid: supportsContacts ? (owner?.uid ?? '') : '',
-      ownerUsername: supportsContacts ? (owner?.username ?? '') : '',
-      bestTime: 'Not reviewed',
-      parking: 'Not reviewed',
-      roadQuality: 'Not reviewed',
-      lowCarFriendly: false,
-      policeRisk: 'Not reviewed',
-      traffic: 'Not reviewed',
-      lighting: 'Not reviewed',
-      crowd: 'Not reviewed',
-      addedBy: currentUser.username,
-      addedByUid: firebaseUser.uid,
-      status: initialStatus,
-      visibility: sharingGroups.isEmpty ? 'public' : 'group',
-      sharedGroupIds: sharingGroups.map((group) => group.id).toList(),
-      sharedGroups: sharingGroups
-          .map(
-            (group) => <String, dynamic>{
-              'id': group.id,
-              'name': group.name,
-              'avatarUrl': group.avatarUrl.isNotEmpty
-                  ? group.avatarUrl
-                  : group.photoUrl,
-            },
-          )
-          .toList(),
-      isTemporary: isTemporarySpot,
-      startsAtMillis: isTemporarySpot
-          ? temporaryStartsAt!.millisecondsSinceEpoch
-          : null,
-      expiresAtMillis: isTemporarySpot
-          ? temporaryExpiresAt!.millisecondsSinceEpoch
-          : null,
-      showOnMapAtMillis: isTemporarySpot && temporaryShowOnMapAtEnabled
-          ? temporaryShowOnMapAt!.millisecondsSinceEpoch
-          : null,
-      verifiedOnly: sharingGroups.isEmpty && verifiedOnlySpot,
-    );
-
     setState(() => isSubmitting = true);
-
+    var committed = false;
     try {
+      if (currentUserRegionIsRestricted) {
+        await showRegionFeatureUnavailableDialog(context);
+        return;
+      }
+
+      final firebaseUser = FirebaseAuth.instance.currentUser;
+
+      if (firebaseUser == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            backgroundColor: Colors.redAccent,
+            content: Text(
+              'Sign in with Google before submitting a spot.',
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        );
+        return;
+      }
+
+      final cleanSpotName = nameController.text.trim();
+      final cleanDescription = descriptionController.text.trim();
+      final allowedSpotNamePattern = RegExp(
+        r"^[A-Za-z0-9ĀāČčĒēĢģĪīĶķĻļŅņŠšŪūŽž .,'’&()\/-]+$",
+      );
+
+      if (cleanSpotName.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            backgroundColor: Colors.redAccent,
+            content: Text(
+              'Spot name is required.',
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        );
+        return;
+      }
+
+      if (!allowedSpotNamePattern.hasMatch(cleanSpotName)) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            backgroundColor: Colors.redAccent,
+            content: Text(
+              'Spot name can use only English or Latvian letters, numbers, spaces, and simple punctuation.',
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        );
+        return;
+      }
+
+      if (selectedLocation == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            backgroundColor: Colors.redAccent,
+            content: Text(
+              'Location is required. Pin it on the map, find exact address, or use current location first.',
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        );
+        return;
+      }
+
+      if (isDetectingCityCountry || isUsingCurrentLocation) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            backgroundColor: Colors.orangeAccent,
+            content: Text(
+              'Wait for the location address to finish loading.',
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        );
+        return;
+      }
+
+      if (selectedRegion?.allowed != true) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: Colors.redAccent,
+            content: Text(
+              trText(selectedRegion?.warning ?? unknownSpotRegionMessage),
+            ),
+          ),
+        );
+        return;
+      }
+
+      if (cleanDescription.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            backgroundColor: Colors.redAccent,
+            content: Text(
+              'Description is required.',
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        );
+        return;
+      }
+
+      if (selectedPhotoPaths.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            backgroundColor: Colors.redAccent,
+            content: Text(
+              'Upload at least 1 photo before creating the spot.',
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        );
+        return;
+      }
+
+      if (isTemporarySpot) {
+        final startsAt = temporaryStartsAt;
+        final expiresAt = temporaryExpiresAt;
+
+        if (startsAt == null || expiresAt == null) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              backgroundColor: Colors.redAccent,
+              content: Text(
+                'Choose both start and end time for a temporary spot.',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          );
+          return;
+        }
+
+        if (!expiresAt.isAfter(startsAt)) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              backgroundColor: Colors.redAccent,
+              content: Text(
+                'End time must be after start time.',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          );
+          return;
+        }
+
+        if (expiresAt.difference(startsAt) > maxTemporarySpotDuration) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              backgroundColor: Colors.redAccent,
+              content: Text(
+                'Temporary spots can be active for maximum 12 hours.',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          );
+          return;
+        }
+
+        if (!expiresAt.isAfter(DateTime.now())) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              backgroundColor: Colors.redAccent,
+              content: Text(
+                trText('End time must be in the future.'),
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          );
+          return;
+        }
+
+        if (temporaryShowOnMapAtEnabled) {
+          final showOnMapAt = temporaryShowOnMapAt;
+          if (showOnMapAt == null) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                backgroundColor: Colors.redAccent,
+                content: Text(
+                  trText(
+                    'Choose when the temporary spot location should appear on the map.',
+                  ),
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            );
+            return;
+          }
+
+          if (!showOnMapAt.isBefore(expiresAt)) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                backgroundColor: Colors.redAccent,
+                content: Text(
+                  trText('Show on map time must be before the end time.'),
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            );
+            return;
+          }
+        }
+      }
+
+      final sharingGroups = isTemporarySpot && groupVisibility
+          ? memberSpotGroups.value
+                .where((group) => selectedGroupIds.contains(group.id))
+                .toList()
+          : <ChatThreadData>[];
+      if (isTemporarySpot && groupVisibility && sharingGroups.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(trText('Select at least one group.'))),
+        );
+        return;
+      }
+      if (isTemporarySpot &&
+          groupVisibility &&
+          sharingGroups.length != selectedGroupIds.length) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              trText(
+                'Some selected groups are unavailable. Check your group membership before submitting.',
+              ),
+            ),
+          ),
+        );
+        return;
+      }
+      final location = selectedLocation!;
+      final region = selectedRegion!;
+
+      if (!isTemporarySpot) {
+        final nearbySpot = await findNearbySpotBlockingPermanentSpotCreation(
+          location,
+        );
+
+        if (!mounted ||
+            FirebaseAuth.instance.currentUser?.uid != firebaseUser.uid) {
+          return;
+        }
+        if (nearbySpot != null) {
+          final distance = distanceBetweenLatLngMeters(
+            location,
+            nearbySpot.coordinates,
+          );
+          final distanceLabel = distance >= 1000
+              ? '${(distance / 1000).toStringAsFixed(1)} km'
+              : '${distance.round()} m';
+
+          if (!mounted) {
+            return;
+          }
+
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              backgroundColor: Colors.redAccent,
+              content: Text(
+                'Permanent spots must be at least ${minimumPermanentSpotDistanceMeters.round()} m apart. "${nearbySpot.name}" is $distanceLabel away. Temporary spots are allowed to overlap existing spots.',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          );
+          return;
+        }
+      }
+
+      final categories = [selectedCategory];
+      final supportsContacts = spotCategorySupportsContacts(selectedCategory);
+      final cleanDetectedCityCountry = region.cityCountry.trim();
+      final cityCountry =
+          isSelectableSpotCountry(
+            spotCountryFromCityCountry(cleanDetectedCityCountry),
+          )
+          ? cleanDetectedCityCountry
+          : 'Unknown location';
+      final countryCode = region.countryCode!;
+      if (!spotCountryIsSupported(countryCode)) return;
+      final canCreateApprovedSpot =
+          currentUser.role == UserRole.admin ||
+          (currentUser.role == UserRole.moderator &&
+              currentUser.moderatorCountryCodes.contains(countryCode));
+      final owner = supportsContacts && canCreateApprovedSpot
+          ? selectedOwner
+          : null;
+
+      final initialStatus = canCreateApprovedSpot
+          ? SpotStatus.approved
+          : SpotStatus.pending;
+      final spotRef = spotsCollection().doc();
+
+      var newSpot = CarSpot(
+        id: spotRef.id,
+        name: cleanSpotName,
+        cityCountry: cityCountry,
+        countryCode: countryCode,
+        coordinates: location,
+        description: cleanDescription,
+        categories: categories,
+        photoUrl: '',
+        localPhotoPath: selectedPhotoPaths.isEmpty
+            ? null
+            : selectedPhotoPaths.first,
+        reelLink: reelController.text.trim(),
+        contactPhone: supportsContacts ? phoneController.text.trim() : '',
+        contactInstagram: supportsContacts
+            ? instagramController.text.trim()
+            : '',
+        contactEmail: supportsContacts ? emailController.text.trim() : '',
+        openingHours: supportsContacts ? openingHours : const {},
+        ownerUid: supportsContacts ? (owner?.uid ?? '') : '',
+        ownerUsername: supportsContacts ? (owner?.username ?? '') : '',
+        bestTime: 'Not reviewed',
+        parking: 'Not reviewed',
+        roadQuality: 'Not reviewed',
+        lowCarFriendly: false,
+        policeRisk: 'Not reviewed',
+        traffic: 'Not reviewed',
+        lighting: 'Not reviewed',
+        crowd: 'Not reviewed',
+        addedBy: currentUser.username,
+        addedByUid: firebaseUser.uid,
+        status: initialStatus,
+        visibility: sharingGroups.isEmpty ? 'public' : 'group',
+        sharedGroupIds: sharingGroups.map((group) => group.id).toList(),
+        sharedGroups: sharingGroups
+            .map(
+              (group) => <String, dynamic>{
+                'id': group.id,
+                'name': group.name,
+                'avatarUrl': group.avatarUrl.isNotEmpty
+                    ? group.avatarUrl
+                    : group.photoUrl,
+              },
+            )
+            .toList(),
+        isTemporary: isTemporarySpot,
+        startsAtMillis: isTemporarySpot
+            ? temporaryStartsAt!.millisecondsSinceEpoch
+            : null,
+        expiresAtMillis: isTemporarySpot
+            ? temporaryExpiresAt!.millisecondsSinceEpoch
+            : null,
+        showOnMapAtMillis: isTemporarySpot && temporaryShowOnMapAtEnabled
+            ? temporaryShowOnMapAt!.millisecondsSinceEpoch
+            : null,
+        verifiedOnly: sharingGroups.isEmpty && verifiedOnlySpot,
+      );
+
       final uploadedPhotoUrls = <String>[];
 
       for (var index = 0; index < selectedPhotoPaths.length; index++) {
@@ -36427,6 +36388,10 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
         photoUrl: uploadedPhotoUrls.isEmpty ? '' : uploadedPhotoUrls.first,
         photoUrls: uploadedPhotoUrls,
       );
+      if (!mounted ||
+          FirebaseAuth.instance.currentUser?.uid != firebaseUser.uid) {
+        return;
+      }
       final batch = FirebaseFirestore.instance.batch();
       batch.set(spotRef, spotToFirestoreData(newSpot, includeCreatedAt: true));
       for (final group in sharingGroups) {
@@ -36468,6 +36433,7 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
         );
       }
       await batch.commit();
+      committed = true;
       // The write is already confirmed. Do not wait for a second network
       // request (or notification fan-out) to show the creator their spot.
       if (FirebaseAuth.instance.currentUser?.uid != firebaseUser.uid) return;
@@ -36532,16 +36498,22 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
           ),
         ),
       );
-    } on FirebaseException catch (error) {
+    } catch (error, stack) {
+      debugPrint('Spot submission (committed=$committed): $error\n$stack');
       if (!mounted) {
         return;
       }
 
+      if (committed) resetSpotFormAfterSubmit();
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          backgroundColor: Colors.redAccent,
+          backgroundColor: committed ? blue : Colors.redAccent,
           content: Text(
-            '${trText('Firebase did not save the spot/photo')}: ${error.code}',
+            trText(
+              committed
+                  ? 'Spot saved successfully, but some notifications could not be sent.'
+                  : 'Could not save the spot or photos. Check your connection and try again.',
+            ),
             style: const TextStyle(
               color: Colors.white,
               fontWeight: FontWeight.w700,
@@ -40291,7 +40263,7 @@ const int globalChatMessagePageSize = 20;
 const Duration globalChatMessageSendCooldown = Duration(seconds: 30);
 Future<QuerySnapshot<Map<String, dynamic>>>?
 _legacyLatvianGlobalMessagesSnapshotFuture;
-Future<QuerySnapshot<Map<String, dynamic>>>?
+Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>>?
 _legacyLatvianForumTopicsSnapshotFuture;
 
 class GlobalChatTab extends StatefulWidget {
@@ -42691,37 +42663,40 @@ loadRegionalForumTopicDocuments(
   String debugLabel,
 ) async {
   final selectedCode = communityCountrySelection.value;
-  final regionalFuture = collection
-      .where('visibility', isEqualTo: 'public')
-      .where('countryCode', isEqualTo: selectedCode)
-      .limit(120)
-      .debugGet(null, '$debugLabel: regional');
-  final snapshots = <QuerySnapshot<Map<String, dynamic>>>[await regionalFuture];
-  if (selectedCode == 'LV') {
-    // Keep only a bounded window of original, untagged Latvian topics. New
-    // Latvian topics always come from the regional query above.
-    final legacyRequest = _legacyLatvianForumTopicsSnapshotFuture ??= collection
+  // Page by document ID so legacy records without timestamps are included.
+  // The callers sort the complete result by pin/activity and filter categories.
+  Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>> readPages(
+    Query<Map<String, dynamic>> query,
+    String label,
+  ) => collectQueryPages<QueryDocumentSnapshot<Map<String, dynamic>>>(
+    pageSize: 120,
+    readPage: (cursor, size) async {
+      var page = query.orderBy(FieldPath.documentId).limit(size);
+      if (cursor != null) page = page.startAfterDocument(cursor);
+      return (await page.debugGet(null, label)).docs;
+    },
+  );
+  final regional = await readPages(
+    collection
         .where('visibility', isEqualTo: 'public')
-        .limit(120)
-        .debugGet(null, 'forum: legacy Latvian topics session cache');
+        .where('countryCode', isEqualTo: selectedCode),
+    '$debugLabel: regional',
+  );
+  final byId = {for (final doc in regional) doc.id: doc};
+  if (selectedCode == 'LV') {
+    final legacyRequest = _legacyLatvianForumTopicsSnapshotFuture ??= readPages(
+      collection.where('visibility', isEqualTo: 'public'),
+      'forum: legacy Latvian topics session cache',
+    );
     try {
-      snapshots.add(await legacyRequest);
+      for (final doc in await legacyRequest) {
+        if (!doc.data().containsKey('countryCode')) byId[doc.id] = doc;
+      }
     } catch (_) {
       if (identical(_legacyLatvianForumTopicsSnapshotFuture, legacyRequest)) {
         _legacyLatvianForumTopicsSnapshotFuture = null;
       }
       rethrow;
-    }
-  }
-
-  final byId = <String, QueryDocumentSnapshot<Map<String, dynamic>>>{};
-  for (final snapshot in snapshots) {
-    for (final doc in snapshot.docs) {
-      final isLegacy = !doc.data().containsKey('countryCode');
-      if (communityContentCountryCode(doc.data()) == selectedCode &&
-          (selectedCode != 'LV' || snapshot == snapshots.first || isLegacy)) {
-        byId[doc.id] = doc;
-      }
     }
   }
   final groupIds = _groupSpotIds.values.expand((ids) => ids).toSet();
@@ -42872,6 +42847,7 @@ class _ForumTabState extends State<ForumTab>
             return bMillis.compareTo(aMillis);
           });
 
+      if (!mounted || pendingCountryReload) return;
       setState(() {
         topics
           ..clear()
@@ -43502,7 +43478,7 @@ class _ForumCategoryPageState extends State<ForumCategoryPage>
             return bMillis.compareTo(aMillis);
           });
 
-      if (mounted) {
+      if (mounted && !pendingCountryReload) {
         setState(() {
           topics
             ..clear()
@@ -59082,12 +59058,9 @@ Future<void> approveForumTopic(String topicId, ForumReviewLease lease) async {
     'status': 'approved',
   });
   lease.checkBlocked(result);
-  await lease.renew();
-  await sendPushNotificationEvent({
-    'type': 'forum_topic_created',
-    'topicId': topicId,
-  });
+  // Publication is queued and dispatched by the committed backend decision.
   forumTopicsRefreshTick.value++;
+  await lease.renew();
 }
 
 Future<void> rejectForumTopic(
