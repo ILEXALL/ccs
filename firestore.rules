@@ -202,6 +202,17 @@ service cloud.firestore {
         );
     }
 
+    // Heartbeats never change sharing permissions or coordinates. A previously
+    // expired sharing session must not prevent its owner going online/offline.
+    function validOnlineHeartbeat() {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'isOnline', 'lastSeenAt', 'updatedAt'
+        ])
+        && request.resource.data.isOnline is bool
+        && request.resource.data.lastSeenAt == request.time
+        && request.resource.data.updatedAt == request.time;
+    }
+
     function validRegionalCountryChange() {
       // Every active owner may correct their profile, including an incorrectly
       // assigned restricted country. Regional feature checks remain separate.
@@ -1765,9 +1776,12 @@ service cloud.firestore {
     // /live_locations/{userId} below.
     match /user_presence/{userId} {
       allow read: if isActiveUser();
-      allow create, update: if isOwner(userId)
+      allow create: if isOwner(userId)
         && isActiveUser()
         && validUserPresence(userId);
+      allow update: if isOwner(userId)
+        && isActiveUser()
+        && (validUserPresence(userId) || validOnlineHeartbeat());
       allow delete: if isOwner(userId) || canModerateUser(userId);
     }
 

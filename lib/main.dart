@@ -6,6 +6,8 @@ import 'dart:ui' as ui;
 import 'dart:typed_data';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_app_check/firebase_app_check.dart';
+import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/gestures.dart';
@@ -26,6 +28,8 @@ import 'package:url_launcher/url_launcher.dart';
 import 'firebase_options.dart';
 import 'in_app_badges.dart';
 import 'query_pages.dart';
+import 'session_count_stream.dart';
+import 'spots_interaction_guide.dart';
 
 final inAppBadges = InAppBadgeController(
   FirebaseFirestore.instance,
@@ -83,7 +87,8 @@ const liveLocationPushNotificationUrls = <String>[
   'https://ccs-telegram-auth-server.vercel.app/api/live-location-notification',
 ];
 const pushNotificationUrl = '$telegramAuthBaseUrl/api/push-notification';
-const firestoreUsageUrl = '$telegramAuthBaseUrl/api/firestore-usage';
+const firestoreUsageUrl =
+    'https://ccs-telegram-auth-server.vercel.app/api/firestore-usage';
 // Moderation must use the project deployed from telegram_auth_server, not the
 // legacy Telegram-login host (which can run an older moderation endpoint).
 const moderationActionUrl =
@@ -4295,6 +4300,18 @@ Future<void> main() async {
       options: DefaultFirebaseOptions.currentPlatform,
     );
     firebaseReady = true;
+    // Register before Firebase requests. Debug tokens must be registered in
+    // Firebase Console; production builds always use device attestation.
+    if (Platform.isAndroid || Platform.isIOS || Platform.isMacOS) {
+      await FirebaseAppCheck.instance.activate(
+        providerAndroid: kDebugMode
+            ? const AndroidDebugProvider()
+            : const AndroidPlayIntegrityProvider(),
+        providerApple: kDebugMode
+            ? const AppleDebugProvider()
+            : const AppleAppAttestWithDeviceCheckFallbackProvider(),
+      );
+    }
     await initializeMaintenanceMode();
     FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
 
@@ -7565,6 +7582,7 @@ AppUser currentUser = const AppUser(
 final currentUserProfileRevision = ValueNotifier<int>(0);
 
 void setCurrentUser(AppUser value) {
+  _accountSigningOut = false;
   final previousUid = currentUser.uid;
   final previousHomeCountryCode = currentUserHomeCountryCode();
   final wasBrowsingHome =
@@ -8047,11 +8065,14 @@ void startCurrentUserDocumentWatcher() {
 }
 
 Future<void> signOutCurrentAccount() async {
+  _accountSigningOut = true;
+  await stopIncomingFriendRequestCountStream();
   _profileWatcherGeneration++;
   _profileWatcherRetry?.cancel();
   _profileWatcherRetry = null;
   _profileWatcherRetryAttempt = 0;
   _invalidateSpotSync();
+  await _spotSyncCancellation;
   // Stop profile callbacks before token removal writes can restart the feed.
   await currentUserDocumentSubscription?.cancel();
   currentUserDocumentSubscription = null;
@@ -11718,17 +11739,32 @@ Future<DocumentSnapshot<Map<String, dynamic>>?> safeFriendRequestGet(
   }
 }
 
-Stream<int> incomingFriendRequestCountStream() {
-  final firebaseUser = FirebaseAuth.instance.currentUser;
-  if (firebaseUser == null) {
-    return Stream.value(0);
-  }
+SessionCountStream? _incomingFriendRequests;
+String? _incomingFriendRequestUid;
+bool _accountSigningOut = false;
 
-  return friendRequestsCollection()
-      .where('toUid', isEqualTo: firebaseUser.uid)
-      .where('status', isEqualTo: 'pending')
-      .debugSnapshots('friends: incoming request badge listener')
-      .map((snapshot) => snapshot.docs.length);
+Future<void> stopIncomingFriendRequestCountStream() async {
+  final previous = _incomingFriendRequests;
+  _incomingFriendRequests = null;
+  _incomingFriendRequestUid = null;
+  await previous?.dispose();
+}
+
+Stream<int> incomingFriendRequestCountStream() {
+  final uid = FirebaseAuth.instance.currentUser?.uid;
+  if (uid == null || _accountSigningOut) return Stream.value(0);
+  if (_incomingFriendRequestUid != uid || _incomingFriendRequests == null) {
+    unawaited(stopIncomingFriendRequestCountStream());
+    _incomingFriendRequestUid = uid;
+    _incomingFriendRequests = SessionCountStream(
+      () => friendRequestsCollection()
+          .where('toUid', isEqualTo: uid)
+          .where('status', isEqualTo: 'pending')
+          .debugSnapshots('friends: incoming request badge listener')
+          .map((snapshot) => snapshot.docs.length),
+    );
+  }
+  return _incomingFriendRequests!.stream;
 }
 
 CollectionReference<Map<String, dynamic>> friendshipsCollection() {
@@ -15570,7 +15606,13 @@ Future<void> updateCurrentUserPresenceFields(
 
   try {
     await userPresenceDocument(firebaseUser.uid).debugSet(
-      {...data, 'updatedAt': FieldValue.serverTimestamp()},
+      {
+        // A live-location action can create presence before the first heartbeat.
+        'isOnline': true,
+        'lastSeenAt': FieldValue.serverTimestamp(),
+        ...data,
+        'updatedAt': FieldValue.serverTimestamp(),
+      },
       SetOptions(merge: true),
       label,
     );
@@ -15627,18 +15669,21 @@ bool canViewGroupSpot(CarSpot spot) =>
       (group) => spot.sharedGroupIds.contains(group.id),
     );
 
+Future<void> _groupSpotCancellation = Future<void>.value();
 void stopGroupSpotSync() {
+  final pending = <Future<void>>[_groupSpotCancellation];
   for (final subscription in [
     ..._groupSpotLinks.values,
     ..._groupSpotDocuments.values,
   ]) {
-    unawaited(subscription.cancel());
+    pending.add(subscription.cancel());
   }
   _groupSpotLinks.clear();
   _groupSpotDocuments.clear();
   _groupSpotIds.clear();
   memberSpotGroups.value = [];
   _firebaseSpotCacheBySource.remove('group spots');
+  _groupSpotCancellation = Future.wait(pending).then((_) {});
 }
 
 void startGroupSpotSync(int generation, String scope) {
@@ -16582,8 +16627,10 @@ bool _spotSyncIsCurrent(int generation, String scope) {
       !currentUser.banActive;
 }
 
+Future<void> _spotSyncCancellation = Future<void>.value();
 void _invalidateSpotSync() {
   stopGroupSpotSync();
+  final pending = <Future<void>>[_spotSyncCancellation, _groupSpotCancellation];
   _spotSyncGeneration++;
   _spotSyncRetryTimer?.cancel();
   _spotSyncRetryTimer = null;
@@ -16596,9 +16643,10 @@ void _invalidateSpotSync() {
   _spotSyncStartInFlight = null;
   _spotSyncStartInFlightScope = null;
   for (final subscription in spotSyncSubscriptions) {
-    unawaited(subscription.cancel());
+    pending.add(subscription.cancel());
   }
   spotSyncSubscriptions.clear();
+  _spotSyncCancellation = Future.wait(pending).then((_) {});
 }
 
 void _scheduleSpotSyncRetry(int generation, String scope) {
@@ -21996,6 +22044,10 @@ class _MainScreenState extends State<_MainContentScreen>
   }
 
   Future<bool> handleSystemBack() async {
+    if (ModalRoute.of(context)?.popDisposition ==
+        RoutePopDisposition.doNotPop) {
+      return false;
+    }
     if (tabHistory.isNotEmpty) {
       final previousIndex = tabHistory.removeLast().clamp(0, 4).toInt();
       inAppBadges.visit(activitySectionForNavigation(previousIndex));
@@ -23952,11 +24004,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
   final Set<String> expandedCategories = {};
   Timer? temporarySpotRefreshTimer;
   Timer? nextTemporarySpotExpiryTimer;
-  Timer? spotsEntryHintTimer;
-  int spotsEntryHintGeneration = 0;
-  bool spotsEntryHintAnimating = false;
   bool pendingSpotsEntryDefaultCategory = true;
-  static const double spotsEntryHintTravelViewports = 0.72;
 
   @override
   void initState() {
@@ -23975,37 +24023,12 @@ class _ExploreScreenState extends State<ExploreScreen> {
       (_) => refreshTemporarySpots(),
     );
     scheduleNextTemporarySpotRefresh();
-    if (widget.isVisible) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted && widget.isVisible) {
-          _scheduleSpotsEntryInteractionHint();
-        }
-      });
-    }
-  }
-
-  @override
-  void didUpdateWidget(covariant ExploreScreen oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (!oldWidget.isVisible && widget.isVisible) {
-      // Keep the user's current category when returning to Spots. Resetting it
-      // here made Upcoming take over again whenever any temporary spot existed.
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted && widget.isVisible) {
-          _scheduleSpotsEntryInteractionHint();
-        }
-      });
-    } else if (oldWidget.isVisible && !widget.isVisible) {
-      _cancelSpotsEntryInteractionHint();
-    }
   }
 
   @override
   void dispose() {
     temporarySpotRefreshTimer?.cancel();
     nextTemporarySpotExpiryTimer?.cancel();
-    spotsEntryHintTimer?.cancel();
-    spotsEntryHintGeneration++;
     categoryScrollController.dispose();
     spotCardScrollController.dispose();
     savedSpots.removeListener(refreshSavedFilter);
@@ -24013,186 +24036,6 @@ class _ExploreScreenState extends State<ExploreScreen> {
     spotCountryFilters.removeListener(refreshSpotCategoryFilters);
     appUiPreferences.removeListener(refreshLanguageLabels);
     super.dispose();
-  }
-
-  void _scheduleSpotsEntryInteractionHint() {
-    if (MediaQuery.maybeOf(context)?.disableAnimations ?? false) {
-      return;
-    }
-
-    spotsEntryHintTimer?.cancel();
-    final generation = ++spotsEntryHintGeneration;
-    spotsEntryHintTimer = Timer(const Duration(milliseconds: 35), () {
-      if (!mounted ||
-          !widget.isVisible ||
-          generation != spotsEntryHintGeneration) {
-        return;
-      }
-      unawaited(_playSpotsEntryInteractionHint(generation));
-    });
-  }
-
-  void _cancelSpotsEntryInteractionHint() {
-    spotsEntryHintTimer?.cancel();
-    spotsEntryHintTimer = null;
-    spotsEntryHintGeneration++;
-    spotsEntryHintAnimating = false;
-
-    // Do not force a jumpTo here. This method is also called from
-    // ScrollStartNotification when a real finger drag begins. Forcing the
-    // ScrollPosition idle at that moment leaves the gesture recognizer sending
-    // drag updates to a position whose activity is no longer scrolling, which
-    // triggers ScrollPositionWithSingleContext's activity!.isScrolling assert.
-    // A user drag naturally interrupts ScrollController.animateTo on its own.
-  }
-
-  Future<void> _playSpotsEntryInteractionHint(int generation) async {
-    spotsEntryHintAnimating = true;
-    try {
-      // Wait until both scroll views have real content dimensions. Start only
-      // a couple of visible items away from the resting position: both selectors
-      // are designed around roughly three visible items, so ~0.72 viewport gives
-      // a clear mechanical spin without sweeping in from the absolute end.
-      await _waitForSpotsHintLayout(generation);
-
-      if (!mounted ||
-          !widget.isVisible ||
-          generation != spotsEntryHintGeneration) {
-        return;
-      }
-
-      final categoryCanAnimate = _jumpControllerToHintStart(
-        categoryScrollController,
-      );
-      final spotsCanAnimate = _jumpControllerToHintStart(
-        spotCardScrollController,
-      );
-
-      if (!categoryCanAnimate && !spotsCanAnimate) {
-        return;
-      }
-
-      // Keep the offset starting position visible for one rendered frame before
-      // the fast deceleration starts. This makes the direction obvious without
-      // making the menus travel across their full content range.
-      await WidgetsBinding.instance.endOfFrame;
-
-      if (!mounted ||
-          !widget.isVisible ||
-          generation != spotsEntryHintGeneration) {
-        return;
-      }
-
-      final animations = <Future<void>>[];
-      if (categoryCanAnimate) {
-        animations.add(
-          _animateControllerToStart(
-            categoryScrollController,
-            generation: generation,
-          ),
-        );
-      }
-      if (spotsCanAnimate) {
-        animations.add(
-          _animateControllerToStart(
-            spotCardScrollController,
-            generation: generation,
-          ),
-        );
-      }
-
-      await Future.wait(animations);
-    } finally {
-      if (generation == spotsEntryHintGeneration) {
-        spotsEntryHintAnimating = false;
-      }
-    }
-  }
-
-  Future<void> _waitForSpotsHintLayout(int generation) async {
-    for (var attempt = 0; attempt < 8; attempt++) {
-      if (!mounted ||
-          !widget.isVisible ||
-          generation != spotsEntryHintGeneration) {
-        return;
-      }
-
-      final categoryReady =
-          categoryScrollController.hasClients &&
-          categoryScrollController.position.hasContentDimensions;
-      final spotsReady =
-          spotCardScrollController.hasClients &&
-          spotCardScrollController.position.hasContentDimensions;
-
-      if (categoryReady && spotsReady) {
-        return;
-      }
-
-      await WidgetsBinding.instance.endOfFrame;
-      await Future<void>.delayed(const Duration(milliseconds: 24));
-    }
-  }
-
-  bool _jumpControllerToHintStart(ScrollController controller) {
-    if (!controller.hasClients || !controller.position.hasContentDimensions) {
-      return false;
-    }
-
-    final position = controller.position;
-    final start = position.minScrollExtent;
-    final end = position.maxScrollExtent;
-    final viewport = position.viewportDimension;
-    if (!end.isFinite ||
-        !viewport.isFinite ||
-        viewport <= 0 ||
-        end <= start + 1) {
-      return false;
-    }
-
-    // Both the category strip and spot feed show about three items at once.
-    // Starting ~0.72 viewport away therefore gives roughly a 2.2-item spin.
-    final travel = viewport * spotsEntryHintTravelViewports;
-    final hintStart = (start + travel).clamp(start, end).toDouble();
-    if ((hintStart - start).abs() < 1) {
-      return false;
-    }
-
-    try {
-      controller.jumpTo(hintStart);
-      return true;
-    } catch (_) {
-      return false;
-    }
-  }
-
-  Future<void> _animateControllerToStart(
-    ScrollController controller, {
-    required int generation,
-  }) async {
-    if (!mounted ||
-        !widget.isVisible ||
-        generation != spotsEntryHintGeneration ||
-        !controller.hasClients ||
-        !controller.position.hasContentDimensions) {
-      return;
-    }
-
-    final position = controller.position;
-    final start = position.minScrollExtent;
-    if ((position.pixels - start).abs() < 1) {
-      return;
-    }
-
-    try {
-      await controller.animateTo(
-        start,
-        duration: const Duration(milliseconds: 1000),
-        // Fast launch, then a long smooth deceleration into the first item.
-        // This is intentionally much stronger than a normal ease-out so it
-        // reads like a cylinder spinning quickly and locking softly in place.
-        curve: const Cubic(0.06, 0.82, 0.14, 1.0),
-      );
-    } catch (_) {}
   }
 
   void refreshSavedFilter() {
@@ -24916,42 +24759,32 @@ class _ExploreScreenState extends State<ExploreScreen> {
           height: 50,
           child: NotificationListener<ScrollEndNotification>(
             onNotification: (_) {
-              if (!spotsEntryHintAnimating) {
-                _snapCategoryStrip(itemExtent);
-              }
+              _snapCategoryStrip(itemExtent);
               return false;
             },
-            child: NotificationListener<ScrollStartNotification>(
-              onNotification: (notification) {
-                if (notification.dragDetails != null) {
-                  _cancelSpotsEntryInteractionHint();
-                }
-                return false;
-              },
-              child: ListView.builder(
-                controller: categoryScrollController,
-                scrollDirection: Axis.horizontal,
-                physics: const BouncingScrollPhysics(
-                  parent: AlwaysScrollableScrollPhysics(),
-                ),
-                padding: EdgeInsets.zero,
-                itemCount: uniqueCategories.length,
-                itemBuilder: (context, index) {
-                  final category = uniqueCategories[index];
-                  return Padding(
-                    padding: EdgeInsets.only(
-                      right: index == uniqueCategories.length - 1
-                          ? 0
-                          : _categoryCardGap,
-                    ),
-                    child: categorySelectionButton(
-                      category: category,
-                      count: counts[category] ?? 0,
-                      width: itemWidth,
-                    ),
-                  );
-                },
+            child: ListView.builder(
+              controller: categoryScrollController,
+              scrollDirection: Axis.horizontal,
+              physics: const BouncingScrollPhysics(
+                parent: AlwaysScrollableScrollPhysics(),
               ),
+              padding: EdgeInsets.zero,
+              itemCount: uniqueCategories.length,
+              itemBuilder: (context, index) {
+                final category = uniqueCategories[index];
+                return Padding(
+                  padding: EdgeInsets.only(
+                    right: index == uniqueCategories.length - 1
+                        ? 0
+                        : _categoryCardGap,
+                  ),
+                  child: categorySelectionButton(
+                    category: category,
+                    count: counts[category] ?? 0,
+                    width: itemWidth,
+                  ),
+                );
+              },
             ),
           ),
         );
@@ -24971,7 +24804,6 @@ class _ExploreScreenState extends State<ExploreScreen> {
 
     return InkWell(
       onTap: () {
-        _cancelSpotsEntryInteractionHint();
         setState(() {
           selectedExploreCategory = category;
           userSelectedExploreCategory = true;
@@ -25174,23 +25006,21 @@ class _ExploreScreenState extends State<ExploreScreen> {
                   const SizedBox(height: 12),
                   sortSegmentedControl(),
                   const SizedBox(height: 10),
-                  categorySelectionStrip(categoryCounts),
-                  const SizedBox(height: 10),
                   Expanded(
-                    child: Builder(
-                      builder: (context) {
-                        if (selectedExploreCategory == upcomingCategoryName) {
-                          final groups = upcomingTemporarySpotGroups();
-                          return RefreshIndicator(
-                            onRefresh: refreshUpcomingSpotFeed,
-                            color: blue,
-                            child: NotificationListener<ScrollStartNotification>(
-                              onNotification: (notification) {
-                                if (notification.dragDetails != null) {
-                                  _cancelSpotsEntryInteractionHint();
-                                }
-                                return false;
-                              },
+                    child: SpotsInteractionGuide(
+                      categorySlider: categorySelectionStrip(categoryCounts),
+                      categoryController: categoryScrollController,
+                      cardsController: spotCardScrollController,
+                      hasCards: feedSpots.isNotEmpty,
+                      isVisible: widget.isVisible,
+                      translate: trText,
+                      cards: Builder(
+                        builder: (context) {
+                          if (selectedExploreCategory == upcomingCategoryName) {
+                            final groups = upcomingTemporarySpotGroups();
+                            return RefreshIndicator(
+                              onRefresh: refreshUpcomingSpotFeed,
+                              color: blue,
                               child: ListView(
                                 controller: spotCardScrollController,
                                 physics: const AlwaysScrollableScrollPhysics(
@@ -25212,65 +25042,55 @@ class _ExploreScreenState extends State<ExploreScreen> {
                                     ),
                                 ],
                               ),
-                            ),
-                          );
-                        }
-
-                        if (feedSpots.isEmpty) {
-                          return EmptyStateCard(
-                            icon: Icons.explore,
-                            title: approvedPublicSpots().isEmpty
-                                ? 'No spots here yet'
-                                : 'No spots in this category',
-                            text: approvedPublicSpots().isEmpty
-                                ? 'Approved spots will appear here after moderation.'
-                                : 'Choose another category or update your search.',
-                          );
-                        }
-
-                        final cards = <Widget>[
-                          for (final spot in feedSpots)
-                            Padding(
-                              padding: const EdgeInsets.only(bottom: 8),
-                              child: ExploreSpotCard(spot: spot),
-                            ),
-                        ];
-
-                        return LayoutBuilder(
-                          builder: (context, constraints) {
-                            final itemExtent = constraints.maxHeight / 3;
-
-                            return NotificationListener<ScrollEndNotification>(
-                              onNotification: (_) {
-                                if (!spotsEntryHintAnimating) {
-                                  _snapSpotCards(itemExtent);
-                                }
-                                return false;
-                              },
-                              child:
-                                  NotificationListener<ScrollStartNotification>(
-                                    onNotification: (notification) {
-                                      if (notification.dragDetails != null) {
-                                        _cancelSpotsEntryInteractionHint();
-                                      }
-                                      return false;
-                                    },
-                                    child: ListView.builder(
-                                      controller: spotCardScrollController,
-                                      physics: const BouncingScrollPhysics(
-                                        parent: AlwaysScrollableScrollPhysics(),
-                                      ),
-                                      padding: EdgeInsets.zero,
-                                      itemExtent: itemExtent,
-                                      itemCount: cards.length,
-                                      itemBuilder: (context, index) =>
-                                          cards[index],
-                                    ),
-                                  ),
                             );
-                          },
-                        );
-                      },
+                          }
+
+                          if (feedSpots.isEmpty) {
+                            return EmptyStateCard(
+                              icon: Icons.explore,
+                              title: approvedPublicSpots().isEmpty
+                                  ? 'No spots here yet'
+                                  : 'No spots in this category',
+                              text: approvedPublicSpots().isEmpty
+                                  ? 'Approved spots will appear here after moderation.'
+                                  : 'Choose another category or update your search.',
+                            );
+                          }
+
+                          final cards = <Widget>[
+                            for (final spot in feedSpots)
+                              Padding(
+                                padding: const EdgeInsets.only(bottom: 8),
+                                child: ExploreSpotCard(spot: spot),
+                              ),
+                          ];
+
+                          return LayoutBuilder(
+                            builder: (context, constraints) {
+                              final itemExtent = constraints.maxHeight / 3;
+
+                              return NotificationListener<
+                                ScrollEndNotification
+                              >(
+                                onNotification: (_) {
+                                  _snapSpotCards(itemExtent);
+                                  return false;
+                                },
+                                child: ListView.builder(
+                                  controller: spotCardScrollController,
+                                  physics: const BouncingScrollPhysics(
+                                    parent: AlwaysScrollableScrollPhysics(),
+                                  ),
+                                  padding: EdgeInsets.zero,
+                                  itemExtent: itemExtent,
+                                  itemCount: cards.length,
+                                  itemBuilder: (context, index) => cards[index],
+                                ),
+                              );
+                            },
+                          );
+                        },
+                      ),
                     ),
                   ),
                 ],
@@ -59924,12 +59744,13 @@ class _AdminReviewScreenState extends State<AdminReviewScreen>
               ValueListenableBuilder<bool>(
                 valueListenable: firestoreDebugButtonVisible,
                 builder: (context, debugVisible, _) {
-                  return Container(
-                    decoration: BoxDecoration(
-                      color: panelGlass,
+                  return Material(
+                    color: panelGlass,
+                    shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(18),
-                      border: Border.all(color: Colors.white12),
+                      side: const BorderSide(color: Colors.white12),
                     ),
+                    clipBehavior: Clip.antiAlias,
                     child: SwitchListTile.adaptive(
                       value: debugVisible,
                       activeColor: blue,

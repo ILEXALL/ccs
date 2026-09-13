@@ -1,32 +1,8 @@
+const { monitoringConfig } = require('../lib/monitoring-config');
 const { GoogleAuth } = require('google-auth-library');
 
 const MONITORING_SCOPE = 'https://www.googleapis.com/auth/monitoring.read';
 const MONITORING_BASE = 'https://monitoring.googleapis.com/v3';
-
-function serviceAccountCredentials() {
-  const raw = process.env.GOOGLE_SERVICE_ACCOUNT_JSON || '';
-  const b64 = process.env.GOOGLE_SERVICE_ACCOUNT_JSON_BASE64 || '';
-
-  if (raw.trim()) {
-    return JSON.parse(raw);
-  }
-
-  if (b64.trim()) {
-    return JSON.parse(Buffer.from(b64, 'base64').toString('utf8'));
-  }
-
-  return undefined;
-}
-
-function projectIdFromEnv(credentials) {
-  return (
-    process.env.GOOGLE_CLOUD_PROJECT_ID ||
-    process.env.GCLOUD_PROJECT ||
-    process.env.GCP_PROJECT ||
-    credentials?.project_id ||
-    ''
-  ).trim();
-}
 
 function startOfTodayIso() {
   const now = new Date();
@@ -96,6 +72,7 @@ async function listTimeSeries({
   const text = await response.text();
 
   if (!response.ok) {
+    if (response.status === 403) { throw new Error('Cloud Monitoring access denied. Verify GOOGLE_CLOUD_PROJECT_ID and grant the configured monitoring service account roles/monitoring.viewer on that project.'); }
     throw new Error(`${metricType} failed ${response.status}: ${text}`);
   }
 
@@ -158,15 +135,7 @@ module.exports = async function handler(req, res) {
   }
 
   try {
-    const credentials = serviceAccountCredentials();
-    const projectId = projectIdFromEnv(credentials);
-
-    if (!projectId) {
-      return res.status(500).json({
-        ok: false,
-        error: 'Missing GOOGLE_CLOUD_PROJECT_ID or service account project_id.',
-      });
-    }
+    const { credentials, projectId } = monitoringConfig();
 
     const auth = new GoogleAuth({
       credentials,
