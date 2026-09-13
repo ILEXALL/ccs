@@ -20,7 +20,10 @@ Awards additionally require app_config/xp.achievements_enabled = true, plus the
 existing XP flags and tester allowlist. The new optional boolean is included in
 firestore.rules validation. No user should be asked to enable it before release review.
 XP transactions carry action achievement.unlock with objectId category.threshold;
-they use the existing once-only transaction ID, cap, pending and notification flow.
+they use the existing once-only transaction ID and notification flow. New achievement
+awards bypass the ordinary weekly cap and are recorded in achievementBonusXp;
+confirmedXp and weeklyXp still include them for ranking. Historical confirmed
+awards are not reclassified automatically. See docs/XP_REVIEW_2026-09-13.md.
 Pending badges indicate XP waiting; confirmed badges indicate credited XP. Revoked
 awards cannot be automatically reissued. Deletion-driven achievement revocation is
 not implemented, and historical counts cannot be reconstructed from deleted spots.

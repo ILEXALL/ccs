@@ -11,7 +11,7 @@ async function publicXpProfile(actorId, userId, section = 'stats') {
   }
   if (section === 'rewards') {
     const result = await rewardProgress(userId);
-    return {items: result.items.map(({pending, ...item}) => ({...item, pending: 0}))};
+    return {weekly: result.weekly, items: result.items.map(({pending, ...item}) => ({...item, pending: 0}))};
   }
   if (section !== 'history') throw new Error('Unknown public XP section');
   const rewards = new Map(rewardCatalog().map(item => [item.id, item]));

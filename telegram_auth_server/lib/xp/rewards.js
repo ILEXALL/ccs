@@ -1,6 +1,16 @@
 const { db } = require('../firebase-admin');
 const { evaluateProfileXp, evaluateFirstCarXp } = require('./profile-garage-xp');
 const { evaluatePermanentSpotApprovalXp } = require('./spot-xp');
+const { generatePlan } = require('./weekly-plan');
+
+let preview;
+function weeklyPreview() {
+  // Read-only first-week preview: never represents a live assignment or progress.
+  preview ||= generatePlan().weeks[0].tasks;
+  return {status: 'preview', totalXp: 300, items: preview.map(task => ({
+    id: task.id, difficulty: task.difficulty, title: {...task.title}, xp: task.xp,
+  }))};
+}
 
 const labels = {
   'profile.avatar': ['Add a profile photo', 'Добавить фото профиля', 'Pievienot profila foto'],
@@ -36,7 +46,7 @@ function rewardCatalog() {
 async function rewardProgress(userId) {
   const transactions = await db.collection('xp_transactions').where('userId', '==', userId).get();
   const rows = transactions.docs.map(doc => doc.data()).filter(row => !row.adjustmentOf);
-  return {items: rewardCatalog().map(item => {
+  return {weekly: weeklyPreview(), items: rewardCatalog().map(item => {
     const matching = rows.filter(row => row.action === item.id);
     const confirmed = matching.filter(row => row.status === 'confirmed');
     return {...item, completed: confirmed.length,

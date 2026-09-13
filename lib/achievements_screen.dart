@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'weekly_rewards_section.dart';
 import 'achievement_emblem.dart';
 export 'achievement_emblem.dart' show achievementCategoryLabel;
 
@@ -469,10 +470,13 @@ class _XpRewardsScreenState extends State<XpRewardsScreen> {
         final items = (snapshot.data!['items'] as List).cast<Map>();
         return ListView.separated(
           padding: const EdgeInsets.all(16),
-          itemCount: items.length,
+          itemCount: items.length + 2,
           separatorBuilder: (_, _) => const Divider(height: 28),
           itemBuilder: (context, index) {
-            final item = items[index];
+            if (index == 0) return WeeklyRewardsSection(language: widget.language, weekly: snapshot.data?['weekly'] as Map?);
+            if (index == 1) return Text(t('Regular rewards', 'Обычные начисления', 'Parastās atlīdzības'),
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800));
+            final item = items[index - 2];
             return Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
