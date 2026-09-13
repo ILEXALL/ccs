@@ -136,6 +136,7 @@ class InAppBadgeController extends ChangeNotifier {
 
   String? _visibleForumTopic;
   bool Function()? _forumPageVisible;
+  final _pendingForumReads = <String, int>{};
   String topicKey(String topicId, String country) => 'forum/$country/$topicId';
   int forumTopicCount(String topicId, String country) =>
       state.topicCount(topicKey(topicId, country));
@@ -151,11 +152,24 @@ class InAppBadgeController extends ChangeNotifier {
     String topicId,
     String country, {
     bool Function()? isVisible,
+    int? latestReplyAtMillis,
   }) {
+    if (!(isVisible?.call() ?? true)) return;
     _visibleForumTopic = topicKey(topicId, country);
     _forumPageVisible = isVisible;
-    if (!_ready) return;
-    state.readTopic(_visibleForumTopic!, DateTime.now().millisecondsSinceEpoch);
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final readThrough = latestReplyAtMillis != null && latestReplyAtMillis > now
+        ? latestReplyAtMillis
+        : now;
+    if (!_ready) {
+      // Restore may still be awaiting preferences. Do not let it resurrect a
+      // badge for replies that the page has already displayed.
+      final pending = _pendingForumReads[_visibleForumTopic!] ?? 0;
+      if (readThrough > pending) {
+        _pendingForumReads[_visibleForumTopic!] = readThrough;
+      }
+    }
+    state.readTopic(_visibleForumTopic!, readThrough);
     _changed();
   }
 
@@ -169,7 +183,7 @@ class InAppBadgeController extends ChangeNotifier {
   Future<void> start(String uid, {String countryCode = 'LV'}) async {
     final cleanCountryCode = countryCode.trim().toUpperCase();
     if (_uid == uid && _countryCode == cleanCountryCode) return;
-    stop();
+    stop(preserveVisibleForumTopic: _uid == null || _uid == uid);
     _uid = uid;
     _countryCode = cleanCountryCode.isEmpty ? 'LV' : cleanCountryCode;
     final generation = _generation;
@@ -187,6 +201,10 @@ class InAppBadgeController extends ChangeNotifier {
       state = ActivityBadgeState(now);
     }
     _ready = true;
+    for (final entry in _pendingForumReads.entries) {
+      state.readTopic(entry.key, entry.value);
+    }
+    _pendingForumReads.clear();
     if (visibleSection != null) state.visit(visibleSection!, now);
     _changed();
     _watch(
@@ -490,7 +508,7 @@ class InAppBadgeController extends ChangeNotifier {
     });
   }
 
-  void stop() {
+  void stop({bool preserveVisibleForumTopic = false}) {
     _persist();
     _generation++;
     _saveTimer?.cancel();
@@ -500,8 +518,11 @@ class InAppBadgeController extends ChangeNotifier {
     _subscriptions.clear();
     _pending.clear();
     _summaryVersions.clear();
-    _visibleForumTopic = null;
-    _forumPageVisible = null;
+    if (!preserveVisibleForumTopic) {
+      _visibleForumTopic = null;
+      _forumPageVisible = null;
+      _pendingForumReads.clear();
+    }
     _lastChats = null;
     _ready = false;
     _uid = null;

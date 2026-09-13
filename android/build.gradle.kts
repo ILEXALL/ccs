@@ -44,3 +44,14 @@ subprojects {
 tasks.register<Delete>("clean") {
     delete(rootProject.layout.buildDirectory)
 }
+
+// App Check skips applying Kotlin on AGP 9, but this project explicitly opts
+// out of AGP's built-in Kotlin. Compile the plugin's Kotlin sources explicitly.
+subprojects {
+    if (name == "firebase_app_check" &&
+        providers.gradleProperty("android.builtInKotlin").orNull == "false") {
+        plugins.withId("com.android.library") {
+            pluginManager.apply("org.jetbrains.kotlin.android")
+        }
+    }
+}

@@ -1,7 +1,7 @@
 ﻿name: ccs_app
 description: "A new Flutter project."
 publish_to: 'none'
-version: 1.0.7+2
+version: 1.0.8+1
 environment:
   sdk: ^3.12.0
 
@@ -28,6 +28,7 @@ dependencies:
   # Use 2.2.2 because geocoding 3.x can force geocoding_android to compile
   # against an incompatible Android SDK in this project.
   geocoding: ^4.0.0
+  firebase_app_check: 0.4.4
 
 dev_dependencies:
   flutter_test:
@@ -47,6 +48,7 @@ flutter:
   uses-material-design: true
 
   assets:
+    - assets/country_outlines.json
     - assets/bg.png
     - assets/bg_map.png
     - assets/spot_icons/

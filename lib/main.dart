@@ -6,8 +6,11 @@ import 'dart:ui' as ui;
 import 'dart:typed_data';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_app_check/firebase_app_check.dart';
+import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart' hide Text;
 import 'package:flutter/material.dart' as material show Text;
 import 'package:flutter/rendering.dart' show ScrollDirection;
@@ -24,6 +27,9 @@ import 'package:url_launcher/url_launcher.dart';
 
 import 'firebase_options.dart';
 import 'in_app_badges.dart';
+import 'query_pages.dart';
+import 'session_count_stream.dart';
+import 'spots_interaction_guide.dart';
 
 final inAppBadges = InAppBadgeController(
   FirebaseFirestore.instance,
@@ -81,7 +87,8 @@ const liveLocationPushNotificationUrls = <String>[
   'https://ccs-telegram-auth-server.vercel.app/api/live-location-notification',
 ];
 const pushNotificationUrl = '$telegramAuthBaseUrl/api/push-notification';
-const firestoreUsageUrl = '$telegramAuthBaseUrl/api/firestore-usage';
+const firestoreUsageUrl =
+    'https://ccs-telegram-auth-server.vercel.app/api/firestore-usage';
 // Moderation must use the project deployed from telegram_auth_server, not the
 // legacy Telegram-login host (which can run an older moderation endpoint).
 const moderationActionUrl =
@@ -93,7 +100,6 @@ const Duration maxTemporarySpotDuration = Duration(hours: 12);
 // TEST KILL SWITCH: disable repeating friend-location notification polling.
 // Re-enable only after Firebase reads confirm this is not the overnight drain.
 const bool friendLocationNotificationPollingEnabled = false;
-const double temporarySpotHidePermanentRadiusMeters = 500;
 const double minimumPermanentSpotDistanceMeters = 100;
 const int maxGaragePhotos = 4;
 const int r2SpotPhotoMaxLongSide = 1280;
@@ -1627,6 +1633,13 @@ Future<void> initializeMaintenanceMode() async {
 }
 
 const _ruText = <String, String>{
+  'Could not load users. Tap to retry.':
+      'Не удалось загрузить пользователей. Нажмите, чтобы повторить.',
+  'Type at least 2 characters to search.':
+      'Введите минимум 2 символа для поиска.',
+  'Showing saved groups. Tap to retry.':
+      'Показан сохранённый список групп. Нажмите, чтобы обновить.',
+  'Select country': 'Выберите страну',
   'Could not open spot review. Please try again.':
       'Не удалось открыть проверку спота. Попробуйте снова.',
   'Could not connect to the review server. Please try again.':
@@ -1751,6 +1764,22 @@ const _ruText = <String, String>{
   'Not available in your region': 'Недоступно в вашем регионе',
   'This feature is not yet available in your region.':
       'Эта функция пока недоступна в вашем регионе.',
+  'This region is not supported. Choose a location in an allowed country.':
+      'Этот регион не поддерживается. Выберите место в разрешённой стране.',
+  'Could not verify this location’s country. Try another pin or check your connection.':
+      'Не удалось определить страну. Выберите другую точку или проверьте подключение.',
+  'Checking region...': 'Проверка региона...',
+  'Tap to place a pin. Red regions are unsupported. Borders are approximate.':
+      'Нажмите, чтобы поставить метку. Красные регионы не поддерживаются. Границы приблизительные.',
+  'Topic photos (optional, up to 4)': 'Фото темы (необязательно, до 4)',
+  'Add an avatar, name, and description. You can also attach up to 4 photos.':
+      'Добавьте аватар, название и описание. Также можно прикрепить до 4 фото.',
+  'Select groups (up to 8)': 'Выберите группы (до 8)',
+  'Select at least one group.': 'Выберите хотя бы одну группу.',
+  'This spot is available only to members of its groups.':
+      'Этот спот доступен только участникам выбранных групп.',
+  'This topic is available only to group members.':
+      'Эта тема доступна только участникам групп.',
   'Regional restrictions': 'Региональные ограничения',
   'Restrict Add Spot and live-location sharing by country':
       'Ограничить добавление спотов и передачу геопозиции по странам',
@@ -2589,9 +2618,55 @@ const _ruText = <String, String>{
       'Будьте первым, кто ответит в этой теме.',
   'Reply in topic': 'Ответить в теме',
   'Temporary events': 'Временные ивенты',
+  // Private group discovery and owner review.
+  'Private groups': 'Закрытые группы',
+  'Private group': 'Закрытая группа',
+  'My public groups': 'Мои открытые группы',
+  'Open group': 'Открыть группу',
+  'Monitor (read only)': 'Просмотр без участия',
+  'Request pending': 'Заявка на рассмотрении',
+  'Request rejected': 'Заявка отклонена',
+  'Request already used': 'Заявка уже отправлялась',
+  'You were mentioned': 'Вас упомянули',
+  'Request to join': 'Подать заявку',
+  'Request to join?': 'Подать заявку в группу?',
+  'The group owner will receive your request. You can only request to join this group once.':
+      'Владелец группы получит вашу заявку. Подать заявку в эту группу можно только один раз.',
+  'Join requests': 'Заявки на вступление',
+  'Group join request': 'Заявка на вступление в группу',
+  'No pending requests.': 'Нет заявок на рассмотрении.',
+  'No private groups yet.': 'Закрытых групп пока нет.',
+  'Could not load private groups. Tap to retry.':
+      'Не удалось загрузить закрытые группы. Нажмите, чтобы повторить.',
+  'Could not load requests. Tap to retry.':
+      'Не удалось загрузить заявки. Нажмите, чтобы повторить.',
+  'Could not load requests. Use refresh to retry.':
+      'Не удалось загрузить заявки. Нажмите «Обновить».',
+  'Wants to join your group': 'Хочет вступить в вашу группу',
+  'View profile': 'Открыть профиль',
+  'Profile preview unavailable. Open the profile to retry.':
+      'Не удалось загрузить сведения. Попробуйте открыть профиль.',
+  'Review each profile before granting access to your group.':
+      'Ознакомьтесь с профилем, прежде чем предоставить доступ к группе.',
+  'Read-only monitoring. You are not a member of this group.':
+      'Только просмотр. Вы не состоите в этой группе.',
+  'Group no longer exists.': 'Группа больше не существует.',
+  'Could not update group. Please retry.':
+      'Не удалось обновить группу. Попробуйте ещё раз.',
+  'Could not open group. Please retry.':
+      'Не удалось открыть группу. Попробуйте ещё раз.',
+  'Could not submit decision. Please retry.':
+      'Не удалось сохранить решение. Попробуйте ещё раз.',
 };
 
 const _lvText = <String, String>{
+  'Could not load users. Tap to retry.':
+      'Neizdevās ielādēt lietotājus. Pieskarieties, lai mēģinātu vēlreiz.',
+  'Type at least 2 characters to search.':
+      'Lai meklētu, ievadiet vismaz 2 rakstzīmes.',
+  'Showing saved groups. Tap to retry.':
+      'Tiek rādīts saglabātais grupu saraksts. Pieskarieties, lai atjauninātu.',
+  'Select country': 'Izvēlieties valsti',
   'Could not open spot review. Please try again.':
       'Neizdevās atvērt spota pārbaudi. Mēģiniet vēlreiz.',
   'Could not connect to the review server. Please try again.':
@@ -2713,6 +2788,22 @@ const _lvText = <String, String>{
   'Not available in your region': 'Nav pieejams jūsu reģionā',
   'This feature is not yet available in your region.':
       'Šī funkcija jūsu reģionā vēl nav pieejama.',
+  'This region is not supported. Choose a location in an allowed country.':
+      'Šis reģions netiek atbalstīts. Izvēlieties vietu atļautā valstī.',
+  'Could not verify this location’s country. Try another pin or check your connection.':
+      'Neizdevās noteikt šīs vietas valsti. Izvēlieties citu punktu vai pārbaudiet savienojumu.',
+  'Checking region...': 'Pārbauda reģionu...',
+  'Tap to place a pin. Red regions are unsupported. Borders are approximate.':
+      'Pieskarieties, lai novietotu atzīmi. Sarkanie reģioni netiek atbalstīti. Robežas ir aptuvenas.',
+  'Topic photos (optional, up to 4)': 'Tēmas fotoattēli (neobligāti, līdz 4)',
+  'Add an avatar, name, and description. You can also attach up to 4 photos.':
+      'Pievienojiet avatāru, nosaukumu un aprakstu. Varat pievienot arī līdz 4 fotoattēliem.',
+  'Select groups (up to 8)': 'Izvēlieties grupas (līdz 8)',
+  'Select at least one group.': 'Izvēlieties vismaz vienu grupu.',
+  'This spot is available only to members of its groups.':
+      'Šī vieta ir pieejama tikai atlasīto grupu dalībniekiem.',
+  'This topic is available only to group members.':
+      'Šī tēma ir pieejama tikai grupu dalībniekiem.',
   'Regional restrictions': 'Reģionālie ierobežojumi',
   'Restrict Add Spot and live-location sharing by country':
       'Ierobežot vietu pievienošanu un tiešās atrašanās vietas kopīgošanu pēc valsts',
@@ -3548,6 +3639,45 @@ const _lvText = <String, String>{
       'Esiet pirmais, kas atbild šajā tēmā.',
   'Reply in topic': 'Atbildēt tēmā',
   'Temporary events': 'Pagaidu pasākumi',
+  // Private group discovery and owner review.
+  'Private groups': 'Privātās grupas',
+  'Private group': 'Privāta grupa',
+  'My public groups': 'Manas publiskās grupas',
+  'Open group': 'Atvērt grupu',
+  'Monitor (read only)': 'Skatīt bez dalības',
+  'Request pending': 'Pieprasījums tiek izskatīts',
+  'Request rejected': 'Pieprasījums noraidīts',
+  'Request already used': 'Pieprasījums jau izmantots',
+  'You were mentioned': 'Jūs pieminēja',
+  'Request to join': 'Pieteikties grupai',
+  'Request to join?': 'Pieteikties grupai?',
+  'The group owner will receive your request. You can only request to join this group once.':
+      'Grupas īpašnieks saņems jūsu pieprasījumu. Pieteikties šai grupai var tikai vienu reizi.',
+  'Join requests': 'Dalības pieprasījumi',
+  'Group join request': 'Grupas dalības pieprasījums',
+  'No pending requests.': 'Nav neizskatītu pieprasījumu.',
+  'No private groups yet.': 'Pagaidām nav privātu grupu.',
+  'Could not load private groups. Tap to retry.':
+      'Neizdevās ielādēt privātās grupas. Pieskarieties, lai mēģinātu vēlreiz.',
+  'Could not load requests. Tap to retry.':
+      'Neizdevās ielādēt pieprasījumus. Pieskarieties, lai mēģinātu vēlreiz.',
+  'Could not load requests. Use refresh to retry.':
+      'Neizdevās ielādēt pieprasījumus. Mēģiniet atsvaidzināt.',
+  'Wants to join your group': 'Vēlas pievienoties jūsu grupai',
+  'View profile': 'Skatīt profilu',
+  'Profile preview unavailable. Open the profile to retry.':
+      'Profila priekšskatījums nav pieejams. Mēģiniet atvērt profilu.',
+  'Review each profile before granting access to your group.':
+      'Pirms piešķirat piekļuvi grupai, apskatiet katru profilu.',
+  'Read-only monitoring. You are not a member of this group.':
+      'Tikai skatīšanās. Jūs neesat šīs grupas dalībnieks.',
+  'Group no longer exists.': 'Grupa vairs nepastāv.',
+  'Could not update group. Please retry.':
+      'Neizdevās atjaunināt grupu. Mēģiniet vēlreiz.',
+  'Could not open group. Please retry.':
+      'Neizdevās atvērt grupu. Mēģiniet vēlreiz.',
+  'Could not submit decision. Please retry.':
+      'Neizdevās saglabāt lēmumu. Mēģiniet vēlreiz.',
 };
 
 String trText(String value, {AppLanguage? language}) {
@@ -3565,10 +3695,49 @@ String trText(String value, {AppLanguage? language}) {
     };
   }
 
+  final mention = RegExp(
+    r'^@(.+?) mentioned you: ([\s\S]*)$',
+  ).firstMatch(value);
+  if (mention != null) {
+    return switch (selectedLanguage) {
+      AppLanguage.en => value,
+      AppLanguage.ru =>
+        '@${mention.group(1)} упомянул(а) вас: ${mention.group(2)}',
+      AppLanguage.lv =>
+        '@${mention.group(1)} jūs pieminēja: ${mention.group(2)}',
+    };
+  }
   final exact = translations[value];
 
   if (exact != null) {
     return exact;
+  }
+
+  final groupRequest = RegExp(
+    r'^@(.+) wants to join (.+)\.$',
+  ).firstMatch(value);
+  if (groupRequest != null) {
+    final username = groupRequest.group(1)!;
+    final group = groupRequest.group(2)!;
+    return switch (selectedLanguage) {
+      AppLanguage.en => value,
+      AppLanguage.ru => '@$username хочет вступить в группу «$group».',
+      AppLanguage.lv => '@$username vēlas pievienoties grupai «$group».',
+    };
+  }
+  final groupDecision = RegExp(
+    r'^Your request to join (.+) was (accepted|rejected)\.$',
+  ).firstMatch(value);
+  if (groupDecision != null) {
+    final group = groupDecision.group(1)!;
+    final accepted = groupDecision.group(2) == 'accepted';
+    return switch (selectedLanguage) {
+      AppLanguage.en => value,
+      AppLanguage.ru =>
+        'Ваша заявка в группу «$group» ${accepted ? 'одобрена' : 'отклонена'}.',
+      AppLanguage.lv =>
+        'Jūsu pieprasījums pievienoties grupai «$group» ir ${accepted ? 'apstiprināts' : 'noraidīts'}.',
+    };
   }
 
   final showMoreMatch = RegExp(r'^Show (\d+) more$').firstMatch(value);
@@ -3885,6 +4054,228 @@ class Text extends StatelessWidget {
   }
 }
 
+class _ChatLinkPart {
+  final String text;
+  final bool isLink;
+
+  const _ChatLinkPart(this.text, {this.isLink = false});
+}
+
+final RegExp _chatLinkPattern = RegExp(
+  r'''(?:(?:https?://|www\.)[^\s<>{}\[\]"']+|(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z]{2,63}(?:[/?#][^\s<>{}\[\]"']*)?)''',
+  caseSensitive: false,
+);
+
+String _trimChatLinkEnd(String value) {
+  var result = value;
+
+  while (result.isNotEmpty &&
+      (result.endsWith('.') ||
+          result.endsWith(',') ||
+          result.endsWith('!') ||
+          result.endsWith('?') ||
+          result.endsWith(';') ||
+          result.endsWith(':'))) {
+    result = result.substring(0, result.length - 1);
+  }
+
+  int countCharacter(String source, String character) =>
+      character.allMatches(source).length;
+
+  while (result.endsWith(')') &&
+      countCharacter(result, ')') > countCharacter(result, '(')) {
+    result = result.substring(0, result.length - 1);
+  }
+  while (result.endsWith(']') &&
+      countCharacter(result, ']') > countCharacter(result, '[')) {
+    result = result.substring(0, result.length - 1);
+  }
+  while (result.endsWith('}') &&
+      countCharacter(result, '}') > countCharacter(result, '{')) {
+    result = result.substring(0, result.length - 1);
+  }
+
+  return result;
+}
+
+List<_ChatLinkPart> _chatLinkParts(String value) {
+  if (value.isEmpty) {
+    return const <_ChatLinkPart>[];
+  }
+
+  final parts = <_ChatLinkPart>[];
+  var cursor = 0;
+
+  for (final match in _chatLinkPattern.allMatches(value)) {
+    final rawMatch = match.group(0) ?? '';
+    if (rawMatch.isEmpty) {
+      continue;
+    }
+
+    // Do not turn the domain portion of an email address into a web link.
+    if (match.start > 0 && value[match.start - 1] == '@') {
+      continue;
+    }
+
+    final linkText = _trimChatLinkEnd(rawMatch);
+    if (linkText.isEmpty) {
+      continue;
+    }
+
+    if (match.start > cursor) {
+      parts.add(_ChatLinkPart(value.substring(cursor, match.start)));
+    }
+
+    parts.add(_ChatLinkPart(linkText, isLink: true));
+
+    final trailingStart = match.start + linkText.length;
+    if (trailingStart < match.end) {
+      parts.add(_ChatLinkPart(value.substring(trailingStart, match.end)));
+    }
+
+    cursor = match.end;
+  }
+
+  if (cursor < value.length) {
+    parts.add(_ChatLinkPart(value.substring(cursor)));
+  }
+
+  if (parts.isEmpty) {
+    parts.add(_ChatLinkPart(value));
+  }
+
+  return parts;
+}
+
+Uri? _chatLinkUri(String value) {
+  final clean = value.trim();
+  if (clean.isEmpty) {
+    return null;
+  }
+
+  final normalized = clean.startsWith('http://') || clean.startsWith('https://')
+      ? clean
+      : 'https://$clean';
+  final uri = Uri.tryParse(normalized);
+
+  if (uri == null || !uri.hasScheme || uri.host.trim().isEmpty) {
+    return null;
+  }
+
+  return uri;
+}
+
+Future<void> _openChatLink(BuildContext context, String value) async {
+  final uri = _chatLinkUri(value);
+  if (uri == null) {
+    return;
+  }
+
+  try {
+    final opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    if (!opened && context.mounted) {
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        const SnackBar(content: material.Text('Could not open link.')),
+      );
+    }
+  } catch (_) {
+    if (context.mounted) {
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        const SnackBar(content: material.Text('Could not open link.')),
+      );
+    }
+  }
+}
+
+class ChatLinkText extends StatefulWidget {
+  final String text;
+  final TextStyle? style;
+  final TextAlign? textAlign;
+  final bool? softWrap;
+  final TextOverflow? overflow;
+  final int? maxLines;
+
+  const ChatLinkText(
+    this.text, {
+    super.key,
+    this.style,
+    this.textAlign,
+    this.softWrap,
+    this.overflow,
+    this.maxLines,
+  });
+
+  @override
+  State<ChatLinkText> createState() => _ChatLinkTextState();
+}
+
+class _ChatLinkTextState extends State<ChatLinkText> {
+  final Map<int, TapGestureRecognizer> _recognizers = {};
+
+  void _disposeRecognizers() {
+    for (final recognizer in _recognizers.values) {
+      recognizer.dispose();
+    }
+    _recognizers.clear();
+  }
+
+  @override
+  void didUpdateWidget(covariant ChatLinkText oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.text != widget.text) {
+      _disposeRecognizers();
+    }
+  }
+
+  @override
+  void dispose() {
+    _disposeRecognizers();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final displayedText = trText(widget.text);
+    final parts = _chatLinkParts(displayedText);
+    final baseStyle = _appTextStyle(widget.style);
+
+    final spans = <InlineSpan>[];
+    for (var index = 0; index < parts.length; index++) {
+      final part = parts[index];
+      if (!part.isLink) {
+        spans.add(TextSpan(text: part.text));
+        continue;
+      }
+
+      final recognizer = _recognizers.putIfAbsent(
+        index,
+        () => TapGestureRecognizer(),
+      );
+      recognizer.onTap = () => unawaited(_openChatLink(context, part.text));
+
+      spans.add(
+        TextSpan(
+          text: part.text,
+          style: (baseStyle ?? const TextStyle()).copyWith(
+            color: blue,
+            decoration: TextDecoration.underline,
+            decorationColor: blue,
+          ),
+          recognizer: recognizer,
+        ),
+      );
+    }
+
+    return material.Text.rich(
+      TextSpan(style: baseStyle, children: spans),
+      textAlign: widget.textAlign,
+      softWrap: widget.softWrap,
+      overflow: widget.overflow,
+      maxLines: widget.maxLines,
+    );
+  }
+}
+
 @pragma('vm:entry-point')
 Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
@@ -3909,6 +4300,18 @@ Future<void> main() async {
       options: DefaultFirebaseOptions.currentPlatform,
     );
     firebaseReady = true;
+    // Register before Firebase requests. Debug tokens must be registered in
+    // Firebase Console; production builds always use device attestation.
+    if (Platform.isAndroid || Platform.isIOS || Platform.isMacOS) {
+      await FirebaseAppCheck.instance.activate(
+        providerAndroid: kDebugMode
+            ? const AndroidDebugProvider()
+            : const AndroidPlayIntegrityProvider(),
+        providerApple: kDebugMode
+            ? const AppleDebugProvider()
+            : const AppleAppAttestWithDeviceCheckFallbackProvider(),
+      );
+    }
     await initializeMaintenanceMode();
     FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
 
@@ -4858,6 +5261,7 @@ String notificationPreferenceKeyForRemoteMessage(RemoteMessage message) {
     'spot_rejected_by_admin' => 'reviewNotifications',
     'spot_like' => 'likeNotifications',
     'spot_comment' ||
+    'forum_topic_created' ||
     'forum_reply' ||
     'forum_reply_admin' => 'commentNotifications',
     'chat_message' ||
@@ -4892,6 +5296,7 @@ bool remoteMessageTargetsGlobalChat(RemoteMessage message) {
 }
 
 Future<void> showForegroundSystemNotification(RemoteMessage message) async {
+  if (!moderationNotificationAllowed(message.data)) return;
   if (!Platform.isAndroid) {
     return;
   }
@@ -5447,7 +5852,28 @@ String? countryIsoCode(String value) =>
 final communityCountrySelection = ValueNotifier<String>('LV');
 
 String currentUserHomeCountryCode() =>
-    countryIsoCode(currentUser.country) ?? 'LV';
+    countryIsoCode(currentUser.country) ?? '';
+
+String profileAuthorCountryCode(
+  Map<String, dynamic>? profile,
+  String fallback,
+) => profile == null
+    ? fallback
+    : countryIsoCode(stringFromFirebase(profile['country'], '')) ?? '';
+
+String get chooseProfileCountryMessage => communityText(
+  en: 'Choose your country in Profile → Edit Profile before posting.',
+  ru: 'Перед публикацией выберите страну: Профиль → Редактировать профиль.',
+  lv: 'Pirms publicēšanas izvēlieties valsti: Profils → Rediģēt profilu.',
+);
+
+bool ensureCommunityProfileCountry(BuildContext context) {
+  if (currentUserHomeCountryCode().isNotEmpty) return true;
+  ScaffoldMessenger.of(
+    context,
+  ).showSnackBar(SnackBar(content: Text(chooseProfileCountryMessage)));
+  return false;
+}
 
 bool get isViewingHomeCommunity =>
     communityCountrySelection.value == currentUserHomeCountryCode();
@@ -5465,7 +5891,7 @@ String communityContentCountryCode(Map<String, dynamic> data) {
 String communityAuthorCountryCode(Map<String, dynamic> data) {
   return countryIsoCode(stringFromFirebase(data['authorCountryCode'], '')) ??
       countryIsoCode(stringFromFirebase(data['country'], '')) ??
-      communityContentCountryCode(data);
+      '';
 }
 
 String communityText({
@@ -5947,6 +6373,95 @@ Widget spotFilterColumns({
     ),
   );
 }
+
+// Use the geocoder's ISO code, never the user's profile or a city-name fallback.
+bool spotCountryIsSupported(String? code) {
+  final normalized = code?.trim().toUpperCase();
+  return _countryNamesByIso.containsKey(normalized) &&
+      !maintenanceModeConfig.value.bannedCountryCodes.contains(normalized);
+}
+
+const unsupportedSpotRegionMessage =
+    'This region is not supported. Choose a location in an allowed country.';
+const unknownSpotRegionMessage =
+    'Could not verify this location’s country. Try another pin or check your connection.';
+
+class SpotLocationRegion {
+  final String? countryCode;
+  final String cityCountry;
+  const SpotLocationRegion(this.countryCode, this.cityCountry);
+  bool get allowed => spotCountryIsSupported(countryCode);
+  String get warning => countryCode == null
+      ? unknownSpotRegionMessage
+      : unsupportedSpotRegionMessage;
+}
+
+Future<SpotLocationRegion> lookupSpotLocationRegion(LatLng location) async {
+  try {
+    final places = await placemarkFromCoordinates(
+      location.latitude,
+      location.longitude,
+    ).timeout(const Duration(seconds: 12));
+    if (places.isNotEmpty) {
+      final place = places.first;
+      final code = place.isoCountryCode?.trim().toUpperCase();
+      if (code != null && RegExp(r'^[A-Z]{2}$').hasMatch(code)) {
+        final city =
+            [
+                  place.locality,
+                  place.subAdministrativeArea,
+                  place.administrativeArea,
+                ]
+                .whereType<String>()
+                .map((value) => value.trim())
+                .firstWhere(
+                  (value) => value.isNotEmpty,
+                  orElse: () => 'Unknown city',
+                );
+        final country =
+            _countryNamesByIso[code]?.first ?? place.country ?? code;
+        return SpotLocationRegion(code, '$city, $country');
+      }
+    }
+  } catch (_) {}
+  return const SpotLocationRegion(null, 'Unknown location');
+}
+
+// Generalized boundaries are visual guidance only; pin validation uses geocoding.
+class SpotCountryOutline {
+  final String code;
+  final List<List<LatLng>> rings;
+  const SpotCountryOutline(this.code, this.rings);
+}
+
+Future<List<SpotCountryOutline>>? _spotCountryOutlines;
+Future<List<SpotCountryOutline>> loadSpotCountryOutlines() =>
+    _spotCountryOutlines ??= rootBundle
+        .loadString('assets/country_outlines.json')
+        .then((source) {
+          final countries = jsonDecode(source) as List<dynamic>;
+          return countries
+              .expand(
+                (dynamic country) => (country['polygons'] as List<dynamic>).map(
+                  (dynamic polygon) => SpotCountryOutline(
+                    country['code'] as String,
+                    (polygon as List<dynamic>)
+                        .map(
+                          (dynamic ring) => (ring as List<dynamic>)
+                              .map(
+                                (dynamic point) => LatLng(
+                                  (point[1] as num).toDouble(),
+                                  (point[0] as num).toDouble(),
+                                ),
+                              )
+                              .toList(),
+                        )
+                        .toList(),
+                  ),
+                ),
+              )
+              .toList();
+        });
 
 bool get currentUserRegionIsRestricted {
   final countryCode = countryIsoCode(currentUser.country);
@@ -7064,18 +7579,22 @@ AppUser currentUser = const AppUser(
   country: '',
 );
 
+final currentUserProfileRevision = ValueNotifier<int>(0);
+
 void setCurrentUser(AppUser value) {
+  _accountSigningOut = false;
   final previousUid = currentUser.uid;
   final previousHomeCountryCode = currentUserHomeCountryCode();
   final wasBrowsingHome =
       communityCountrySelection.value == previousHomeCountryCode;
   currentUser = value;
   if (previousUid != value.uid ||
-      (wasBrowsingHome &&
+      ((wasBrowsingHome || previousHomeCountryCode.isEmpty) &&
           previousHomeCountryCode != currentUserHomeCountryCode())) {
-    communityCountrySelection.value = currentUserHomeCountryCode();
+    communityCountrySelection.value = countryIsoCode(value.country) ?? 'LV';
   }
   refreshMaintenanceAccess();
+  currentUserProfileRevision.value++;
 }
 
 String roleName(UserRole role) {
@@ -7110,6 +7629,52 @@ bool userRoleIsModerator(UserRole role) {
 
 bool userRoleIsStaff(UserRole role) {
   return role == UserRole.admin || role == UserRole.moderator;
+}
+
+bool currentUserCanModerateCountry(
+  String countryCode, {
+  bool community = false,
+}) {
+  if (currentUser.role == UserRole.admin) return true;
+  final code = countryCode.trim().toUpperCase();
+  return (currentUser.role == UserRole.moderator ||
+          (community && currentUser.globalChatModerator)) &&
+      _countryNamesByIso.containsKey(code) &&
+      currentUser.moderatorCountryCodes.contains(code);
+}
+
+bool currentUserCanModerateCommunityData(Map<String, dynamic> data) =>
+    currentUserCanModerateCountry(
+      stringFromFirebase(data['countryCode'], 'LV'),
+      community: true,
+    );
+
+bool currentUserCanManageProfileCountry(String country) =>
+    currentUserCanModerateCountry(countryIsoCode(country) ?? '');
+
+bool moderationNotificationAllowed(Map<String, dynamic> data) {
+  final type = stringFromFirebase(data['type'], '');
+  if (!const {
+    'spot_pending_review',
+    'forum_topic_pending',
+    'global_chat_admin',
+    'spot_removal_request',
+    'user_report_new',
+    'moderator_user_banned',
+  }.contains(type)) {
+    return true;
+  }
+  if (currentUser.role == UserRole.admin) return true;
+  if (type == 'moderator_user_banned') return false;
+  final nested = mapFromFirebase(data['data']);
+  final code = stringFromFirebase(
+    data['countryCode'],
+    stringFromFirebase(nested['countryCode'], ''),
+  ).trim().toUpperCase();
+  return currentUserCanModerateCountry(
+    code,
+    community: type == 'forum_topic_pending' || type == 'global_chat_admin',
+  );
 }
 
 bool currentUserCanModerateSpot(CarSpot spot) {
@@ -7500,11 +8065,14 @@ void startCurrentUserDocumentWatcher() {
 }
 
 Future<void> signOutCurrentAccount() async {
+  _accountSigningOut = true;
+  await stopIncomingFriendRequestCountStream();
   _profileWatcherGeneration++;
   _profileWatcherRetry?.cancel();
   _profileWatcherRetry = null;
   _profileWatcherRetryAttempt = 0;
   _invalidateSpotSync();
+  await _spotSyncCancellation;
   // Stop profile callbacks before token removal writes can restart the feed.
   await currentUserDocumentSubscription?.cancel();
   currentUserDocumentSubscription = null;
@@ -7934,6 +8502,56 @@ Future<AppUser?> loadCurrentFirebaseUser() async {
   }
 }
 
+// Only new accounts request location. A failed lookup leaves the profile
+// unknown so the user can choose it; language and the map's default are not
+// evidence of a user's country.
+Future<({String city, String country})> detectNewAccountLocation() async {
+  const unknown = (city: '', country: '');
+  try {
+    if (!await Geolocator.isLocationServiceEnabled()) return unknown;
+    var permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+    }
+    if (permission != LocationPermission.always &&
+        permission != LocationPermission.whileInUse) {
+      return unknown;
+    }
+    final position = await Geolocator.getCurrentPosition(
+      locationSettings: const LocationSettings(
+        accuracy: LocationAccuracy.medium,
+        timeLimit: Duration(seconds: 12),
+      ),
+    );
+    final places = await placemarkFromCoordinates(
+      position.latitude,
+      position.longitude,
+    ).timeout(const Duration(seconds: 8));
+    if (places.isEmpty) return unknown;
+    return profileLocationFromPlacemark(places.first);
+  } catch (error) {
+    debugPrint('Initial profile location unavailable: $error');
+    return unknown;
+  }
+}
+
+({String city, String country}) profileLocationFromPlacemark(Placemark place) {
+  final city =
+      [place.locality, place.subAdministrativeArea, place.administrativeArea]
+          .whereType<String>()
+          .map((value) => value.trim())
+          .firstWhere((value) => value.isNotEmpty, orElse: () => '');
+  final code =
+      countryIsoCode(place.isoCountryCode ?? '') ??
+      countryIsoCode(place.country ?? '');
+  return (
+    city: city,
+    country: code == null
+        ? (place.country ?? '').trim()
+        : canonicalSpotCountryName(code),
+  );
+}
+
 Future<AppUser> saveFirebaseUser(
   User firebaseUser, {
   required String provider,
@@ -7979,12 +8597,14 @@ Future<AppUser> saveFirebaseUser(
       : usernameOverride?.trim().isNotEmpty == true
       ? usernameOverride!.trim()
       : makeUsernameFromFirebaseUser(firebaseUser);
-  final city = (data?['city'] as String?)?.trim().isNotEmpty == true
-      ? data!['city'] as String
-      : 'Riga';
-  final country = (data?['country'] as String?)?.trim().isNotEmpty == true
-      ? data!['country'] as String
-      : 'Latvia';
+  final initialLocation = isNewUser
+      ? await detectNewAccountLocation()
+      : (city: '', country: '');
+  final city = stringFromFirebase(data?['city'], initialLocation.city).trim();
+  final country = stringFromFirebase(
+    data?['country'],
+    initialLocation.country,
+  ).trim();
   final photoUrl = (data?['photoUrl'] as String?)?.trim().isNotEmpty == true
       ? data!['photoUrl'] as String
       : photoUrlOverride ?? firebaseUser.photoURL;
@@ -8044,8 +8664,8 @@ Future<AppUser> saveFirebaseUser(
     'photoUrl': photoUrl,
     'bio': bio,
     'avatarPath': avatarPath,
-    'city': city,
-    'country': country,
+    if (isNewUser) 'city': city,
+    if (isNewUser) 'country': country,
     'settings': settings.toFirebase(),
     'instagram': settings.instagram.trim(),
     'tiktok': settings.tiktok.trim(),
@@ -8593,41 +9213,11 @@ Future<Map<String, dynamic>> sendModerationAction(
 }
 
 Future<bool> currentUserHasCommunityModerationAccess() async {
-  final firebaseUser = FirebaseAuth.instance.currentUser;
-
-  if (firebaseUser == null) {
-    return false;
-  }
-
-  if (userRoleIsStaff(currentUser.role)) {
-    return true;
-  }
-
-  try {
-    final snapshots = await Future.wait([
-      usersCollection()
-          .doc(firebaseUser.uid)
-          .debugGet(null, 'community moderation: user lookup'),
-      FirebaseFirestore.instance
-          .collection('app_config')
-          .doc('global_chat')
-          .debugGet(null, 'community moderation: config lookup'),
-    ]);
-    final userData = snapshots[0].data();
-    final configData = snapshots[1].data();
-    final moderatorIds = [
-      ...stringListFromFirebase(configData?['moderatorIds'], const []),
-      ...stringListFromFirebase(configData?['globalModeratorIds'], const []),
-    ];
-
-    return userData?['globalChatModerator'] == true ||
-        userData?['globalModerator'] == true ||
-        moderatorIds.contains(firebaseUser.uid);
-  } catch (error, stack) {
-    debugPrint('Community moderation access lookup failed: $error');
-    debugPrint('$stack');
-    return false;
-  }
+  if (FirebaseAuth.instance.currentUser == null) return false;
+  return currentUser.role == UserRole.admin ||
+      ((currentUser.role == UserRole.moderator ||
+              currentUser.globalChatModerator) &&
+          currentUser.moderatorCountryCodes.isNotEmpty);
 }
 
 final Map<String, int> _recentPushEventSentAtMillis = <String, int>{};
@@ -9130,6 +9720,10 @@ class CarSpot {
   final SpotStatus status;
   final int createdAtMillis;
   final int updatedAtMillis;
+  final String visibility;
+  final List<String> sharedGroupIds;
+  final List<Map<String, dynamic>> sharedGroups;
+  bool get isGroupSpot => visibility == "group";
   final bool isTemporary;
   final int? startsAtMillis;
   final int? expiresAtMillis;
@@ -9170,6 +9764,9 @@ class CarSpot {
     required this.status,
     this.createdAtMillis = 0,
     this.updatedAtMillis = 0,
+    this.visibility = "public",
+    this.sharedGroupIds = const [],
+    this.sharedGroups = const [],
     this.isTemporary = false,
     this.startsAtMillis,
     this.expiresAtMillis,
@@ -9253,6 +9850,9 @@ class CarSpot {
       status: status ?? this.status,
       createdAtMillis: createdAtMillis ?? this.createdAtMillis,
       updatedAtMillis: updatedAtMillis ?? this.updatedAtMillis,
+      visibility: visibility,
+      sharedGroupIds: sharedGroupIds,
+      sharedGroups: sharedGroups,
       isTemporary: isTemporary ?? this.isTemporary,
       startsAtMillis: clearTemporarySchedule
           ? null
@@ -9468,6 +10068,15 @@ class CarSpot {
       status: spotStatusFromFirebase(data['status']),
       createdAtMillis: timestampMillisFromFirebase(data['createdAt']),
       updatedAtMillis: timestampMillisFromFirebase(data['updatedAt']),
+      visibility: stringFromFirebase(data['visibility'], 'public'),
+      sharedGroupIds: stringListFromFirebase(data['sharedGroupIds'], const []),
+      sharedGroups:
+          (data['sharedGroups'] is List
+                  ? data['sharedGroups'] as List
+                  : const [])
+              .whereType<Map>()
+              .map((item) => Map<String, dynamic>.from(item))
+              .toList(),
       isTemporary: data['isTemporary'] == true,
       startsAtMillis: nullableTimestampMillisFromFirebase(data['startsAt']),
       expiresAtMillis: nullableTimestampMillisFromFirebase(data['expiresAt']),
@@ -9873,6 +10482,255 @@ class SpotOwnerAssignment {
   const SpotOwnerAssignment({required this.uid, required this.username});
 }
 
+bool canTransferSpotOwnership(AppUser user, {String countryCode = ''}) =>
+    user.uid.isNotEmpty &&
+    !user.banActive &&
+    (user.role == UserRole.admin ||
+        (user.role == UserRole.moderator &&
+            user.moderatorCountryCodes.contains(
+              countryCode.trim().toUpperCase(),
+            )));
+
+Map<String, Object?> spotOwnershipTransferFields({
+  required Map<String, dynamic> spot,
+  required String recipientUid,
+  required Map<String, dynamic> recipient,
+  required String actorUid,
+}) {
+  if (recipientUid.isEmpty ||
+      recipient['deleted'] == true ||
+      userBanIsActive(recipient)) {
+    throw StateError('Choose an active user.');
+  }
+  final username = stringFromFirebase(recipient['username'], '').trim();
+  if (username.isEmpty) throw StateError('This user has no profile nickname.');
+  if (spot['addedByUid'] == recipientUid && spot['ownerUid'] == recipientUid) {
+    throw StateError('This user already owns the spot.');
+  }
+  return {
+    'addedByUid': recipientUid,
+    'addedBy': username,
+    'ownerUid': recipientUid,
+    'ownerUsername': username,
+    'ownershipTransferredFromUid': stringFromFirebase(spot['addedByUid'], ''),
+    'previousBusinessOwnerUid': stringFromFirebase(spot['ownerUid'], ''),
+    'ownershipTransferredByUid': actorUid,
+    'ownershipTransferredAt': FieldValue.serverTimestamp(),
+    'updatedAt': FieldValue.serverTimestamp(),
+  };
+}
+
+Future<CarSpot> transferSpotOwnership(
+  CarSpot expected,
+  SpotOwnerAssignment recipient,
+) async {
+  final uid = FirebaseAuth.instance.currentUser?.uid;
+  if (uid == null ||
+      uid != currentUser.uid ||
+      !canTransferSpotOwnership(
+        currentUser,
+        countryCode: expected.countryCode,
+      )) {
+    throw StateError('Only admins and moderators can transfer ownership.');
+  }
+  final ref = spotsCollection().doc(expected.id);
+  final updated = await FirebaseFirestore.instance.runTransaction<CarSpot>((
+    transaction,
+  ) async {
+    final snapshot = await transaction.debugGet(
+      ref,
+      'ownership transfer: spot',
+    );
+    final target = await transaction.debugGet(
+      usersCollection().doc(recipient.uid),
+      'ownership transfer: recipient',
+    );
+    final data = snapshot.data();
+    if (data == null || !target.exists) {
+      throw StateError('The spot or user no longer exists.');
+    }
+    if (stringFromFirebase(data['addedByUid'], '') != expected.addedByUid ||
+        stringFromFirebase(data['ownerUid'], '') != expected.ownerUid) {
+      throw StateError('Ownership changed. Reopen the spot and try again.');
+    }
+    final fields = spotOwnershipTransferFields(
+      spot: data,
+      recipientUid: target.id,
+      recipient: target.data()!,
+      actorUid: uid,
+    );
+    transaction.debugUpdate(ref, fields, 'ownership transfer');
+    return CarSpot.fromFirestore(snapshot).copyWith(
+      addedByUid: target.id,
+      addedBy: fields['addedBy']! as String,
+      ownerUid: target.id,
+      ownerUsername: fields['ownerUsername']! as String,
+      updatedAtMillis: DateTime.now().millisecondsSinceEpoch,
+    );
+  });
+  upsertSpotIntoLocalImmediateCache(updated);
+  reviewSpots.value = reviewSpots.value
+      .map((spot) => isSameSpot(spot, updated) ? updated : spot)
+      .toList();
+  submittedSpots.value = submittedSpots.value
+      .where((spot) => !isSameSpot(spot, updated))
+      .toList();
+  if (updated.addedByUid == currentUser.uid) {
+    submittedSpots.value = [...submittedSpots.value, updated];
+  }
+  return updated;
+}
+
+Future<CarSpot?> showSpotOwnershipTransfer(
+  BuildContext context,
+  CarSpot spot,
+) => showDialog<CarSpot>(
+  context: context,
+  barrierDismissible: false,
+  builder: (_) => SpotOwnershipTransferDialog(spot: spot),
+);
+
+class SpotOwnershipTransferDialog extends StatefulWidget {
+  final CarSpot spot;
+  const SpotOwnershipTransferDialog({super.key, required this.spot});
+  @override
+  State<SpotOwnershipTransferDialog> createState() =>
+      _SpotOwnershipTransferDialogState();
+}
+
+class _SpotOwnershipTransferDialogState
+    extends State<SpotOwnershipTransferDialog> {
+  final controller = TextEditingController();
+  SpotOwnerAssignment? recipient;
+  bool busy = false;
+  String? error;
+  @override
+  void dispose() {
+    controller.dispose();
+    super.dispose();
+  }
+
+  Future<void> search() async {
+    setState(() {
+      busy = true;
+      error = null;
+      recipient = null;
+    });
+    try {
+      final result = await findSpotOwnerAssignment(controller.text);
+      if (!mounted) return;
+      setState(() {
+        recipient = result;
+        if (result == null) error = 'User not found.';
+      });
+    } catch (_) {
+      if (mounted) {
+        setState(() => error = 'Could not find the user. Try again.');
+      }
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
+  }
+
+  Future<void> transfer() async {
+    if (recipient == null || busy) return;
+    setState(() {
+      busy = true;
+      error = null;
+    });
+    try {
+      final updated = await transferSpotOwnership(widget.spot, recipient!);
+      if (mounted) Navigator.pop(context, updated);
+    } catch (_) {
+      if (mounted) {
+        setState(
+          () => error =
+              'Transfer failed. Check that the user is active, ownership has not changed, and the spot is not under review.',
+        );
+      }
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => PopScope(
+    canPop: !busy,
+    child: AlertDialog(
+      scrollable: true,
+      title: Text(
+        communityText(
+          en: 'Transfer ownership',
+          ru: 'Передать владение',
+          lv: 'Nodot īpašumtiesības',
+        ),
+      ),
+      content: SizedBox(
+        width: 380,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(widget.spot.name),
+            const SizedBox(height: 8),
+            Text('${trText('Owner')}: @${widget.spot.addedBy}'),
+            const SizedBox(height: 12),
+            TextField(
+              controller: controller,
+              enabled: !busy,
+              decoration: InputDecoration(
+                labelText: communityText(
+                  en: 'Nickname or user ID',
+                  ru: 'Никнейм или ID пользователя',
+                  lv: 'Segvārds vai lietotāja ID',
+                ),
+              ),
+              onChanged: (_) => setState(() {
+                recipient = null;
+                error = null;
+              }),
+              onSubmitted: (_) {
+                if (!busy && controller.text.trim().isNotEmpty) search();
+              },
+            ),
+            TextButton(
+              onPressed: busy ? null : search,
+              child: Text(trText('Search')),
+            ),
+            if (recipient != null)
+              Text(
+                communityText(
+                  en: 'Transfer this spot to @${recipient!.username}? They will receive ownership and editing rights.',
+                  ru: 'Передать точку @${recipient!.username}? Пользователь получит права владельца и редактирования.',
+                  lv: 'Nodot vietu @${recipient!.username}? Lietotājs saņems īpašumtiesības un rediģēšanas tiesības.',
+                ),
+              ),
+            if (error != null)
+              Text(error!, style: const TextStyle(color: Colors.redAccent)),
+            if (busy) const LinearProgressIndicator(),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: busy ? null : () => Navigator.pop(context),
+          child: Text(trText('Cancel')),
+        ),
+        FilledButton(
+          onPressed: busy || recipient == null ? null : transfer,
+          child: Text(
+            communityText(
+              en: 'Confirm transfer',
+              ru: 'Подтвердить передачу',
+              lv: 'Apstiprināt nodošanu',
+            ),
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
 Future<SpotOwnerAssignment?> findSpotOwnerAssignment(
   String rawInput, {
   SpotOwnerAssignment? currentOwner,
@@ -10251,11 +11109,25 @@ Future<void> sendCommunityPushNotificationEvent({
   String communityCountryCode = '',
   Map<String, Object?> extra = const <String, Object?>{},
 }) async {
+  if (type == 'forum_reply') {
+    // The server resolves both the bell audience and targeted push recipients.
+    await sendPushNotificationEvent({
+      ...extra,
+      'type': type,
+      'notificationId': notificationId,
+      'audience': 'all_users',
+    });
+    return;
+  }
+
   final recipients = await communityPushRecipientUserIds(
     preferenceKey: preferenceKey,
     communityCountryCode: communityCountryCode,
   );
-  if (recipients != null && recipients.isEmpty) {
+  if (recipients != null &&
+      recipients.isEmpty &&
+      type != 'global_chat_message' &&
+      type != 'forum_reply') {
     debugPrint(
       'Community push skipped because no eligible recipients were found. '
       'type=$type notificationId=$notificationId',
@@ -10474,6 +11346,7 @@ Future<void> createSpotReviewUpdateNotification(
 }
 
 Future<void> createNewSpotNotificationForUsers(CarSpot spot) async {
+  if (spot.isGroupSpot) return;
   final firebaseUser = FirebaseAuth.instance.currentUser;
   if (firebaseUser == null || spot.status != SpotStatus.approved) {
     return;
@@ -10542,6 +11415,13 @@ Future<void> createNewSpotNotificationForUsers(CarSpot spot) async {
 }
 
 Future<void> sendNewSpotPushToEligibleUsers(CarSpot spot) async {
+  if (spot.isGroupSpot) {
+    await sendPushNotificationEvent({
+      'type': 'temporary_event',
+      'spotId': spot.id,
+    });
+    return;
+  }
   final recipients = await communityPushRecipientUserIds(
     preferenceKey: 'newSpotNotifications',
     spotCountry: spotCountryFromCityCountry(spot.cityCountry),
@@ -10859,17 +11739,32 @@ Future<DocumentSnapshot<Map<String, dynamic>>?> safeFriendRequestGet(
   }
 }
 
-Stream<int> incomingFriendRequestCountStream() {
-  final firebaseUser = FirebaseAuth.instance.currentUser;
-  if (firebaseUser == null) {
-    return Stream.value(0);
-  }
+SessionCountStream? _incomingFriendRequests;
+String? _incomingFriendRequestUid;
+bool _accountSigningOut = false;
 
-  return friendRequestsCollection()
-      .where('toUid', isEqualTo: firebaseUser.uid)
-      .where('status', isEqualTo: 'pending')
-      .debugSnapshots('friends: incoming request badge listener')
-      .map((snapshot) => snapshot.docs.length);
+Future<void> stopIncomingFriendRequestCountStream() async {
+  final previous = _incomingFriendRequests;
+  _incomingFriendRequests = null;
+  _incomingFriendRequestUid = null;
+  await previous?.dispose();
+}
+
+Stream<int> incomingFriendRequestCountStream() {
+  final uid = FirebaseAuth.instance.currentUser?.uid;
+  if (uid == null || _accountSigningOut) return Stream.value(0);
+  if (_incomingFriendRequestUid != uid || _incomingFriendRequests == null) {
+    unawaited(stopIncomingFriendRequestCountStream());
+    _incomingFriendRequestUid = uid;
+    _incomingFriendRequests = SessionCountStream(
+      () => friendRequestsCollection()
+          .where('toUid', isEqualTo: uid)
+          .where('status', isEqualTo: 'pending')
+          .debugSnapshots('friends: incoming request badge listener')
+          .map((snapshot) => snapshot.docs.length),
+    );
+  }
+  return _incomingFriendRequests!.stream;
 }
 
 CollectionReference<Map<String, dynamic>> friendshipsCollection() {
@@ -11416,7 +12311,7 @@ Future<void> unblockUserById(String userId) async {
 }
 
 const double friendNearbyRadiusMeters = 5000;
-const double friendAtSpotRadiusMeters = 100;
+const double friendAtSpotRadiusMeters = 200;
 const Duration friendAtSpotNotificationDwellTime = Duration(minutes: 5);
 const Duration friendLocationNotificationCooldown = Duration(minutes: 30);
 const Duration temporarySpotReminderLeadTime = Duration(hours: 5);
@@ -11578,6 +12473,7 @@ String localizedFriendActionError(Object error, String fallbackKey) {
 
 class ChatThreadData {
   final String id;
+  final String countryCode;
   final bool isGroup;
   final String name;
   final String photoUrl;
@@ -11597,6 +12493,7 @@ class ChatThreadData {
 
   const ChatThreadData({
     required this.id,
+    this.countryCode = '',
     required this.isGroup,
     required this.name,
     this.photoUrl = '',
@@ -11622,6 +12519,7 @@ class ChatThreadData {
 
     return ChatThreadData(
       id: doc.id,
+      countryCode: stringFromFirebase(data['countryCode'], ''),
       isGroup: data['isGroup'] == true,
       name: stringFromFirebase(data['name'], ''),
       photoUrl: stringFromFirebase(data['photoUrl'], ''),
@@ -12552,6 +13450,7 @@ Future<String> createGroupChat({
 
   await doc.debugSet({
     'isGroup': true,
+    'countryCode': currentUserHomeCountryCode(),
     'name': name.trim().isEmpty ? fallbackName : name.trim(),
     'memberIds': memberIds,
     'memberUsernames': memberUsernames,
@@ -13118,13 +14017,16 @@ Future<void> shareChatLiveLocation(
 Future<bool> currentUserCanModerateChat(String chatId) async {
   final firebaseUser = FirebaseAuth.instance.currentUser;
   if (firebaseUser == null) return false;
-  if (userRoleIsStaff(currentUser.role) || currentUser.globalChatModerator) {
-    return true;
-  }
 
   final snapshot = await chatsCollection().doc(chatId).debugGet();
   final data = snapshot.data();
   if (data == null || data['isGroup'] != true) return false;
+  if (currentUserCanModerateCountry(
+    stringFromFirebase(data['countryCode'], ''),
+    community: true,
+  ))
+    return true;
+  if (currentUser.role == UserRole.moderator) return false;
 
   final memberIds = stringListFromFirebase(data['memberIds'], const []);
   if (!memberIds.contains(firebaseUser.uid)) return false;
@@ -13170,6 +14072,14 @@ Future<void> editChatMessage({
     'updatedAt': FieldValue.serverTimestamp(),
   }, SetOptions(merge: true));
 
+  unawaited(
+    sendPushNotificationEvent({
+      'type': 'chat_message',
+      'chatId': chatId,
+      'messageId': message.id,
+      'mentionsOnly': true,
+    }),
+  );
   try {
     await chatsCollection().doc(chatId).debugSet({
       'lastMessage': cleanText,
@@ -13276,7 +14186,9 @@ Future<void> deleteGroupChat(ChatThreadData chat) async {
   final firebaseUser = FirebaseAuth.instance.currentUser;
   final uid = firebaseUser?.uid ?? currentUser.uid;
   final canDelete =
-      chat.isGroup && (chat.isOwner(uid) || userRoleIsStaff(currentUser.role));
+      chat.isGroup &&
+      (chat.isOwner(uid) ||
+          currentUserCanModerateCountry(chat.countryCode, community: true));
 
   if (!canDelete) {
     throw FirebaseException(
@@ -13844,6 +14756,7 @@ LatLng lerpLatLng(LatLng from, LatLng to, double amount) {
 }
 
 Future<void> createMeetSpotNotificationsForNearbyUsers(CarSpot spot) async {
+  if (spot.isGroupSpot) return;
   if (spot.id.trim().isEmpty || !spot.categories.contains('Meet')) {
     return;
   }
@@ -13895,7 +14808,10 @@ Future<void> createMeetSpotNotificationsForNearbyUsers(CarSpot spot) async {
   }
 }
 
-Future<List<String>> staffUserIdsExcept({String? excludedUid}) async {
+Future<List<String>> staffUserIdsExcept({
+  String? excludedUid,
+  String countryCode = '',
+}) async {
   final adminSnapshot = await usersCollection()
       .where('role', isEqualTo: 'admin')
       .debugGet(null, 'users: admin user ids query');
@@ -13909,7 +14825,14 @@ Future<List<String>> staffUserIdsExcept({String? excludedUid}) async {
     final uid = stringFromFirebase(data['uid'], doc.id).trim();
     final deleted = data['deleted'] == true;
     final banned = data['banned'] == true;
-    if (uid.isNotEmpty && uid != excludedUid && !deleted && !banned) {
+    if (uid.isNotEmpty &&
+        uid != excludedUid &&
+        !deleted &&
+        !banned &&
+        (data['role'] == 'admin' ||
+            moderatorCountryCodesFromFirebase(
+              data['moderatorCountryCodes'],
+            ).contains(countryCode))) {
       ids.add(uid);
     }
   }
@@ -13921,7 +14844,7 @@ Future<List<String>> spotReviewStaffUserIdsExcept(
   CarSpot spot, {
   String? excludedUid,
 }) async {
-  final countryCode = spot.effectiveCountryCode;
+  final countryCode = spot.countryCode.trim().toUpperCase();
   final adminSnapshot = await usersCollection()
       .where('role', isEqualTo: 'admin')
       .debugGet(null, 'users: spot review admin ids query');
@@ -13963,57 +14886,25 @@ Future<List<String>> spotReviewStaffUserIdsExcept(
 
 Future<List<String>> communityModerationUserIdsExcept({
   String? excludedUid,
+  required String countryCode,
 }) async {
-  final ids = <String>{...await staffUserIdsExcept(excludedUid: excludedUid)};
-
-  Future<void> addFlaggedUsers(String field, String label) async {
-    try {
-      final snapshot = await usersCollection()
-          .where(field, isEqualTo: true)
-          .debugGet(null, label);
-      for (final doc in snapshot.docs) {
+  final snapshot = await usersCollection().debugGet();
+  return snapshot.docs
+      .where((doc) {
         final data = doc.data();
-        final uid = stringFromFirebase(data['uid'], doc.id).trim();
-        if (uid.isNotEmpty &&
-            uid != excludedUid &&
-            data['deleted'] != true &&
-            data['banned'] != true) {
-          ids.add(uid);
-        }
-      }
-    } catch (error, stack) {
-      debugPrint('Community moderator lookup failed for $field: $error');
-      debugPrint('$stack');
-    }
-  }
-
-  await addFlaggedUsers(
-    'globalChatModerator',
-    'users: global chat moderator ids query',
-  );
-  await addFlaggedUsers('globalModerator', 'users: global moderator ids query');
-
-  try {
-    final config = await FirebaseFirestore.instance
-        .collection('app_config')
-        .doc('global_chat')
-        .debugGet(null, 'community moderation: notification recipients config');
-    final data = config.data();
-    for (final uid in <String>{
-      ...stringListFromFirebase(data?['moderatorIds'], const []),
-      ...stringListFromFirebase(data?['globalModeratorIds'], const []),
-    }) {
-      final cleanUid = uid.trim();
-      if (cleanUid.isNotEmpty && cleanUid != excludedUid) {
-        ids.add(cleanUid);
-      }
-    }
-  } catch (error, stack) {
-    debugPrint('Community moderator config lookup failed: $error');
-    debugPrint('$stack');
-  }
-
-  return ids.toList();
+        if (doc.id == excludedUid ||
+            data['deleted'] == true ||
+            data['banned'] == true)
+          return false;
+        if (data['role'] == 'admin') return true;
+        return (data['role'] == 'moderator' ||
+                userDataHasCommunityModerationAccess(data)) &&
+            moderatorCountryCodesFromFirebase(
+              data['moderatorCountryCodes'],
+            ).contains(countryCode);
+      })
+      .map((doc) => doc.id)
+      .toList();
 }
 
 Future<List<String>> adminUserIdsExcept({String? excludedUid}) async {
@@ -14048,7 +14939,10 @@ Future<void> notifyStaffAboutCommunityEvent({
   final senderUid = FirebaseAuth.instance.currentUser?.uid ?? currentUser.uid;
   final recipientUids = resolveRecipientsOnServer
       ? const <String>[]
-      : await communityModerationUserIdsExcept(excludedUid: senderUid);
+      : await communityModerationUserIdsExcept(
+          excludedUid: senderUid,
+          countryCode: stringFromFirebase(extra['countryCode'], ''),
+        );
   if (recipientUids.isEmpty && !resolveRecipientsOnServer) {
     debugPrint(
       'Community moderation notification skipped because no recipients were found.',
@@ -14124,6 +15018,7 @@ bool temporarySpotReminderIsDue(CarSpot spot, DateTime now) {
 }
 
 Future<void> notifyAllUsersIfTemporarySpotIsToday(CarSpot spot) async {
+  if (spot.isGroupSpot) return;
   final uid = FirebaseAuth.instance.currentUser?.uid;
   if (uid == null || !userRoleIsStaff(currentUser.role)) return;
   final now = DateTime.now();
@@ -14261,7 +15156,10 @@ Future<void> createAdminUserReportNotifications({
     return;
   }
 
-  final staffUids = await staffUserIdsExcept(excludedUid: reporterUid);
+  final staffUids = await staffUserIdsExcept(
+    excludedUid: reporterUid,
+    countryCode: countryIsoCode(reportedUser.country) ?? '',
+  );
   if (staffUids.isEmpty) {
     return;
   }
@@ -14276,6 +15174,7 @@ Future<void> createAdminUserReportNotifications({
     batch.debugSet(adminNotificationsCollection().doc(notificationId), {
       'userId': staffUid,
       'type': 'user_report_new',
+      'countryCode': countryIsoCode(reportedUser.country) ?? '',
       'title': 'New user report',
       'body':
           '$cleanReporter reported $cleanReported${cleanReason.isEmpty ? '.' : ': $cleanReason'}',
@@ -14707,7 +15606,13 @@ Future<void> updateCurrentUserPresenceFields(
 
   try {
     await userPresenceDocument(firebaseUser.uid).debugSet(
-      {...data, 'updatedAt': FieldValue.serverTimestamp()},
+      {
+        // A live-location action can create presence before the first heartbeat.
+        'isOnline': true,
+        'lastSeenAt': FieldValue.serverTimestamp(),
+        ...data,
+        'updatedAt': FieldValue.serverTimestamp(),
+      },
       SetOptions(merge: true),
       label,
     );
@@ -14751,15 +15656,192 @@ Future<void> updateCurrentUserOnlinePresence({required bool isOnline}) async {
   }
 }
 
+const maxSharedSpotGroups = 8;
+final memberSpotGroups = ValueNotifier<List<ChatThreadData>>([]);
+final Map<String, StreamSubscription> _groupSpotLinks = {};
+final Map<String, StreamSubscription> _groupSpotDocuments = {};
+final Map<String, Set<String>> _groupSpotIds = {};
+
+bool canViewGroupSpot(CarSpot spot) =>
+    !spot.isGroupSpot ||
+    currentUserCanModerateSpot(spot) ||
+    memberSpotGroups.value.any(
+      (group) => spot.sharedGroupIds.contains(group.id),
+    );
+
+Future<void> _groupSpotCancellation = Future<void>.value();
+void stopGroupSpotSync() {
+  final pending = <Future<void>>[_groupSpotCancellation];
+  for (final subscription in [
+    ..._groupSpotLinks.values,
+    ..._groupSpotDocuments.values,
+  ]) {
+    pending.add(subscription.cancel());
+  }
+  _groupSpotLinks.clear();
+  _groupSpotDocuments.clear();
+  _groupSpotIds.clear();
+  memberSpotGroups.value = [];
+  _firebaseSpotCacheBySource.remove('group spots');
+  _groupSpotCancellation = Future.wait(pending).then((_) {});
+}
+
+void startGroupSpotSync(int generation, String scope) {
+  final uid = currentUser.uid;
+  final membership = FirebaseFirestore.instance
+      .collection('chats')
+      .where('memberIds', arrayContains: uid)
+      .snapshots()
+      .listen(
+        (snapshot) {
+          if (!_spotSyncIsCurrent(generation, scope)) return;
+          final groups = snapshot.docs
+              .map(ChatThreadData.fromFirestore)
+              .where((chat) => chat.isGroup)
+              .toList();
+          memberSpotGroups.value = groups;
+          forumTopicsRefreshTick.value++;
+          final ids = groups.map((group) => group.id).toSet();
+          for (final removed
+              in _groupSpotLinks.keys
+                  .where((id) => !ids.contains(id))
+                  .toList()) {
+            unawaited(_groupSpotLinks.remove(removed)!.cancel());
+            _groupSpotIds.remove(removed);
+          }
+          void reconcile() {
+            if (!_spotSyncIsCurrent(generation, scope)) return;
+            final wanted = _groupSpotIds.values.expand((ids) => ids).toSet();
+            final cache = _firebaseSpotCacheBySource.putIfAbsent(
+              'group spots',
+              () => {},
+            );
+            for (final removed
+                in _groupSpotDocuments.keys
+                    .where((id) => !wanted.contains(id))
+                    .toList()) {
+              unawaited(_groupSpotDocuments.remove(removed)!.cancel());
+              cache.remove(removed);
+            }
+            for (final id in wanted) {
+              if (_groupSpotDocuments.containsKey(id)) continue;
+              _groupSpotDocuments[id] = spotsCollection()
+                  .doc(id)
+                  .snapshots()
+                  .listen(
+                    (doc) {
+                      if (!_spotSyncIsCurrent(generation, scope)) return;
+                      if (doc.exists) {
+                        final spot = CarSpot.fromFirestore(doc);
+                        if ((spot.status == SpotStatus.approved ||
+                                spot.addedByUid == uid) &&
+                            canViewGroupSpot(spot)) {
+                          cache[id] = spot;
+                        } else {
+                          cache.remove(id);
+                        }
+                      } else {
+                        cache.remove(id);
+                      }
+                      _publishFirebaseSpotCaches();
+                    },
+                    onError: (Object error) {
+                      cache.remove(id);
+                      _publishFirebaseSpotCaches();
+                    },
+                  );
+            }
+            cache.removeWhere((_, spot) => !canViewGroupSpot(spot));
+            _publishFirebaseSpotCaches();
+          }
+
+          for (final id in ids) {
+            if (_groupSpotLinks.containsKey(id)) continue;
+            _groupSpotLinks[id] = FirebaseFirestore.instance
+                .collection('chats')
+                .doc(id)
+                .collection('spot_links')
+                .snapshots()
+                .listen(
+                  (links) {
+                    if (!_spotSyncIsCurrent(generation, scope)) return;
+                    _groupSpotIds[id] = links.docs
+                        .where(
+                          (doc) =>
+                              doc.data()['published'] == true ||
+                              doc.data()['authorUid'] == uid,
+                        )
+                        .map((doc) => doc.id)
+                        .toSet();
+                    reconcile();
+                    forumTopicsRefreshTick.value++;
+                  },
+                  onError: (Object error) {
+                    _groupSpotIds.remove(id);
+                    reconcile();
+                  },
+                );
+          }
+          reconcile();
+        },
+        onError: (Object error) {
+          if (!_spotSyncIsCurrent(generation, scope)) return;
+          stopGroupSpotSync();
+          _publishFirebaseSpotCaches();
+        },
+      );
+  spotSyncSubscriptions.add(membership);
+}
+
+class SpotGroupLabels extends StatelessWidget {
+  final CarSpot spot;
+  const SpotGroupLabels({super.key, required this.spot});
+  @override
+  Widget build(BuildContext context) => Wrap(
+    spacing: 6,
+    runSpacing: 4,
+    children: [
+      Text(
+        trText('Group'),
+        style: const TextStyle(
+          color: Colors.cyanAccent,
+          fontWeight: FontWeight.w800,
+          fontSize: 11,
+        ),
+      ),
+      for (final group in spot.sharedGroups)
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            GlobalSmallAvatar(
+              avatarUrl: stringFromFirebase(group['avatarUrl'], ''),
+              username: stringFromFirebase(group['name'], 'Group'),
+              size: 18,
+            ),
+            const SizedBox(width: 4),
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 130),
+              child: Text(
+                stringFromFirebase(group['name'], 'Group'),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(color: Colors.cyanAccent, fontSize: 11),
+              ),
+            ),
+          ],
+        ),
+    ],
+  );
+}
+
 CollectionReference<Map<String, dynamic>> spotsCollection() {
   return FirebaseFirestore.instance.collection('spots');
 }
 
 Query<Map<String, dynamic>> approvedSpotsForCurrentUserQuery() {
-  var query = spotsCollection().where(
-    'status',
-    isEqualTo: spotStatusName(SpotStatus.approved),
-  );
+  var query = spotsCollection()
+      .where('visibility', isEqualTo: 'public')
+      .where('status', isEqualTo: spotStatusName(SpotStatus.approved));
 
   if (!currentUserCanUseVerifiedOnlySpots) {
     query = query.where('verifiedOnly', isEqualTo: false);
@@ -14770,6 +15852,7 @@ Query<Map<String, dynamic>> approvedSpotsForCurrentUserQuery() {
 
 Query<Map<String, dynamic>> activeTemporarySpotsForCurrentUserQuery() {
   var query = spotsCollection()
+      .where('visibility', isEqualTo: 'public')
       .where('status', isEqualTo: spotStatusName(SpotStatus.approved))
       .where('isTemporary', isEqualTo: true);
 
@@ -14900,6 +15983,9 @@ Map<String, Object?> spotToFirestoreData(
     'commentCount': spot.commentCount,
     'photoUrl': spot.photoUrl,
     'photoUrls': spot.photoUrls,
+    'visibility': spot.visibility,
+    'sharedGroupIds': spot.sharedGroupIds,
+    'sharedGroups': spot.sharedGroups,
     'reelLink': spot.reelLink,
     'contactPhone': spot.contactPhone,
     'contactInstagram': spot.contactInstagram,
@@ -14965,6 +16051,9 @@ Map<String, Object?> carSpotToLocalCacheData(CarSpot spot) {
     'commentCount': spot.commentCount,
     'photoUrl': spot.photoUrl,
     'photoUrls': spot.photoUrls,
+    'visibility': spot.visibility,
+    'sharedGroupIds': spot.sharedGroupIds,
+    'sharedGroups': spot.sharedGroups,
     'reelLink': spot.reelLink,
     'contactPhone': spot.contactPhone,
     'contactInstagram': spot.contactInstagram,
@@ -15042,6 +16131,15 @@ CarSpot? carSpotFromLocalCacheData(Object? value) {
       status: spotStatusFromFirebase(data['status']),
       createdAtMillis: intFromFirebase(data['createdAtMillis'], 0),
       updatedAtMillis: intFromFirebase(data['updatedAtMillis'], 0),
+      visibility: stringFromFirebase(data['visibility'], 'public'),
+      sharedGroupIds: stringListFromFirebase(data['sharedGroupIds'], const []),
+      sharedGroups:
+          (data['sharedGroups'] is List
+                  ? data['sharedGroups'] as List
+                  : const [])
+              .whereType<Map>()
+              .map((item) => Map<String, dynamic>.from(item))
+              .toList(),
       isTemporary: data['isTemporary'] == true,
       startsAtMillis: data['startsAtMillis'] is num
           ? (data['startsAtMillis'] as num).toInt()
@@ -15062,7 +16160,8 @@ CarSpot? carSpotFromLocalCacheData(Object? value) {
 }
 
 bool approvedSpotIsVisibleForCurrentUser(CarSpot spot) {
-  return spot.status == SpotStatus.approved &&
+  return canViewGroupSpot(spot) &&
+      spot.status == SpotStatus.approved &&
       spot.isVisibleNow &&
       (!spot.verifiedOnly || currentUserCanUseVerifiedOnlySpots);
 }
@@ -15249,7 +16348,7 @@ void _publishFirebaseSpotCaches() {
     );
 
   final currentUid = FirebaseAuth.instance.currentUser?.uid ?? currentUser.uid;
-  reviewSpots.value = firebaseSpots;
+  reviewSpots.value = firebaseSpots.where(canViewGroupSpot).toList();
   observeLoadedSpotsForBadges();
   submittedSpots.value = firebaseSpots
       .where((spot) => spot.addedByUid == currentUid)
@@ -15371,8 +16470,9 @@ void _listenToSpotQuery({
 }
 
 void startApprovedSpotsLiveSync(int generation, String scope) {
+  startGroupSpotSync(generation, scope);
   // No arbitrary document-ID limit: new and older verified spots must both
-  // participate in the live feed. The map still caps rendered markers.
+  // participate in the live feed and remain available to the map.
   _listenToSpotQuery(
     source: 'approved',
     query: approvedSpotsForCurrentUserQuery(),
@@ -15381,7 +16481,9 @@ void startApprovedSpotsLiveSync(int generation, String scope) {
   );
   _listenToSpotQuery(
     source: 'my submissions',
-    query: spotsCollection().where('addedByUid', isEqualTo: currentUser.uid),
+    query: spotsCollection()
+        .where('visibility', isEqualTo: 'public')
+        .where('addedByUid', isEqualTo: currentUser.uid),
     generation: generation,
     scope: scope,
   );
@@ -15525,7 +16627,10 @@ bool _spotSyncIsCurrent(int generation, String scope) {
       !currentUser.banActive;
 }
 
+Future<void> _spotSyncCancellation = Future<void>.value();
 void _invalidateSpotSync() {
+  stopGroupSpotSync();
+  final pending = <Future<void>>[_spotSyncCancellation, _groupSpotCancellation];
   _spotSyncGeneration++;
   _spotSyncRetryTimer?.cancel();
   _spotSyncRetryTimer = null;
@@ -15538,9 +16643,10 @@ void _invalidateSpotSync() {
   _spotSyncStartInFlight = null;
   _spotSyncStartInFlightScope = null;
   for (final subscription in spotSyncSubscriptions) {
-    unawaited(subscription.cancel());
+    pending.add(subscription.cancel());
   }
   spotSyncSubscriptions.clear();
+  _spotSyncCancellation = Future.wait(pending).then((_) {});
 }
 
 void _scheduleSpotSyncRetry(int generation, String scope) {
@@ -15697,7 +16803,9 @@ Future<void> _refreshSpotFeedsFromServer(int generation, String scope) async {
     refreshSource('approved', approvedSpotsForCurrentUserQuery()),
     refreshSource(
       'my submissions',
-      spotsCollection().where('addedByUid', isEqualTo: currentUser.uid),
+      spotsCollection()
+          .where('visibility', isEqualTo: 'public')
+          .where('addedByUid', isEqualTo: currentUser.uid),
     ),
   ]);
 }
@@ -16477,6 +17585,8 @@ Future<void> toggleSpotLike(
 
     try {
       await FirebaseFirestore.instance.runTransaction((transaction) async {
+        // Firestore can rerun this callback after a concurrent write.
+        likeDelta = 0;
         final likeSnapshot = await transaction.debugGet(likeRef);
         DocumentSnapshot<Map<String, dynamic>>? spotSnapshot;
         if (spotRef != null) {
@@ -16529,7 +17639,9 @@ Future<void> toggleSpotLike(
         writeSafeSpotLikeCount(-1, 'spot like counter safe decrement');
         likeDelta = -1;
       });
-    } catch (error) {
+    } catch (error, stack) {
+      debugPrint('Spot like save failed for $spotId: $error');
+      debugPrint('$stack');
       setCurrentUserSpotLikedLocally(spotId, currentlyLiked);
       if (context.mounted) {
         await showSpotLikeSaveErrorDialog(context);
@@ -16890,6 +18002,13 @@ Future<void> editSpotReview({
     'comment': cleanComment,
     'updatedAt': FieldValue.serverTimestamp(),
   });
+  unawaited(
+    sendPushNotificationEvent({
+      'type': 'spot_comment',
+      'reviewId': review.id,
+      'mentionsOnly': true,
+    }),
+  );
 }
 
 Future<void> deleteSpotReview({
@@ -17031,13 +18150,33 @@ List<CarSpot> approvedPublicSpots() {
   // Review/submission/local-immediate sources may have older snapshots with
   // client timestamps ahead of the server. They must not override the public
   // feed's status, country, or temporary schedule on just one device.
-  return (_firebaseSpotCacheBySource['approved'] ?? const <String, CarSpot>{})
-      .values
+  return <String, CarSpot>{
+        ...?_firebaseSpotCacheBySource['approved'],
+        ...?_firebaseSpotCacheBySource['group spots'],
+      }.values
       .where(
         (spot) =>
+            canViewGroupSpot(spot) &&
             spot.status == SpotStatus.approved &&
             spot.isVisibleNow &&
             (!spot.verifiedOnly || currentUserCanUseVerifiedOnlySpots),
+      )
+      .toList();
+}
+
+// MarkerLayer culls off-screen markers. Do not drop eligible spots based on
+// distance, density, or nearby events: those cuts make live spots disappear.
+List<CarSpot> mapVisibleSpots(Iterable<CarSpot> spots) {
+  final categories = spotCategoryFilters.value;
+  if (categories.isEmpty || spotCountryFilters.value.isEmpty) return const [];
+  return spots
+      .where(
+        (spot) =>
+            spot.status == SpotStatus.approved &&
+            spotMatchesSelectedCountries(spot) &&
+            spot.categories.any(categories.contains) &&
+            spot.isVisibleOnMapNow &&
+            isValidLatLng(spot.coordinates),
       )
       .toList();
 }
@@ -17292,7 +18431,8 @@ Future<void> updateSpotStatus(
 
 Future<void> deleteSpotFromFirebase(CarSpot spot) async {
   if (spot.id.isNotEmpty) {
-    await spotsCollection().doc(spot.id).debugDelete();
+    await sendModerationAction({'action': 'delete_spot', 'spotId': spot.id});
+    forumTopicsRefreshTick.value++;
   }
 
   removeSpotFromLocalImmediateCache(spot);
@@ -17767,9 +18907,11 @@ IconData notificationCenterIcon(NotificationCenterItem item) {
           : Icons.check_circle,
     'spot_pending_review' => Icons.fact_check,
     'global_chat_message' || 'global_chat_admin' => Icons.public,
+    'forum_topic_created' ||
     'forum_reply' ||
     'forum_topic_pending' ||
     'forum_reply_admin' => Icons.forum_outlined,
+    'moderator_user_banned' => Icons.gavel,
     'user_report_new' => Icons.report_outlined,
     'spot_approved_by_admin' => Icons.check_circle,
     'spot_rejected_by_admin' => Icons.cancel,
@@ -17803,6 +18945,7 @@ Color notificationCenterColor(NotificationCenterItem item) {
     'spot_pending_review' => blue,
     'global_chat_message' ||
     'global_chat_admin' ||
+    'forum_topic_created' ||
     'forum_reply' ||
     'forum_topic_pending' ||
     'forum_reply_admin' => blue,
@@ -18115,33 +19258,36 @@ NotificationCenterItem notificationCenterItemFromDocument(
   final comment = pickString('comment', '');
   final friendUsername = pickString('friendUsername', '');
   // Always use the canonical title for each type — ignore whatever Firebase stored.
-  final title = switch (type) {
-    'spot_like' => 'Likes on my spots',
-    'spot_comment' => 'Comments',
-    'spot_review_update' => 'Spot review updates',
-    'chat_message' => chatNotificationTitle(actorUsername),
-    'new_spot' => 'New spots',
-    'temporary_event' => 'Temporary events',
-    'temporary_spot_today' => 'Temporary spot starts in 5 hours',
-    'global_chat_message' || 'global_chat_admin' => 'Global chat',
-    'forum_reply' => pickString('title', 'Forum'),
-    'forum_topic_pending' => 'Forum topic waiting for review',
-    'forum_reply_admin' => 'New forum reply',
-    'spot_pending_review' =>
-      pickString('reviewKind', '') == 'edited'
-          ? 'Spot edited — approval required'
-          : 'Spot review updates',
-    'user_report_new' => 'New user report',
-    'spot_removal_request' => 'Spot removal request',
-    'spot_approved_by_admin' ||
-    'spot_rejected_by_admin' => 'Spot review updates',
-    'friend_request' => 'New friend request',
-    'friend_nearby' ||
-    'friend_at_spot' ||
-    'friend_live_sharing' => 'Live location',
-    'project_news' => 'Project news',
-    _ => stringFromFirebase(data['title'], 'CCS'),
-  };
+  final title = pickString('notificationKind', '') == 'mention'
+      ? 'You were mentioned'
+      : switch (type) {
+          'spot_like' => 'Likes on my spots',
+          'spot_comment' => 'Comments',
+          'spot_review_update' => 'Spot review updates',
+          'chat_message' => chatNotificationTitle(actorUsername),
+          'new_spot' => 'New spots',
+          'temporary_event' => 'Temporary events',
+          'temporary_spot_today' => 'Temporary spot starts in 5 hours',
+          'global_chat_message' || 'global_chat_admin' => 'Global chat',
+          'forum_topic_created' => pickString('title', 'New forum topic'),
+          'forum_reply' => pickString('title', 'Forum'),
+          'forum_topic_pending' => 'Forum topic waiting for review',
+          'forum_reply_admin' => 'New forum reply',
+          'spot_pending_review' =>
+            pickString('reviewKind', '') == 'edited'
+                ? 'Spot edited — approval required'
+                : 'Spot review updates',
+          'user_report_new' => 'New user report',
+          'spot_removal_request' => 'Spot removal request',
+          'spot_approved_by_admin' ||
+          'spot_rejected_by_admin' => 'Spot review updates',
+          'friend_request' => 'New friend request',
+          'friend_nearby' ||
+          'friend_at_spot' ||
+          'friend_live_sharing' => 'Live location',
+          'project_news' => 'Project news',
+          _ => stringFromFirebase(data['title'], 'CCS'),
+        };
   var body = pickString('body', '');
   final spotName = rawSpotName.trim().isNotEmpty
       ? rawSpotName
@@ -18175,6 +19321,7 @@ NotificationCenterItem notificationCenterItemFromDocument(
             : '$spotName starts in about 5 hours.',
       'global_chat_message' ||
       'global_chat_admin' => 'New message in global chat.',
+      'forum_topic_created' => 'A new forum topic was created.',
       'forum_reply' => 'A new reply was posted in the forum.',
       'forum_topic_pending' => 'A forum topic is waiting for review.',
       'forum_reply_admin' => 'A new reply was posted in the forum.',
@@ -18820,28 +19967,7 @@ Future<List<NotificationCenterItem>> loadNotificationCenterItems() async {
       );
       for (final doc in snapshot.docs) {
         final data = doc.data();
-        if (currentUser.role == UserRole.moderator &&
-            data['type'] == 'spot_pending_review') {
-          final pushData = mapFromFirebase(data['data']);
-          final countryCode = stringFromFirebase(
-            data['countryCode'],
-            stringFromFirebase(
-              pushData['countryCode'],
-              countryIsoCode(
-                    spotCountryFromCityCountry(
-                      stringFromFirebase(
-                        data['cityCountry'],
-                        stringFromFirebase(pushData['cityCountry'], ''),
-                      ),
-                    ),
-                  ) ??
-                  '',
-            ),
-          ).toUpperCase();
-          if (!currentUser.moderatorCountryCodes.contains(countryCode)) {
-            continue;
-          }
-        }
+        if (!moderationNotificationAllowed(data)) continue;
         items.add(notificationCenterItemFromDocument(doc));
       }
     } catch (error, stack) {
@@ -19474,7 +20600,8 @@ Future<void> openNotificationCenterItem(
     return;
   }
 
-  if ((item.type == 'forum_reply' ||
+  if ((item.type == 'forum_topic_created' ||
+          item.type == 'forum_reply' ||
           item.type == 'forum_topic_pending' ||
           item.type == 'forum_reply_admin') &&
       item.topicId.trim().isNotEmpty) {
@@ -19517,10 +20644,36 @@ Future<void> openNotificationCenterItem(
     return;
   }
 
+  if (item.type == 'moderator_user_banned' &&
+      currentUser.role == UserRole.admin) {
+    Navigator.push(
+      context,
+      appPageRoute(builder: (_) => const AdminUsersScreen()),
+    );
+    return;
+  }
+
   if (item.type == 'user_report_new' && userRoleIsStaff(currentUser.role)) {
     Navigator.push(
       context,
       appPageRoute(builder: (_) => const AdminUserReportsScreen()),
+    );
+    return;
+  }
+
+  if (item.type == 'group_join_request') {
+    Navigator.push(
+      context,
+      appPageRoute(
+        builder: (_) => GroupJoinRequestsScreen(chatId: item.chatId),
+      ),
+    );
+    return;
+  }
+  if (item.type == 'group_join_decision') {
+    Navigator.push(
+      context,
+      appPageRoute(builder: (_) => const ChatScreen(initialTabIndex: 1)),
     );
     return;
   }
@@ -20552,16 +21705,236 @@ class _RememberMeRow extends StatelessWidget {
   }
 }
 
-class MainScreen extends StatefulWidget {
-  final int initialIndex;
+bool profileRegionIsComplete(String city, String country) =>
+    city.trim().isNotEmpty &&
+    city.trim().length <= 120 &&
+    countryIsoCode(country) != null;
 
-  const MainScreen({super.key, this.initialIndex = 0});
+String get requiredRegionMessage => communityText(
+  en: 'Choose your country and enter your city to continue.',
+  ru: 'Чтобы продолжить, выберите страну и введите город.',
+  lv: 'Lai turpinātu, izvēlieties valsti un ievadiet pilsētu.',
+);
 
-  @override
-  State<MainScreen> createState() => _MainScreenState();
+Future<void> saveRequiredProfileRegion(String city, String country) async {
+  if (!profileRegionIsComplete(city, country)) {
+    throw ArgumentError(requiredRegionMessage);
+  }
+  final uid = FirebaseAuth.instance.currentUser?.uid;
+  if (uid == null || uid != currentUser.uid) {
+    throw StateError('Please sign in again to save your region.');
+  }
+  final cleanCity = city.trim();
+  final cleanCountry = canonicalSpotCountryName(country);
+  await usersCollection().doc(uid).debugUpdate({
+    'city': cleanCity,
+    'country': cleanCountry,
+    'updatedAt': FieldValue.serverTimestamp(),
+  });
+  if (FirebaseAuth.instance.currentUser?.uid != uid || currentUser.uid != uid) {
+    throw StateError('The signed-in account changed.');
+  }
+  final user = currentUser;
+  setCurrentUser(
+    AppUser(
+      uid: user.uid,
+      name: user.name,
+      username: user.username,
+      email: user.email,
+      photoUrl: user.photoUrl,
+      bio: user.bio,
+      avatarPath: user.avatarPath,
+      role: user.role,
+      verified: user.verified,
+      globalChatModerator: user.globalChatModerator,
+      moderatorCountryCodes: user.moderatorCountryCodes,
+      city: cleanCity,
+      country: cleanCountry,
+      banned: user.banned,
+      bannedUntilMillis: user.bannedUntilMillis,
+      banReason: user.banReason,
+    ),
+  );
+  // A failed initial lookup may have initialized an empty country filter.
+  if (spotCountryFilters.value.isEmpty) {
+    await initializeSpotCountryFiltersForUser(currentUser);
+  }
 }
 
-class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
+class ProfileRegionGate extends StatefulWidget {
+  final Widget child;
+  final Future<void> Function(String city, String country) saveRegion;
+  const ProfileRegionGate({
+    super.key,
+    required this.child,
+    this.saveRegion = saveRequiredProfileRegion,
+  });
+
+  @override
+  State<ProfileRegionGate> createState() => _ProfileRegionGateState();
+}
+
+class _ProfileRegionGateState extends State<ProfileRegionGate> {
+  final formKey = GlobalKey<FormState>();
+  late final cityController = TextEditingController(text: currentUser.city);
+  late String? countryCode = countryIsoCode(currentUser.country);
+  bool saving = false;
+  String? saveError;
+
+  @override
+  void dispose() {
+    cityController.dispose();
+    super.dispose();
+  }
+
+  Future<void> save() async {
+    if (saving || !formKey.currentState!.validate()) return;
+    setState(() {
+      saving = true;
+      saveError = null;
+    });
+    try {
+      await widget.saveRegion(cityController.text.trim(), countryCode!);
+      if (!mounted) return;
+      setState(() => saving = false);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        saving = false;
+        saveError = communityText(
+          en: 'Could not save your region. Check your connection and try again.',
+          ru: 'Не удалось сохранить регион. Проверьте подключение и попробуйте снова.',
+          lv: 'Neizdevās saglabāt reģionu. Pārbaudiet savienojumu un mēģiniet vēlreiz.',
+        );
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => ValueListenableBuilder<int>(
+    valueListenable: currentUserProfileRevision,
+    builder: (context, _, child) {
+      // Pending Firestore snapshots must not unlock the app before save succeeds.
+      if (!saving &&
+          saveError == null &&
+          profileRegionIsComplete(currentUser.city, currentUser.country)) {
+        return widget.child;
+      }
+      return PopScope(
+        canPop: false,
+        child: Scaffold(
+          backgroundColor: Colors.black54,
+          body: Center(
+            child: AlertDialog(
+              scrollable: true,
+              title: Text(
+                communityText(
+                  en: 'Set your region',
+                  ru: 'Укажите регион',
+                  lv: 'Norādiet reģionu',
+                ),
+              ),
+              content: Form(
+                key: formKey,
+                child: SizedBox(
+                  width: 360,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(requiredRegionMessage),
+                      const SizedBox(height: 18),
+                      DropdownButtonFormField<String>(
+                        initialValue: countryCode,
+                        isExpanded: true,
+                        decoration: InputDecoration(
+                          labelText: communityText(
+                            en: 'Country',
+                            ru: 'Страна',
+                            lv: 'Valsts',
+                          ),
+                        ),
+                        items: allSupportedCountryNames()
+                            .map(
+                              (country) => DropdownMenuItem(
+                                value: countryIsoCode(country),
+                                child: Text(
+                                  '${countryFlagEmoji(country)} ${localizedCountryName(country)}',
+                                ),
+                              ),
+                            )
+                            .toList(),
+                        onChanged: saving
+                            ? null
+                            : (value) => setState(() => countryCode = value),
+                        validator: (value) =>
+                            value == null ? requiredRegionMessage : null,
+                      ),
+                      const SizedBox(height: 14),
+                      TextFormField(
+                        controller: cityController,
+                        enabled: !saving,
+                        maxLength: 120,
+                        decoration: InputDecoration(
+                          labelText: communityText(
+                            en: 'City',
+                            ru: 'Город',
+                            lv: 'Pilsēta',
+                          ),
+                        ),
+                        validator: (value) => (value ?? '').trim().isEmpty
+                            ? requiredRegionMessage
+                            : null,
+                      ),
+                      if (saveError != null)
+                        Text(
+                          saveError!,
+                          style: const TextStyle(color: Colors.redAccent),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+              actions: [
+                FilledButton(
+                  onPressed: saving ? null : save,
+                  child: Text(
+                    saving
+                        ? trText('Saving...')
+                        : communityText(
+                            en: 'Save and continue',
+                            ru: 'Сохранить и продолжить',
+                            lv: 'Saglabāt un turpināt',
+                          ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    },
+  );
+}
+
+class MainScreen extends StatelessWidget {
+  final int initialIndex;
+  const MainScreen({super.key, this.initialIndex = 0});
+  @override
+  Widget build(BuildContext context) =>
+      ProfileRegionGate(child: _MainContentScreen(initialIndex: initialIndex));
+}
+
+class _MainContentScreen extends StatefulWidget {
+  final int initialIndex;
+
+  const _MainContentScreen({this.initialIndex = 0});
+
+  @override
+  State<_MainContentScreen> createState() => _MainScreenState();
+}
+
+class _MainScreenState extends State<_MainContentScreen>
+    with WidgetsBindingObserver {
   late int index;
   final List<int> tabHistory = [];
   bool hasOpenedMap = false;
@@ -20577,7 +21950,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   bool isCheckingFriendLocationNotifications = false;
 
   List<Widget> get screens => [
-    const ExploreScreen(),
+    ExploreScreen(isVisible: index == 0),
     hasOpenedMap ? MapScreen(isVisible: index == 1) : const SizedBox.shrink(),
     const AddSpotScreen(),
     hasOpenedChat ? const ChatScreen(isMainTab: true) : const SizedBox.shrink(),
@@ -20671,6 +22044,10 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   }
 
   Future<bool> handleSystemBack() async {
+    if (ModalRoute.of(context)?.popDisposition ==
+        RoutePopDisposition.doNotPop) {
+      return false;
+    }
     if (tabHistory.isNotEmpty) {
       final previousIndex = tabHistory.removeLast().clamp(0, 4).toInt();
       inAppBadges.visit(activitySectionForNavigation(previousIndex));
@@ -20727,7 +22104,9 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
         state == AppLifecycleState.detached ||
         state == AppLifecycleState.inactive) {
       appIsForegroundForNotifications = false;
-      if (state != AppLifecycleState.inactive) inAppBadges.stop();
+      if (state != AppLifecycleState.inactive) {
+        inAppBadges.stop(preserveVisibleForumTopic: true);
+      }
       unawaited(firestoreDebugTracker.flushPersisted());
       updateCurrentUserOnlinePresence(isOnline: false);
     }
@@ -20814,6 +22193,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
               }
 
               final data = change.doc.data() ?? {};
+              if (!moderationNotificationAllowed(data)) continue;
               if (data['read'] == true) {
                 continue;
               }
@@ -21194,6 +22574,1399 @@ class _CcsBottomNavItem extends StatelessWidget {
   }
 }
 
+class CcsPartner {
+  final String id;
+  final String name;
+  final String logoUrl;
+  final String bio;
+  final String phone;
+  final String website;
+  final String instagram;
+  final String telegram;
+  final List<String> photoUrls;
+  final bool active;
+  final int createdAtMillis;
+
+  const CcsPartner({
+    required this.id,
+    required this.name,
+    required this.logoUrl,
+    this.bio = '',
+    this.phone = '',
+    this.website = '',
+    this.instagram = '',
+    this.telegram = '',
+    this.photoUrls = const <String>[],
+    this.active = true,
+    this.createdAtMillis = 0,
+  });
+
+  factory CcsPartner.fromFirestore(
+    DocumentSnapshot<Map<String, dynamic>> snapshot,
+  ) {
+    final data = snapshot.data() ?? const <String, dynamic>{};
+    final createdAt = data['createdAt'];
+    final gallery = data['photoUrls'];
+    return CcsPartner(
+      id: snapshot.id,
+      name: stringFromFirebase(data['name'], '').trim(),
+      logoUrl: stringFromFirebase(data['logoUrl'], '').trim(),
+      bio: stringFromFirebase(data['bio'], '').trim(),
+      phone: stringFromFirebase(data['phone'], '').trim(),
+      website: stringFromFirebase(data['website'], '').trim(),
+      instagram: stringFromFirebase(data['instagram'], '').trim(),
+      telegram: stringFromFirebase(data['telegram'], '').trim(),
+      photoUrls: gallery is Iterable
+          ? gallery
+                .map((value) => value?.toString().trim() ?? '')
+                .where((value) => value.isNotEmpty)
+                .take(4)
+                .toList(growable: false)
+          : const <String>[],
+      active: data['active'] != false,
+      createdAtMillis: createdAt is Timestamp
+          ? createdAt.millisecondsSinceEpoch
+          : (data['createdAtMillis'] as num?)?.toInt() ?? 0,
+    );
+  }
+}
+
+CollectionReference<Map<String, dynamic>> ccsPartnersCollection() =>
+    FirebaseFirestore.instance.collection('partners');
+
+bool get currentUserCanManagePartners => currentUser.role == UserRole.admin;
+
+List<CcsPartner> sortedPartners(
+  QuerySnapshot<Map<String, dynamic>> snapshot, {
+  bool includeInactive = false,
+}) {
+  final partners = snapshot.docs
+      .map(CcsPartner.fromFirestore)
+      .where(
+        (partner) =>
+            (includeInactive || partner.active) &&
+            partner.name.trim().isNotEmpty &&
+            partner.logoUrl.trim().isNotEmpty,
+      )
+      .toList();
+  partners.sort((a, b) {
+    if (a.active != b.active) return a.active ? -1 : 1;
+    final createdCompare = a.createdAtMillis.compareTo(b.createdAtMillis);
+    if (createdCompare != 0) return createdCompare;
+    return a.name.toLowerCase().compareTo(b.name.toLowerCase());
+  });
+  return partners;
+}
+
+List<CcsPartner> sortedVisiblePartners(
+  QuerySnapshot<Map<String, dynamic>> snapshot,
+) => sortedPartners(snapshot);
+
+Future<String> uploadPartnerImage({
+  required String partnerId,
+  required String localPhotoPath,
+  required bool logo,
+  int photoIndex = 0,
+}) async {
+  final firebaseUser = FirebaseAuth.instance.currentUser;
+  final userId = firebaseUser?.uid.trim() ?? '';
+  if (userId.isEmpty || currentUser.uid != userId) {
+    throw StateError('Please sign in again before uploading partner media.');
+  }
+  if (!currentUserCanManagePartners) {
+    throw StateError('Only administrators can manage partners.');
+  }
+  if (!logo && (photoIndex < 0 || photoIndex >= 4)) {
+    throw StateError('Partner gallery supports up to 4 photos.');
+  }
+
+  final timestamp = DateTime.now().millisecondsSinceEpoch;
+  // Keep partner media under the already-supported users/ upload root so the
+  // current R2 presign endpoint does not need a new top-level upload path.
+  final root = 'users/${safeR2Path(userId)}/partners/${safeR2Path(partnerId)}';
+  final r2Path = logo
+      ? '$root/logo_$timestamp.jpg'
+      : '$root/gallery/photo_${photoIndex + 1}_$timestamp.jpg';
+
+  return uploadImageToR2(
+    r2Path: r2Path,
+    localPhotoPath: localPhotoPath,
+    maxLongSide: logo ? r2AvatarPhotoMaxLongSide : r2SpotPhotoMaxLongSide,
+    quality: r2JpegQuality,
+  );
+}
+
+class _SpotsHeaderIconButton extends StatelessWidget {
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback onTap;
+
+  const _SpotsHeaderIconButton({
+    required this.icon,
+    required this.tooltip,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: tooltip,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(12),
+          child: Container(
+            width: 38,
+            height: 38,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.035),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+            ),
+            child: Icon(icon, color: blue, size: 20),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SpotsHeaderLanguageButton extends StatelessWidget {
+  const _SpotsHeaderLanguageButton();
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: appUiPreferences,
+      builder: (context, _) {
+        return PopupMenuButton<AppLanguage>(
+          tooltip: trText('Language'),
+          onSelected: (language) {
+            unawaited(appUiPreferences.setLanguage(language));
+          },
+          itemBuilder: (context) => [
+            for (final language in AppLanguage.values)
+              PopupMenuItem<AppLanguage>(
+                value: language,
+                child: Row(
+                  children: [
+                    Icon(
+                      appUiPreferences.language == language
+                          ? Icons.radio_button_checked
+                          : Icons.radio_button_unchecked,
+                      color: blue,
+                      size: 18,
+                    ),
+                    const SizedBox(width: 10),
+                    Text(language.name.toUpperCase()),
+                  ],
+                ),
+              ),
+          ],
+          child: Container(
+            width: 42,
+            height: 38,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: blue.withValues(alpha: 0.10),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: blue.withValues(alpha: 0.38)),
+            ),
+            child: Text(
+              appUiPreferences.language.name.toUpperCase(),
+              style: const TextStyle(
+                color: blue,
+                fontSize: 10.5,
+                letterSpacing: 0.4,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _SpotsHeaderNotificationButton extends StatelessWidget {
+  const _SpotsHeaderNotificationButton();
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: trText('Notifications'),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: () {
+            Navigator.push(
+              context,
+              appPageRoute(builder: (_) => const NotificationCenterScreen()),
+            );
+          },
+          borderRadius: BorderRadius.circular(12),
+          child: Container(
+            width: 38,
+            height: 38,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.035),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+            ),
+            child: ValueListenableBuilder<int>(
+              valueListenable: notificationCenterUnreadCount,
+              builder: (context, unreadCount, _) {
+                return Stack(
+                  clipBehavior: Clip.none,
+                  alignment: Alignment.center,
+                  children: [
+                    const Icon(Icons.notifications_none, color: blue, size: 21),
+                    if (unreadCount > 0)
+                      Positioned(
+                        top: -7,
+                        right: -8,
+                        child: Container(
+                          constraints: const BoxConstraints(
+                            minWidth: 16,
+                            minHeight: 16,
+                          ),
+                          alignment: Alignment.center,
+                          padding: const EdgeInsets.symmetric(horizontal: 3),
+                          decoration: BoxDecoration(
+                            color: Colors.redAccent,
+                            borderRadius: BorderRadius.circular(99),
+                            border: Border.all(color: night, width: 1.2),
+                          ),
+                          child: Text(
+                            unreadCount > 9 ? '9+' : '$unreadCount',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 9,
+                              height: 1,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
+                );
+              },
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class PartnersHeaderButton extends StatefulWidget {
+  const PartnersHeaderButton({super.key});
+
+  @override
+  State<PartnersHeaderButton> createState() => _PartnersHeaderButtonState();
+}
+
+class _PartnersHeaderButtonState extends State<PartnersHeaderButton> {
+  static const int _initialLoopPage = 10000;
+
+  late final Stream<QuerySnapshot<Map<String, dynamic>>> partnerStream;
+  late final PageController pageController;
+  Timer? rotationTimer;
+  int partnerCount = 0;
+  int currentLoopPage = _initialLoopPage;
+
+  @override
+  void initState() {
+    super.initState();
+    pageController = PageController(initialPage: _initialLoopPage);
+    partnerStream = ccsPartnersCollection().debugSnapshots(
+      'partners: header listener',
+    );
+    rotationTimer = Timer.periodic(const Duration(milliseconds: 2400), (_) {
+      if (!mounted || partnerCount <= 1 || !pageController.hasClients) return;
+      currentLoopPage += 1;
+      try {
+        pageController.animateToPage(
+          currentLoopPage,
+          duration: const Duration(milliseconds: 520),
+          curve: Curves.easeInOutCubicEmphasized,
+        );
+      } catch (_) {}
+    });
+  }
+
+  @override
+  void dispose() {
+    rotationTimer?.cancel();
+    pageController.dispose();
+    super.dispose();
+  }
+
+  void openPartners() {
+    Navigator.push(
+      context,
+      appPageRoute(builder: (_) => const PartnersScreen()),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: partnerStream,
+      builder: (context, snapshot) {
+        final partners = snapshot.hasData
+            ? sortedVisiblePartners(snapshot.data!)
+            : const <CcsPartner>[];
+        partnerCount = partners.length;
+        final hasActivePartner =
+            snapshot.data?.docs.any(
+              (doc) => CcsPartner.fromFirestore(doc).active,
+            ) ??
+            false;
+        if (!currentUserCanManagePartners && !hasActivePartner) {
+          return const SizedBox.shrink();
+        }
+        return Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: openPartners,
+            borderRadius: BorderRadius.circular(9),
+            child: Container(
+              height: 50,
+              width: double.infinity,
+              padding: const EdgeInsets.fromLTRB(3, 3, 5, 3),
+              decoration: BoxDecoration(
+                color: const Color(0xFF061121).withValues(alpha: 0.86),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: blue.withValues(alpha: 0.62),
+                  width: 1.2,
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: blue.withValues(alpha: 0.08),
+                    blurRadius: 12,
+                  ),
+                ],
+              ),
+              child: Builder(
+                builder: (context) {
+                  if (partnerCount == 0) {
+                    return const Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.handshake_outlined, color: blue, size: 16),
+                        SizedBox(width: 6),
+                        Flexible(
+                          child: Text(
+                            'Partners',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 11.5,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ),
+                      ],
+                    );
+                  }
+
+                  return Row(
+                    children: [
+                      Expanded(
+                        child: SizedBox(
+                          height: 44,
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(9),
+                            child: PageView.builder(
+                              controller: pageController,
+                              physics: const NeverScrollableScrollPhysics(),
+                              onPageChanged: (page) => currentLoopPage = page,
+                              itemBuilder: (context, page) {
+                                final partner = partners[page % partnerCount];
+                                return Image.network(
+                                  partner.logoUrl,
+                                  width: double.infinity,
+                                  height: double.infinity,
+                                  fit: BoxFit.cover,
+                                  alignment: Alignment.center,
+                                  errorBuilder: (_, _, _) => const Center(
+                                    child: Icon(
+                                      Icons.handshake_outlined,
+                                      color: blue,
+                                      size: 23,
+                                    ),
+                                  ),
+                                );
+                              },
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 4),
+                      const SizedBox(
+                        width: 43,
+                        child: Text(
+                          'Official\nPartner',
+                          maxLines: 2,
+                          overflow: TextOverflow.clip,
+                          style: TextStyle(
+                            color: blue,
+                            fontSize: 9.2,
+                            height: 1.02,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ),
+                    ],
+                  );
+                },
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class PartnersScreen extends StatefulWidget {
+  const PartnersScreen({super.key});
+
+  @override
+  State<PartnersScreen> createState() => _PartnersScreenState();
+}
+
+class _PartnersScreenState extends State<PartnersScreen> {
+  late final Stream<QuerySnapshot<Map<String, dynamic>>> partnerStream;
+
+  @override
+  void initState() {
+    super.initState();
+    partnerStream = ccsPartnersCollection().debugSnapshots(
+      'partners: full list listener',
+    );
+  }
+
+  void addPartner() {
+    Navigator.push(
+      context,
+      appPageRoute(builder: (_) => const AddPartnerScreen()),
+    );
+  }
+
+  void editPartner(CcsPartner partner) {
+    Navigator.push(
+      context,
+      appPageRoute(builder: (_) => AddPartnerScreen(partner: partner)),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.transparent,
+      appBar: AppBar(
+        title: const Text('CCS Partners'),
+        backgroundColor: Colors.transparent,
+        foregroundColor: blue,
+        actions: [
+          if (currentUserCanManagePartners)
+            IconButton(
+              tooltip: 'Add partner',
+              onPressed: addPartner,
+              icon: const Icon(Icons.add_business_outlined),
+            ),
+        ],
+      ),
+      body: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+        stream: partnerStream,
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting &&
+              !snapshot.hasData) {
+            return const Center(child: CircularProgressIndicator(color: blue));
+          }
+          if (snapshot.hasError) {
+            return const Center(
+              child: Padding(
+                padding: EdgeInsets.all(24),
+                child: Text(
+                  'Could not load partners.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: Colors.white70),
+                ),
+              ),
+            );
+          }
+          final partners = snapshot.hasData
+              ? sortedPartners(
+                  snapshot.data!,
+                  includeInactive: currentUserCanManagePartners,
+                )
+              : const <CcsPartner>[];
+          if (partners.isEmpty) {
+            return ListView(
+              padding: const EdgeInsets.fromLTRB(16, 24, 16, 32),
+              children: [
+                const EmptyStateCard(
+                  icon: Icons.handshake_outlined,
+                  title: 'No partners yet',
+                  text: 'Official CCS partners will appear here.',
+                ),
+                if (currentUserCanManagePartners) ...[
+                  const SizedBox(height: 14),
+                  FilledButton.icon(
+                    onPressed: addPartner,
+                    icon: const Icon(Icons.add),
+                    label: const Text('Add first partner'),
+                  ),
+                ],
+              ],
+            );
+          }
+
+          return ListView.separated(
+            padding: const EdgeInsets.fromLTRB(12, 12, 12, 28),
+            itemCount: partners.length,
+            separatorBuilder: (_, _) => const SizedBox(height: 10),
+            itemBuilder: (context, index) {
+              final partner = partners[index];
+              return _PartnerListCard(
+                partner: partner,
+                onTap: () => Navigator.push(
+                  context,
+                  appPageRoute(
+                    builder: (_) => PartnerDetailsScreen(partner: partner),
+                  ),
+                ),
+                onEdit: currentUserCanManagePartners
+                    ? () => editPartner(partner)
+                    : null,
+              );
+            },
+          );
+        },
+      ),
+      floatingActionButton: currentUserCanManagePartners
+          ? FloatingActionButton.extended(
+              onPressed: addPartner,
+              backgroundColor: blue,
+              foregroundColor: Colors.white,
+              icon: const Icon(Icons.add_business_outlined),
+              label: const Text('Add partner'),
+            )
+          : null,
+    );
+  }
+}
+
+class _PartnerListCard extends StatelessWidget {
+  final CcsPartner partner;
+  final VoidCallback onTap;
+  final VoidCallback? onEdit;
+
+  const _PartnerListCard({
+    required this.partner,
+    required this.onTap,
+    this.onEdit,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(16),
+        child: Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: panelGlass,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: blue.withValues(alpha: 0.25)),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 72,
+                height: 58,
+                padding: const EdgeInsets.all(7),
+                decoration: BoxDecoration(
+                  color: Colors.black26,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.white10),
+                ),
+                child: Image.network(
+                  partner.logoUrl,
+                  fit: BoxFit.contain,
+                  errorBuilder: (_, _, _) =>
+                      const Icon(Icons.handshake_outlined, color: blue),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      partner.name,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      partner.active
+                          ? 'Official CCS Partner'
+                          : 'Inactive partner',
+                      style: TextStyle(
+                        color: partner.active ? blue : Colors.orangeAccent,
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (onEdit != null)
+                IconButton(
+                  tooltip: 'Edit partner',
+                  onPressed: onEdit,
+                  icon: const Icon(Icons.edit_outlined, color: blue, size: 20),
+                )
+              else
+                const Icon(Icons.chevron_right, color: Colors.white38),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class PartnerDetailsScreen extends StatelessWidget {
+  final CcsPartner partner;
+
+  const PartnerDetailsScreen({super.key, required this.partner});
+
+  Widget contactButton(
+    BuildContext context, {
+    required IconData icon,
+    required String label,
+    required VoidCallback onTap,
+  }) {
+    return OutlinedButton.icon(
+      onPressed: onTap,
+      icon: Icon(icon, size: 18),
+      label: Text(label),
+      style: OutlinedButton.styleFrom(
+        foregroundColor: blue,
+        side: BorderSide(color: blue.withValues(alpha: 0.45)),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final contacts = <Widget>[
+      if (partner.phone.isNotEmpty)
+        contactButton(
+          context,
+          icon: Icons.phone_outlined,
+          label: 'Phone',
+          onTap: () => unawaited(
+            launchUrl(
+              Uri(scheme: 'tel', path: partner.phone),
+              mode: LaunchMode.externalApplication,
+            ),
+          ),
+        ),
+      if (partner.website.isNotEmpty)
+        contactButton(
+          context,
+          icon: Icons.language,
+          label: 'Website',
+          onTap: () => unawaited(launchExternalUrl(context, partner.website)),
+        ),
+      if (partner.instagram.isNotEmpty)
+        contactButton(
+          context,
+          icon: Icons.camera_alt_outlined,
+          label: 'Instagram',
+          onTap: () => unawaited(
+            launchExternalUrl(context, partner.instagram, kind: 'instagram'),
+          ),
+        ),
+      if (partner.telegram.isNotEmpty)
+        contactButton(
+          context,
+          icon: Icons.send_outlined,
+          label: 'Telegram',
+          onTap: () => unawaited(
+            launchExternalUrl(context, partner.telegram, kind: 'telegram'),
+          ),
+        ),
+    ];
+
+    return Scaffold(
+      backgroundColor: Colors.transparent,
+      appBar: AppBar(
+        title: Text(partner.name),
+        backgroundColor: Colors.transparent,
+        foregroundColor: blue,
+        actions: [
+          if (currentUserCanManagePartners)
+            IconButton(
+              tooltip: 'Edit partner',
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  appPageRoute(
+                    builder: (_) => AddPartnerScreen(partner: partner),
+                  ),
+                );
+              },
+              icon: const Icon(Icons.edit_outlined),
+            ),
+        ],
+      ),
+      body: ListView(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 30),
+        children: [
+          Container(
+            height: 150,
+            padding: const EdgeInsets.all(18),
+            decoration: BoxDecoration(
+              color: panelGlass,
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: blue.withValues(alpha: 0.28)),
+            ),
+            child: Image.network(
+              partner.logoUrl,
+              fit: BoxFit.contain,
+              errorBuilder: (_, _, _) =>
+                  const Icon(Icons.handshake_outlined, color: blue, size: 52),
+            ),
+          ),
+          const SizedBox(height: 14),
+          Text(
+            partner.name,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 24,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          const SizedBox(height: 4),
+          const Text(
+            'Official CCS Partner',
+            style: TextStyle(
+              color: blue,
+              fontSize: 13,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          if (partner.bio.isNotEmpty) ...[
+            const SizedBox(height: 18),
+            const Text(
+              'About',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 18,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+            const SizedBox(height: 7),
+            Text(
+              partner.bio,
+              style: const TextStyle(
+                color: Colors.white70,
+                fontSize: 14,
+                height: 1.4,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ],
+          if (contacts.isNotEmpty) ...[
+            const SizedBox(height: 16),
+            Wrap(spacing: 8, runSpacing: 8, children: contacts),
+          ],
+          if (partner.photoUrls.isNotEmpty) ...[
+            const SizedBox(height: 22),
+            const Text(
+              'Gallery',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 18,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+            const SizedBox(height: 10),
+            GridView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 2,
+                crossAxisSpacing: 8,
+                mainAxisSpacing: 8,
+                childAspectRatio: 1.35,
+              ),
+              itemCount: partner.photoUrls.length,
+              itemBuilder: (context, index) => ClipRRect(
+                borderRadius: BorderRadius.circular(14),
+                child: Image.network(
+                  partner.photoUrls[index],
+                  fit: BoxFit.cover,
+                  errorBuilder: (_, _, _) => Container(
+                    color: Colors.white10,
+                    child: const Icon(Icons.image_not_supported_outlined),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class AddPartnerScreen extends StatefulWidget {
+  final CcsPartner? partner;
+
+  const AddPartnerScreen({super.key, this.partner});
+
+  @override
+  State<AddPartnerScreen> createState() => _AddPartnerScreenState();
+}
+
+class _AddPartnerScreenState extends State<AddPartnerScreen> {
+  final formKey = GlobalKey<FormState>();
+  late final TextEditingController nameController;
+  late final TextEditingController bioController;
+  late final TextEditingController phoneController;
+  late final TextEditingController websiteController;
+  late final TextEditingController instagramController;
+  late final TextEditingController telegramController;
+  String? logoPath;
+  late String existingLogoUrl;
+  final List<String> galleryPaths = [];
+  late List<String> existingGalleryUrls;
+  late bool active;
+  bool saving = false;
+
+  bool get isEditing => widget.partner != null;
+
+  @override
+  void initState() {
+    super.initState();
+    final partner = widget.partner;
+    nameController = TextEditingController(text: partner?.name ?? '');
+    bioController = TextEditingController(text: partner?.bio ?? '');
+    phoneController = TextEditingController(text: partner?.phone ?? '');
+    websiteController = TextEditingController(text: partner?.website ?? '');
+    instagramController = TextEditingController(text: partner?.instagram ?? '');
+    telegramController = TextEditingController(text: partner?.telegram ?? '');
+    existingLogoUrl = partner?.logoUrl ?? '';
+    existingGalleryUrls = [...?partner?.photoUrls];
+    active = partner?.active ?? true;
+  }
+
+  @override
+  void dispose() {
+    nameController.dispose();
+    bioController.dispose();
+    phoneController.dispose();
+    websiteController.dispose();
+    instagramController.dispose();
+    telegramController.dispose();
+    super.dispose();
+  }
+
+  Future<void> pickLogo() async {
+    final path = await pickPhotoFromPhone(
+      context,
+      cropAspectRatio: 1.6,
+      cropShape: PhotoCropShape.rectangle,
+    );
+    if (!mounted || path == null || path.trim().isEmpty) return;
+    setState(() => logoPath = path);
+  }
+
+  Future<void> addGalleryPhoto() async {
+    if (existingGalleryUrls.length + galleryPaths.length >= 4) return;
+    final path = await pickPhotoFromPhone(context, cropPhoto: false);
+    if (!mounted || path == null || path.trim().isEmpty) return;
+    setState(() {
+      if (existingGalleryUrls.length + galleryPaths.length < 4) {
+        galleryPaths.add(path);
+      }
+    });
+  }
+
+  Future<void> removePartner() async {
+    if (!isEditing || saving || !currentUserCanManagePartners) return;
+
+    final partner = widget.partner!;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('Remove partner?'),
+          content: Text(
+            'This will permanently remove ${partner.name} from CCS Partners. This action cannot be undone.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              style: FilledButton.styleFrom(
+                backgroundColor: Colors.redAccent,
+                foregroundColor: Colors.white,
+              ),
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text('Remove partner'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirmed != true || !mounted) return;
+
+    setState(() => saving = true);
+    try {
+      await ccsPartnersCollection()
+          .doc(partner.id)
+          .debugDelete('partners: admin delete partner');
+
+      if (!mounted) return;
+      Navigator.pop(context);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: blue,
+          content: Text('${partner.name} removed.'),
+        ),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => saving = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: Colors.redAccent,
+          content: Text('Could not remove partner: $error'),
+        ),
+      );
+    }
+  }
+
+  Future<void> savePartner() async {
+    if (saving || !currentUserCanManagePartners) return;
+    if (!(formKey.currentState?.validate() ?? false)) return;
+    if ((logoPath == null || logoPath!.trim().isEmpty) &&
+        existingLogoUrl.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          backgroundColor: Colors.redAccent,
+          content: Text('Partner logo is required.'),
+        ),
+      );
+      return;
+    }
+
+    setState(() => saving = true);
+    try {
+      final ref = isEditing
+          ? ccsPartnersCollection().doc(widget.partner!.id)
+          : ccsPartnersCollection().doc();
+
+      var logoUrl = existingLogoUrl;
+      if (logoPath != null && logoPath!.trim().isNotEmpty) {
+        logoUrl = await uploadPartnerImage(
+          partnerId: ref.id,
+          localPhotoPath: logoPath!,
+          logo: true,
+        );
+      }
+
+      final galleryUrls = <String>[...existingGalleryUrls];
+      for (
+        var index = 0;
+        index < galleryPaths.length && galleryUrls.length < 4;
+        index++
+      ) {
+        galleryUrls.add(
+          await uploadPartnerImage(
+            partnerId: ref.id,
+            localPhotoPath: galleryPaths[index],
+            logo: false,
+            photoIndex: galleryUrls.length,
+          ),
+        );
+      }
+
+      final partnerData = <String, dynamic>{
+        'name': nameController.text.trim(),
+        'logoUrl': logoUrl,
+        'bio': bioController.text.trim(),
+        'phone': phoneController.text.trim(),
+        'website': websiteController.text.trim(),
+        'instagram': instagramController.text.trim(),
+        'telegram': telegramController.text.trim(),
+        'photoUrls': galleryUrls,
+        'active': active,
+        'updatedAt': FieldValue.serverTimestamp(),
+      };
+
+      if (isEditing) {
+        await ref.debugUpdate(partnerData, 'partners: admin update partner');
+      } else {
+        partnerData.addAll({
+          'createdByUid': currentUser.uid,
+          'createdByUsername': currentUser.username,
+          'createdAt': FieldValue.serverTimestamp(),
+        });
+        await ref.debugSet(partnerData, null, 'partners: admin create partner');
+      }
+
+      if (!mounted) return;
+      Navigator.pop(context);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: blue,
+          content: Text(isEditing ? 'Partner updated.' : 'Partner added.'),
+        ),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => saving = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: Colors.redAccent,
+          content: Text(
+            isEditing
+                ? 'Could not update partner: $error'
+                : 'Could not add partner: $error',
+          ),
+        ),
+      );
+    }
+  }
+
+  Widget field(
+    TextEditingController controller,
+    String label,
+    IconData icon, {
+    bool required = false,
+    TextInputType keyboardType = TextInputType.text,
+    int maxLines = 1,
+    int? maxLength,
+  }) {
+    return TextFormField(
+      controller: controller,
+      keyboardType: maxLines > 1 ? TextInputType.multiline : keyboardType,
+      minLines: maxLines > 1 ? 3 : 1,
+      maxLines: maxLines,
+      maxLength: maxLength,
+      style: const TextStyle(color: Colors.white),
+      validator: required
+          ? (value) =>
+                (value ?? '').trim().isEmpty ? '$label is required.' : null
+          : null,
+      decoration: InputDecoration(
+        labelText: required ? '$label *' : label,
+        prefixIcon: Icon(icon),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!currentUserCanManagePartners) {
+      return Scaffold(
+        backgroundColor: Colors.transparent,
+        appBar: AppBar(
+          title: Text(isEditing ? 'Edit partner' : 'Add partner'),
+          backgroundColor: Colors.transparent,
+        ),
+        body: const Center(
+          child: Text(
+            'Only administrators can manage partners.',
+            style: TextStyle(color: Colors.white70),
+          ),
+        ),
+      );
+    }
+
+    return Scaffold(
+      backgroundColor: Colors.transparent,
+      appBar: AppBar(
+        title: Text(isEditing ? 'Edit partner' : 'Add partner'),
+        backgroundColor: Colors.transparent,
+        foregroundColor: blue,
+      ),
+      body: Form(
+        key: formKey,
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
+          children: [
+            const Text(
+              'Logo *',
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+            const SizedBox(height: 8),
+            InkWell(
+              onTap: saving ? null : pickLogo,
+              borderRadius: BorderRadius.circular(16),
+              child: Container(
+                height: 120,
+                decoration: BoxDecoration(
+                  color: panelGlass,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(
+                    color: logoPath == null
+                        ? blue.withValues(alpha: 0.45)
+                        : blue,
+                  ),
+                ),
+                child: logoPath != null
+                    ? Padding(
+                        padding: const EdgeInsets.all(6),
+                        child: Image.file(File(logoPath!), fit: BoxFit.contain),
+                      )
+                    : existingLogoUrl.isNotEmpty
+                    ? Padding(
+                        padding: const EdgeInsets.all(6),
+                        child: Image.network(
+                          existingLogoUrl,
+                          fit: BoxFit.contain,
+                          errorBuilder: (_, _, _) => const Icon(
+                            Icons.add_photo_alternate_outlined,
+                            color: blue,
+                          ),
+                        ),
+                      )
+                    : const Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.add_photo_alternate_outlined, color: blue),
+                          SizedBox(height: 6),
+                          Text(
+                            'Upload partner logo',
+                            style: TextStyle(color: Colors.white70),
+                          ),
+                        ],
+                      ),
+              ),
+            ),
+            const SizedBox(height: 16),
+            field(
+              nameController,
+              'Partner name',
+              Icons.business_outlined,
+              required: true,
+            ),
+            const SizedBox(height: 12),
+            field(
+              bioController,
+              'About partner',
+              Icons.notes_outlined,
+              maxLines: 5,
+              maxLength: 1200,
+            ),
+            const SizedBox(height: 12),
+            field(
+              phoneController,
+              'Partner phone',
+              Icons.phone_outlined,
+              keyboardType: TextInputType.phone,
+            ),
+            const SizedBox(height: 12),
+            field(
+              websiteController,
+              'Partner website',
+              Icons.language,
+              keyboardType: TextInputType.url,
+            ),
+            const SizedBox(height: 12),
+            field(
+              instagramController,
+              'Partner Instagram',
+              Icons.camera_alt_outlined,
+            ),
+            const SizedBox(height: 12),
+            field(telegramController, 'Partner Telegram', Icons.send_outlined),
+            const SizedBox(height: 8),
+            SwitchListTile(
+              value: active,
+              onChanged: saving
+                  ? null
+                  : (value) => setState(() => active = value),
+              contentPadding: EdgeInsets.zero,
+              activeThumbColor: blue,
+              title: const Text(
+                'Active partner',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              subtitle: const Text(
+                'Inactive partners stay editable for admins but are hidden from users.',
+                style: TextStyle(color: Colors.white54, fontSize: 12),
+              ),
+            ),
+            const SizedBox(height: 14),
+            Row(
+              children: [
+                const Expanded(
+                  child: Text(
+                    'Photo gallery',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ),
+                Text(
+                  '${existingGalleryUrls.length + galleryPaths.length}/4',
+                  style: const TextStyle(color: Colors.white54),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            if (existingGalleryUrls.isNotEmpty || galleryPaths.isNotEmpty)
+              GridView.builder(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: 2,
+                  crossAxisSpacing: 8,
+                  mainAxisSpacing: 8,
+                  childAspectRatio: 1.35,
+                ),
+                itemCount: existingGalleryUrls.length + galleryPaths.length,
+                itemBuilder: (context, index) {
+                  final remote = index < existingGalleryUrls.length;
+                  final localIndex = index - existingGalleryUrls.length;
+                  return Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(12),
+                        child: remote
+                            ? Image.network(
+                                existingGalleryUrls[index],
+                                fit: BoxFit.cover,
+                                errorBuilder: (_, _, _) => Container(
+                                  color: Colors.white10,
+                                  child: const Icon(
+                                    Icons.image_not_supported_outlined,
+                                  ),
+                                ),
+                              )
+                            : Image.file(
+                                File(galleryPaths[localIndex]),
+                                fit: BoxFit.cover,
+                              ),
+                      ),
+                      Positioned(
+                        top: 4,
+                        right: 4,
+                        child: IconButton.filled(
+                          visualDensity: VisualDensity.compact,
+                          onPressed: saving
+                              ? null
+                              : () => setState(() {
+                                  if (remote) {
+                                    existingGalleryUrls.removeAt(index);
+                                  } else {
+                                    galleryPaths.removeAt(localIndex);
+                                  }
+                                }),
+                          icon: const Icon(Icons.close, size: 16),
+                        ),
+                      ),
+                    ],
+                  );
+                },
+              ),
+            if (existingGalleryUrls.isNotEmpty || galleryPaths.isNotEmpty)
+              const SizedBox(height: 8),
+            OutlinedButton.icon(
+              onPressed:
+                  saving ||
+                      existingGalleryUrls.length + galleryPaths.length >= 4
+                  ? null
+                  : addGalleryPhoto,
+              icon: const Icon(Icons.add_photo_alternate_outlined),
+              label: Text(
+                existingGalleryUrls.length + galleryPaths.length >= 4
+                    ? 'Maximum 4 photos'
+                    : 'Add gallery photo',
+              ),
+            ),
+            const SizedBox(height: 24),
+            SizedBox(
+              height: 52,
+              child: FilledButton.icon(
+                onPressed: saving ? null : savePartner,
+                icon: saving
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      )
+                    : const Icon(Icons.save_outlined),
+                label: Text(
+                  saving
+                      ? (isEditing ? 'Saving changes...' : 'Saving partner...')
+                      : (isEditing ? 'Save changes' : 'Save partner'),
+                ),
+              ),
+            ),
+            if (isEditing) ...[
+              const SizedBox(height: 12),
+              SizedBox(
+                height: 48,
+                child: OutlinedButton.icon(
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: Colors.redAccent,
+                    side: BorderSide(
+                      color: Colors.redAccent.withValues(alpha: 0.55),
+                    ),
+                  ),
+                  onPressed: saving ? null : removePartner,
+                  icon: const Icon(Icons.delete_outline),
+                  label: const Text('Remove partner'),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 enum ExploreSortMode { popular, newest, nearest, meet }
 
 String exploreSortLabel(ExploreSortMode mode) {
@@ -21210,7 +23983,9 @@ String exploreSortLabel(ExploreSortMode mode) {
 }
 
 class ExploreScreen extends StatefulWidget {
-  const ExploreScreen({super.key});
+  final bool isVisible;
+
+  const ExploreScreen({super.key, this.isVisible = true});
 
   @override
   State<ExploreScreen> createState() => _ExploreScreenState();
@@ -21229,6 +24004,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
   final Set<String> expandedCategories = {};
   Timer? temporarySpotRefreshTimer;
   Timer? nextTemporarySpotExpiryTimer;
+  bool pendingSpotsEntryDefaultCategory = true;
 
   @override
   void initState() {
@@ -21423,7 +24199,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
   List<CarSpot> upcomingTemporarySpots() {
     final query = searchQuery.trim().toLowerCase();
     final spots = approvedPublicSpots().where((spot) {
-      if (!spotMatchesSelectedCountries(spot)) {
+      if (!spot.isGroupSpot && !spotMatchesSelectedCountries(spot)) {
         return false;
       }
       if (!spot.hasTemporaryWindow || spot.isExpired) {
@@ -21770,14 +24546,10 @@ class _ExploreScreenState extends State<ExploreScreen> {
   }
 
   List<String> orderedExploreCategories(Map<String, int> counts) {
-    final categories = <String>[
-      if ((counts[upcomingCategoryName] ?? 0) > 0) upcomingCategoryName,
-      ...spotCategoryOptions.where((category) => (counts[category] ?? 0) > 0),
-    ];
-
+    final hasUpcoming = (counts[upcomingCategoryName] ?? 0) > 0;
     final normalCategories =
-        categories
-            .where((category) => category != upcomingCategoryName)
+        spotCategoryOptions
+            .where((category) => (counts[category] ?? 0) > 0)
             .toList()
           ..sort((first, second) {
             final countCompare = (counts[second] ?? 0).compareTo(
@@ -21791,18 +24563,38 @@ class _ExploreScreenState extends State<ExploreScreen> {
                 .compareTo(spotCategoryOptions.indexOf(second));
           });
 
+    if (hasUpcoming) {
+      return [upcomingCategoryName, ...normalCategories];
+    }
+
+    // With no upcoming events, Photo is always the first/default chamber even
+    // when it currently has zero results. Keep the remaining populated
+    // categories after it, and keep Upcoming reachable at the far end.
     return [
-      if ((counts[upcomingCategoryName] ?? 0) > 0) upcomingCategoryName,
-      ...normalCategories,
-      if ((counts[upcomingCategoryName] ?? 0) <= 0 && normalCategories.isEmpty)
-        ...spotCategoryOptions,
-      // Keep Upcoming reachable during loading, empty searches, and offline use.
-      if ((counts[upcomingCategoryName] ?? 0) <= 0) upcomingCategoryName,
+      'Photo',
+      ...normalCategories.where((category) => category != 'Photo'),
+      upcomingCategoryName,
     ];
   }
 
   void normalizeSelectedExploreCategory(Map<String, int> counts) {
     final categories = orderedExploreCategories(counts);
+    final hasUpcoming = (counts[upcomingCategoryName] ?? 0) > 0;
+    final defaultCategory = hasUpcoming ? upcomingCategoryName : 'Photo';
+
+    if (pendingSpotsEntryDefaultCategory) {
+      selectedExploreCategory = defaultCategory;
+      userSelectedExploreCategory = false;
+
+      // If the feed is still completely empty, keep this pending so the first
+      // real Firestore snapshot can still promote Upcoming to the true default.
+      // Once any approved spot data exists, the entry default is settled.
+      if (approvedPublicSpots().isNotEmpty) {
+        pendingSpotsEntryDefaultCategory = false;
+      }
+      return;
+    }
+
     if (categories.isEmpty) {
       selectedExploreCategory = 'Photo';
       userSelectedExploreCategory = false;
@@ -21810,7 +24602,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
     }
 
     if (!categories.contains(selectedExploreCategory)) {
-      selectedExploreCategory = categories.first;
+      selectedExploreCategory = defaultCategory;
       userSelectedExploreCategory = false;
     }
   }
@@ -21970,37 +24762,29 @@ class _ExploreScreenState extends State<ExploreScreen> {
               _snapCategoryStrip(itemExtent);
               return false;
             },
-            child: NotificationListener<UserScrollNotification>(
-              onNotification: (notification) {
-                if (notification.direction == ScrollDirection.idle) {
-                  _snapCategoryStrip(itemExtent);
-                }
-                return false;
-              },
-              child: ListView.builder(
-                controller: categoryScrollController,
-                scrollDirection: Axis.horizontal,
-                physics: const BouncingScrollPhysics(
-                  parent: AlwaysScrollableScrollPhysics(),
-                ),
-                padding: EdgeInsets.zero,
-                itemCount: uniqueCategories.length,
-                itemBuilder: (context, index) {
-                  final category = uniqueCategories[index];
-                  return Padding(
-                    padding: EdgeInsets.only(
-                      right: index == uniqueCategories.length - 1
-                          ? 0
-                          : _categoryCardGap,
-                    ),
-                    child: categorySelectionButton(
-                      category: category,
-                      count: counts[category] ?? 0,
-                      width: itemWidth,
-                    ),
-                  );
-                },
+            child: ListView.builder(
+              controller: categoryScrollController,
+              scrollDirection: Axis.horizontal,
+              physics: const BouncingScrollPhysics(
+                parent: AlwaysScrollableScrollPhysics(),
               ),
+              padding: EdgeInsets.zero,
+              itemCount: uniqueCategories.length,
+              itemBuilder: (context, index) {
+                final category = uniqueCategories[index];
+                return Padding(
+                  padding: EdgeInsets.only(
+                    right: index == uniqueCategories.length - 1
+                        ? 0
+                        : _categoryCardGap,
+                  ),
+                  child: categorySelectionButton(
+                    category: category,
+                    count: counts[category] ?? 0,
+                    width: itemWidth,
+                  ),
+                );
+              },
             ),
           ),
         );
@@ -22023,6 +24807,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
         setState(() {
           selectedExploreCategory = category;
           userSelectedExploreCategory = true;
+          pendingSpotsEntryDefaultCategory = false;
         });
       },
       borderRadius: BorderRadius.circular(9),
@@ -22154,17 +24939,33 @@ class _ExploreScreenState extends State<ExploreScreen> {
           backgroundColor: Colors.transparent,
           appBar: AppBar(
             automaticallyImplyLeading: false,
-            title: const CcsAppBarLogo(),
+            toolbarHeight: 68,
+            titleSpacing: 12,
             backgroundColor: Colors.transparent,
             foregroundColor: blue,
-            actions: [
-              IconButton(
-                onPressed: showExploreCategoryFilterSheet,
-                tooltip: trText('Spot filters'),
-                icon: const Icon(Icons.tune),
-              ),
-              ...ccsAppBarActions(),
-            ],
+            title: Row(
+              children: [
+                const SizedBox(
+                  width: 60,
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: CcsAppBarLogo(),
+                  ),
+                ),
+                const SizedBox(width: 7),
+                const Expanded(child: PartnersHeaderButton()),
+                const SizedBox(width: 7),
+                _SpotsHeaderIconButton(
+                  icon: Icons.tune_rounded,
+                  tooltip: trText('Spot filters'),
+                  onTap: showExploreCategoryFilterSheet,
+                ),
+                const SizedBox(width: 5),
+                const _SpotsHeaderLanguageButton(),
+                const SizedBox(width: 5),
+                const _SpotsHeaderNotificationButton(),
+              ],
+            ),
           ),
           body: MediaQuery.removeViewInsets(
             context: context,
@@ -22205,91 +25006,91 @@ class _ExploreScreenState extends State<ExploreScreen> {
                   const SizedBox(height: 12),
                   sortSegmentedControl(),
                   const SizedBox(height: 10),
-                  categorySelectionStrip(categoryCounts),
-                  const SizedBox(height: 10),
                   Expanded(
-                    child: Builder(
-                      builder: (context) {
-                        if (selectedExploreCategory == upcomingCategoryName) {
-                          final groups = upcomingTemporarySpotGroups();
-                          return RefreshIndicator(
-                            onRefresh: refreshUpcomingSpotFeed,
-                            color: blue,
-                            child: ListView(
-                              physics: const AlwaysScrollableScrollPhysics(
-                                parent: BouncingScrollPhysics(),
-                              ),
-                              padding: const EdgeInsets.only(bottom: 14),
-                              children: [
-                                if (groups.isEmpty)
-                                  EmptyStateCard(
-                                    icon: Icons.event_available_outlined,
-                                    title: trText('No upcoming spots'),
-                                    text: trText(
-                                      'No upcoming spots match your filters. Check countries, saved-only mode, or search. Pull down to refresh.',
-                                    ),
-                                  )
-                                else
-                                  UpcomingTemporarySpotsSection(groups: groups),
-                              ],
-                            ),
-                          );
-                        }
-
-                        if (feedSpots.isEmpty) {
-                          return EmptyStateCard(
-                            icon: Icons.explore,
-                            title: approvedPublicSpots().isEmpty
-                                ? 'No spots here yet'
-                                : 'No spots in this category',
-                            text: approvedPublicSpots().isEmpty
-                                ? 'Approved spots will appear here after moderation.'
-                                : 'Choose another category or update your search.',
-                          );
-                        }
-
-                        final cards = <Widget>[
-                          for (final spot in feedSpots)
-                            Padding(
-                              padding: const EdgeInsets.only(bottom: 8),
-                              child: ExploreSpotCard(spot: spot),
-                            ),
-                        ];
-
-                        return LayoutBuilder(
-                          builder: (context, constraints) {
-                            final itemExtent = constraints.maxHeight / 3;
-
-                            return NotificationListener<ScrollEndNotification>(
-                              onNotification: (_) {
-                                _snapSpotCards(itemExtent);
-                                return false;
-                              },
-                              child:
-                                  NotificationListener<UserScrollNotification>(
-                                    onNotification: (notification) {
-                                      if (notification.direction ==
-                                          ScrollDirection.idle) {
-                                        _snapSpotCards(itemExtent);
-                                      }
-                                      return false;
-                                    },
-                                    child: ListView.builder(
-                                      controller: spotCardScrollController,
-                                      physics: const BouncingScrollPhysics(
-                                        parent: AlwaysScrollableScrollPhysics(),
+                    child: SpotsInteractionGuide(
+                      categorySlider: categorySelectionStrip(categoryCounts),
+                      categoryController: categoryScrollController,
+                      cardsController: spotCardScrollController,
+                      hasCards: feedSpots.isNotEmpty,
+                      isVisible: widget.isVisible,
+                      translate: trText,
+                      cards: Builder(
+                        builder: (context) {
+                          if (selectedExploreCategory == upcomingCategoryName) {
+                            final groups = upcomingTemporarySpotGroups();
+                            return RefreshIndicator(
+                              onRefresh: refreshUpcomingSpotFeed,
+                              color: blue,
+                              child: ListView(
+                                controller: spotCardScrollController,
+                                physics: const AlwaysScrollableScrollPhysics(
+                                  parent: BouncingScrollPhysics(),
+                                ),
+                                padding: const EdgeInsets.only(bottom: 14),
+                                children: [
+                                  if (groups.isEmpty)
+                                    EmptyStateCard(
+                                      icon: Icons.event_available_outlined,
+                                      title: trText('No upcoming spots'),
+                                      text: trText(
+                                        'No upcoming spots match your filters. Check countries, saved-only mode, or search. Pull down to refresh.',
                                       ),
-                                      padding: EdgeInsets.zero,
-                                      itemExtent: itemExtent,
-                                      itemCount: cards.length,
-                                      itemBuilder: (context, index) =>
-                                          cards[index],
+                                    )
+                                  else
+                                    UpcomingTemporarySpotsSection(
+                                      groups: groups,
                                     ),
-                                  ),
+                                ],
+                              ),
                             );
-                          },
-                        );
-                      },
+                          }
+
+                          if (feedSpots.isEmpty) {
+                            return EmptyStateCard(
+                              icon: Icons.explore,
+                              title: approvedPublicSpots().isEmpty
+                                  ? 'No spots here yet'
+                                  : 'No spots in this category',
+                              text: approvedPublicSpots().isEmpty
+                                  ? 'Approved spots will appear here after moderation.'
+                                  : 'Choose another category or update your search.',
+                            );
+                          }
+
+                          final cards = <Widget>[
+                            for (final spot in feedSpots)
+                              Padding(
+                                padding: const EdgeInsets.only(bottom: 8),
+                                child: ExploreSpotCard(spot: spot),
+                              ),
+                          ];
+
+                          return LayoutBuilder(
+                            builder: (context, constraints) {
+                              final itemExtent = constraints.maxHeight / 3;
+
+                              return NotificationListener<
+                                ScrollEndNotification
+                              >(
+                                onNotification: (_) {
+                                  _snapSpotCards(itemExtent);
+                                  return false;
+                                },
+                                child: ListView.builder(
+                                  controller: spotCardScrollController,
+                                  physics: const BouncingScrollPhysics(
+                                    parent: AlwaysScrollableScrollPhysics(),
+                                  ),
+                                  padding: EdgeInsets.zero,
+                                  itemExtent: itemExtent,
+                                  itemCount: cards.length,
+                                  itemBuilder: (context, index) => cards[index],
+                                ),
+                              );
+                            },
+                          );
+                        },
+                      ),
                     ),
                   ),
                 ],
@@ -22488,6 +25289,7 @@ class UpcomingTemporarySpotNewsCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final accent = spot.isGroupSpot ? Colors.cyanAccent : Colors.orangeAccent;
     final startsAt = spot.startsAtMillis == null
         ? null
         : DateTime.fromMillisecondsSinceEpoch(spot.startsAtMillis!);
@@ -22510,9 +25312,15 @@ class UpcomingTemporarySpotNewsCard extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.fromLTRB(8, 5, 8, 5),
         decoration: BoxDecoration(
-          color: Colors.black.withValues(alpha: 0.30),
+          color: spot.isGroupSpot
+              ? const Color(0xFF09252D)
+              : Colors.black.withValues(alpha: 0.30),
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: Colors.white12),
+          border: Border.all(
+            color: spot.isGroupSpot
+                ? accent.withValues(alpha: 0.5)
+                : Colors.white12,
+          ),
         ),
         child: Row(
           children: [
@@ -22525,12 +25333,12 @@ class UpcomingTemporarySpotNewsCard extends StatelessWidget {
                   decoration: BoxDecoration(
                     borderRadius: BorderRadius.circular(16),
                     border: Border.all(
-                      color: Colors.orangeAccent.withValues(alpha: 0.65),
+                      color: accent.withValues(alpha: 0.65),
                       width: 1.4,
                     ),
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.orangeAccent.withValues(alpha: 0.16),
+                        color: accent.withValues(alpha: 0.16),
                         blurRadius: 12,
                         offset: const Offset(0, 6),
                       ),
@@ -22550,10 +25358,14 @@ class UpcomingTemporarySpotNewsCard extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  if (spot.isGroupSpot) ...[
+                    SpotGroupLabels(spot: spot),
+                    const SizedBox(height: 4),
+                  ],
                   Text(
                     spot.temporaryTodayLabel,
-                    style: const TextStyle(
-                      color: Colors.orangeAccent,
+                    style: TextStyle(
+                      color: accent,
                       fontSize: 12,
                       fontWeight: FontWeight.w900,
                     ),
@@ -22693,7 +25505,9 @@ class ExploreSpotCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final categoryColor = spot.isTemporary
+    final categoryColor = spot.isGroupSpot
+        ? Colors.cyanAccent
+        : spot.isTemporary
         ? Colors.orangeAccent
         : spotColorForSpot(spot);
     final addedDateText = spot.createdAtMillis > 0
@@ -22705,123 +25519,140 @@ class ExploreSpotCard extends StatelessWidget {
               : 'Added by ${spot.addedBy}')
         : 'Added by ${displayUsername(spot.addedBy)}';
 
-    return InkWell(
-      onTap: () {
-        Navigator.push(
-          context,
-          appPageRoute(builder: (_) => SpotDetailScreen(spot: spot)),
-        );
-      },
-      borderRadius: BorderRadius.circular(12),
-      child: Container(
-        padding: const EdgeInsets.fromLTRB(7, 6, 7, 6),
-        decoration: BoxDecoration(
-          color: const Color(0xFF0D111A).withValues(alpha: 0.88),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            color: categoryColor.withValues(alpha: 0.50),
-            width: 1.15,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (spot.isGroupSpot)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(8, 6, 8, 6),
+            child: SpotGroupLabels(spot: spot),
           ),
-          boxShadow: [
-            BoxShadow(
-              color: categoryColor.withValues(alpha: 0.12),
-              blurRadius: 14,
-              spreadRadius: 0.3,
-              offset: const Offset(0, 7),
-            ),
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.28),
-              blurRadius: 18,
-              offset: const Offset(0, 10),
-            ),
-          ],
-        ),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            SpotPhoto(
-              spot: spot,
-              width: 103,
-              height: double.infinity,
-              fit: BoxFit.cover,
-              borderRadius: BorderRadius.circular(12),
-            ),
-            const SizedBox(width: 13),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+        Expanded(
+          child: InkWell(
+            onTap: () {
+              Navigator.push(
+                context,
+                appPageRoute(builder: (_) => SpotDetailScreen(spot: spot)),
+              );
+            },
+            borderRadius: BorderRadius.circular(12),
+            child: Container(
+              padding: const EdgeInsets.fromLTRB(7, 6, 7, 6),
+              decoration: BoxDecoration(
+                color: spot.isGroupSpot
+                    ? const Color(0xFF09252D)
+                    : const Color(0xFF0D111A).withValues(alpha: 0.88),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: categoryColor.withValues(alpha: 0.50),
+                  width: 1.15,
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: categoryColor.withValues(alpha: 0.12),
+                    blurRadius: 14,
+                    spreadRadius: 0.3,
+                    offset: const Offset(0, 7),
+                  ),
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.28),
+                    blurRadius: 18,
+                    offset: const Offset(0, 10),
+                  ),
+                ],
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Expanded(
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
+                  SpotPhoto(
+                    spot: spot,
+                    width: 103,
+                    height: double.infinity,
+                    fit: BoxFit.cover,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  const SizedBox(width: 13),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Flexible(
-                              child: Text(
-                                spot.name,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w900,
-                                  letterSpacing: -0.25,
-                                ),
+                            Expanded(
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Flexible(
+                                    child: Text(
+                                      spot.name,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w900,
+                                        letterSpacing: -0.25,
+                                      ),
+                                    ),
+                                  ),
+                                  if (spot.verifiedOnly) ...[
+                                    const SizedBox(width: 5),
+                                    const _VerifiedSpotBadge(size: 14),
+                                  ],
+                                  if (spotCountryFilters.value.length > 1) ...[
+                                    const SizedBox(width: 5),
+                                    SpotCountryFlagBadge(spot: spot),
+                                  ],
+                                ],
                               ),
                             ),
-                            if (spot.verifiedOnly) ...[
-                              const SizedBox(width: 5),
-                              const _VerifiedSpotBadge(size: 14),
-                            ],
-                            if (spotCountryFilters.value.length > 1) ...[
-                              const SizedBox(width: 5),
-                              SpotCountryFlagBadge(spot: spot),
-                            ],
                           ],
                         ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 2),
-                  _SpotMetaLine(
-                    icon: Icons.location_on_outlined,
-                    text: spot.cityCountry,
-                  ),
-                  const SizedBox(height: 1),
-                  _SpotMetaLine(
-                    icon: Icons.calendar_month_outlined,
-                    text: addedDateText,
-                  ),
-                  const SizedBox(height: 1),
-                  _SpotMetaLine(icon: Icons.person_outline, text: addedByText),
-                  const SizedBox(height: 2),
-                  Text(
-                    spot.description,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: Colors.white70,
-                      fontSize: 10.4,
-                      height: 1.0,
+                        const SizedBox(height: 2),
+                        _SpotMetaLine(
+                          icon: Icons.location_on_outlined,
+                          text: spot.cityCountry,
+                        ),
+                        const SizedBox(height: 1),
+                        _SpotMetaLine(
+                          icon: Icons.calendar_month_outlined,
+                          text: addedDateText,
+                        ),
+                        const SizedBox(height: 1),
+                        _SpotMetaLine(
+                          icon: Icons.person_outline,
+                          text: addedByText,
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          spot.description,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Colors.white70,
+                            fontSize: 10.4,
+                            height: 1.0,
+                          ),
+                        ),
+                        const Spacer(),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.end,
+                          children: [
+                            ExploreSpotStatsRow(spot: spot),
+                            const SizedBox(width: 7),
+                            SaveSpotButton(spot: spot, compact: true),
+                          ],
+                        ),
+                      ],
                     ),
-                  ),
-                  const Spacer(),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.end,
-                    children: [
-                      ExploreSpotStatsRow(spot: spot),
-                      const SizedBox(width: 7),
-                      SaveSpotButton(spot: spot, compact: true),
-                    ],
                   ),
                 ],
               ),
             ),
-          ],
+          ),
         ),
-      ),
+      ],
     );
   }
 }
@@ -23552,7 +26383,8 @@ class MapScreen extends StatefulWidget {
 
 class _MapScreenState extends State<MapScreen>
     with TickerProviderStateMixin, LanguageReactiveState {
-  // Default map view: open Riga area first, do not auto-jump to the user.
+  // Riga remains the safe fallback, but the first/default map view is resolved
+  // from the signed-in user's profile city + country when the Map tab opens.
   static const rigaCenter = LatLng(56.9496, 24.1052);
   static const rigaZoom = 11.25;
   static const fullSpotIconMinZoom = 11.25;
@@ -23579,7 +26411,6 @@ class _MapScreenState extends State<MapScreen>
   Timer? liveLocationUploadTimer;
   Timer? liveLocationPromptTimer;
   Timer? liveLocationAutoStopTimer;
-  Timer? friendAtSpotDwellTimer;
   Timer? liveLocationStaleSweepTimer;
   Timer? mapGestureIdleTimer;
   DateTime? lastMapCameraUiUpdateAt;
@@ -23609,9 +26440,6 @@ class _MapScreenState extends State<MapScreen>
   LatLng? lastGpsUserLocation;
   LatLng? lastUploadedLiveLocation;
   DateTime? lastGpsUserLocationAt;
-  String? friendAtSpotCandidateId;
-  String? friendAtSpotNotifiedSpotId;
-  LatLng? friendAtSpotCandidateLocation;
   double currentUserSpeedMetersPerSecond = 0;
   bool isLocatingUser = false;
   bool isAddingPoliceReport = false;
@@ -23645,6 +26473,9 @@ class _MapScreenState extends State<MapScreen>
   DateTime? lastNavigationPositionAt;
   bool mapCenteredOnCurrentUser = false;
   bool mapCameraReady = false;
+  bool initialProfileCityFocusApplied = false;
+  bool initialProfileCityFocusInProgress = false;
+  bool mapCameraChangedByUser = false;
   int? lastHandledMapFocusRequestToken;
   CcsMapStyle mapStyle = CcsMapStyle.dark;
   bool adaptiveMapStyleEnabled = false;
@@ -23708,7 +26539,61 @@ class _MapScreenState extends State<MapScreen>
       mapCameraReady = true;
       restoreMapCamera();
       handleMapFocusRequest();
+      unawaited(focusInitialMapOnProfileCity());
     });
+  }
+
+  Future<void> focusInitialMapOnProfileCity() async {
+    if (initialProfileCityFocusApplied || initialProfileCityFocusInProgress) {
+      return;
+    }
+
+    final city = currentUser.city.trim();
+    final country = currentUser.country.trim();
+
+    // Empty/legacy profiles keep the existing Riga fallback.
+    if (city.isEmpty) {
+      initialProfileCityFocusApplied = true;
+      return;
+    }
+
+    initialProfileCityFocusInProgress = true;
+    final address = country.isEmpty ? city : '$city, $country';
+
+    try {
+      final locations = await locationFromAddress(
+        address,
+      ).timeout(userLocationLookupTimeout);
+
+      if (!mounted) {
+        return;
+      }
+
+      // An explicit spot/friend focus request or a manual pan always wins over
+      // this one-time default-city lookup.
+      if (mapFocusRequest.value != null || mapCameraChangedByUser) {
+        return;
+      }
+
+      if (locations.isEmpty) {
+        return;
+      }
+
+      final resolved = LatLng(
+        locations.first.latitude,
+        locations.first.longitude,
+      );
+      if (!isValidLatLng(resolved)) {
+        return;
+      }
+
+      moveMapCamera(resolved, rigaZoom, rotationDegrees: 0);
+    } catch (error) {
+      debugPrint('Profile city map focus failed for "$address": $error');
+    } finally {
+      initialProfileCityFocusInProgress = false;
+      initialProfileCityFocusApplied = true;
+    }
   }
 
   Future<void> loadMapStylePreference() async {
@@ -23897,17 +26782,6 @@ class _MapScreenState extends State<MapScreen>
     });
   }
 
-  double get currentMapLoadRadiusMeters {
-    // Keep the candidate area continuous when crossing a zoom boundary.
-    if (currentMapZoom >= 12) {
-      return 42000 - 18000 * mapZoomOpacity(hiddenZoom: 12, visibleZoom: 14);
-    }
-    if (currentMapZoom >= 10) {
-      return 72000 - 30000 * mapZoomOpacity(hiddenZoom: 10, visibleZoom: 12);
-    }
-    return 120000 - 48000 * mapZoomOpacity(hiddenZoom: 8, visibleZoom: 10);
-  }
-
   double mapZoomOpacity({
     required double hiddenZoom,
     required double visibleZoom,
@@ -23920,94 +26794,12 @@ class _MapScreenState extends State<MapScreen>
     return progress * progress * (3 - 2 * progress);
   }
 
-  int get currentMapMarkerLimit {
-    // Retain each extra batch until its two-zoom-level fade reaches zero.
-    if (currentMapZoom > 13) return 420;
-    if (currentMapZoom > 11) return 260;
-    if (currentMapZoom > 9) return 160;
-    return 90;
-  }
-
-  double spotDensityOpacity(int index) {
-    if (index >= 260) {
-      return mapZoomOpacity(hiddenZoom: 13, visibleZoom: 15);
-    }
-    if (index >= 160) {
-      return mapZoomOpacity(hiddenZoom: 11, visibleZoom: 13);
-    }
-    if (index >= 90) {
-      return mapZoomOpacity(hiddenZoom: 9, visibleZoom: 11);
-    }
-    return 1;
-  }
-
   List<CarSpot> get visibleSpots {
     final routeSpot = routePreviewSpot;
     if (routePreviewMode && routeSpot != null) {
       return isValidLatLng(routeSpot.coordinates) ? [routeSpot] : const [];
     }
-
-    final enabledCategoryFilters = spotCategoryFilters.value;
-    final enabledCountryFilters = spotCountryFilters.value;
-
-    if (enabledCategoryFilters.isEmpty || enabledCountryFilters.isEmpty) {
-      return const [];
-    }
-
-    final candidates = <MapEntry<CarSpot, double>>[];
-    for (final spot in approvedPublicSpots()) {
-      if (spot.status != SpotStatus.approved ||
-          !spotMatchesSelectedCountries(spot) ||
-          !spot.categories.any(enabledCategoryFilters.contains) ||
-          !spot.isVisibleOnMapNow) {
-        continue;
-      }
-
-      final distance = distanceBetweenLatLngMeters(
-        currentMapCenter,
-        spot.coordinates,
-      );
-      if (distance <= currentMapLoadRadiusMeters) {
-        candidates.add(MapEntry(spot, distance));
-      }
-    }
-
-    final visibleTemporarySpots = candidates
-        .map((entry) => entry.key)
-        .where((spot) => spot.isTemporary && spot.isTemporaryMapVisibleNow)
-        .toList();
-
-    final withPermanentSpotsSuppressed = candidates.where((entry) {
-      final spot = entry.key;
-      if (spot.isTemporary) {
-        return true;
-      }
-
-      return !visibleTemporarySpots.any(
-        (temporarySpot) =>
-            distanceBetweenLatLngMeters(
-              spot.coordinates,
-              temporarySpot.coordinates,
-            ) <=
-            temporarySpotHidePermanentRadiusMeters,
-      );
-    }).toList();
-
-    withPermanentSpotsSuppressed.sort((a, b) {
-      final aTemporary = a.key.isTemporary && a.key.isTemporaryMapVisibleNow;
-      final bTemporary = b.key.isTemporary && b.key.isTemporaryMapVisibleNow;
-
-      if (aTemporary != bTemporary) {
-        return aTemporary ? -1 : 1;
-      }
-
-      return a.value.compareTo(b.value);
-    });
-
-    return withPermanentSpotsSuppressed
-        .take(currentMapMarkerLimit)
-        .map((entry) => entry.key)
-        .toList();
+    return mapVisibleSpots(approvedPublicSpots());
   }
 
   Future<void> showMapCategoryFilterSheet() async {
@@ -24219,13 +27011,6 @@ class _MapScreenState extends State<MapScreen>
 
   List<Marker> get markers {
     final showFullIcons = currentMapZoom >= fullSpotIconMinZoom;
-    final zoomOpacity = mapZoomOpacity(
-      hiddenZoom: 5,
-      visibleZoom: fullSpotIconMinZoom,
-    );
-    if (zoomOpacity == 0 && !routePreviewMode) {
-      return const <Marker>[];
-    }
     final compactZoomProgress =
         ((currentMapZoom - 3) / (fullSpotIconMinZoom - 3))
             .clamp(0.0, 1.0)
@@ -24268,21 +27053,8 @@ class _MapScreenState extends State<MapScreen>
       maxValue: 1,
     ).clamp(0.0, 1.0).toDouble();
 
-    return visibleSpots.asMap().entries.map((entry) {
-      final spot = entry.value;
-      final distance = distanceBetweenLatLngMeters(
-        currentMapCenter,
-        spot.coordinates,
-      );
-      final loadRadius = currentMapLoadRadiusMeters;
-      final edgeProgress = ((loadRadius - distance) / (loadRadius * 0.2))
-          .clamp(0.0, 1.0)
-          .toDouble();
-      final edgeOpacity = edgeProgress * edgeProgress * (3 - 2 * edgeProgress);
-      // Route-preview destinations must remain visible regardless of zoom.
-      final visibilityOpacity = routePreviewMode
-          ? 1.0
-          : zoomOpacity * spotDensityOpacity(entry.key) * edgeOpacity;
+    return visibleSpots.map((spot) {
+      const visibilityOpacity = 1.0;
       final closedNow = spotIsClosedNow(spot);
       final isTemporaryActive = spot.isTemporaryActiveNow;
       final isTemporaryUpcoming = spot.isTemporaryUpcomingOnMap;
@@ -26939,88 +29711,6 @@ class _MapScreenState extends State<MapScreen>
     }
   }
 
-  void cancelFriendAtSpotDwellTimer() {
-    friendAtSpotDwellTimer?.cancel();
-    friendAtSpotDwellTimer = null;
-    friendAtSpotCandidateId = null;
-    friendAtSpotCandidateLocation = null;
-  }
-
-  CarSpot? nearestSpotForFriendPresence(LatLng location) {
-    CarSpot? nearestSpot;
-    var nearestDistance = double.infinity;
-
-    for (final spot in approvedPublicSpots()) {
-      if (spot.status != SpotStatus.approved ||
-          spot.id.trim().isEmpty ||
-          !spot.isVisibleOnMapNow) {
-        continue;
-      }
-
-      final distance = distanceBetweenLatLngMeters(location, spot.coordinates);
-      if (distance < nearestDistance) {
-        nearestDistance = distance;
-        nearestSpot = spot;
-      }
-    }
-
-    if (nearestSpot == null || nearestDistance > friendAtSpotRadiusMeters) {
-      return null;
-    }
-
-    return nearestSpot;
-  }
-
-  void monitorCurrentUserSpotPresenceForFriends(LatLng location) {
-    if (!isSharingLiveLocation) {
-      cancelFriendAtSpotDwellTimer();
-      return;
-    }
-
-    final spot = nearestSpotForFriendPresence(location);
-    if (spot == null) {
-      cancelFriendAtSpotDwellTimer();
-      return;
-    }
-
-    final spotId = spot.id.trim();
-    if (friendAtSpotNotifiedSpotId == spotId ||
-        friendAtSpotCandidateId == spotId) {
-      friendAtSpotCandidateLocation = location;
-      return;
-    }
-
-    cancelFriendAtSpotDwellTimer();
-    friendAtSpotCandidateId = spotId;
-    friendAtSpotCandidateLocation = location;
-    friendAtSpotDwellTimer = Timer(friendAtSpotNotificationDwellTime, () {
-      final dwellLocation = friendAtSpotCandidateLocation ?? location;
-      final currentSpot = approvedPublicSpots().firstWhere(
-        (item) => item.id == spotId,
-        orElse: () => spot,
-      );
-      final distance = distanceBetweenLatLngMeters(
-        dwellLocation,
-        currentSpot.coordinates,
-      );
-
-      if (!isSharingLiveLocation ||
-          distance > friendAtSpotRadiusMeters ||
-          friendAtSpotCandidateId != spotId) {
-        return;
-      }
-
-      friendAtSpotNotifiedSpotId = spotId;
-      unawaited(
-        notifyCurrentUserFriendsAboutSpotPresence(
-          coordinates: dwellLocation,
-          spot: currentSpot,
-          distanceMeters: distance,
-        ),
-      );
-    });
-  }
-
   void scheduleLiveLocationTimers() {
     final expiresAt = liveLocationExpiresAt;
 
@@ -27196,8 +29886,6 @@ class _MapScreenState extends State<MapScreen>
       isTogglingLiveLocation = false;
     });
 
-    monitorCurrentUserSpotPresenceForFriends(location);
-
     startNavigationTracking();
     updateFollowCamera(location, heading);
 
@@ -27258,8 +29946,6 @@ class _MapScreenState extends State<MapScreen>
         currentUserSpeedMetersPerSecond = speed;
       });
 
-      monitorCurrentUserSpotPresenceForFriends(location);
-
       if (mapCenteredOnCurrentUser) {
         updateFollowCamera(displayedUserLocation ?? location, heading);
       }
@@ -27286,8 +29972,6 @@ class _MapScreenState extends State<MapScreen>
       currentUserSpeedMetersPerSecond = speed;
     });
 
-    monitorCurrentUserSpotPresenceForFriends(location);
-
     if (mapCenteredOnCurrentUser) {
       updateFollowCamera(displayedUserLocation ?? location, heading);
     }
@@ -27303,6 +29987,10 @@ class _MapScreenState extends State<MapScreen>
     String? visibleToChatName,
     String? shareScope,
   }) async {
+    if (DateTime.now().difference(position.timestamp) >
+        const Duration(seconds: 90)) {
+      return;
+    }
     final firebaseUser = FirebaseAuth.instance.currentUser;
 
     if (firebaseUser == null) {
@@ -27372,6 +30060,9 @@ class _MapScreenState extends State<MapScreen>
       'updatedAt': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
 
+    // Use the newly saved sample for server-side five-minute arrival tracking.
+    unawaited(sendPushNotificationEvent({'type': 'friend_at_spot'}));
+
     await updateCurrentUserPresenceFields({
       'isSharingLiveLocation': true,
       'liveLocationExpiresAt': Timestamp.fromDate(expiresAt),
@@ -27399,14 +30090,13 @@ class _MapScreenState extends State<MapScreen>
 
     liveLocationUploadTimer?.cancel();
     liveLocationUploadTimer = null;
-    cancelFriendAtSpotDwellTimer();
-    friendAtSpotNotifiedSpotId = null;
     cancelLiveLocationTimers(keepUploadTimer: true);
     nativeLiveLocationBackgroundSignature = null;
     unawaited(stopNativeLiveLocationBackgroundService());
 
     if (firebaseUser != null) {
       await liveLocationsCollection().doc(firebaseUser.uid).debugDelete();
+      unawaited(sendPushNotificationEvent({'type': 'friend_at_spot'}));
       await updateCurrentUserPresenceFields({
         'isSharingLiveLocation': false,
         'liveLocationExpiresAt': null,
@@ -27578,7 +30268,6 @@ class _MapScreenState extends State<MapScreen>
     liveLocationUploadTimer?.cancel();
     liveLocationPromptTimer?.cancel();
     liveLocationAutoStopTimer?.cancel();
-    friendAtSpotDwellTimer?.cancel();
     liveLocationStaleSweepTimer?.cancel();
     mapGestureIdleTimer?.cancel();
     liveLocationSubscription?.cancel();
@@ -27655,9 +30344,9 @@ class _MapScreenState extends State<MapScreen>
   }
 
   void loadInitialUserLocation() {
-    // Intentionally do nothing on map open.
-    // The map should open on Riga spots first. User location is requested only
-    // after pressing the blue "find me" button or enabling live location.
+    // This centers on the profile city only; GPS is still requested only after
+    // pressing the blue "find me" button or enabling live location.
+    unawaited(focusInitialMapOnProfileCity());
   }
 
   void startNavigationTracking() {
@@ -28051,8 +30740,8 @@ class _MapScreenState extends State<MapScreen>
           FlutterMap(
             mapController: mapController,
             options: MapOptions(
-              initialCenter: rigaCenter,
-              initialZoom: rigaZoom,
+              initialCenter: currentMapCenter,
+              initialZoom: currentMapZoom,
               initialRotation: currentMapRotationDegrees,
               minZoom: 4,
               maxZoom: 18,
@@ -28090,6 +30779,7 @@ class _MapScreenState extends State<MapScreen>
                   currentMapRotationDegrees = nextRotation;
                   if (hasGesture) {
                     mapCenteredOnCurrentUser = false;
+                    mapCameraChangedByUser = true;
                     mapGestureIdleTimer?.cancel();
                     mapGestureIdleTimer = Timer(
                       const Duration(milliseconds: 320),
@@ -30082,14 +32772,19 @@ Widget spotPhotoImage(
 }
 
 class SpotPhotoCarousel extends StatefulWidget {
-  final CarSpot spot;
+  final CarSpot? spot;
+  final List<String>? photoSources;
   final double height;
 
-  const SpotPhotoCarousel({
+  const SpotPhotoCarousel({super.key, required this.spot, required this.height})
+    : photoSources = null;
+
+  const SpotPhotoCarousel.photos({
     super.key,
-    required this.spot,
+    required List<String> sources,
     required this.height,
-  });
+  }) : spot = null,
+       photoSources = sources;
 
   @override
   State<SpotPhotoCarousel> createState() => _SpotPhotoCarouselState();
@@ -30115,15 +32810,17 @@ class _SpotPhotoCarouselState extends State<SpotPhotoCarousel> {
     Navigator.push(
       context,
       appPageRoute(
-        builder: (_) =>
-            SpotPhotoGalleryScreen(spot: widget.spot, initialIndex: index),
+        builder: (_) => SpotPhotoGalleryScreen.photos(
+          sources: widget.photoSources ?? spotPhotoSources(widget.spot!),
+          initialIndex: index,
+        ),
       ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    final sources = spotPhotoSources(widget.spot);
+    final sources = widget.photoSources ?? spotPhotoSources(widget.spot!);
 
     if (sources.isEmpty) {
       return _SpotPhotoPlaceholder(height: widget.height);
@@ -30212,14 +32909,22 @@ class _SpotPhotoCarouselState extends State<SpotPhotoCarousel> {
 }
 
 class SpotPhotoGalleryScreen extends StatefulWidget {
-  final CarSpot spot;
+  final CarSpot? spot;
+  final List<String>? photoSources;
   final int initialIndex;
 
   const SpotPhotoGalleryScreen({
     super.key,
     required this.spot,
     required this.initialIndex,
-  });
+  }) : photoSources = null;
+
+  const SpotPhotoGalleryScreen.photos({
+    super.key,
+    required List<String> sources,
+    required this.initialIndex,
+  }) : spot = null,
+       photoSources = sources;
 
   @override
   State<SpotPhotoGalleryScreen> createState() => _SpotPhotoGalleryScreenState();
@@ -30233,7 +32938,7 @@ class _SpotPhotoGalleryScreenState extends State<SpotPhotoGalleryScreen> {
   @override
   void initState() {
     super.initState();
-    sources = spotPhotoSources(widget.spot);
+    sources = widget.photoSources ?? spotPhotoSources(widget.spot!);
     currentIndex =
         widget.initialIndex >= 0 && widget.initialIndex < sources.length
         ? widget.initialIndex
@@ -30328,7 +33033,10 @@ enum SpotDetailNavigationResult { showMap }
 class SpotDetailScreen extends StatefulWidget {
   final CarSpot spot;
 
-  const SpotDetailScreen({super.key, required this.spot});
+  // Optional stream keeps detail reconciliation independently testable.
+  final Stream<CarSpot?>? spotUpdates;
+
+  const SpotDetailScreen({super.key, required this.spot, this.spotUpdates});
 
   @override
   State<SpotDetailScreen> createState() => _SpotDetailScreenState();
@@ -30337,36 +33045,58 @@ class SpotDetailScreen extends StatefulWidget {
 class _SpotDetailScreenState extends State<SpotDetailScreen>
     with LanguageReactiveState {
   late CarSpot spot;
+  StreamSubscription<CarSpot?>? spotSubscription;
+  bool spotUnavailable = false;
 
   @override
   void initState() {
     super.initState();
     spot = widget.spot;
-    reviewSpots.addListener(syncSpotFromLocalCache);
+    final updates =
+        widget.spotUpdates ??
+        (spot.id.isEmpty
+            ? null
+            : spotsCollection()
+                  .doc(spot.id)
+                  .snapshots(includeMetadataChanges: true)
+                  // A cache miss is not proof that the server deleted the spot.
+                  .where(
+                    (snapshot) =>
+                        snapshot.exists || !snapshot.metadata.isFromCache,
+                  )
+                  .map(
+                    (snapshot) => snapshot.exists
+                        ? CarSpot.fromFirestore(snapshot)
+                        : null,
+                  ));
+    spotSubscription = updates?.listen(
+      (current) {
+        if (!mounted) return;
+        setState(() {
+          spotUnavailable = current == null;
+          if (current != null) spot = current;
+        });
+      },
+      onError: (Object error) {
+        if (mounted &&
+            error is FirebaseException &&
+            (error.code == 'permission-denied' || error.code == 'not-found')) {
+          setState(() => spotUnavailable = true);
+        }
+      },
+    );
+    memberSpotGroups.addListener(groupAccessChanged);
+  }
+
+  void groupAccessChanged() {
+    if (mounted) setState(() {});
   }
 
   @override
   void dispose() {
-    reviewSpots.removeListener(syncSpotFromLocalCache);
+    memberSpotGroups.removeListener(groupAccessChanged);
+    spotSubscription?.cancel();
     super.dispose();
-  }
-
-  void syncSpotFromLocalCache() {
-    for (final currentSpot in reviewSpots.value) {
-      if (!isSameSpot(currentSpot, spot)) {
-        continue;
-      }
-
-      if (currentSpot.likeCount == spot.likeCount &&
-          currentSpot.commentCount == spot.commentCount) {
-        return;
-      }
-
-      if (mounted) {
-        setState(() => spot = currentSpot);
-      }
-      return;
-    }
   }
 
   void showSpotOnMap() {
@@ -30433,6 +33163,21 @@ class _SpotDetailScreenState extends State<SpotDetailScreen>
 
   @override
   Widget build(BuildContext context) {
+    if (spotUnavailable) {
+      return Scaffold(
+        appBar: AppBar(),
+        body: Center(child: Text(trText('This spot is no longer available.'))),
+      );
+    }
+    if (!canViewGroupSpot(spot))
+      return Scaffold(
+        appBar: AppBar(),
+        body: Center(
+          child: Text(
+            trText('This spot is available only to members of its groups.'),
+          ),
+        ),
+      );
     return Scaffold(
       backgroundColor: Colors.transparent,
       appBar: AppBar(
@@ -30444,7 +33189,23 @@ class _SpotDetailScreenState extends State<SpotDetailScreen>
             padding: const EdgeInsets.only(right: 6),
             child: Center(child: SaveSpotButton(spot: spot, compact: true)),
           ),
-          if (userRoleIsStaff(currentUser.role) ||
+          if (canTransferSpotOwnership(
+            currentUser,
+            countryCode: spot.countryCode,
+          ))
+            IconButton(
+              tooltip: communityText(
+                en: 'Transfer ownership',
+                ru: 'Передать владение',
+                lv: 'Nodot īpašumtiesības',
+              ),
+              icon: const Icon(Icons.manage_accounts_outlined),
+              onPressed: () async {
+                final updated = await showSpotOwnershipTransfer(context, spot);
+                if (updated != null && mounted) setState(() => spot = updated);
+              },
+            ),
+          if (currentUserCanModerateSpot(spot) ||
               spot.addedByUid == currentUser.uid)
             IconButton(
               tooltip: trText('Edit spot'),
@@ -31629,7 +34390,7 @@ class _SpotReviewsSectionState extends State<SpotReviewsSection>
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              TextField(
+              MentionTextField(
                 controller: commentController,
                 minLines: 2,
                 maxLines: 4,
@@ -31807,7 +34568,7 @@ class SpotReviewCard extends StatelessWidget {
               return Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  TextField(
+                  MentionTextField(
                     controller: commentController,
                     minLines: 3,
                     maxLines: 5,
@@ -32448,12 +35209,16 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
 
   String selectedCategory = 'Photo';
   LatLng? selectedLocation;
+  SpotLocationRegion? selectedRegion;
+  int locationLookupRevision = 0;
   String detectedCityCountry = 'Choose location to detect city/country';
   bool isDetectingCityCountry = false;
   bool isUsingCurrentLocation = false;
   final List<String> selectedPhotoPaths = [];
   bool verifiedOnlySpot = false;
   bool isTemporarySpot = false;
+  bool groupVisibility = false;
+  final Set<String> selectedGroupIds = {};
   DateTime? temporaryStartsAt;
   DateTime? temporaryExpiresAt;
   bool temporaryShowOnMapAtEnabled = false;
@@ -32466,10 +35231,75 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
   void initState() {
     super.initState();
     addedByController.text = currentUser.username;
+    memberSpotGroups.addListener(groupMembershipChanged);
   }
+
+  void groupMembershipChanged() {
+    if (!mounted) return;
+    // A sync restart or connection error can temporarily empty memberships.
+    // Preserve the chosen audience; submission validates current membership.
+    setState(() {});
+  }
+
+  Widget temporaryAudiencePicker() => Material(
+    type: MaterialType.transparency,
+    child: Column(
+      children: [
+        SegmentedButton<bool>(
+          segments: [
+            ButtonSegment(
+              value: false,
+              label: Text(trText('Public')),
+              icon: const Icon(Icons.public),
+            ),
+            ButtonSegment(
+              value: true,
+              label: Text(trText('Group')),
+              icon: const Icon(Icons.groups),
+            ),
+          ],
+          selected: {groupVisibility},
+          onSelectionChanged: isSubmitting
+              ? null
+              : (values) => setState(() {
+                  groupVisibility = values.first;
+                  if (groupVisibility) verifiedOnlySpot = false;
+                }),
+        ),
+        if (groupVisibility) ...[
+          Text(
+            trText('Select groups (up to 8)'),
+            style: const TextStyle(color: Colors.white70),
+          ),
+          for (final group in memberSpotGroups.value)
+            CheckboxListTile(
+              value: selectedGroupIds.contains(group.id),
+              title: Text(group.name),
+              secondary: GlobalSmallAvatar(
+                avatarUrl: group.avatarUrl.isNotEmpty
+                    ? group.avatarUrl
+                    : group.photoUrl,
+                username: group.name,
+              ),
+              onChanged: isSubmitting
+                  ? null
+                  : (value) => setState(() {
+                      if (value != true) {
+                        selectedGroupIds.remove(group.id);
+                      } else if (selectedGroupIds.length <
+                          maxSharedSpotGroups) {
+                        selectedGroupIds.add(group.id);
+                      }
+                    }),
+            ),
+        ],
+      ],
+    ),
+  );
 
   @override
   void dispose() {
+    memberSpotGroups.removeListener(groupMembershipChanged);
     nameController.dispose();
     cityController.dispose();
     addressController.dispose();
@@ -32482,23 +35312,33 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
     super.dispose();
   }
 
-  Future<void> applySelectedLocation(LatLng location) async {
+  Future<bool> applySelectedLocation(LatLng location) async {
+    final revision = ++locationLookupRevision;
     setState(() {
-      selectedLocation = location;
+      selectedLocation = null;
+      selectedRegion = null;
       detectedCityCountry = 'Detecting city/country...';
       isDetectingCityCountry = true;
     });
-
-    final cityCountry = await detectCityCountryForCoordinates(location);
-
-    if (!mounted) {
-      return;
-    }
-
+    final region = await lookupSpotLocationRegion(location);
+    if (!mounted || revision != locationLookupRevision) return false;
     setState(() {
-      detectedCityCountry = cityCountry;
+      selectedRegion = region;
+      selectedLocation = region.allowed ? location : null;
+      detectedCityCountry = region.allowed
+          ? region.cityCountry
+          : region.warning;
       isDetectingCityCountry = false;
     });
+    if (!region.allowed) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: Colors.redAccent,
+          content: Text(trText(region.warning)),
+        ),
+      );
+    }
+    return region.allowed;
   }
 
   Future<void> chooseLocation() async {
@@ -32507,7 +35347,10 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
     final location = await Navigator.push<LatLng>(
       context,
       appPageRoute(
-        builder: (_) => LocationPickerScreen(initialLocation: selectedLocation),
+        builder: (_) => LocationPickerScreen(
+          initialLocation: selectedLocation,
+          restrictSpotRegions: true,
+        ),
       ),
     );
 
@@ -32759,9 +35602,9 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
         // Address text is optional. The coordinates are enough to create a spot.
       }
 
-      await applySelectedLocation(location);
+      final accepted = await applySelectedLocation(location);
 
-      if (!mounted) {
+      if (!mounted || !accepted) {
         return;
       }
 
@@ -32955,322 +35798,400 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
       return;
     }
 
-    if (currentUserRegionIsRestricted) {
-      await showRegionFeatureUnavailableDialog(context);
-      return;
-    }
-
-    final firebaseUser = FirebaseAuth.instance.currentUser;
-
-    if (firebaseUser == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          backgroundColor: Colors.redAccent,
-          content: Text(
-            'Sign in with Google before submitting a spot.',
-            style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
-          ),
-        ),
-      );
-      return;
-    }
-
-    final cleanSpotName = nameController.text.trim();
-    final cleanDescription = descriptionController.text.trim();
-    final allowedSpotNamePattern = RegExp(
-      r"^[A-Za-z0-9ĀāČčĒēĢģĪīĶķĻļŅņŠšŪūŽž .,'’&()\/-]+$",
-    );
-
-    if (cleanSpotName.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          backgroundColor: Colors.redAccent,
-          content: Text(
-            'Spot name is required.',
-            style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
-          ),
-        ),
-      );
-      return;
-    }
-
-    if (!allowedSpotNamePattern.hasMatch(cleanSpotName)) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          backgroundColor: Colors.redAccent,
-          content: Text(
-            'Spot name can use only English or Latvian letters, numbers, spaces, and simple punctuation.',
-            style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
-          ),
-        ),
-      );
-      return;
-    }
-
-    if (selectedLocation == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          backgroundColor: Colors.redAccent,
-          content: Text(
-            'Location is required. Pin it on the map, find exact address, or use current location first.',
-            style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
-          ),
-        ),
-      );
-      return;
-    }
-
-    if (isDetectingCityCountry || isUsingCurrentLocation) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          backgroundColor: Colors.orangeAccent,
-          content: Text(
-            'Wait for the location address to finish loading.',
-            style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
-          ),
-        ),
-      );
-      return;
-    }
-
-    if (cleanDescription.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          backgroundColor: Colors.redAccent,
-          content: Text(
-            'Description is required.',
-            style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
-          ),
-        ),
-      );
-      return;
-    }
-
-    if (selectedPhotoPaths.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          backgroundColor: Colors.redAccent,
-          content: Text(
-            'Upload at least 1 photo before creating the spot.',
-            style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
-          ),
-        ),
-      );
-      return;
-    }
-
-    if (isTemporarySpot) {
-      final startsAt = temporaryStartsAt;
-      final expiresAt = temporaryExpiresAt;
-
-      if (startsAt == null || expiresAt == null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            backgroundColor: Colors.redAccent,
-            content: Text(
-              'Choose both start and end time for a temporary spot.',
-              style: TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ),
-        );
-        return;
-      }
-
-      if (!expiresAt.isAfter(startsAt)) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            backgroundColor: Colors.redAccent,
-            content: Text(
-              'End time must be after start time.',
-              style: TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ),
-        );
-        return;
-      }
-
-      if (expiresAt.difference(startsAt) > maxTemporarySpotDuration) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            backgroundColor: Colors.redAccent,
-            content: Text(
-              'Temporary spots can be active for maximum 12 hours.',
-              style: TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ),
-        );
-        return;
-      }
-
-      if (!expiresAt.isAfter(DateTime.now())) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            backgroundColor: Colors.redAccent,
-            content: Text(
-              trText('End time must be in the future.'),
-              style: const TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ),
-        );
-        return;
-      }
-
-      if (temporaryShowOnMapAtEnabled) {
-        final showOnMapAt = temporaryShowOnMapAt;
-        if (showOnMapAt == null) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              backgroundColor: Colors.redAccent,
-              content: Text(
-                trText(
-                  'Choose when the temporary spot location should appear on the map.',
-                ),
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ),
-          );
-          return;
-        }
-
-        if (!showOnMapAt.isBefore(expiresAt)) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              backgroundColor: Colors.redAccent,
-              content: Text(
-                trText('Show on map time must be before the end time.'),
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ),
-          );
-          return;
-        }
-      }
-    }
-
-    final location = selectedLocation!;
-
-    if (!isTemporarySpot) {
-      final nearbySpot = await findNearbySpotBlockingPermanentSpotCreation(
-        location,
-      );
-
-      if (nearbySpot != null) {
-        final distance = distanceBetweenLatLngMeters(
-          location,
-          nearbySpot.coordinates,
-        );
-        final distanceLabel = distance >= 1000
-            ? '${(distance / 1000).toStringAsFixed(1)} km'
-            : '${distance.round()} m';
-
-        if (!mounted) {
-          return;
-        }
-
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            backgroundColor: Colors.redAccent,
-            content: Text(
-              'Permanent spots must be at least ${minimumPermanentSpotDistanceMeters.round()} m apart. "${nearbySpot.name}" is $distanceLabel away. Temporary spots are allowed to overlap existing spots.',
-              style: const TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ),
-        );
-        return;
-      }
-    }
-
-    final categories = [selectedCategory];
-    final supportsContacts = spotCategorySupportsContacts(selectedCategory);
-    final cleanDetectedCityCountry = detectedCityCountry.trim();
-    final cityCountry =
-        isSelectableSpotCountry(
-          spotCountryFromCityCountry(cleanDetectedCityCountry),
-        )
-        ? cleanDetectedCityCountry
-        : 'Unknown location';
-    final countryCode =
-        countryIsoCode(spotCountryFromCityCountry(cityCountry)) ?? '';
-    final canCreateApprovedSpot =
-        currentUser.role == UserRole.admin ||
-        (currentUser.role == UserRole.moderator &&
-            currentUser.moderatorCountryCodes.contains(countryCode));
-    final owner = supportsContacts && canCreateApprovedSpot
-        ? selectedOwner
-        : null;
-
-    final initialStatus = canCreateApprovedSpot
-        ? SpotStatus.approved
-        : SpotStatus.pending;
-    final spotRef = spotsCollection().doc();
-
-    var newSpot = CarSpot(
-      id: spotRef.id,
-      name: cleanSpotName,
-      cityCountry: cityCountry,
-      countryCode: countryCode,
-      coordinates: location,
-      description: cleanDescription,
-      categories: categories,
-      photoUrl: '',
-      localPhotoPath: selectedPhotoPaths.isEmpty
-          ? null
-          : selectedPhotoPaths.first,
-      reelLink: reelController.text.trim(),
-      contactPhone: supportsContacts ? phoneController.text.trim() : '',
-      contactInstagram: supportsContacts ? instagramController.text.trim() : '',
-      contactEmail: supportsContacts ? emailController.text.trim() : '',
-      openingHours: supportsContacts ? openingHours : const {},
-      ownerUid: supportsContacts ? (owner?.uid ?? '') : '',
-      ownerUsername: supportsContacts ? (owner?.username ?? '') : '',
-      bestTime: 'Not reviewed',
-      parking: 'Not reviewed',
-      roadQuality: 'Not reviewed',
-      lowCarFriendly: false,
-      policeRisk: 'Not reviewed',
-      traffic: 'Not reviewed',
-      lighting: 'Not reviewed',
-      crowd: 'Not reviewed',
-      addedBy: currentUser.username,
-      addedByUid: firebaseUser.uid,
-      status: initialStatus,
-      isTemporary: isTemporarySpot,
-      startsAtMillis: isTemporarySpot
-          ? temporaryStartsAt!.millisecondsSinceEpoch
-          : null,
-      expiresAtMillis: isTemporarySpot
-          ? temporaryExpiresAt!.millisecondsSinceEpoch
-          : null,
-      showOnMapAtMillis: isTemporarySpot && temporaryShowOnMapAtEnabled
-          ? temporaryShowOnMapAt!.millisecondsSinceEpoch
-          : null,
-      verifiedOnly: verifiedOnlySpot,
-    );
-
     setState(() => isSubmitting = true);
-
+    var committed = false;
     try {
+      if (currentUserRegionIsRestricted) {
+        await showRegionFeatureUnavailableDialog(context);
+        return;
+      }
+
+      final firebaseUser = FirebaseAuth.instance.currentUser;
+
+      if (firebaseUser == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            backgroundColor: Colors.redAccent,
+            content: Text(
+              'Sign in with Google before submitting a spot.',
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        );
+        return;
+      }
+
+      final cleanSpotName = nameController.text.trim();
+      final cleanDescription = descriptionController.text.trim();
+      final allowedSpotNamePattern = RegExp(
+        r"^[A-Za-z0-9ĀāČčĒēĢģĪīĶķĻļŅņŠšŪūŽž .,'’&()\/-]+$",
+      );
+
+      if (cleanSpotName.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            backgroundColor: Colors.redAccent,
+            content: Text(
+              'Spot name is required.',
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        );
+        return;
+      }
+
+      if (!allowedSpotNamePattern.hasMatch(cleanSpotName)) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            backgroundColor: Colors.redAccent,
+            content: Text(
+              'Spot name can use only English or Latvian letters, numbers, spaces, and simple punctuation.',
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        );
+        return;
+      }
+
+      if (selectedLocation == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            backgroundColor: Colors.redAccent,
+            content: Text(
+              'Location is required. Pin it on the map, find exact address, or use current location first.',
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        );
+        return;
+      }
+
+      if (isDetectingCityCountry || isUsingCurrentLocation) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            backgroundColor: Colors.orangeAccent,
+            content: Text(
+              'Wait for the location address to finish loading.',
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        );
+        return;
+      }
+
+      if (selectedRegion?.allowed != true) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: Colors.redAccent,
+            content: Text(
+              trText(selectedRegion?.warning ?? unknownSpotRegionMessage),
+            ),
+          ),
+        );
+        return;
+      }
+
+      if (cleanDescription.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            backgroundColor: Colors.redAccent,
+            content: Text(
+              'Description is required.',
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        );
+        return;
+      }
+
+      if (selectedPhotoPaths.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            backgroundColor: Colors.redAccent,
+            content: Text(
+              'Upload at least 1 photo before creating the spot.',
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        );
+        return;
+      }
+
+      if (isTemporarySpot) {
+        final startsAt = temporaryStartsAt;
+        final expiresAt = temporaryExpiresAt;
+
+        if (startsAt == null || expiresAt == null) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              backgroundColor: Colors.redAccent,
+              content: Text(
+                'Choose both start and end time for a temporary spot.',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          );
+          return;
+        }
+
+        if (!expiresAt.isAfter(startsAt)) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              backgroundColor: Colors.redAccent,
+              content: Text(
+                'End time must be after start time.',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          );
+          return;
+        }
+
+        if (expiresAt.difference(startsAt) > maxTemporarySpotDuration) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              backgroundColor: Colors.redAccent,
+              content: Text(
+                'Temporary spots can be active for maximum 12 hours.',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          );
+          return;
+        }
+
+        if (!expiresAt.isAfter(DateTime.now())) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              backgroundColor: Colors.redAccent,
+              content: Text(
+                trText('End time must be in the future.'),
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          );
+          return;
+        }
+
+        if (temporaryShowOnMapAtEnabled) {
+          final showOnMapAt = temporaryShowOnMapAt;
+          if (showOnMapAt == null) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                backgroundColor: Colors.redAccent,
+                content: Text(
+                  trText(
+                    'Choose when the temporary spot location should appear on the map.',
+                  ),
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            );
+            return;
+          }
+
+          if (!showOnMapAt.isBefore(expiresAt)) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                backgroundColor: Colors.redAccent,
+                content: Text(
+                  trText('Show on map time must be before the end time.'),
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            );
+            return;
+          }
+        }
+      }
+
+      final sharingGroups = isTemporarySpot && groupVisibility
+          ? memberSpotGroups.value
+                .where((group) => selectedGroupIds.contains(group.id))
+                .toList()
+          : <ChatThreadData>[];
+      if (isTemporarySpot && groupVisibility && sharingGroups.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(trText('Select at least one group.'))),
+        );
+        return;
+      }
+      if (isTemporarySpot &&
+          groupVisibility &&
+          sharingGroups.length != selectedGroupIds.length) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              trText(
+                'Some selected groups are unavailable. Check your group membership before submitting.',
+              ),
+            ),
+          ),
+        );
+        return;
+      }
+      final location = selectedLocation!;
+      final region = selectedRegion!;
+
+      if (!isTemporarySpot) {
+        final nearbySpot = await findNearbySpotBlockingPermanentSpotCreation(
+          location,
+        );
+
+        if (!mounted ||
+            FirebaseAuth.instance.currentUser?.uid != firebaseUser.uid) {
+          return;
+        }
+        if (nearbySpot != null) {
+          final distance = distanceBetweenLatLngMeters(
+            location,
+            nearbySpot.coordinates,
+          );
+          final distanceLabel = distance >= 1000
+              ? '${(distance / 1000).toStringAsFixed(1)} km'
+              : '${distance.round()} m';
+
+          if (!mounted) {
+            return;
+          }
+
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              backgroundColor: Colors.redAccent,
+              content: Text(
+                'Permanent spots must be at least ${minimumPermanentSpotDistanceMeters.round()} m apart. "${nearbySpot.name}" is $distanceLabel away. Temporary spots are allowed to overlap existing spots.',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          );
+          return;
+        }
+      }
+
+      final categories = [selectedCategory];
+      final supportsContacts = spotCategorySupportsContacts(selectedCategory);
+      final cleanDetectedCityCountry = region.cityCountry.trim();
+      final cityCountry =
+          isSelectableSpotCountry(
+            spotCountryFromCityCountry(cleanDetectedCityCountry),
+          )
+          ? cleanDetectedCityCountry
+          : 'Unknown location';
+      final countryCode = region.countryCode!;
+      if (!spotCountryIsSupported(countryCode)) return;
+      final canCreateApprovedSpot =
+          currentUser.role == UserRole.admin ||
+          (currentUser.role == UserRole.moderator &&
+              currentUser.moderatorCountryCodes.contains(countryCode));
+      final owner = supportsContacts && canCreateApprovedSpot
+          ? selectedOwner
+          : null;
+
+      final initialStatus = canCreateApprovedSpot
+          ? SpotStatus.approved
+          : SpotStatus.pending;
+      final spotRef = spotsCollection().doc();
+
+      var newSpot = CarSpot(
+        id: spotRef.id,
+        name: cleanSpotName,
+        cityCountry: cityCountry,
+        countryCode: countryCode,
+        coordinates: location,
+        description: cleanDescription,
+        categories: categories,
+        photoUrl: '',
+        localPhotoPath: selectedPhotoPaths.isEmpty
+            ? null
+            : selectedPhotoPaths.first,
+        reelLink: reelController.text.trim(),
+        contactPhone: supportsContacts ? phoneController.text.trim() : '',
+        contactInstagram: supportsContacts
+            ? instagramController.text.trim()
+            : '',
+        contactEmail: supportsContacts ? emailController.text.trim() : '',
+        openingHours: supportsContacts ? openingHours : const {},
+        ownerUid: supportsContacts ? (owner?.uid ?? '') : '',
+        ownerUsername: supportsContacts ? (owner?.username ?? '') : '',
+        bestTime: 'Not reviewed',
+        parking: 'Not reviewed',
+        roadQuality: 'Not reviewed',
+        lowCarFriendly: false,
+        policeRisk: 'Not reviewed',
+        traffic: 'Not reviewed',
+        lighting: 'Not reviewed',
+        crowd: 'Not reviewed',
+        addedBy: currentUser.username,
+        addedByUid: firebaseUser.uid,
+        status: initialStatus,
+        visibility: sharingGroups.isEmpty ? 'public' : 'group',
+        sharedGroupIds: sharingGroups.map((group) => group.id).toList(),
+        sharedGroups: sharingGroups
+            .map(
+              (group) => <String, dynamic>{
+                'id': group.id,
+                'name': group.name,
+                'avatarUrl': group.avatarUrl.isNotEmpty
+                    ? group.avatarUrl
+                    : group.photoUrl,
+              },
+            )
+            .toList(),
+        isTemporary: isTemporarySpot,
+        startsAtMillis: isTemporarySpot
+            ? temporaryStartsAt!.millisecondsSinceEpoch
+            : null,
+        expiresAtMillis: isTemporarySpot
+            ? temporaryExpiresAt!.millisecondsSinceEpoch
+            : null,
+        showOnMapAtMillis: isTemporarySpot && temporaryShowOnMapAtEnabled
+            ? temporaryShowOnMapAt!.millisecondsSinceEpoch
+            : null,
+        verifiedOnly: sharingGroups.isEmpty && verifiedOnlySpot,
+      );
+
       final uploadedPhotoUrls = <String>[];
 
       for (var index = 0; index < selectedPhotoPaths.length; index++) {
@@ -33287,15 +36208,58 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
         photoUrl: uploadedPhotoUrls.isEmpty ? '' : uploadedPhotoUrls.first,
         photoUrls: uploadedPhotoUrls,
       );
-      await spotRef.debugSet(
-        spotToFirestoreData(newSpot, includeCreatedAt: true),
-      );
+      if (!mounted ||
+          FirebaseAuth.instance.currentUser?.uid != firebaseUser.uid) {
+        return;
+      }
+      final batch = FirebaseFirestore.instance.batch();
+      batch.set(spotRef, spotToFirestoreData(newSpot, includeCreatedAt: true));
+      for (final group in sharingGroups) {
+        batch.set(
+          FirebaseFirestore.instance
+              .collection('chats')
+              .doc(group.id)
+              .collection('spot_links')
+              .doc(spotRef.id),
+          {
+            'spotId': spotRef.id,
+            'authorUid': firebaseUser.uid,
+            'published': newSpot.status == SpotStatus.approved,
+          },
+        );
+      }
+      if (newSpot.isGroupSpot) {
+        batch.set(
+          FirebaseFirestore.instance
+              .collection('forum_topics')
+              .doc(temporarySpotForumTopicId(newSpot.id)),
+          temporarySpotForumTopicData(
+            spot: newSpot,
+            authorId: firebaseUser.uid,
+            authorName: newSpot.addedBy,
+            authorCountry: currentUser.country,
+            authorCountryCode: currentUserHomeCountryCode(),
+            authorRole: currentUser.role,
+            authorVerified: currentUser.verified,
+            authorGlobalModerator: false,
+            status: spotStatusName(newSpot.status),
+            reviewedBy: newSpot.status == SpotStatus.approved
+                ? firebaseUser.uid
+                : null,
+            reviewedAt: newSpot.status == SpotStatus.approved
+                ? FieldValue.serverTimestamp()
+                : null,
+          ),
+        );
+      }
+      await batch.commit();
+      committed = true;
       // The write is already confirmed. Do not wait for a second network
       // request (or notification fan-out) to show the creator their spot.
       if (FirebaseAuth.instance.currentUser?.uid != firebaseUser.uid) return;
       upsertSpotIntoLocalImmediateCache(newSpot);
 
-      if (newSpot.isTemporary) {
+      if (newSpot.isTemporary && !newSpot.isGroupSpot) {
         unawaited(createTemporarySpotForumTopic(newSpot));
       }
 
@@ -33354,16 +36318,22 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
           ),
         ),
       );
-    } on FirebaseException catch (error) {
+    } catch (error, stack) {
+      debugPrint('Spot submission (committed=$committed): $error\n$stack');
       if (!mounted) {
         return;
       }
 
+      if (committed) resetSpotFormAfterSubmit();
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          backgroundColor: Colors.redAccent,
+          backgroundColor: committed ? blue : Colors.redAccent,
           content: Text(
-            '${trText('Firebase did not save the spot/photo')}: ${error.code}',
+            trText(
+              committed
+                  ? 'Spot saved successfully, but some notifications could not be sent.'
+                  : 'Could not save the spot or photos. Check your connection and try again.',
+            ),
             style: const TextStyle(
               color: Colors.white,
               fontWeight: FontWeight.w700,
@@ -33505,6 +36475,9 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
               _AddSpotSection(
                 title: 'Temporary schedule',
                 children: [
+                  if (isTemporarySpot &&
+                      (groupVisibility || memberSpotGroups.value.isNotEmpty))
+                    temporaryAudiencePicker(),
                   _TemporarySpotScheduleCard(
                     enabled: isTemporarySpot,
                     startsAt: temporaryStartsAt,
@@ -33524,6 +36497,8 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
                           );
                         }
                         if (!value) {
+                          groupVisibility = false;
+                          selectedGroupIds.clear();
                           temporaryShowOnMapAtEnabled = false;
                           temporaryShowOnMapAt = null;
                         }
@@ -33806,75 +36781,78 @@ class _TemporarySpotScheduleCard extends StatelessWidget {
           color: enabled ? blue.withValues(alpha: 0.7) : Colors.white12,
         ),
       ),
-      child: Column(
-        children: [
-          SwitchListTile(
-            value: enabled,
-            onChanged: onEnabledChanged,
-            activeThumbColor: blue,
-            dense: true,
-            visualDensity: VisualDensity.compact,
-            contentPadding: EdgeInsets.zero,
-            secondary: const Icon(Icons.timer, color: blue),
-            title: Text(
-              trText('Temporary spot'),
-              style: const TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.w900,
-              ),
-            ),
-            subtitle: Text(
-              trText('For meets and events. Max active time is 12 hours.'),
-              style: const TextStyle(color: Colors.white54, fontSize: 12),
-            ),
-          ),
-          if (enabled) ...[
-            const SizedBox(height: 8),
-            timeButton(
-              label: 'Starts at',
-              value: startsAt,
-              icon: Icons.play_arrow,
-              onTap: onPickStart,
-            ),
-            const SizedBox(height: 8),
-            timeButton(
-              label: 'Ends at',
-              value: expiresAt,
-              icon: Icons.stop,
-              onTap: onPickEnd,
-            ),
-            const SizedBox(height: 8),
+      child: Material(
+        type: MaterialType.transparency,
+        child: Column(
+          children: [
             SwitchListTile(
-              value: showOnMapAtEnabled,
-              onChanged: enabled ? onShowOnMapAtEnabledChanged : null,
+              value: enabled,
+              onChanged: onEnabledChanged,
               activeThumbColor: blue,
               dense: true,
               visualDensity: VisualDensity.compact,
               contentPadding: EdgeInsets.zero,
-              secondary: const Icon(Icons.visibility_outlined, color: blue),
+              secondary: const Icon(Icons.timer, color: blue),
               title: Text(
-                trText('Show on map at'),
+                trText('Temporary spot'),
                 style: const TextStyle(
                   color: Colors.white,
                   fontWeight: FontWeight.w900,
                 ),
               ),
               subtitle: Text(
-                trText('Optional delayed map reveal.'),
+                trText('For meets and events. Max active time is 12 hours.'),
                 style: const TextStyle(color: Colors.white54, fontSize: 12),
               ),
             ),
-            if (showOnMapAtEnabled) ...[
+            if (enabled) ...[
               const SizedBox(height: 8),
               timeButton(
-                label: 'Location visible from',
-                value: showOnMapAt,
-                icon: Icons.map_outlined,
-                onTap: onPickShowOnMapAt,
+                label: 'Starts at',
+                value: startsAt,
+                icon: Icons.play_arrow,
+                onTap: onPickStart,
               ),
+              const SizedBox(height: 8),
+              timeButton(
+                label: 'Ends at',
+                value: expiresAt,
+                icon: Icons.stop,
+                onTap: onPickEnd,
+              ),
+              const SizedBox(height: 8),
+              SwitchListTile(
+                value: showOnMapAtEnabled,
+                onChanged: enabled ? onShowOnMapAtEnabledChanged : null,
+                activeThumbColor: blue,
+                dense: true,
+                visualDensity: VisualDensity.compact,
+                contentPadding: EdgeInsets.zero,
+                secondary: const Icon(Icons.visibility_outlined, color: blue),
+                title: Text(
+                  trText('Show on map at'),
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                subtitle: Text(
+                  trText('Optional delayed map reveal.'),
+                  style: const TextStyle(color: Colors.white54, fontSize: 12),
+                ),
+              ),
+              if (showOnMapAtEnabled) ...[
+                const SizedBox(height: 8),
+                timeButton(
+                  label: 'Location visible from',
+                  value: showOnMapAt,
+                  icon: Icons.map_outlined,
+                  onTap: onPickShowOnMapAt,
+                ),
+              ],
             ],
           ],
-        ],
+        ),
       ),
     );
   }
@@ -33883,7 +36861,13 @@ class _TemporarySpotScheduleCard extends StatelessWidget {
 class LocationPickerScreen extends StatefulWidget {
   final LatLng? initialLocation;
 
-  const LocationPickerScreen({super.key, this.initialLocation});
+  final bool restrictSpotRegions;
+
+  const LocationPickerScreen({
+    super.key,
+    this.initialLocation,
+    this.restrictSpotRegions = false,
+  });
 
   @override
   State<LocationPickerScreen> createState() => _LocationPickerScreenState();
@@ -33896,12 +36880,60 @@ class _LocationPickerScreenState extends State<LocationPickerScreen>
 
   final mapController = MapController();
   LatLng? pickedLocation;
+  SpotLocationRegion? pickedRegion;
+  bool checkingRegion = false;
+  int lookupRevision = 0;
+  List<SpotCountryOutline> outlines = const [];
+
+  void regionsChanged() {
+    if (mounted) setState(() {});
+  }
+
+  Future<void> selectPin(LatLng point) async {
+    final revision = ++lookupRevision;
+    setState(() {
+      pickedLocation = point;
+      pickedRegion = null;
+      checkingRegion = widget.restrictSpotRegions;
+    });
+    if (!widget.restrictSpotRegions) return;
+    final region = await lookupSpotLocationRegion(point);
+    if (!mounted || revision != lookupRevision) return;
+    setState(() {
+      pickedRegion = region;
+      checkingRegion = false;
+    });
+    if (!region.allowed) {
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: Colors.redAccent,
+          content: Text(trText(region.warning)),
+        ),
+      );
+    }
+  }
+
+  Future<void> loadOutlines() async {
+    try {
+      final loaded = await loadSpotCountryOutlines();
+      if (mounted) setState(() => outlines = loaded);
+    } catch (_) {
+      /* Pin verification still works if the visual asset fails. */
+    }
+  }
+
   CcsMapStyle mapStyle = CcsMapStyle.dark;
 
   @override
   void initState() {
     super.initState();
     pickedLocation = widget.initialLocation;
+    maintenanceModeConfig.addListener(regionsChanged);
+    if (widget.restrictSpotRegions) {
+      unawaited(loadOutlines());
+      if (pickedLocation != null) unawaited(selectPin(pickedLocation!));
+    }
     unawaited(loadMapStylePreference());
   }
 
@@ -33925,6 +36957,7 @@ class _LocationPickerScreenState extends State<LocationPickerScreen>
 
   @override
   void dispose() {
+    maintenanceModeConfig.removeListener(regionsChanged);
     mapController.dispose();
     super.dispose();
   }
@@ -33941,14 +36974,25 @@ class _LocationPickerScreenState extends State<LocationPickerScreen>
         point: location,
         width: 64,
         height: 64,
-        child: const Icon(Icons.location_on, color: blue, size: 56),
+        child: Icon(
+          Icons.location_on,
+          color: checkingRegion
+              ? Colors.orangeAccent
+              : (widget.restrictSpotRegions && pickedRegion?.allowed != true)
+              ? Colors.redAccent
+              : blue,
+          size: 56,
+        ),
       ),
     ];
   }
 
   @override
   Widget build(BuildContext context) {
-    final hasLocation = pickedLocation != null;
+    final hasLocation =
+        pickedLocation != null &&
+        (!widget.restrictSpotRegions ||
+            (!checkingRegion && pickedRegion?.allowed == true));
 
     return Scaffold(
       backgroundColor: Colors.transparent,
@@ -33968,10 +37012,33 @@ class _LocationPickerScreenState extends State<LocationPickerScreen>
               maxZoom: 18,
               interactionOptions: ccsMapInteractionOptions,
               backgroundColor: mapStyle.backgroundColor,
-              onTap: (_, point) => setState(() => pickedLocation = point),
+              onTap: (_, point) => unawaited(selectPin(point)),
             ),
             children: [
               _CcsSmoothMapTileLayer(mapStyle: mapStyle),
+              if (widget.restrictSpotRegions)
+                IgnorePointer(
+                  child: PolygonLayer(
+                    polygons: [
+                      for (final outline in outlines)
+                        if (!spotCountryIsSupported(outline.code))
+                          Polygon(
+                            points: outline.rings.first,
+                            holePointsList: outline.rings.skip(1).toList(),
+                            color: Colors.red.withValues(alpha: 0.16),
+                            borderColor: Colors.redAccent.withValues(
+                              alpha: 0.6,
+                            ),
+                            borderStrokeWidth: 1,
+                            label: '×',
+                            labelStyle: const TextStyle(
+                              color: Colors.redAccent,
+                              fontSize: 32,
+                            ),
+                          ),
+                    ],
+                  ),
+                ),
               MarkerLayer(markers: markers),
             ],
           ),
@@ -33993,7 +37060,9 @@ class _LocationPickerScreenState extends State<LocationPickerScreen>
                   Expanded(
                     child: Text(
                       trText(
-                        'Tap the map where this car spot should be placed.',
+                        widget.restrictSpotRegions
+                            ? 'Tap to place a pin. Red regions are unsupported. Borders are approximate.'
+                            : 'Tap the map where this car spot should be placed.',
                       ),
                       style: const TextStyle(
                         color: Colors.white,
@@ -34038,7 +37107,11 @@ class _LocationPickerScreenState extends State<LocationPickerScreen>
                       Expanded(
                         child: Text(
                           trText(
-                            hasLocation
+                            checkingRegion
+                                ? 'Checking region...'
+                                : pickedRegion != null && !pickedRegion!.allowed
+                                ? pickedRegion!.warning
+                                : hasLocation
                                 ? 'Location selected'
                                 : 'No location selected yet',
                           ),
@@ -34463,6 +37536,7 @@ class _CcsTextField extends StatelessWidget {
   final int maxLines;
   final TextInputType keyboardType;
   final bool readOnly;
+  final bool autoGrow;
 
   const _CcsTextField({
     required this.controller,
@@ -34472,16 +37546,19 @@ class _CcsTextField extends StatelessWidget {
     this.maxLines = 1,
     this.keyboardType = TextInputType.text,
     this.readOnly = false,
+    this.autoGrow = false,
   });
 
   @override
   Widget build(BuildContext context) {
+    final multiline = autoGrow || maxLines > 1;
+
     return TextField(
       controller: controller,
-      minLines: maxLines > 1 ? 2 : 1,
-      maxLines: maxLines,
-      keyboardType: maxLines > 1 ? TextInputType.multiline : keyboardType,
-      textInputAction: maxLines > 1
+      minLines: multiline ? 2 : 1,
+      maxLines: autoGrow ? null : maxLines,
+      keyboardType: multiline ? TextInputType.multiline : keyboardType,
+      textInputAction: multiline
           ? TextInputAction.newline
           : TextInputAction.done,
       readOnly: readOnly,
@@ -35889,27 +38966,23 @@ class _ChatScreenState extends State<ChatScreen>
                       ),
                     ),
                     Expanded(
-                      child: snapshot.connectionState == ConnectionState.waiting
-                          ? const Center(
-                              child: CircularProgressIndicator(color: blue),
-                            )
-                          : TabBarView(
-                              controller: tabController,
-                              children: [
-                                ChatsTab(
-                                  chats: directChats,
-                                  currentUid: firebaseUser.uid,
-                                  unreadCountsByChatId: unreadCountsByChatId,
-                                ),
-                                GroupsTab(
-                                  chats: groupChats,
-                                  currentUid: firebaseUser.uid,
-                                  unreadCountsByChatId: unreadCountsByChatId,
-                                ),
-                                GlobalChatTab(isActive: activeTabIndex == 2),
-                                const ForumTab(),
-                              ],
-                            ),
+                      child: TabBarView(
+                        controller: tabController,
+                        children: [
+                          ChatsTab(
+                            chats: directChats,
+                            currentUid: firebaseUser.uid,
+                            unreadCountsByChatId: unreadCountsByChatId,
+                          ),
+                          GroupsTab(
+                            chats: groupChats,
+                            currentUid: firebaseUser.uid,
+                            unreadCountsByChatId: unreadCountsByChatId,
+                          ),
+                          GlobalChatTab(isActive: activeTabIndex == 2),
+                          const ForumTab(),
+                        ],
+                      ),
                     ),
                   ],
                 ),
@@ -36020,6 +39093,950 @@ class _ChatsTabState extends State<ChatsTab>
   }
 }
 
+Future<Map<String, dynamic>> privateGroupAction(
+  Map<String, Object?> body,
+) async {
+  final token = await FirebaseAuth.instance.currentUser?.getIdToken();
+  if (token == null) throw StateError('Sign in first.');
+  return postJsonToUrl(
+    'https://ccs-telegram-auth-server.vercel.app/api/private-groups',
+    body,
+    headers: {HttpHeaders.authorizationHeader: 'Bearer $token'},
+  ).timeout(const Duration(seconds: 30));
+}
+
+// Directory metadata only: never cache messages or use cached membership to
+// authorize a write. The API and Firestore still validate every action.
+class GroupDirectoryCache {
+  static final Map<String, Map<String, dynamic>> _memory = {};
+  static const maxAge = Duration(days: 7);
+
+  static String key(String uid, String country, String access) =>
+      'group_directory_v1_${Uri.encodeComponent(uid)}_${country}_${Uri.encodeComponent(access)}';
+
+  static Map<String, dynamic>? peek(String key) => _memory[key];
+
+  static Future<Map<String, dynamic>?> read(String key) async {
+    if (_memory.containsKey(key)) return _memory[key];
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(key);
+      if (raw == null) return null;
+      final stored = jsonDecode(raw) as Map<String, dynamic>;
+      final age =
+          DateTime.now().millisecondsSinceEpoch -
+          (stored['savedAt'] as num).toInt();
+      if (age < 0 || age > maxAge.inMilliseconds) return null;
+      final data = stored['data'] as Map<String, dynamic>;
+      if (data['groups'] is! List || data['visibleGroupIds'] is! List) {
+        return null;
+      }
+      // A network response may already have arrived while storage was loading.
+      return _memory.putIfAbsent(key, () => data);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static Future<void> write(String key, Map<String, dynamic> data) async {
+    _memory[key] = data;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(
+        key,
+        jsonEncode({
+          'savedAt': DateTime.now().millisecondsSinceEpoch,
+          'data': data,
+        }),
+      );
+    } catch (_) {
+      // A full disk must not turn a successful directory refresh into an error.
+    }
+  }
+}
+
+class PrivateGroupDirectory extends StatefulWidget {
+  final Future<Map<String, dynamic>> Function(Map<String, Object?>)?
+  requestAction;
+  final String membershipRevision;
+  final List<ChatThreadData> chats;
+  final String currentUid;
+  final Map<String, int> unreadCountsByChatId;
+  const PrivateGroupDirectory({
+    super.key,
+    this.requestAction,
+    required this.membershipRevision,
+    required this.chats,
+    required this.currentUid,
+    required this.unreadCountsByChatId,
+  });
+  @override
+  State<PrivateGroupDirectory> createState() => _PrivateGroupDirectoryState();
+}
+
+class _PrivateGroupDirectoryState extends State<PrivateGroupDirectory>
+    with LanguageReactiveState {
+  late Future<Map<String, dynamic>> directory;
+  final Set<String> busy = {};
+  String? adminCountry;
+  late String profileCountry;
+  late bool adminAccess;
+  String get selectedCountry =>
+      adminAccess ? adminCountry ?? profileCountry : profileCountry;
+  Map<String, dynamic>? displayedDirectory;
+  String? displayedCacheKey;
+  int loadGeneration = 0;
+  String get accessScope => [
+    currentUser.role.name,
+    currentUser.globalChatModerator.toString(),
+  ].join(':');
+  late String lastAccessScope;
+  Future<Map<String, dynamic>> loadDirectory() async {
+    final generation = ++loadGeneration;
+    final country = selectedCountry;
+    final key = GroupDirectoryCache.key(
+      widget.currentUid,
+      country,
+      accessScope,
+    );
+    if (displayedCacheKey != key) {
+      displayedCacheKey = key;
+      displayedDirectory = GroupDirectoryCache.peek(key);
+    }
+    var networkFinished = false;
+    unawaited(
+      GroupDirectoryCache.read(key).then((saved) {
+        if (!mounted ||
+            generation != loadGeneration ||
+            networkFinished ||
+            saved == null) {
+          return;
+        }
+        if (saved['countryCode'] != country) return;
+        setState(() {
+          displayedDirectory = saved;
+        });
+      }),
+    );
+    final data = await (widget.requestAction ?? privateGroupAction)({
+      'action': 'directory',
+      if (adminAccess) 'countryCode': country,
+    });
+    networkFinished = true;
+    if (mounted &&
+        generation == loadGeneration &&
+        data['countryCode'] == country) {
+      displayedDirectory = data;
+      unawaited(GroupDirectoryCache.write(key, data));
+    }
+    return data;
+  }
+
+  void profileChanged() {
+    final nextCountry = currentUserHomeCountryCode();
+    final nextAdmin = currentUser.role == UserRole.admin;
+    if (nextCountry == profileCountry &&
+        nextAdmin == adminAccess &&
+        lastAccessScope == accessScope) {
+      return;
+    }
+    lastAccessScope = accessScope;
+    profileCountry = nextCountry;
+    adminAccess = nextAdmin;
+    adminCountry = null;
+    refresh();
+  }
+
+  @override
+  void dispose() {
+    currentUserProfileRevision.removeListener(profileChanged);
+    super.dispose();
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    lastAccessScope = accessScope;
+    profileCountry = currentUserHomeCountryCode();
+    adminAccess = currentUser.role == UserRole.admin;
+    currentUserProfileRevision.addListener(profileChanged);
+    directory = loadDirectory();
+  }
+
+  @override
+  void didUpdateWidget(covariant PrivateGroupDirectory oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.membershipRevision != widget.membershipRevision ||
+        oldWidget.currentUid != widget.currentUid) {
+      refresh();
+    }
+  }
+
+  void refresh() => setState(() {
+    directory = loadDirectory();
+  });
+
+  Future<void> openGroup(Map<String, dynamic> group) async {
+    final id = group['id'] as String;
+    if (!busy.add(id)) return;
+    setState(() {});
+    try {
+      if (group['isMember'] == true || group['canMonitor'] == true) {
+        final doc = await chatsCollection()
+            .doc(id)
+            .get(const GetOptions(source: Source.server));
+        if (!doc.exists) throw StateError('Group no longer exists.');
+        if (!mounted) return;
+        await Navigator.push(
+          context,
+          appPageRoute(
+            builder: (_) => ChatConversationScreen(
+              chat: ChatThreadData.fromFirestore(doc),
+              readOnly: group['isMember'] != true,
+            ),
+          ),
+        );
+      } else if ((group['requestStatus'] ?? '') == '') {
+        final confirmed = await showDialog<bool>(
+          context: context,
+          builder: (dialogContext) => AlertDialog(
+            backgroundColor: panel,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(22),
+            ),
+            icon: const Icon(Icons.group_add_outlined, color: blue),
+            title: Text(trText('Request to join?')),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  stringFromFirebase(group['name'], 'Group chat'),
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  trText(
+                    'The group owner will receive your request. You can only request to join this group once.',
+                  ),
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext, false),
+                child: Text(trText('Cancel')),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(dialogContext, true),
+                child: Text(trText('Request to join')),
+              ),
+            ],
+          ),
+        );
+        if (!mounted || confirmed != true) return;
+        final result = await privateGroupAction({
+          'action': 'request',
+          'chatId': id,
+        });
+        // Persist locally too, so a failed refresh never re-enables the request.
+        group['requestStatus'] = result['status'];
+        await sendPushNotificationEvent({
+          'type': 'group_join_request',
+          'chatId': id,
+        });
+      }
+      if (mounted) refresh();
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(trText('Could not open group. Please retry.')),
+          ),
+        );
+      }
+    } finally {
+      busy.remove(id);
+      if (mounted) setState(() {});
+    }
+  }
+
+  Widget groupCard(Map<String, dynamic> group, String label) {
+    final id = group['id'] as String;
+    final member = group['isMember'] == true;
+    final monitor = !member && group['canMonitor'] == true;
+    final status = group['requestStatus'] ?? '';
+    final isBusy = busy.contains(id);
+    final canOpen = member || monitor;
+    final canRequest = !canOpen && status == '';
+    final photoUrl = stringFromFirebase(group['photoUrl'], '').trim();
+    final description = stringFromFirebase(group['description'], '').trim();
+    final statusColor = status == 'rejected' ? Colors.white54 : blue;
+    final fallback = const UserAvatarFallback(
+      size: 58,
+      icon: Icons.groups_rounded,
+    );
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Material(
+        color: panelGlass,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(20),
+          side: BorderSide(color: Colors.white.withValues(alpha: 0.09)),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              InkWell(
+                onTap: canOpen && !isBusy ? () => openGroup(group) : null,
+                borderRadius: BorderRadius.circular(12),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    SizedBox(
+                      width: 58,
+                      height: 58,
+                      child: ClipOval(
+                        child: isNetworkUrl(photoUrl)
+                            ? Image.network(
+                                photoUrl,
+                                fit: BoxFit.cover,
+                                errorBuilder: (_, _, _) => fallback,
+                                loadingBuilder: (context, child, progress) =>
+                                    progress == null ? child : fallback,
+                              )
+                            : fallback,
+                      ),
+                    ),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              const Icon(
+                                Icons.lock_outline_rounded,
+                                size: 12,
+                                color: Colors.white54,
+                              ),
+                              const SizedBox(width: 5),
+                              Flexible(
+                                child: Text(
+                                  trText('Private group'),
+                                  style: const TextStyle(
+                                    color: Colors.white54,
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 5),
+                          Text(
+                            stringFromFirebase(group['name'], 'Group chat'),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 17,
+                              fontWeight: FontWeight.w800,
+                              height: 1.2,
+                            ),
+                          ),
+                          if (description.isNotEmpty) ...[
+                            const SizedBox(height: 6),
+                            Text(
+                              description,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: Colors.white60,
+                                fontSize: 12,
+                                height: 1.4,
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 14),
+              Divider(height: 1, color: Colors.white.withValues(alpha: 0.07)),
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 10,
+                runSpacing: 8,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [
+                  if (canOpen || canRequest)
+                    FilledButton.icon(
+                      onPressed: isBusy ? null : () => openGroup(group),
+                      style: FilledButton.styleFrom(
+                        backgroundColor: canRequest
+                            ? blue
+                            : blue.withValues(alpha: 0.12),
+                        foregroundColor: canRequest ? Colors.white : blue,
+                        minimumSize: Size(0, canRequest ? 32 : 40),
+                        tapTargetSize: MaterialTapTargetSize.padded,
+                        padding: EdgeInsets.symmetric(
+                          horizontal: canRequest ? 10 : 14,
+                          vertical: canRequest ? 6 : 10,
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(11),
+                        ),
+                        textStyle: TextStyle(
+                          fontSize: canRequest ? 11 : 12,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      icon: isBusy
+                          ? const SizedBox(
+                              width: 15,
+                              height: 15,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : Icon(
+                              monitor
+                                  ? Icons.visibility_outlined
+                                  : member
+                                  ? Icons.arrow_forward_rounded
+                                  : Icons.person_add_alt_1_rounded,
+                              size: canRequest ? 14 : 16,
+                            ),
+                      label: Text(trText(label)),
+                    )
+                  else
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 10),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            status == 'pending'
+                                ? Icons.schedule_rounded
+                                : Icons.lock_outline_rounded,
+                            size: 15,
+                            color: statusColor,
+                          ),
+                          const SizedBox(width: 7),
+                          Flexible(
+                            child: Text(
+                              trText(label),
+                              style: TextStyle(
+                                color: statusColor,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  if (group['isOwner'] == true)
+                    TextButton.icon(
+                      onPressed: isBusy
+                          ? null
+                          : () async {
+                              await Navigator.push(
+                                context,
+                                appPageRoute(
+                                  builder: (_) =>
+                                      GroupJoinRequestsScreen(chatId: id),
+                                ),
+                              );
+                              if (mounted) refresh();
+                            },
+                      style: TextButton.styleFrom(
+                        foregroundColor: Colors.white70,
+                        textStyle: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      icon: const Icon(
+                        Icons.person_add_alt_1_outlined,
+                        size: 16,
+                      ),
+                      label: Text(trText('Join requests')),
+                    ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      if (adminAccess)
+        Align(
+          alignment: Alignment.centerRight,
+          child: SizedBox(
+            width: 180,
+            child: DropdownButton<String>(
+              isExpanded: true,
+              value: _countryNamesByIso.containsKey(selectedCountry)
+                  ? selectedCountry
+                  : null,
+              hint: Text(trText('Select country')),
+              dropdownColor: panel,
+              underline: const SizedBox.shrink(),
+              icon: const Icon(Icons.keyboard_arrow_down, color: blue),
+              items: [
+                for (final code in _countryNamesByIso.keys)
+                  DropdownMenuItem(
+                    value: code,
+                    child: Text(
+                      localizedCountryName(code),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+              ],
+              onChanged: (code) {
+                if (code == null || code == selectedCountry) return;
+                adminCountry = code;
+                refresh();
+              },
+            ),
+          ),
+        ),
+      Row(
+        children: [
+          Expanded(
+            child: Text(
+              trText('Groups'),
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 20,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+          ),
+          IconButton(
+            onPressed: refresh,
+            tooltip: trText('Refresh'),
+            icon: const Icon(Icons.refresh, color: blue),
+          ),
+        ],
+      ),
+      FutureBuilder<Map<String, dynamic>>(
+        future: directory,
+        builder: (context, snapshot) {
+          if (displayedDirectory == null &&
+              snapshot.connectionState != ConnectionState.done) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          if (displayedDirectory == null && snapshot.hasError) {
+            return TextButton(
+              onPressed: refresh,
+              child: Text(
+                trText('Could not load private groups. Tap to retry.'),
+              ),
+            );
+          }
+          final groups = (displayedDirectory?['groups'] as List? ?? [])
+              .cast<Map<String, dynamic>>();
+          final visibleIds = stringListFromFirebase(
+            displayedDirectory?['visibleGroupIds'],
+            const [],
+          );
+          final publicChats = widget.chats
+              .where((chat) => !chat.isPrivate && visibleIds.contains(chat.id))
+              .toList();
+          if (groups.isEmpty && publicChats.isEmpty) {
+            return Text(
+              trText('No groups yet.'),
+              style: const TextStyle(color: Colors.white54),
+            );
+          }
+          return Column(
+            children: [
+              if (snapshot.hasError)
+                TextButton.icon(
+                  onPressed: refresh,
+                  icon: const Icon(Icons.refresh, size: 16),
+                  label: Text(trText('Showing saved groups. Tap to retry.')),
+                ),
+              if (publicChats.isNotEmpty) ...[
+                for (final chat in publicChats)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 10),
+                    child: ChatThreadTile(
+                      chat: chat,
+                      currentUid: widget.currentUid,
+                      unreadCount: widget.unreadCountsByChatId[chat.id] ?? 0,
+                    ),
+                  ),
+              ],
+              for (final group in groups)
+                Builder(
+                  builder: (context) {
+                    final member = group['isMember'] == true;
+                    final monitor = !member && group['canMonitor'] == true;
+                    final status = group['requestStatus'] ?? '';
+                    final label = member
+                        ? 'Open group'
+                        : monitor
+                        ? 'Monitor (read only)'
+                        : switch (status) {
+                            'pending' => 'Request pending',
+                            'rejected' => 'Request rejected',
+                            'accepted' => 'Request already used',
+                            _ => 'Request to join',
+                          };
+                    return groupCard(group, label);
+                  },
+                ),
+            ],
+          );
+        },
+      ),
+    ],
+  );
+}
+
+class GroupJoinRequestsScreen extends StatefulWidget {
+  final String chatId;
+  final Future<Map<String, dynamic>> Function(Map<String, Object?>)?
+  requestAction;
+  final Future<FriendUserData?> Function(String)? applicantLoader;
+  const GroupJoinRequestsScreen({
+    super.key,
+    required this.chatId,
+    this.requestAction,
+    this.applicantLoader,
+  });
+  @override
+  State<GroupJoinRequestsScreen> createState() =>
+      _GroupJoinRequestsScreenState();
+}
+
+class _GroupJoinRequestsScreenState extends State<GroupJoinRequestsScreen>
+    with LanguageReactiveState {
+  late Future<Map<String, dynamic>> requests;
+  final Map<String, Future<FriendUserData?>> profiles = {};
+  String? busyUid;
+  bool get busy => busyUid != null;
+
+  Future<Map<String, dynamic>> action(Map<String, Object?> body) =>
+      (widget.requestAction ?? privateGroupAction)(body);
+
+  @override
+  void initState() {
+    super.initState();
+    requests = load();
+  }
+
+  Future<Map<String, dynamic>> load() =>
+      action({'action': 'requests', 'chatId': widget.chatId});
+
+  void refresh() {
+    final nextRequests = load();
+    setState(() {
+      requests = nextRequests;
+    });
+  }
+
+  Future<FriendUserData?> loadProfile(String uid) => profiles.putIfAbsent(
+    uid,
+    () => widget.applicantLoader != null
+        ? widget.applicantLoader!(uid)
+        : usersCollection().doc(uid).get().then(friendUserFromSnapshot),
+  );
+
+  Future<void> decide(String uid, String decision) async {
+    if (busy) return;
+    setState(() {
+      busyUid = uid;
+    });
+    try {
+      await action({
+        'action': 'decide',
+        'chatId': widget.chatId,
+        'requesterUid': uid,
+        'decision': decision,
+      });
+      if (!mounted) return;
+      refresh();
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(trText('Could not submit decision. Please retry.')),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          busyUid = null;
+        });
+      }
+    }
+  }
+
+  Widget requestCard(Map<String, dynamic> item) {
+    final uid = item['uid'] as String;
+    return FutureBuilder<FriendUserData?>(
+      future: loadProfile(uid),
+      builder: (context, snapshot) {
+        final user = snapshot.data;
+        final username =
+            user?.username ?? stringFromFirebase(item['username'], 'driver');
+        final name = user?.name.trim() ?? '';
+        return Container(
+          margin: const EdgeInsets.only(bottom: 14),
+          padding: const EdgeInsets.all(18),
+          decoration: BoxDecoration(
+            color: panelGlass,
+            borderRadius: BorderRadius.circular(22),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.09)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  user == null
+                      ? const UserAvatarFallback(
+                          size: 62,
+                          icon: Icons.person_outline_rounded,
+                        )
+                      : UserAvatarCircle(user: user, size: 62),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          name.isEmpty ? displayUsername(username) : name,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 18,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        if (name.isNotEmpty) ...[
+                          const SizedBox(height: 4),
+                          Text(
+                            displayUsername(username),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: Colors.white60,
+                              fontSize: 13,
+                            ),
+                          ),
+                        ],
+                        if (user?.verified == true) ...[
+                          const SizedBox(height: 6),
+                          Row(
+                            children: [
+                              const Icon(
+                                Icons.verified_rounded,
+                                color: blue,
+                                size: 14,
+                              ),
+                              const SizedBox(width: 4),
+                              Text(
+                                trText('Verified'),
+                                style: const TextStyle(
+                                  color: blue,
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Text(
+                trText('Wants to join your group'),
+                style: const TextStyle(color: Colors.white54, fontSize: 12),
+              ),
+              TextButton.icon(
+                onPressed: () => openUserProfile(
+                  context,
+                  uid: uid,
+                  fallbackUsername: username,
+                ),
+                icon: const Icon(Icons.account_circle_outlined, size: 17),
+                label: Text(trText('View profile')),
+                style: TextButton.styleFrom(
+                  foregroundColor: blue,
+                  padding: EdgeInsets.zero,
+                ),
+              ),
+              if (snapshot.hasError)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: Text(
+                    trText(
+                      'Profile preview unavailable. Open the profile to retry.',
+                    ),
+                    style: const TextStyle(color: Colors.white54, fontSize: 12),
+                  ),
+                ),
+              Divider(height: 20, color: Colors.white.withValues(alpha: 0.08)),
+              if (busyUid == uid) ...[
+                const LinearProgressIndicator(minHeight: 2),
+                const SizedBox(height: 12),
+              ],
+              Row(
+                children: [
+                  Expanded(
+                    child: FilledButton.icon(
+                      onPressed: busy ? null : () => decide(uid, 'accepted'),
+                      style: FilledButton.styleFrom(
+                        backgroundColor: const Color(0xFF218654),
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 13),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      icon: const Icon(Icons.check_rounded, size: 18),
+                      label: Text(trText('Accept')),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: FilledButton.icon(
+                      onPressed: busy ? null : () => decide(uid, 'rejected'),
+                      style: FilledButton.styleFrom(
+                        backgroundColor: const Color(0xFFBA3945),
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 13),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      icon: const Icon(Icons.close_rounded, size: 18),
+                      label: Text(trText('Reject')),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    backgroundColor: panel,
+    appBar: AppBar(
+      backgroundColor: Colors.transparent,
+      title: Text(trText('Join requests')),
+      actions: [
+        IconButton(
+          onPressed: busy ? null : refresh,
+          tooltip: trText('Refresh'),
+          icon: const Icon(Icons.refresh),
+        ),
+      ],
+    ),
+    body: FutureBuilder<Map<String, dynamic>>(
+      future: requests,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState != ConnectionState.done) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        if (snapshot.hasError) {
+          return Center(
+            child: TextButton.icon(
+              onPressed: refresh,
+              icon: const Icon(Icons.refresh),
+              label: Text(trText('Could not load requests. Tap to retry.')),
+            ),
+          );
+        }
+        final items = (snapshot.data?['requests'] as List? ?? [])
+            .cast<Map<String, dynamic>>();
+        if (items.isEmpty) {
+          return Center(
+            child: Padding(
+              padding: const EdgeInsets.all(28),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(22),
+                    decoration: BoxDecoration(
+                      color: blue.withValues(alpha: 0.1),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      Icons.task_alt_rounded,
+                      color: blue,
+                      size: 34,
+                    ),
+                  ),
+                  const SizedBox(height: 18),
+                  Text(
+                    trText('No pending requests.'),
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 18,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        }
+        return ListView(
+          padding: const EdgeInsets.fromLTRB(20, 12, 20, 32),
+          children: [
+            Padding(
+              padding: const EdgeInsets.only(bottom: 18),
+              child: Text(
+                trText(
+                  'Review each profile before granting access to your group.',
+                ),
+                style: const TextStyle(
+                  color: Colors.white60,
+                  fontSize: 13,
+                  height: 1.5,
+                ),
+              ),
+            ),
+            for (final item in items) requestCard(item),
+          ],
+        );
+      },
+    ),
+  );
+}
+
 class GroupsTab extends StatefulWidget {
   final List<ChatThreadData> chats;
   final String currentUid;
@@ -36040,78 +40057,22 @@ class _GroupsTabState extends State<GroupsTab>
     with AutomaticKeepAliveClientMixin, LanguageReactiveState {
   @override
   bool get wantKeepAlive => true;
-
-  Widget sectionTitle(String title, int count) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 10),
-      child: Row(
-        children: [
-          Text(
-            trText(title),
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 20,
-              fontWeight: FontWeight.w900,
-            ),
-          ),
-          const SizedBox(width: 8),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-            decoration: BoxDecoration(
-              color: blue.withValues(alpha: 0.16),
-              borderRadius: BorderRadius.circular(999),
-            ),
-            child: Text(
-              '$count',
-              style: const TextStyle(
-                color: blue,
-                fontSize: 12,
-                fontWeight: FontWeight.w900,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     super.build(context);
-
     return ListView(
       padding: const EdgeInsets.fromLTRB(20, 18, 20, 92),
       children: [
-        Container(
-          padding: const EdgeInsets.all(14),
-          decoration: BoxDecoration(
-            color: panel.withValues(alpha: 0.58),
-            borderRadius: BorderRadius.circular(22),
-            border: Border.all(color: Colors.white12),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              sectionTitle('Groups', widget.chats.length),
-              if (widget.chats.isEmpty)
-                Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 12),
-                  child: Text(
-                    trText('No groups yet.'),
-                    style: const TextStyle(color: Colors.white54, height: 1.35),
-                  ),
-                )
-              else
-                for (final chat in widget.chats) ...[
-                  ChatThreadTile(
-                    chat: chat,
-                    currentUid: widget.currentUid,
-                    unreadCount: widget.unreadCountsByChatId[chat.id] ?? 0,
-                  ),
-                  const SizedBox(height: 10),
-                ],
-            ],
-          ),
+        PrivateGroupDirectory(
+          membershipRevision: widget.chats
+              .map(
+                (chat) =>
+                    '${chat.id}:${chat.isPrivate}:${chat.memberIds.join(',')}',
+              )
+              .join('|'),
+          chats: widget.chats,
+          currentUid: widget.currentUid,
+          unreadCountsByChatId: widget.unreadCountsByChatId,
         ),
       ],
     );
@@ -36122,7 +40083,7 @@ const int globalChatMessagePageSize = 20;
 const Duration globalChatMessageSendCooldown = Duration(seconds: 30);
 Future<QuerySnapshot<Map<String, dynamic>>>?
 _legacyLatvianGlobalMessagesSnapshotFuture;
-Future<QuerySnapshot<Map<String, dynamic>>>?
+Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>>?
 _legacyLatvianForumTopicsSnapshotFuture;
 
 class GlobalChatTab extends StatefulWidget {
@@ -36156,7 +40117,6 @@ class _GlobalChatTabState extends State<GlobalChatTab>
   String? pendingPhotoAttachmentPath;
   QueryDocumentSnapshot<Map<String, dynamic>>? replyingToGlobalMessage;
   int? _lastGlobalChatMessageSentAtMillis;
-  bool hasGlobalChatModeratorAccess = false;
 
   @override
   bool get wantKeepAlive => true;
@@ -36226,8 +40186,10 @@ class _GlobalChatTabState extends State<GlobalChatTab>
         .limit(activeGlobalChatQueryPageSize);
   }
 
-  bool get canModerateGlobalChat =>
-      userRoleIsStaff(currentUser.role) || hasGlobalChatModeratorAccess;
+  bool get canModerateGlobalChat => currentUserCanModerateCountry(
+    selectedCommunityCountryCode,
+    community: true,
+  );
 
   Future<void> loadGlobalChatModeratorAccess() async {
     final firebaseUser = FirebaseAuth.instance.currentUser;
@@ -36235,9 +40197,9 @@ class _GlobalChatTabState extends State<GlobalChatTab>
       return;
     }
 
-    final hasAccess = await currentUserHasCommunityModerationAccess();
+    await currentUserHasCommunityModerationAccess();
     if (mounted) {
-      setState(() => hasGlobalChatModeratorAccess = hasAccess);
+      setState(() {});
     }
   }
 
@@ -36735,7 +40697,7 @@ class _GlobalChatTabState extends State<GlobalChatTab>
               fontWeight: FontWeight.w900,
             ),
           ),
-          content: TextField(
+          content: MentionTextField(
             controller: controller,
             autofocus: true,
             minLines: 2,
@@ -36813,6 +40775,13 @@ class _GlobalChatTabState extends State<GlobalChatTab>
             SetOptions(merge: true),
             'global chat: edit own message',
           );
+      unawaited(
+        sendPushNotificationEvent({
+          'type': 'global_chat_message',
+          'messageId': doc.id,
+          'mentionsOnly': true,
+        }),
+      );
     } catch (error) {
       if (!mounted) {
         return;
@@ -37014,6 +40983,8 @@ class _GlobalChatTabState extends State<GlobalChatTab>
     if (!canPostInSelectedCommunity) {
       return;
     }
+
+    if (!ensureCommunityProfileCountry(context)) return;
 
     final localCooldownRemaining = _localGlobalChatSendCooldownRemaining();
     if (localCooldownRemaining > Duration.zero) {
@@ -37261,7 +41232,7 @@ class _GlobalChatTabState extends State<GlobalChatTab>
                 if (text.trim().isNotEmpty) const SizedBox(height: 8),
               ],
               if (text.trim().isNotEmpty)
-                Text(
+                ChatLinkText(
                   text,
                   style: const TextStyle(
                     color: Colors.white,
@@ -37606,7 +41577,7 @@ class _GlobalChatTabState extends State<GlobalChatTab>
                       ),
                       const SizedBox(width: 4),
                       Expanded(
-                        child: TextField(
+                        child: MentionTextField(
                           controller: messageController,
                           focusNode: messageFocusNode,
                           minLines: 1,
@@ -37762,13 +41733,32 @@ Widget forumReplyCountBadge({
   );
 }
 
+const maxForumTopicPhotos = 4;
+
+List<String> forumTopicPhotos(Map<String, dynamic> data) =>
+    stringListFromFirebase(data['photoUrls'], const [])
+        .where((url) => Uri.tryParse(url)?.scheme == 'https')
+        .take(maxForumTopicPhotos)
+        .toList();
+
 Future<String> createForumTopic({
   required String title,
   required String category,
   required String description,
   required String avatarUrl,
+  List<String> photoUrls = const [],
 }) async {
+  if (photoUrls.length > maxForumTopicPhotos) {
+    throw ArgumentError("Maximum 4 photos per topic.");
+  }
   try {
+    if (currentUserHomeCountryCode().isEmpty) {
+      throw FirebaseException(
+        plugin: 'cloud_firestore',
+        code: 'profile-country-required',
+        message: chooseProfileCountryMessage,
+      );
+    }
     final user = FirebaseAuth.instance.currentUser;
     debugPrint('Creating topic: $title');
     debugPrint('User: ${user?.uid}');
@@ -37808,11 +41798,19 @@ Future<String> createForumTopic({
     final isStaffCreator =
         userRoleIsStaff(creatorRole) ||
         (currentUser.uid == user.uid && userRoleIsStaff(currentUser.role));
-    final topicStatus = isStaffCreator ? 'approved' : 'pending';
+    final topicStatus =
+        isStaffCreator &&
+            currentUserCanModerateCountry(
+              communityCountrySelection.value,
+              community: true,
+            )
+        ? 'approved'
+        : 'pending';
 
     final docRef = await FirebaseFirestore.instance
         .collection('forum_topics')
         .debugAdd({
+          'visibility': 'public',
           'title': title,
           'countryCode': communityCountrySelection.value,
           'authorCountryCode': currentUserHomeCountryCode(),
@@ -37820,6 +41818,7 @@ Future<String> createForumTopic({
           'category': categoryTitle,
           'description': description,
           'avatarUrl': avatarUrl,
+          'photoUrls': photoUrls,
           'categoryId': categoryId,
           'authorId': user.uid,
           'authorName': username,
@@ -37832,8 +41831,10 @@ Future<String> createForumTopic({
           'isPinned': false,
           'status': topicStatus,
           'rejectionReason': null,
-          'reviewedBy': isStaffCreator ? user.uid : null,
-          'reviewedAt': isStaffCreator ? FieldValue.serverTimestamp() : null,
+          'reviewedBy': topicStatus == 'approved' ? user.uid : null,
+          'reviewedAt': topicStatus == 'approved'
+              ? FieldValue.serverTimestamp()
+              : null,
           'createdAt': FieldValue.serverTimestamp(),
           'lastReplyAt': FieldValue.serverTimestamp(),
         });
@@ -37854,6 +41855,13 @@ Future<String> createForumTopic({
       );
     }
 
+    if (topicStatus == 'approved') {
+      await sendPushNotificationEvent({
+        'type': 'forum_topic_created',
+        'topicId': docRef.id,
+      });
+    }
+
     debugPrint('SUCCESS: Topic $topicStatus: ${docRef.id}');
     forumTopicsRefreshTick.value++;
     return topicStatus;
@@ -37868,7 +41876,38 @@ String temporarySpotForumTopicId(String spotId) {
   return 'temporary_spot_$spotId';
 }
 
+class _GroupForumDocument
+    implements QueryDocumentSnapshot<Map<String, dynamic>> {
+  final DocumentSnapshot<Map<String, dynamic>> document;
+  _GroupForumDocument(this.document);
+  @override
+  Map<String, dynamic> data() => document.data()!;
+  @override
+  String get id => document.id;
+  @override
+  bool get exists => document.exists;
+  @override
+  DocumentReference<Map<String, dynamic>> get reference => document.reference;
+  @override
+  SnapshotMetadata get metadata => document.metadata;
+  @override
+  dynamic get(Object field) => document.get(field);
+  @override
+  dynamic operator [](Object field) => document[field];
+}
+
+bool groupForumAccessible(Map<String, dynamic> data) =>
+    data['visibility'] != 'group' ||
+    currentUserCanModerateCommunityData(data) ||
+    memberSpotGroups.value.any(
+      (group) => stringListFromFirebase(
+        data['sharedGroupIds'],
+        const [],
+      ).contains(group.id),
+    );
+
 bool forumTopicIsVisibleNow(Map<String, dynamic> data) {
+  if (!groupForumAccessible(data)) return false;
   final status = stringFromFirebase(data['status'], 'approved');
   if (status != 'approved') {
     return false;
@@ -37929,6 +41968,9 @@ Map<String, Object?> temporarySpotForumTopicData({
       : Timestamp.fromMillisecondsSinceEpoch(spot.expiresAtMillis!);
 
   return {
+    'visibility': spot.visibility,
+    'sharedGroupIds': spot.sharedGroupIds,
+    'sharedGroups': spot.sharedGroups,
     'title': spot.name.trim().isEmpty ? 'Temporary meet' : spot.name,
     'countryCode': spot.effectiveCountryCode,
     'authorCountryCode': authorCountryCode,
@@ -38043,7 +42085,12 @@ Future<void> ensureTemporarySpotForumTopic(
             (authorUid == firebaseUser.uid &&
                 userRoleIsStaff(currentUser.role)) ||
             backfillFromExistingSpot);
-    final topicStatus = canApproveOwnAutoTopic ? 'approved' : 'pending';
+    final topicStatus =
+        canApproveOwnAutoTopic &&
+            (currentUser.role != UserRole.moderator ||
+                currentUserCanModerateSpot(spot))
+        ? 'approved'
+        : 'pending';
 
     await topicRef.debugSet(
       temporarySpotForumTopicData(
@@ -38068,6 +42115,15 @@ Future<void> ensureTemporarySpotForumTopic(
           : 'forum: auto temporary spot topic create',
     );
     forumTopicsRefreshTick.value++;
+
+    if (topicStatus == 'approved' &&
+        !backfillFromExistingSpot &&
+        !spot.isGroupSpot) {
+      await sendPushNotificationEvent({
+        'type': 'forum_topic_created',
+        'topicId': topicRef.id,
+      });
+    }
 
     if (topicStatus == 'pending') {
       await notifyStaffAboutCommunityEvent(
@@ -38137,7 +42193,10 @@ Future<void> _syncActiveTemporarySpotForumTopicsOnce() async {
     // the active window locally instead.
     final snapshot = await trackedQueryGet(
       'forum: active temporary spot topic startup backfill',
-      spotsCollection().where('isTemporary', isEqualTo: true).limit(120),
+      spotsCollection()
+          .where('visibility', isEqualTo: 'public')
+          .where('isTemporary', isEqualTo: true)
+          .limit(120),
       const GetOptions(source: Source.server),
     );
 
@@ -38168,6 +42227,7 @@ Future<void> updateTemporarySpotForumTopicAfterSpotReview(
   SpotStatus status, {
   String rejectionReason = '',
 }) async {
+  if (spot.isGroupSpot) return;
   if (!spot.isTemporary || spot.id.trim().isEmpty) {
     return;
   }
@@ -38423,19 +42483,35 @@ loadRegionalForumTopicDocuments(
   String debugLabel,
 ) async {
   final selectedCode = communityCountrySelection.value;
-  final regionalFuture = collection
-      .where('countryCode', isEqualTo: selectedCode)
-      .limit(120)
-      .debugGet(null, '$debugLabel: regional');
-  final snapshots = <QuerySnapshot<Map<String, dynamic>>>[await regionalFuture];
+  // Page by document ID so legacy records without timestamps are included.
+  // The callers sort the complete result by pin/activity and filter categories.
+  Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>> readPages(
+    Query<Map<String, dynamic>> query,
+    String label,
+  ) => collectQueryPages<QueryDocumentSnapshot<Map<String, dynamic>>>(
+    pageSize: 120,
+    readPage: (cursor, size) async {
+      var page = query.orderBy(FieldPath.documentId).limit(size);
+      if (cursor != null) page = page.startAfterDocument(cursor);
+      return (await page.debugGet(null, label)).docs;
+    },
+  );
+  final regional = await readPages(
+    collection
+        .where('visibility', isEqualTo: 'public')
+        .where('countryCode', isEqualTo: selectedCode),
+    '$debugLabel: regional',
+  );
+  final byId = {for (final doc in regional) doc.id: doc};
   if (selectedCode == 'LV') {
-    // Keep only a bounded window of original, untagged Latvian topics. New
-    // Latvian topics always come from the regional query above.
-    final legacyRequest = _legacyLatvianForumTopicsSnapshotFuture ??= collection
-        .limit(120)
-        .debugGet(null, 'forum: legacy Latvian topics session cache');
+    final legacyRequest = _legacyLatvianForumTopicsSnapshotFuture ??= readPages(
+      collection.where('visibility', isEqualTo: 'public'),
+      'forum: legacy Latvian topics session cache',
+    );
     try {
-      snapshots.add(await legacyRequest);
+      for (final doc in await legacyRequest) {
+        if (!doc.data().containsKey('countryCode')) byId[doc.id] = doc;
+      }
     } catch (_) {
       if (identical(_legacyLatvianForumTopicsSnapshotFuture, legacyRequest)) {
         _legacyLatvianForumTopicsSnapshotFuture = null;
@@ -38443,15 +42519,16 @@ loadRegionalForumTopicDocuments(
       rethrow;
     }
   }
-
-  final byId = <String, QueryDocumentSnapshot<Map<String, dynamic>>>{};
-  for (final snapshot in snapshots) {
-    for (final doc in snapshot.docs) {
-      final isLegacy = !doc.data().containsKey('countryCode');
-      if (communityContentCountryCode(doc.data()) == selectedCode &&
-          (selectedCode != 'LV' || snapshot == snapshots.first || isLegacy)) {
-        byId[doc.id] = doc;
-      }
+  final groupIds = _groupSpotIds.values.expand((ids) => ids).toSet();
+  for (final id in groupIds) {
+    try {
+      final doc = await collection
+          .doc(temporarySpotForumTopicId(id))
+          .get(const GetOptions(source: Source.server));
+      if (doc.exists && groupForumAccessible(doc.data()!))
+        byId[doc.id] = _GroupForumDocument(doc);
+    } catch (_) {
+      /* Membership may have changed during the load. */
     }
   }
   return byId.values.toList(growable: false);
@@ -38570,8 +42647,9 @@ class _ForumTabState extends State<ForumTab>
       final docs =
           regionalDocs.where((doc) {
             return forumTopicIsVisibleNow(doc.data()) &&
-                communityContentCountryCode(doc.data()) ==
-                    communityCountrySelection.value;
+                (doc.data()['visibility'] == 'group' ||
+                    communityContentCountryCode(doc.data()) ==
+                        communityCountrySelection.value);
           }).toList()..sort((a, b) {
             final aPinned = a.data()['isPinned'] == true;
             final bPinned = b.data()['isPinned'] == true;
@@ -38589,6 +42667,7 @@ class _ForumTabState extends State<ForumTab>
             return bMillis.compareTo(aMillis);
           });
 
+      if (!mounted || pendingCountryReload) return;
       setState(() {
         topics
           ..clear()
@@ -39197,8 +43276,9 @@ class _ForumCategoryPageState extends State<ForumCategoryPage>
           regionalDocs.where((doc) {
             final data = doc.data();
             return forumTopicIsVisibleNow(data) &&
-                communityContentCountryCode(data) ==
-                    communityCountrySelection.value &&
+                (data['visibility'] == 'group' ||
+                    communityContentCountryCode(data) ==
+                        communityCountrySelection.value) &&
                 forumCategoryIdFromFirebase(
                       data['categoryId'] ?? data['category'],
                     ) ==
@@ -39218,7 +43298,7 @@ class _ForumCategoryPageState extends State<ForumCategoryPage>
             return bMillis.compareTo(aMillis);
           });
 
-      if (mounted) {
+      if (mounted && !pendingCountryReload) {
         setState(() {
           topics
             ..clear()
@@ -39857,16 +43937,47 @@ class ForumTopicPage extends StatefulWidget {
 }
 
 class _ForumTopicPageState extends State<ForumTopicPage>
-    with LanguageReactiveState {
+    with LanguageReactiveState, WidgetsBindingObserver {
   final replyController = TextEditingController();
   final replyFocusNode = FocusNode();
+  final topicScrollController = ScrollController();
+  late final Stream<DocumentSnapshot<Map<String, dynamic>>> _topicStream;
+  late final Stream<QuerySnapshot<Map<String, dynamic>>> _repliesStream;
   bool isSending = false;
   bool isUploadingPhotoAttachment = false;
   String? pendingPhotoAttachmentPath;
   QueryDocumentSnapshot<Map<String, dynamic>>? replyingToForumReply;
-  bool hasCommunityModerationAccess = false;
   late String _topicCountryCode;
   late bool _topicCountryResolved;
+  bool _hasLoadedReplies = false;
+  int? _latestLoadedReplyAtMillis;
+
+  bool get _isReadingTopic =>
+      mounted &&
+      ModalRoute.of(context)?.isCurrent == true &&
+      WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed;
+
+  void _markLoadedRepliesRead(String countryCode) {
+    if (!_hasLoadedReplies) return;
+    // Notify badge widgets after this frame has rendered the replies.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!_isReadingTopic) return;
+      inAppBadges.openForumTopic(
+        widget.topicId,
+        countryCode,
+        latestReplyAtMillis: _latestLoadedReplyAtMillis,
+        isVisible: () => _isReadingTopic,
+      );
+    });
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && _topicCountryResolved) {
+      _markLoadedRepliesRead(_topicCountryCode);
+      WidgetsBinding.instance.ensureVisualUpdate();
+    }
+  }
 
   DocumentReference<Map<String, dynamic>> get topicDocument =>
       FirebaseFirestore.instance.collection('forum_topics').doc(widget.topicId);
@@ -39875,32 +43986,49 @@ class _ForumTopicPageState extends State<ForumTopicPage>
       topicDocument.collection('replies');
 
   bool get canModerateForumTopic =>
-      userRoleIsStaff(currentUser.role) || hasCommunityModerationAccess;
+      _topicCountryResolved &&
+      currentUserCanModerateCountry(_topicCountryCode, community: true);
+
+  Map<String, dynamic>? _resolvedTopic;
+  void groupMembershipChanged() {
+    if (mounted) setState(() {});
+  }
 
   bool get canPostInForumTopic =>
-      !_topicCountryResolved ||
-      _countryNamesByIso.containsKey(_topicCountryCode);
+      (_resolvedTopic == null || groupForumAccessible(_resolvedTopic!)) &&
+      (!_topicCountryResolved ||
+          _countryNamesByIso.containsKey(_topicCountryCode));
 
   @override
   void initState() {
     super.initState();
+    memberSpotGroups.addListener(groupMembershipChanged);
     _topicCountryCode = widget.countryCode.trim().toUpperCase();
     _topicCountryResolved = _topicCountryCode.isNotEmpty;
+    _topicStream = topicDocument.debugSnapshots('forum: topic listener');
+    _repliesStream = topicRepliesCollection
+        .orderBy('timestamp', descending: true)
+        .limit(50)
+        .debugSnapshots('forum: topic replies listener');
+    WidgetsBinding.instance.addObserver(this);
     unawaited(loadCommunityModerationAccess());
   }
 
   @override
   void dispose() {
+    memberSpotGroups.removeListener(groupMembershipChanged);
+    WidgetsBinding.instance.removeObserver(this);
     inAppBadges.closeForumTopic(widget.topicId);
+    topicScrollController.dispose();
     replyFocusNode.dispose();
     replyController.dispose();
     super.dispose();
   }
 
   Future<void> loadCommunityModerationAccess() async {
-    final hasAccess = await currentUserHasCommunityModerationAccess();
+    await currentUserHasCommunityModerationAccess();
     if (mounted) {
-      setState(() => hasCommunityModerationAccess = hasAccess);
+      setState(() {});
     }
   }
 
@@ -39944,6 +44072,7 @@ class _ForumTopicPageState extends State<ForumTopicPage>
   }
 
   Future<void> sendReply() async {
+    if (!ensureCommunityProfileCountry(context)) return;
     final firebaseUser = FirebaseAuth.instance.currentUser;
     final text = replyController.text.trim();
     final localPhotoPath = pendingPhotoAttachmentPath?.trim() ?? '';
@@ -40468,7 +44597,7 @@ class _ForumTopicPageState extends State<ForumTopicPage>
               fontWeight: FontWeight.w900,
             ),
           ),
-          content: TextField(
+          content: MentionTextField(
             controller: controller,
             autofocus: true,
             minLines: 2,
@@ -40546,6 +44675,14 @@ class _ForumTopicPageState extends State<ForumTopicPage>
             SetOptions(merge: true),
             'forum: edit own reply',
           );
+      unawaited(
+        sendPushNotificationEvent({
+          'type': 'forum_reply',
+          'topicId': widget.topicId,
+          'messageId': doc.id,
+          'mentionsOnly': true,
+        }),
+      );
     } catch (error) {
       if (!mounted) {
         return;
@@ -40573,6 +44710,9 @@ class _ForumTopicPageState extends State<ForumTopicPage>
     final authorName = stringFromFirebase(topic['authorName'], 'ccs_driver');
     final avatarUrl = stringFromFirebase(topic['avatarUrl'], '');
     final description = stringFromFirebase(topic['description'], '');
+    if (!groupForumAccessible(topic))
+      return Text(trText('This topic is available only to group members.'));
+    final photos = forumTopicPhotos(topic);
     final fallbackRole = roleFromFirebase(topic['authorRole'] ?? topic['role']);
     final fallbackGlobalModerator =
         topic['authorGlobalChatModerator'] == true ||
@@ -40682,6 +44822,17 @@ class _ForumTopicPageState extends State<ForumTopicPage>
                       color: Colors.white,
                       height: 1.38,
                       fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+                if (photos.isNotEmpty) ...[
+                  const SizedBox(height: 12),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(14),
+                    child: SpotPhotoCarousel.photos(
+                      key: ValueKey(photos.join('|')),
+                      sources: photos,
+                      height: 220,
                     ),
                   ),
                 ],
@@ -40849,7 +45000,7 @@ class _ForumTopicPageState extends State<ForumTopicPage>
             if (text.trim().isNotEmpty) const SizedBox(height: 8),
           ],
           if (text.trim().isNotEmpty)
-            Text(
+            ChatLinkText(
               text,
               style: const TextStyle(
                 color: Colors.white,
@@ -40945,7 +45096,7 @@ class _ForumTopicPageState extends State<ForumTopicPage>
               behavior: HitTestBehavior.translucent,
               onTap: () => FocusManager.instance.primaryFocus?.unfocus(),
               child: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-                stream: topicDocument.debugSnapshots('forum: topic listener'),
+                stream: _topicStream,
                 builder: (context, snapshot) {
                   if (snapshot.connectionState == ConnectionState.waiting) {
                     return const Center(
@@ -40954,6 +45105,17 @@ class _ForumTopicPageState extends State<ForumTopicPage>
                   }
 
                   final topic = snapshot.data?.data();
+                  _resolvedTopic = topic;
+                  if (snapshot.hasError ||
+                      (topic != null && !groupForumAccessible(topic))) {
+                    return Center(
+                      child: Text(
+                        trText(
+                          'This topic is available only to group members.',
+                        ),
+                      ),
+                    );
+                  }
                   if (topic == null) {
                     return EmptyStateCard(
                       icon: Icons.forum_outlined,
@@ -40977,35 +45139,30 @@ class _ForumTopicPageState extends State<ForumTopicPage>
                   }
 
                   return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                    stream: topicRepliesCollection
-                        .orderBy('timestamp', descending: true)
-                        .limit(50)
-                        .debugSnapshots('forum: topic replies listener'),
+                    stream: _repliesStream,
                     builder: (context, repliesSnapshot) {
                       if (repliesSnapshot.hasData &&
-                          !repliesSnapshot.hasError &&
-                          !repliesSnapshot.data!.metadata.isFromCache) {
-                        WidgetsBinding.instance.addPostFrameCallback((_) {
-                          if (!mounted ||
-                              ModalRoute.of(context)?.isCurrent != true)
-                            return;
-                          inAppBadges.openForumTopic(
-                            widget.topicId,
-                            resolvedCountryCode,
-                            isVisible: () =>
-                                mounted &&
-                                ModalRoute.of(this.context)?.isCurrent ==
-                                    true &&
-                                WidgetsBinding.instance.lifecycleState ==
-                                    AppLifecycleState.resumed,
-                          );
-                        });
+                          !repliesSnapshot.hasError) {
+                        // Cached replies are readable too; an unchanged server
+                        // result may never trigger another stream event.
+                        _hasLoadedReplies = true;
+                        for (final reply in repliesSnapshot.data!.docs) {
+                          final stamp = reply.data()['timestamp'];
+                          if (stamp is Timestamp &&
+                              stamp.millisecondsSinceEpoch >
+                                  (_latestLoadedReplyAtMillis ?? 0)) {
+                            _latestLoadedReplyAtMillis =
+                                stamp.millisecondsSinceEpoch;
+                          }
+                        }
+                        _markLoadedRepliesRead(resolvedCountryCode);
                       }
                       final replies =
                           repliesSnapshot.data?.docs.reversed.toList() ??
                           const <QueryDocumentSnapshot<Map<String, dynamic>>>[];
 
                       return ListView(
+                        controller: topicScrollController,
                         keyboardDismissBehavior:
                             ScrollViewKeyboardDismissBehavior.onDrag,
                         padding: const EdgeInsets.fromLTRB(20, 18, 20, 12),
@@ -41156,7 +45313,7 @@ class _ForumTopicPageState extends State<ForumTopicPage>
                         ),
                         const SizedBox(width: 4),
                         Expanded(
-                          child: TextField(
+                          child: MentionTextField(
                             controller: replyController,
                             focusNode: replyFocusNode,
                             minLines: 1,
@@ -41237,6 +45394,8 @@ class _NewForumTopicPageState extends State<NewForumTopicPage>
   final descriptionController = TextEditingController();
   late String categoryId;
   String? localAvatarPath;
+  final List<String> photoPaths = [];
+  bool isPickingPhoto = false;
   bool isSaving = false;
   bool isPickingAvatar = false;
 
@@ -41256,7 +45415,7 @@ class _NewForumTopicPageState extends State<NewForumTopicPage>
   }
 
   Future<void> pickTopicAvatar() async {
-    if (isPickingAvatar || isSaving) {
+    if (isPickingAvatar || isPickingPhoto || isSaving) {
       return;
     }
 
@@ -41272,6 +45431,99 @@ class _NewForumTopicPageState extends State<NewForumTopicPage>
       }
     }
   }
+
+  Future<void> pickTopicPhoto() async {
+    if (isSaving ||
+        isPickingPhoto ||
+        isPickingAvatar ||
+        photoPaths.length >= maxForumTopicPhotos) {
+      return;
+    }
+    setState(() => isPickingPhoto = true);
+    try {
+      final path = await pickPhotoFromPhone(context, cropPhoto: false);
+      if (mounted &&
+          path != null &&
+          path.trim().isNotEmpty &&
+          !photoPaths.contains(path)) {
+        setState(() => photoPaths.add(path));
+      }
+    } finally {
+      if (mounted) setState(() => isPickingPhoto = false);
+    }
+  }
+
+  Widget photoPicker() => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Text(
+        trText('Topic photos (optional, up to 4)'),
+        style: const TextStyle(
+          color: Colors.white,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+      const SizedBox(height: 8),
+      Wrap(
+        spacing: 8,
+        runSpacing: 8,
+        children: [
+          for (var index = 0; index < photoPaths.length; index++)
+            SizedBox(
+              width: 88,
+              height: 88,
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(10),
+                    child: spotPhotoImage('local:${photoPaths[index]}'),
+                  ),
+                  Positioned(
+                    top: 0,
+                    right: 0,
+                    child: IconButton(
+                      tooltip: trText('Remove photo'),
+                      style: IconButton.styleFrom(
+                        backgroundColor: Colors.black54,
+                      ),
+                      onPressed: isSaving || isPickingPhoto
+                          ? null
+                          : () => setState(() => photoPaths.removeAt(index)),
+                      icon: const Icon(
+                        Icons.close,
+                        color: Colors.white,
+                        size: 18,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          if (photoPaths.length < maxForumTopicPhotos)
+            SizedBox(
+              width: 88,
+              height: 88,
+              child: OutlinedButton(
+                onPressed: isSaving || isPickingPhoto || isPickingAvatar
+                    ? null
+                    : pickTopicPhoto,
+                child: Icon(
+                  isPickingPhoto
+                      ? Icons.hourglass_top
+                      : Icons.add_photo_alternate_outlined,
+                ),
+              ),
+            ),
+        ],
+      ),
+      const SizedBox(height: 6),
+      Text(
+        '${photoPaths.length}/$maxForumTopicPhotos',
+        style: const TextStyle(color: Colors.white54),
+      ),
+    ],
+  );
 
   void showRequiredFieldMessage(String message) {
     ScaffoldMessenger.of(context).showSnackBar(
@@ -41289,6 +45541,7 @@ class _NewForumTopicPageState extends State<NewForumTopicPage>
   }
 
   Future<void> createTopic() async {
+    if (isSaving || isPickingPhoto || isPickingAvatar) return;
     final firebaseUser = FirebaseAuth.instance.currentUser;
     final title = titleController.text.trim();
     final description = descriptionController.text.trim();
@@ -41326,11 +45579,25 @@ class _NewForumTopicPageState extends State<NewForumTopicPage>
         localPhotoPath: avatarPath,
       );
 
+      final photoUrls = <String>[];
+      final batchId = DateTime.now().microsecondsSinceEpoch;
+      for (var index = 0; index < photoPaths.length; index++) {
+        photoUrls.add(
+          await uploadImageToR2(
+            r2Path:
+                'users/${safeR2Path(firebaseUser.uid)}/forum_topic_photos/${batchId}_$index.jpg',
+            localPhotoPath: photoPaths[index],
+            maxLongSide: r2SpotPhotoMaxLongSide,
+            quality: r2JpegQuality,
+          ),
+        );
+      }
       final topicStatus = await createForumTopic(
         title: title,
         category: categoryId,
         description: description,
         avatarUrl: avatarUrl,
+        photoUrls: photoUrls,
       );
 
       if (mounted) {
@@ -41510,7 +45777,7 @@ class _NewForumTopicPageState extends State<NewForumTopicPage>
           const SizedBox(height: 6),
           Text(
             trText(
-              'Add an avatar, name, and description. All fields are required.',
+              'Add an avatar, name, and description. You can also attach up to 4 photos.',
             ),
             style: const TextStyle(color: Colors.white54, height: 1.35),
           ),
@@ -41555,10 +45822,14 @@ class _NewForumTopicPageState extends State<NewForumTopicPage>
             decoration: inputDecoration(trText('Description')),
           ),
           const SizedBox(height: 18),
+          photoPicker(),
+          const SizedBox(height: 18),
           SizedBox(
             height: 54,
             child: ElevatedButton.icon(
-              onPressed: isSaving ? null : createTopic,
+              onPressed: isSaving || isPickingPhoto || isPickingAvatar
+                  ? null
+                  : createTopic,
               icon: Icon(isSaving ? Icons.hourglass_top : Icons.add),
               label: Text(
                 isSaving ? trText('Creating topic...') : trText('Create topic'),
@@ -41714,7 +45985,9 @@ class _LiveCommunityAuthorIdentityState
       mainAxisSize: MainAxisSize.min,
       children: [
         CommunityAvatarWithCountryFlag(
-          authorCountryCode: widget.authorCountryCode,
+          authorCountryCode: isCurrentUser
+              ? currentUserHomeCountryCode()
+              : profileAuthorCountryCode(data, widget.authorCountryCode),
           channelCountryCode: widget.channelCountryCode,
           avatar: GlobalSmallAvatar(
             avatarUrl: avatarUrl,
@@ -41764,7 +46037,10 @@ class _LiveCommunityAuthorIdentityState
   Widget build(BuildContext context) {
     final stream = profileStream;
     if (stream == null) {
-      return buildIdentity(null);
+      return ValueListenableBuilder<int>(
+        valueListenable: currentUserProfileRevision,
+        builder: (context, _, child) => buildIdentity(null),
+      );
     }
     return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
       stream: stream,
@@ -42153,7 +46429,7 @@ class _ChatThreadTileState extends State<ChatThreadTile> {
   Widget tile(BuildContext context, FriendUserData? directUser) {
     final title = !chat.isGroup && directUser != null
         ? displayUsername(directUser.username)
-        : chat.titleForCurrentUser(currentUid);
+        : '${chat.isPrivate ? '🔒 ' : ''}${chat.titleForCurrentUser(currentUid)}';
     final subtitle = chat.subtitleForCurrentUser(currentUid);
 
     return InkWell(
@@ -43149,12 +47425,17 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen>
   }
 
   bool get currentUserCanOverridePrivateGroup {
+    if (currentUser.role == UserRole.moderator &&
+        !currentUserCanModerateCountry(widget.chat.countryCode))
+      return false;
     return isCurrentUserGroupOwner ||
-        userRoleIsStaff(currentUser.role) ||
-        currentUser.globalChatModerator;
+        currentUserCanModerateCountry(widget.chat.countryCode, community: true);
   }
 
   bool get canManageGroupMembers {
+    if (currentUser.role == UserRole.moderator &&
+        !currentUserCanModerateCountry(widget.chat.countryCode))
+      return false;
     if (isPrivate) {
       return currentUserCanOverridePrivateGroup;
     }
@@ -43166,6 +47447,7 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen>
   bool get canEditGroupDetails => canManageGroupMembers;
 
   ChatThreadData get localChatData => ChatThreadData(
+    countryCode: widget.chat.countryCode,
     id: widget.chat.id,
     isGroup: widget.chat.isGroup,
     name: widget.chat.name,
@@ -44370,7 +48652,13 @@ _chatOldestMessageDocSessionCache = {};
 class ChatConversationScreen extends StatefulWidget {
   final ChatThreadData chat;
 
-  const ChatConversationScreen({super.key, required this.chat});
+  final bool readOnly;
+
+  const ChatConversationScreen({
+    super.key,
+    required this.chat,
+    this.readOnly = false,
+  });
 
   @override
   State<ChatConversationScreen> createState() => _ChatConversationScreenState();
@@ -44378,6 +48666,12 @@ class ChatConversationScreen extends StatefulWidget {
 
 class _ChatConversationScreenState extends State<ChatConversationScreen>
     with LanguageReactiveState {
+  bool get readOnly =>
+      widget.readOnly ||
+      (widget.chat.isGroup &&
+          !widget.chat.memberIds.contains(
+            FirebaseAuth.instance.currentUser?.uid,
+          ));
   final messageController = TextEditingController();
   final messageFocusNode = FocusNode();
   final chatScrollController = ScrollController();
@@ -44442,6 +48736,7 @@ class _ChatConversationScreenState extends State<ChatConversationScreen>
   }
 
   void markCurrentChatNotificationsRead({Duration delay = Duration.zero}) {
+    if (readOnly) return;
     if (delay == Duration.zero) {
       unawaited(markChatNotificationsRead(widget.chat.id));
       return;
@@ -44466,6 +48761,7 @@ class _ChatConversationScreenState extends State<ChatConversationScreen>
   }
 
   Future<void> markVisibleMessagesRead() async {
+    if (readOnly) return;
     final currentUid =
         FirebaseAuth.instance.currentUser?.uid ?? currentUser.uid;
     if (currentUid.trim().isEmpty) {
@@ -44748,6 +49044,7 @@ class _ChatConversationScreenState extends State<ChatConversationScreen>
   }
 
   Future<void> attachPhoto() async {
+    if (readOnly) return;
     if (isUploadingPhotoAttachment) {
       return;
     }
@@ -44801,6 +49098,7 @@ class _ChatConversationScreenState extends State<ChatConversationScreen>
   }
 
   Future<void> sendMessage() async {
+    if (readOnly) return;
     final text = messageController.text.trim();
     final localPhotoPath = pendingPhotoAttachmentPath?.trim() ?? '';
     final hasPhoto = localPhotoPath.isNotEmpty;
@@ -44933,6 +49231,7 @@ class _ChatConversationScreenState extends State<ChatConversationScreen>
   }
 
   Future<void> shareLiveLocation() async {
+    if (readOnly) return;
     if (isSharingChatLocation) {
       return;
     }
@@ -45009,6 +49308,7 @@ class _ChatConversationScreenState extends State<ChatConversationScreen>
   }
 
   Future<void> openGroupSettings() async {
+    if (readOnly) return;
     final removed = await Navigator.push<bool>(
       context,
       appPageRoute(builder: (_) => GroupSettingsScreen(chat: widget.chat)),
@@ -45229,7 +49529,8 @@ class _ChatConversationScreenState extends State<ChatConversationScreen>
               fontWeight: FontWeight.w900,
             ),
           ),
-          content: TextField(
+          content: MentionTextField(
+            allowedUserIds: widget.chat.memberIds,
             controller: controller,
             autofocus: true,
             minLines: 2,
@@ -45447,7 +49748,7 @@ class _ChatConversationScreenState extends State<ChatConversationScreen>
 
   Widget groupChatTitle(String title) {
     return InkWell(
-      onTap: openGroupSettings,
+      onTap: readOnly ? null : openGroupSettings,
       borderRadius: BorderRadius.circular(12),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 5),
@@ -45485,11 +49786,13 @@ class _ChatConversationScreenState extends State<ChatConversationScreen>
     final mine = message.senderUid == currentUid;
     final canDeleteMessage =
         widget.chat.isGroup &&
-        (userRoleIsStaff(currentUser.role) ||
-            currentUser.globalChatModerator ||
+        (currentUserCanModerateCountry(
+              widget.chat.countryCode,
+              community: true,
+            ) ||
             widget.chat.ownerUid == currentUid ||
             widget.chat.moderatorIds.contains(currentUid));
-    final canActOnMessage = !message.isLocalPending;
+    final canActOnMessage = !readOnly && !message.isLocalPending;
     final sender =
         usersById[message.senderUid] ?? fallbackMessageSender(message);
     final receiptState = mine
@@ -45599,7 +49902,7 @@ class _ChatConversationScreenState extends State<ChatConversationScreen>
                 if (message.text.trim().isNotEmpty) const SizedBox(height: 8),
               ],
               if (message.text.trim().isNotEmpty)
-                Text(
+                ChatLinkText(
                   message.text,
                   style: TextStyle(
                     color: Colors.white,
@@ -45665,13 +49968,14 @@ class _ChatConversationScreenState extends State<ChatConversationScreen>
                   ],
                 ],
               ),
-              messageReactionBar(
-                reactions: message.reactions,
-                currentUid: currentUid,
-                onEmojiTap: (emoji) => unawaited(
-                  reactToChatMessage(message, preferredEmoji: emoji),
+              if (!readOnly)
+                messageReactionBar(
+                  reactions: message.reactions,
+                  currentUid: currentUid,
+                  onEmojiTap: (emoji) => unawaited(
+                    reactToChatMessage(message, preferredEmoji: emoji),
+                  ),
                 ),
-              ),
             ],
           ),
         ),
@@ -45711,8 +50015,10 @@ class _ChatConversationScreenState extends State<ChatConversationScreen>
         widget.chat.isGroup &&
         (widget.chat.isOwner(currentUid) ||
             widget.chat.moderatorIds.contains(currentUid) ||
-            userRoleIsStaff(currentUser.role) ||
-            currentUser.globalChatModerator);
+            currentUserCanModerateCountry(
+              widget.chat.countryCode,
+              community: true,
+            ));
 
     return Scaffold(
       backgroundColor: Colors.transparent,
@@ -45724,7 +50030,9 @@ class _ChatConversationScreenState extends State<ChatConversationScreen>
             : directChatTitle(currentUid, title, chatPhotoUrl),
         backgroundColor: Colors.transparent,
         foregroundColor: blue,
-        actions: widget.chat.isGroup
+        actions: readOnly
+            ? <Widget>[]
+            : widget.chat.isGroup
             ? [
                 if (canModerateGroupChat)
                   IconButton(
@@ -45914,144 +50222,158 @@ class _ChatConversationScreenState extends State<ChatConversationScreen>
               ),
             ),
           ),
-          SafeArea(
-            top: false,
-            bottom: !keyboardOpen,
-            child: Container(
-              padding: EdgeInsets.fromLTRB(8, 6, 8, keyboardOpen ? 0 : 8),
-              decoration: BoxDecoration(
-                color: panelGlass,
-                border: const Border(top: BorderSide(color: Colors.white12)),
+          if (readOnly)
+            SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Text(
+                  trText(
+                    'Read-only monitoring. You are not a member of this group.',
+                  ),
+                  style: const TextStyle(color: Colors.white70),
+                ),
               ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  if (replyingToMessage != null) ...[
-                    messageReplyPreviewCard(
-                      MessageReplyPreviewData(
-                        messageId: replyingToMessage!.id,
-                        username: replyingToMessage!.senderUsername,
-                        text: replyingToMessage!.text,
-                        photoUrl: replyingToMessage!.photoUrl,
-                      ),
-                      compact: true,
-                    ),
-                    Align(
-                      alignment: Alignment.centerRight,
-                      child: TextButton.icon(
-                        onPressed: () =>
-                            setState(() => replyingToMessage = null),
-                        icon: const Icon(Icons.close, size: 16),
-                        label: Text(trText('Cancel reply')),
-                      ),
-                    ),
-                  ],
-                  if (pendingPhotoAttachmentPath != null)
-                    stagedChatPhotoPreview(
-                      localPhotoPath: pendingPhotoAttachmentPath!,
-                      isBusy: isUploadingPhotoAttachment,
-                      onRemove: () {
-                        setState(() => pendingPhotoAttachmentPath = null);
-                      },
-                    ),
-                  Row(
-                    children: [
-                      IconButton(
-                        tooltip: 'Share location',
-                        onPressed: isSharingChatLocation
-                            ? null
-                            : shareLiveLocation,
-                        constraints: const BoxConstraints.tightFor(
-                          width: 38,
-                          height: 40,
+            )
+          else
+            SafeArea(
+              top: false,
+              bottom: !keyboardOpen,
+              child: Container(
+                padding: EdgeInsets.fromLTRB(8, 6, 8, keyboardOpen ? 0 : 8),
+                decoration: BoxDecoration(
+                  color: panelGlass,
+                  border: const Border(top: BorderSide(color: Colors.white12)),
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (replyingToMessage != null) ...[
+                      messageReplyPreviewCard(
+                        MessageReplyPreviewData(
+                          messageId: replyingToMessage!.id,
+                          username: replyingToMessage!.senderUsername,
+                          text: replyingToMessage!.text,
+                          photoUrl: replyingToMessage!.photoUrl,
                         ),
-                        padding: EdgeInsets.zero,
-                        visualDensity: VisualDensity.compact,
-                        style: IconButton.styleFrom(foregroundColor: blue),
-                        icon: Icon(
-                          isSharingChatLocation
-                              ? Icons.hourglass_top
-                              : Icons.my_location,
+                        compact: true,
+                      ),
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: TextButton.icon(
+                          onPressed: () =>
+                              setState(() => replyingToMessage = null),
+                          icon: const Icon(Icons.close, size: 16),
+                          label: Text(trText('Cancel reply')),
                         ),
                       ),
-                      IconButton(
-                        tooltip: trText('Photo'),
-                        onPressed: isUploadingPhotoAttachment
-                            ? null
-                            : attachPhoto,
-                        constraints: const BoxConstraints.tightFor(
-                          width: 38,
-                          height: 40,
-                        ),
-                        padding: EdgeInsets.zero,
-                        visualDensity: VisualDensity.compact,
-                        style: IconButton.styleFrom(foregroundColor: blue),
-                        icon: Icon(
-                          isUploadingPhotoAttachment
-                              ? Icons.hourglass_top
-                              : Icons.photo_camera_outlined,
-                        ),
+                    ],
+                    if (pendingPhotoAttachmentPath != null)
+                      stagedChatPhotoPreview(
+                        localPhotoPath: pendingPhotoAttachmentPath!,
+                        isBusy: isUploadingPhotoAttachment,
+                        onRemove: () {
+                          setState(() => pendingPhotoAttachmentPath = null);
+                        },
                       ),
-                      const SizedBox(width: 4),
-                      Expanded(
-                        child: TextField(
-                          controller: messageController,
-                          focusNode: messageFocusNode,
-                          minLines: 1,
-                          maxLines: 3,
-                          keyboardType: TextInputType.multiline,
-                          textInputAction: TextInputAction.newline,
-                          style: const TextStyle(color: Colors.white),
-                          decoration: InputDecoration(
-                            hintText: trText('Message'),
-                            hintStyle: const TextStyle(color: Colors.white38),
-                            filled: true,
-                            fillColor: Colors.white.withValues(alpha: 0.06),
-                            isDense: true,
-                            contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 12,
-                              vertical: 8,
-                            ),
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(16),
-                              borderSide: const BorderSide(
-                                color: Colors.white12,
+                    Row(
+                      children: [
+                        IconButton(
+                          tooltip: 'Share location',
+                          onPressed: isSharingChatLocation
+                              ? null
+                              : shareLiveLocation,
+                          constraints: const BoxConstraints.tightFor(
+                            width: 38,
+                            height: 40,
+                          ),
+                          padding: EdgeInsets.zero,
+                          visualDensity: VisualDensity.compact,
+                          style: IconButton.styleFrom(foregroundColor: blue),
+                          icon: Icon(
+                            isSharingChatLocation
+                                ? Icons.hourglass_top
+                                : Icons.my_location,
+                          ),
+                        ),
+                        IconButton(
+                          tooltip: trText('Photo'),
+                          onPressed: isUploadingPhotoAttachment
+                              ? null
+                              : attachPhoto,
+                          constraints: const BoxConstraints.tightFor(
+                            width: 38,
+                            height: 40,
+                          ),
+                          padding: EdgeInsets.zero,
+                          visualDensity: VisualDensity.compact,
+                          style: IconButton.styleFrom(foregroundColor: blue),
+                          icon: Icon(
+                            isUploadingPhotoAttachment
+                                ? Icons.hourglass_top
+                                : Icons.photo_camera_outlined,
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        Expanded(
+                          child: MentionTextField(
+                            allowedUserIds: widget.chat.memberIds,
+                            controller: messageController,
+                            focusNode: messageFocusNode,
+                            minLines: 1,
+                            maxLines: 3,
+                            keyboardType: TextInputType.multiline,
+                            textInputAction: TextInputAction.newline,
+                            style: const TextStyle(color: Colors.white),
+                            decoration: InputDecoration(
+                              hintText: trText('Message'),
+                              hintStyle: const TextStyle(color: Colors.white38),
+                              filled: true,
+                              fillColor: Colors.white.withValues(alpha: 0.06),
+                              isDense: true,
+                              contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 8,
                               ),
-                            ),
-                            enabledBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(16),
-                              borderSide: const BorderSide(
-                                color: Colors.white12,
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(16),
+                                borderSide: const BorderSide(
+                                  color: Colors.white12,
+                                ),
                               ),
-                            ),
-                            focusedBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(16),
-                              borderSide: const BorderSide(color: blue),
+                              enabledBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(16),
+                                borderSide: const BorderSide(
+                                  color: Colors.white12,
+                                ),
+                              ),
+                              focusedBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(16),
+                                borderSide: const BorderSide(color: blue),
+                              ),
                             ),
                           ),
                         ),
-                      ),
-                      const SizedBox(width: 8),
-                      IconButton.filled(
-                        onPressed: sendMessage,
-                        constraints: const BoxConstraints.tightFor(
-                          width: 40,
-                          height: 40,
+                        const SizedBox(width: 8),
+                        IconButton.filled(
+                          onPressed: sendMessage,
+                          constraints: const BoxConstraints.tightFor(
+                            width: 40,
+                            height: 40,
+                          ),
+                          padding: EdgeInsets.zero,
+                          visualDensity: VisualDensity.compact,
+                          style: IconButton.styleFrom(
+                            backgroundColor: blue,
+                            foregroundColor: Colors.white,
+                          ),
+                          icon: const Icon(Icons.send_rounded),
                         ),
-                        padding: EdgeInsets.zero,
-                        visualDensity: VisualDensity.compact,
-                        style: IconButton.styleFrom(
-                          backgroundColor: blue,
-                          foregroundColor: Colors.white,
-                        ),
-                        icon: const Icon(Icons.send_rounded),
-                      ),
-                    ],
-                  ),
-                ],
+                      ],
+                    ),
+                  ],
+                ),
               ),
             ),
-          ),
         ],
       ),
     );
@@ -46060,7 +50382,10 @@ class _ChatConversationScreenState extends State<ChatConversationScreen>
 
 class UserProfileData {
   final String username;
-  final String cityCountry;
+  final String city;
+  final String country;
+  String get cityCountry =>
+      [city.trim(), country.trim()].where((part) => part.isNotEmpty).join(', ');
   final String bio;
   final String instagram;
   final String tiktok;
@@ -46070,7 +50395,8 @@ class UserProfileData {
 
   const UserProfileData({
     required this.username,
-    required this.cityCountry,
+    required this.city,
+    required this.country,
     required this.bio,
     required this.instagram,
     required this.tiktok,
@@ -46084,7 +50410,8 @@ class UserProfileData {
 
     return UserProfileData(
       username: currentUser.username,
-      cityCountry: '${currentUser.city}, ${currentUser.country}',
+      city: currentUser.city,
+      country: currentUser.country,
       bio: currentUser.bio,
       instagram: settings.instagram,
       tiktok: settings.tiktok,
@@ -46333,9 +50660,10 @@ class PublicUserProfileData {
   }
 
   String get cityCountry {
-    final cleanCity = city.trim().isEmpty ? 'Riga' : city.trim();
-    final cleanCountry = country.trim().isEmpty ? 'Latvia' : country.trim();
-    return '$cleanCity, $cleanCountry';
+    return [
+      city.trim(),
+      country.trim(),
+    ].where((part) => part.isNotEmpty).join(', ');
   }
 
   factory PublicUserProfileData.fromFirestore(
@@ -46358,8 +50686,8 @@ class PublicUserProfileData {
           ? data['avatarPath'] as String
           : null,
       bio: stringFromFirebase(data['bio'], 'Find. Drive. Shoot.'),
-      city: stringFromFirebase(data['city'], 'Riga'),
-      country: stringFromFirebase(data['country'], 'Latvia'),
+      city: stringFromFirebase(data['city'], ''),
+      country: stringFromFirebase(data['country'], ''),
       role: role,
       verified: isCurrentProfile
           ? currentUser.verified
@@ -46403,19 +50731,14 @@ void openUserProfile(
   );
 }
 
-List<String> splitCityCountry(String value) {
-  final parts = value.split(',');
-  final city = parts.isNotEmpty && parts.first.trim().isNotEmpty
-      ? parts.first.trim()
-      : 'Riga';
-  final countryText = parts.length > 1 ? parts.sublist(1).join(',').trim() : '';
-  final country = countryText.isNotEmpty ? countryText : 'Latvia';
-
-  return [city, country];
-}
-
 Future<void> saveProfileToFirebase(UserProfileData profile) async {
-  final cityCountry = splitCityCountry(profile.cityCountry);
+  if (!profileRegionIsComplete(profile.city, profile.country)) {
+    throw ArgumentError(requiredRegionMessage);
+  }
+  final cityCountry = [
+    profile.city.trim(),
+    canonicalSpotCountryName(profile.country),
+  ];
   final previousUsername = currentUser.username;
   final cleanUsername = await reserveUsernameForCurrentUser(
     preferredUsername: profile.username,
@@ -46436,6 +50759,24 @@ Future<void> saveProfileToFirebase(UserProfileData profile) async {
     nextAvatarPath = null;
   }
 
+  final nextSettings = userSettings.value.copyWith(
+    instagram: profile.instagram.trim(),
+    tiktok: profile.tiktok.trim(),
+    telegram: profile.telegram.trim(),
+  );
+  await saveCurrentUserFields({
+    'username': cleanUsername,
+    'usernameKey': usernameKey(cleanUsername),
+    'bio': profile.bio,
+    'photoUrl': nextPhotoUrl,
+    'avatarPath': nextAvatarPath,
+    'city': cityCountry[0],
+    'country': cityCountry[1],
+    'settings': nextSettings.toFirebase(),
+    'instagram': nextSettings.instagram.trim(),
+    'tiktok': nextSettings.tiktok.trim(),
+    'telegram': nextSettings.telegram.trim(),
+  });
   setCurrentUser(
     AppUser(
       uid: currentUser.uid,
@@ -46454,26 +50795,7 @@ Future<void> saveProfileToFirebase(UserProfileData profile) async {
     ),
   );
 
-  final nextSettings = userSettings.value.copyWith(
-    instagram: profile.instagram.trim(),
-    tiktok: profile.tiktok.trim(),
-    telegram: profile.telegram.trim(),
-  );
   userSettings.value = nextSettings;
-
-  await saveCurrentUserFields({
-    'username': cleanUsername,
-    'usernameKey': usernameKey(cleanUsername),
-    'bio': profile.bio,
-    'photoUrl': nextPhotoUrl,
-    'avatarPath': nextAvatarPath,
-    'city': cityCountry[0],
-    'country': cityCountry[1],
-    'settings': nextSettings.toFirebase(),
-    'instagram': nextSettings.instagram.trim(),
-    'tiktok': nextSettings.tiktok.trim(),
-    'telegram': nextSettings.telegram.trim(),
-  });
 }
 
 Future<void> saveGarageToFirebase(List<GarageCar> cars) async {
@@ -46868,10 +51190,12 @@ class _ProfileScreenState extends State<ProfileScreen>
   }
 
   String get baseValue {
-    final city = profile.cityCountry.split(',').first.trim();
+    final city = profile.city.trim();
 
     if (city.isEmpty) {
-      return 'Riga';
+      return profile.country.trim().isEmpty
+          ? trText('Unknown location')
+          : localizedCountryName(profile.country);
     }
 
     return city;
@@ -47359,6 +51683,7 @@ Future<void> submitUserReport({
           'reportedName': reportedUser.name,
           'reportedEmail': reportedUser.email,
           'reportedRole': roleName(reportedUser.role),
+          'countryCode': countryIsoCode(reportedUser.country) ?? '',
           'reporterUid': reporterUid,
           'reporterUsername': reporterUsername,
           'reporterName': reporterName,
@@ -47904,10 +52229,10 @@ Future<void> setProfileVerifiedStatus(
   PublicUserProfileData profile,
   bool verified,
 ) async {
-  if (!userRoleIsStaff(currentUser.role)) {
+  if (!currentUserCanManageProfileCountry(profile.country)) {
     showAdminActionError(
       context,
-      message: 'Only admins and moderators can change verified status',
+      message: 'This user is outside your assigned countries',
       error: 'not-staff',
     );
     return;
@@ -48142,8 +52467,6 @@ class PublicUserProfileScreen extends StatelessWidget {
             const SizedBox(height: 9),
             Text(
               profile.bio,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
               style: const TextStyle(color: Colors.white60, height: 1.25),
             ),
           ],
@@ -48155,6 +52478,7 @@ class PublicUserProfileScreen extends StatelessWidget {
               _MiniProfileInfoChip(
                 icon: Icons.location_on,
                 label: profile.cityCountry,
+                allowFullLabel: true,
               ),
               _MiniProfileInfoChip(
                 icon: Icons.directions_car,
@@ -48591,6 +52915,353 @@ class PublicUserProfileScreen extends StatelessWidget {
   }
 }
 
+String normalizeFriendSearch(String value) => value
+    .trim()
+    .toLowerCase()
+    .replaceFirst(RegExp(r'^@+'), '')
+    .replaceAll(RegExp(r'\s+'), ' ')
+    .trim();
+
+List<FriendUserData> matchingFriendUsers(
+  Iterable<FriendUserData> users,
+  String query,
+  String currentUid,
+) {
+  final key = normalizeFriendSearch(query);
+  if (key.runes.length < 2) return const [];
+  int rank(FriendUserData user) {
+    final username = normalizeFriendSearch(user.username);
+    final name = normalizeFriendSearch(user.name);
+    if (username == key) return 0;
+    if (name == key) return 1;
+    if (username.startsWith(key)) return 2;
+    if (name.startsWith(key)) return 3;
+    return 4;
+  }
+
+  final matches = users
+      .where(
+        (user) =>
+            user.uid != currentUid &&
+            user.canAppearInUserLists &&
+            (normalizeFriendSearch(user.username).contains(key) ||
+                normalizeFriendSearch(user.name).contains(key)),
+      )
+      .toList();
+  matches.sort((a, b) {
+    final relevance = rank(a).compareTo(rank(b));
+    if (relevance != 0) return relevance;
+    final username = a.username.toLowerCase().compareTo(
+      b.username.toLowerCase(),
+    );
+    return username != 0 ? username : a.uid.compareTo(b.uid);
+  });
+  return matches;
+}
+
+// One live directory subscription while the Friends screen is open, rather
+// than downloading the first 50 profiles on every keystroke. No usernameKey
+// ordering: legacy accounts without that field must remain searchable.
+// Match only the @token at the caret, never an email address or selected text.
+RegExpMatch? activeMention(TextEditingValue value) {
+  final selection = value.selection;
+  if (!selection.isValid ||
+      !selection.isCollapsed ||
+      selection.end > value.text.length) {
+    return null;
+  }
+  return RegExp(
+    r'(?<![A-Za-z0-9_@])@([A-Za-z0-9_]{2,30})$',
+  ).firstMatch(value.text.substring(0, selection.end));
+}
+
+class MentionTextField extends StatefulWidget {
+  final TextEditingController controller;
+  final FocusNode? focusNode;
+  final int? minLines, maxLines;
+  final TextInputType? keyboardType;
+  final TextInputAction? textInputAction;
+  final TextStyle? style;
+  final InputDecoration? decoration;
+  final ValueChanged<String>? onSubmitted;
+  final bool autofocus;
+  final List<String>? allowedUserIds;
+  final Stream<List<FriendUserData>> Function()? loadUsers;
+  final String? currentUid;
+  const MentionTextField({
+    super.key,
+    required this.controller,
+    this.focusNode,
+    this.minLines,
+    this.maxLines = 1,
+    this.keyboardType,
+    this.textInputAction,
+    this.style,
+    this.decoration,
+    this.onSubmitted,
+    this.autofocus = false,
+    this.allowedUserIds,
+    this.loadUsers,
+    this.currentUid,
+  });
+
+  @override
+  State<MentionTextField> createState() => _MentionTextFieldState();
+}
+
+class _MentionTextFieldState extends State<MentionTextField> {
+  late final FriendUserSearch search;
+  late FocusNode focus;
+  String query = '';
+  @override
+  void initState() {
+    super.initState();
+    focus = widget.focusNode ?? FocusNode();
+    search = FriendUserSearch(
+      currentUid:
+          widget.currentUid ?? FirebaseAuth.instance.currentUser?.uid ?? '',
+      loadUsers:
+          widget.loadUsers ??
+          () => usersCollection()
+              .debugSnapshots('mentions: searchable user directory')
+              .map(
+                (snapshot) =>
+                    snapshot.docs.map(FriendUserData.fromFirestore).toList(),
+              ),
+    );
+    widget.controller.addListener(changed);
+    focus.addListener(changed);
+  }
+
+  void changed() {
+    final next = focus.hasFocus
+        ? activeMention(widget.controller.value)?.group(1) ?? ''
+        : '';
+    if (next == query) return;
+    query = next;
+    search.search(next);
+  }
+
+  void selectUser(FriendUserData user) {
+    final value = widget.controller.value;
+    final match = activeMention(value);
+    if (match == null) return;
+    // Replace the entire token if the caret was moved into its middle.
+    final suffix = RegExp(
+      r'^[A-Za-z0-9_]*',
+    ).firstMatch(value.text.substring(value.selection.end))!;
+    var end = value.selection.end + suffix.end;
+    if (end < value.text.length && value.text[end] == ' ') end++;
+    final replacement = '@${user.username} ';
+    widget.controller.value = TextEditingValue(
+      text: value.text.replaceRange(match.start, end, replacement),
+      selection: TextSelection.collapsed(
+        offset: match.start + replacement.length,
+      ),
+    );
+    focus.requestFocus();
+  }
+
+  @override
+  void dispose() {
+    widget.controller.removeListener(changed);
+    focus.removeListener(changed);
+    if (widget.focusNode == null) focus.dispose();
+    search.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => Column(
+    mainAxisSize: MainAxisSize.min,
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      AnimatedBuilder(
+        animation: search,
+        builder: (context, _) {
+          if (query.length < 2) return const SizedBox.shrink();
+          final users = search.results
+              .where(
+                (user) =>
+                    widget.allowedUserIds == null ||
+                    widget.allowedUserIds!.contains(user.uid),
+              )
+              .take(6)
+              .toList();
+          return Container(
+            margin: const EdgeInsets.only(bottom: 6),
+            width: double.maxFinite,
+            height: search.loading || search.error != null || users.isEmpty
+                ? 48
+                : (users.length > 3 ? 180 : users.length * 60.0),
+            clipBehavior: Clip.antiAlias,
+            decoration: BoxDecoration(
+              color: const Color(0xFF20232B),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: Colors.white12),
+            ),
+            constraints: const BoxConstraints(maxHeight: 180),
+            child: search.loading
+                ? const Padding(
+                    padding: EdgeInsets.all(12),
+                    child: LinearProgressIndicator(),
+                  )
+                : search.error != null
+                ? TextButton(
+                    onPressed: search.retry,
+                    child: Text(trText('Retry')),
+                  )
+                : users.isEmpty
+                ? Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Text(
+                      trText('No users found'),
+                      style: const TextStyle(color: Colors.white54),
+                    ),
+                  )
+                : ListView.builder(
+                    padding: EdgeInsets.zero,
+                    shrinkWrap: true,
+                    itemCount: users.length,
+                    itemBuilder: (context, index) {
+                      final user = users[index];
+                      return Material(
+                        color: Colors.transparent,
+                        child: ListTile(
+                          dense: true,
+                          leading: CircleAvatar(
+                            backgroundColor: blue.withValues(alpha: 0.2),
+                            child: ClipOval(
+                              child: user.photoUrl?.isNotEmpty == true
+                                  ? Image.network(
+                                      user.photoUrl!,
+                                      width: 36,
+                                      height: 36,
+                                      fit: BoxFit.cover,
+                                      errorBuilder: (_, error, stack) =>
+                                          const Icon(
+                                            Icons.person,
+                                            color: Colors.white70,
+                                          ),
+                                    )
+                                  : const Icon(
+                                      Icons.person,
+                                      color: Colors.white70,
+                                    ),
+                            ),
+                          ),
+                          title: Text(
+                            '@${user.username}',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          subtitle: user.name.isEmpty
+                              ? null
+                              : Text(
+                                  user.name,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(color: Colors.white54),
+                                ),
+                          onTap: () => selectUser(user),
+                        ),
+                      );
+                    },
+                  ),
+          );
+        },
+      ),
+      TextField(
+        controller: widget.controller,
+        focusNode: focus,
+        minLines: widget.minLines,
+        maxLines: widget.maxLines,
+        keyboardType: widget.keyboardType,
+        textInputAction: widget.textInputAction,
+        style: widget.style,
+        decoration: widget.decoration,
+        onSubmitted: widget.onSubmitted,
+        autofocus: widget.autofocus,
+      ),
+    ],
+  );
+}
+
+class FriendUserSearch extends ChangeNotifier {
+  final Stream<List<FriendUserData>> Function() loadUsers;
+  final String currentUid;
+  FriendUserSearch({required this.loadUsers, required this.currentUid});
+  StreamSubscription<List<FriendUserData>>? _subscription;
+  Timer? _debounce;
+  List<FriendUserData>? _directory;
+  String query = '';
+  List<FriendUserData> results = const [];
+  bool loading = false;
+  Object? error;
+  bool _disposed = false;
+  int _generation = 0;
+
+  void search(String value) {
+    query = normalizeFriendSearch(value);
+    _debounce?.cancel();
+    results = const [];
+    error = null;
+    loading = query.runes.length >= 2;
+    notifyListeners();
+    if (!loading) return;
+    _debounce = Timer(const Duration(milliseconds: 300), () {
+      if (_directory != null) _apply();
+      if (_subscription == null) _listen();
+    });
+  }
+
+  void _apply() {
+    if (_disposed || query.runes.length < 2) return;
+    results = matchingFriendUsers(_directory ?? [], query, currentUid);
+    loading = false;
+    error = null;
+    notifyListeners();
+  }
+
+  void _listen() {
+    final generation = ++_generation;
+    _subscription = loadUsers().listen(
+      (users) {
+        if (_disposed || generation != _generation) return;
+        _directory = users;
+        if (!(_debounce?.isActive ?? false)) _apply();
+      },
+      onError: (Object failure) {
+        if (_disposed || generation != _generation) return;
+        loading = false;
+        error = failure;
+        notifyListeners();
+      },
+    );
+  }
+
+  void retry() {
+    _generation++;
+    _subscription?.cancel();
+    _subscription = null;
+    _directory = null;
+    search(query);
+  }
+
+  @override
+  void dispose() {
+    _disposed = true;
+    _generation++;
+    _debounce?.cancel();
+    _subscription?.cancel();
+    super.dispose();
+  }
+}
+
 class FriendsScreen extends StatefulWidget {
   final int initialTabIndex;
 
@@ -48603,74 +53274,36 @@ class FriendsScreen extends StatefulWidget {
 class _FriendsScreenState extends State<FriendsScreen>
     with LanguageReactiveState {
   final searchController = TextEditingController();
-  String searchText = '';
-  Timer? userSearchDebounce;
-  Future<List<FriendUserData>>? usersSearchFuture;
+  late final FriendUserSearch userSearch;
+  String get searchText => userSearch.query;
+
+  @override
+  void initState() {
+    super.initState();
+    userSearch = FriendUserSearch(
+      currentUid: FirebaseAuth.instance.currentUser?.uid ?? '',
+      loadUsers: () => usersCollection()
+          .debugSnapshots('friends: searchable user directory')
+          .map(
+            (snapshot) =>
+                snapshot.docs.map(FriendUserData.fromFirestore).toList(),
+          ),
+    );
+    userSearch.addListener(searchChanged);
+  }
+
+  void searchChanged() {
+    if (mounted) setState(() {});
+  }
+
+  void queueUsersSearch(String value) => userSearch.search(value);
 
   @override
   void dispose() {
-    userSearchDebounce?.cancel();
+    userSearch.removeListener(searchChanged);
+    userSearch.dispose();
     searchController.dispose();
     super.dispose();
-  }
-
-  void queueUsersSearch(String value) {
-    final nextSearchText = value.trim().toLowerCase();
-    userSearchDebounce?.cancel();
-
-    setState(() {
-      searchText = nextSearchText;
-      usersSearchFuture = null;
-    });
-
-    if (nextSearchText.length < 2) {
-      return;
-    }
-
-    userSearchDebounce = Timer(const Duration(milliseconds: 350), () {
-      if (!mounted || searchText != nextSearchText) {
-        return;
-      }
-
-      final nextFuture = searchUsersOnce(nextSearchText);
-      setState(() {
-        usersSearchFuture = nextFuture;
-      });
-    });
-  }
-
-  Future<List<FriendUserData>> searchUsersOnce(String queryText) async {
-    final firebaseUser = FirebaseAuth.instance.currentUser;
-    if (firebaseUser == null) {
-      return const [];
-    }
-
-    final snapshot = await usersCollection()
-        .orderBy('usernameKey')
-        .limit(50)
-        .debugGet(null, 'friends: find users search query');
-    final users = snapshot.docs
-        .map((doc) => FriendUserData.fromFirestore(doc))
-        .where((user) => user.canAppearInUserLists)
-        .where((user) => user.uid != firebaseUser.uid)
-        .where((user) {
-          return user.username.toLowerCase().contains(queryText) ||
-              user.name.toLowerCase().contains(queryText);
-        })
-        .toList();
-
-    users.sort((a, b) {
-      final onlineCompare = b.appearsOnline.toString().compareTo(
-        a.appearsOnline.toString(),
-      );
-      if (onlineCompare != 0) {
-        return onlineCompare;
-      }
-
-      return a.username.toLowerCase().compareTo(b.username.toLowerCase());
-    });
-
-    return users;
   }
 
   Future<FriendUserData?> loadFriendUser(String uid) async {
@@ -49230,18 +53863,16 @@ class _FriendsScreenState extends State<FriendsScreen>
           ),
         ),
         const SizedBox(height: 16),
-        if (searchText.length < 2)
+        if (searchText.runes.length < 2)
           const EmptyStateCard(
             icon: Icons.person_search,
             title: 'Search users',
             text: 'Type at least 2 characters to search.',
           )
         else
-          FutureBuilder<List<FriendUserData>>(
-            future: usersSearchFuture,
-            builder: (context, snapshot) {
-              if (usersSearchFuture == null ||
-                  snapshot.connectionState == ConnectionState.waiting) {
+          Builder(
+            builder: (context) {
+              if (userSearch.loading) {
                 return const Center(
                   child: Padding(
                     padding: EdgeInsets.all(24),
@@ -49250,15 +53881,15 @@ class _FriendsScreenState extends State<FriendsScreen>
                 );
               }
 
-              if (snapshot.hasError) {
-                return EmptyStateCard(
-                  icon: Icons.person_search,
-                  title: trText('No users found'),
-                  text: trText('Try searching by nickname or name.'),
+              if (userSearch.error != null) {
+                return TextButton.icon(
+                  onPressed: userSearch.retry,
+                  icon: const Icon(Icons.refresh),
+                  label: Text(trText('Could not load users. Tap to retry.')),
                 );
               }
 
-              final users = snapshot.data ?? const <FriendUserData>[];
+              final users = userSearch.results;
 
               if (users.isEmpty) {
                 return const EmptyStateCard(
@@ -49527,8 +54158,6 @@ class _ProfileHeader extends StatelessWidget {
                     const SizedBox(height: 4),
                     Text(
                       profile.bio,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
                       style: const TextStyle(color: Colors.white54),
                     ),
                     const SizedBox(height: 8),
@@ -49543,6 +54172,7 @@ class _ProfileHeader extends StatelessWidget {
                             _MiniProfileInfoChip(
                               icon: Icons.location_on,
                               label: profile.cityCountry,
+                              allowFullLabel: true,
                             ),
                             const SizedBox(width: 6),
                             _MiniProfileInfoChip(
@@ -49589,9 +54219,13 @@ class _ProfileHeader extends StatelessWidget {
 }
 
 Query<Map<String, dynamic>> creatorSpotsQuery(String uid) {
-  var query = spotsCollection().where('addedByUid', isEqualTo: uid);
+  var query = spotsCollection()
+      .where('visibility', isEqualTo: 'public')
+      .where('addedByUid', isEqualTo: uid);
   if (uid != FirebaseAuth.instance.currentUser?.uid) {
-    query = query.where('status', isEqualTo: 'approved');
+    query = query
+        .where('visibility', isEqualTo: 'public')
+        .where('status', isEqualTo: 'approved');
     if (!currentUserCanUseVerifiedOnlySpots) {
       query = query.where('verifiedOnly', isEqualTo: false);
     }
@@ -49804,9 +54438,21 @@ class _CreatorSpotsScreenState extends State<CreatorSpotsScreen>
 class _MiniProfileInfoChip extends StatelessWidget {
   final IconData icon;
   final String label;
-  const _MiniProfileInfoChip({required this.icon, required this.label});
+  final bool allowFullLabel;
+
+  const _MiniProfileInfoChip({
+    required this.icon,
+    required this.label,
+    this.allowFullLabel = false,
+  });
+
   @override
   Widget build(BuildContext context) {
+    final availableLabelWidth = MediaQuery.sizeOf(context).width - 72;
+    final maxFullLabelWidth = availableLabelWidth < 74
+        ? 74.0
+        : availableLabelWidth;
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 5),
       decoration: BoxDecoration(
@@ -49816,19 +54462,26 @@ class _MiniProfileInfoChip extends StatelessWidget {
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           Icon(icon, color: blue, size: 12),
           const SizedBox(width: 4),
           ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 74),
+            constraints: BoxConstraints(
+              maxWidth: allowFullLabel ? maxFullLabelWidth : 74,
+            ),
             child: Text(
               label,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
+              maxLines: allowFullLabel ? null : 1,
+              overflow: allowFullLabel
+                  ? TextOverflow.visible
+                  : TextOverflow.ellipsis,
+              softWrap: allowFullLabel,
               style: const TextStyle(
                 color: Colors.white70,
                 fontSize: 9.3,
                 fontWeight: FontWeight.w800,
+                height: 1.15,
               ),
             ),
           ),
@@ -50920,6 +55573,7 @@ class EditProfileScreen extends StatefulWidget {
 }
 
 class _EditProfileScreenState extends State<EditProfileScreen> {
+  String? selectedCountryCode;
   late final TextEditingController usernameController;
   late final TextEditingController cityController;
   late final TextEditingController bioController;
@@ -50939,7 +55593,8 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   void initState() {
     super.initState();
     usernameController = TextEditingController(text: widget.profile.username);
-    cityController = TextEditingController(text: widget.profile.cityCountry);
+    cityController = TextEditingController(text: widget.profile.city);
+    selectedCountryCode = countryIsoCode(widget.profile.country);
     bioController = TextEditingController(text: widget.profile.bio);
     instagramController = TextEditingController(text: widget.profile.instagram);
     tiktokController = TextEditingController(text: widget.profile.tiktok);
@@ -51013,6 +55668,15 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   }
 
   void saveProfile() {
+    if (!profileRegionIsComplete(
+      cityController.text,
+      selectedCountryCode ?? widget.profile.country,
+    )) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(requiredRegionMessage)));
+      return;
+    }
     if (!canSaveProfile) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -51035,9 +55699,10 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         username: usernameController.text.trim().isEmpty
             ? currentUser.username
             : cleanProfileUsername(usernameController.text),
-        cityCountry: cityController.text.trim().isEmpty
-            ? 'Riga, Latvia'
-            : cityController.text.trim(),
+        city: cityController.text.trim(),
+        country: selectedCountryCode == null
+            ? widget.profile.country
+            : canonicalSpotCountryName(selectedCountryCode!),
         bio: bioController.text.trim().isEmpty
             ? 'Find. Drive. Shoot.'
             : bioController.text.trim(),
@@ -51161,9 +55826,54 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
               const SizedBox(height: 14),
               _CcsTextField(
                 controller: cityController,
-                label: 'Base',
-                hint: 'Riga, Latvia',
+                label: communityText(en: 'City', ru: 'Город', lv: 'Pilsēta'),
+                hint: communityText(
+                  en: 'Enter your city',
+                  ru: 'Введите город',
+                  lv: 'Ievadiet pilsētu',
+                ),
                 icon: Icons.location_city,
+              ),
+              const SizedBox(height: 14),
+              DropdownButtonFormField<String>(
+                initialValue: selectedCountryCode,
+                isExpanded: true,
+                dropdownColor: const Color(0xFF171C24),
+                style: const TextStyle(color: Colors.white),
+                decoration: InputDecoration(
+                  labelText: communityText(
+                    en: 'Country',
+                    ru: 'Страна',
+                    lv: 'Valsts',
+                  ),
+                  prefixIcon: const Icon(Icons.public, color: blue),
+                ),
+                hint: Text(
+                  communityText(
+                    en: 'Choose your country',
+                    ru: 'Выберите страну',
+                    lv: 'Izvēlieties valsti',
+                  ),
+                ),
+                items: allSupportedCountryNames().map((country) {
+                  final code = countryIsoCode(country)!;
+                  return DropdownMenuItem(
+                    value: code,
+                    child: Text(
+                      '${countryFlagEmoji(code)} ${localizedCountryName(code)}',
+                    ),
+                  );
+                }).toList(),
+                onChanged: (code) => setState(() => selectedCountryCode = code),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                communityText(
+                  en: 'You can correct your automatically detected location here. Your country is used for your chat flag.',
+                  ru: 'Здесь можно исправить автоматически определённое местоположение. Страна используется для флага в чате.',
+                  lv: 'Šeit varat labot automātiski noteikto atrašanās vietu. Valsts tiek izmantota jūsu karogam tērzēšanā.',
+                ),
+                style: const TextStyle(color: Colors.white54, fontSize: 12),
               ),
               const SizedBox(height: 14),
               _CcsTextField(
@@ -51171,7 +55881,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                 label: 'About you',
                 hint: 'Short description',
                 icon: Icons.notes,
-                maxLines: 4,
+                autoGrow: true,
               ),
             ],
           ),
@@ -51866,6 +56576,7 @@ class AdminUserData {
   final String username;
   final String name;
   final String email;
+  final String country;
   final UserRole role;
   final bool verified;
   final bool banned;
@@ -51883,6 +56594,7 @@ class AdminUserData {
     required this.username,
     required this.name,
     required this.email,
+    this.country = '',
     required this.role,
     required this.verified,
     required this.banned,
@@ -51943,6 +56655,7 @@ class AdminUserData {
       username: stringFromFirebase(data['username'], 'ccs_driver'),
       name: stringFromFirebase(data['name'], 'CCS Driver'),
       email: stringFromFirebase(data['email'], ''),
+      country: stringFromFirebase(data['country'], ''),
       role: roleFromFirebase(data['role']),
       verified:
           roleFromFirebase(data['role']) == UserRole.admin ||
@@ -52127,6 +56840,14 @@ class _AdminUsersScreenState extends State<AdminUsersScreen>
   }
 
   Future<bool> canManageUser(BuildContext context, AdminUserData user) async {
+    if (!currentUserCanManageProfileCountry(user.country)) {
+      showAdminActionError(
+        context,
+        message: 'This user is outside your assigned countries',
+        error: 'regional-moderator-scope',
+      );
+      return false;
+    }
     if (user.uid == currentUser.uid) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -52171,6 +56892,7 @@ class _AdminUsersScreenState extends State<AdminUsersScreen>
   }
 
   bool canShowManagementActions(AdminUserData user) {
+    if (!currentUserCanManageProfileCountry(user.country)) return false;
     if (user.uid == currentUser.uid || user.role == UserRole.admin) {
       return false;
     }
@@ -52461,8 +57183,16 @@ class _AdminUsersScreenState extends State<AdminUsersScreen>
       return;
     }
 
+    Set<String>? assignedCountries;
+    if (makeModerator) {
+      assignedCountries = await requestModeratorCountryCodes(context, user);
+      if (assignedCountries == null || assignedCountries.isEmpty) return;
+    }
+
     try {
       await usersCollection().doc(user.uid).debugSet({
+        if (assignedCountries != null)
+          'moderatorCountryCodes': assignedCountries.toList()..sort(),
         'globalChatModerator': makeModerator,
         'globalModerator': makeModerator,
         'globalModeratorUpdatedByUid': currentUser.uid,
@@ -52612,125 +57342,31 @@ class _AdminUsersScreenState extends State<AdminUsersScreen>
   }
 
   Future<void> banUser(BuildContext context, AdminUserData user) async {
-    if (!await canManageUser(context, user)) {
-      return;
-    }
-
+    if (!await canManageUser(context, user)) return;
     final input = await requestBanInput(context, user);
-    if (input == null) {
-      return;
-    }
-
-    final bannedUntil = Timestamp.fromDate(
-      DateTime.now().add(Duration(days: input.days)),
-    );
-    final banData = <String, Object?>{
-      'banned': true,
-      'bannedUntil': bannedUntil,
-      'banReason': input.reason,
-      'bannedByUid': currentUser.uid,
-      'bannedBy': currentUser.username,
-      'bannedAt': FieldValue.serverTimestamp(),
-      'knownDeviceIdsAtBan': user.deviceIds,
-      'updatedAt': FieldValue.serverTimestamp(),
-    };
-
-    if (!context.mounted) {
-      return;
-    }
-
-    final messenger = ScaffoldMessenger.of(context);
-    messenger.showSnackBar(
-      SnackBar(
-        duration: const Duration(seconds: 2),
-        backgroundColor: blue,
-        content: Text(
-          trText('Banning user...'),
-          style: const TextStyle(
-            color: Colors.white,
-            fontWeight: FontWeight.w700,
-          ),
-        ),
-      ),
-    );
-
+    if (input == null) return;
+    final requestId = usersCollection().doc().id;
     try {
-      await usersCollection()
-          .doc(user.uid)
-          .debugSet(banData, SetOptions(merge: true))
-          .timeout(const Duration(seconds: 12));
-
-      for (final deviceId in user.deviceIds) {
-        await saveDeviceBanForUser(
-          deviceId: deviceId,
-          user: user,
-          bannedUntil: bannedUntil,
-          reason: input.reason,
-        ).timeout(const Duration(seconds: 12));
-      }
-
+      await sendModerationAction({
+        'action': 'ban_user',
+        'targetUserId': user.uid,
+        'days': input.days,
+        'reason': input.reason,
+        'requestId': requestId,
+      });
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            backgroundColor: Colors.redAccent,
-            content: Text(
-              trText('User banned.'),
-              style: const TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ),
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(trText('User banned.'))));
+      }
+    } catch (error) {
+      if (context.mounted) {
+        showAdminActionError(
+          context,
+          message: trText('Could not ban user'),
+          error: error,
         );
       }
-    } on FirebaseException catch (error) {
-      if (error.code == 'permission-denied' &&
-          banData.containsKey('banReason')) {
-        try {
-          final legacyBanData = Map<String, Object?>.from(banData)
-            ..remove('banReason')
-            ..remove('knownDeviceIdsAtBan');
-          await usersCollection()
-              .doc(user.uid)
-              .debugSet(legacyBanData, SetOptions(merge: true))
-              .timeout(const Duration(seconds: 12));
-
-          if (context.mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                backgroundColor: Colors.redAccent,
-                content: Text(
-                  '${trText('User banned.')} ${trText('Deploy Firebase Rules to save ban reasons.')}',
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ),
-            );
-          }
-          return;
-        } catch (fallbackError) {
-          showAdminActionError(
-            context,
-            message: trText('Could not ban user'),
-            error: fallbackError,
-          );
-          return;
-        }
-      }
-
-      showAdminActionError(
-        context,
-        message: trText('Could not ban user'),
-        error: error,
-      );
-    } catch (error) {
-      showAdminActionError(
-        context,
-        message: trText('Could not ban user'),
-        error: error,
-      );
     }
   }
 
@@ -53491,6 +58127,67 @@ class UserReportData {
   }
 }
 
+Stream<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
+regionalUserReportsStream() {
+  if (currentUser.role == UserRole.admin) {
+    return userReportsCollection()
+        .orderBy('createdAtMillis', descending: true)
+        .limit(200)
+        .debugSnapshots('admin: user reports')
+        .map((snapshot) => snapshot.docs);
+  }
+  final countries = currentUser.moderatorCountryCodes.toList();
+  if (currentUser.role != UserRole.moderator || countries.isEmpty) {
+    return Stream.value(const []);
+  }
+  final subscriptions =
+      <StreamSubscription<QuerySnapshot<Map<String, dynamic>>>>[];
+  final pages = <int, List<QueryDocumentSnapshot<Map<String, dynamic>>>>{};
+  late StreamController<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
+  controller;
+  controller = StreamController(
+    onListen: () {
+      for (var start = 0; start < countries.length; start += 30) {
+        final page = start;
+        subscriptions.add(
+          userReportsCollection()
+              .where(
+                'countryCode',
+                whereIn: countries.sublist(
+                  start,
+                  math.min(start + 30, countries.length),
+                ),
+              )
+              .debugSnapshots('moderator: regional user reports')
+              .listen((snapshot) {
+                pages[page] = snapshot.docs;
+                if (pages.length == (countries.length / 30).ceil()) {
+                  final documents = pages.values.expand((docs) => docs).toList()
+                    ..sort(
+                      (a, b) =>
+                          timestampMillisFromFirebase(
+                            b.data()['createdAtMillis'],
+                          ).compareTo(
+                            timestampMillisFromFirebase(
+                              a.data()['createdAtMillis'],
+                            ),
+                          ),
+                    );
+                  controller.add(documents);
+                }
+              }, onError: controller.addError),
+        );
+      }
+    },
+    onCancel: () async {
+      for (final subscription in subscriptions) {
+        await subscription.cancel();
+      }
+    },
+  );
+  return controller.stream;
+}
+
 class AdminUserReportsScreen extends StatelessWidget {
   const AdminUserReportsScreen({super.key});
 
@@ -53712,15 +58409,12 @@ class AdminUserReportsScreen extends StatelessWidget {
         backgroundColor: Colors.transparent,
         foregroundColor: blue,
       ),
-      body: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-        stream: userReportsCollection()
-            .orderBy('createdAtMillis', descending: true)
-            .limit(200)
-            .debugSnapshots('admin: user reports list listener'),
+      body: StreamBuilder<List<QueryDocumentSnapshot<Map<String, dynamic>>>>(
+        stream: regionalUserReportsStream(),
         builder: (context, snapshot) {
           final reports =
-              snapshot.data?.docs
-                  .map((doc) => UserReportData.fromFirestore(doc))
+              snapshot.data
+                  ?.map((doc) => UserReportData.fromFirestore(doc))
                   .toList() ??
               const <UserReportData>[];
           final openCount = reports.where((report) => report.isOpen).length;
@@ -54136,6 +58830,7 @@ Future<void> deleteAdminSpot(
 
 Future<void> createForumReviewNotification({
   required Map<String, dynamic> topic,
+  required String topicId,
   required String status,
   String rejectionReason = '',
 }) async {
@@ -54157,6 +58852,8 @@ Future<void> createForumReviewNotification({
     await userNotificationsCollection().debugAdd({
       'userId': authorId,
       'type': 'forum_reviewed',
+      'topicId': topicId,
+      'actorUserId': currentUser.uid,
       'status': status,
       'title': title,
       'body': body,
@@ -54171,322 +58868,524 @@ Future<void> createForumReviewNotification({
   }
 }
 
-Future<void> approveForumTopic(String topicId) async {
-  final moderator = FirebaseAuth.instance.currentUser;
-  final topicRef = FirebaseFirestore.instance
-      .collection('forum_topics')
-      .doc(topicId);
-  final snapshot = await topicRef.debugGet(null, 'forum: approve topic lookup');
-  final topic = snapshot.data() ?? const <String, dynamic>{};
-
-  await topicRef.debugSet({
+Future<void> approveForumTopic(String topicId, ForumReviewLease lease) async {
+  await lease.ensureActive();
+  final result = await sendModerationAction({
+    'action': 'forum_review',
+    'operation': 'decide',
+    'sessionId': lease.sessionId,
+    'topicId': topicId,
     'status': 'approved',
-    'reviewedBy': moderator?.uid,
-    'reviewedAt': FieldValue.serverTimestamp(),
-  }, SetOptions(merge: true));
-
-  await createForumReviewNotification(topic: topic, status: 'approved');
+  });
+  lease.checkBlocked(result);
+  // Publication is queued and dispatched by the committed backend decision.
   forumTopicsRefreshTick.value++;
+  await lease.renew();
 }
 
-Future<void> rejectForumTopic(String topicId, String reason) async {
-  final moderator = FirebaseAuth.instance.currentUser;
-  final cleanReason = reason.trim().isEmpty ? 'Не указана' : reason.trim();
-  final topicRef = FirebaseFirestore.instance
-      .collection('forum_topics')
-      .doc(topicId);
-  final snapshot = await topicRef.debugGet(null, 'forum: reject topic lookup');
-  final topic = snapshot.data() ?? const <String, dynamic>{};
-
-  await topicRef.debugSet({
+Future<void> rejectForumTopic(
+  String topicId,
+  String reason,
+  ForumReviewLease lease,
+) async {
+  await lease.ensureActive();
+  final result = await sendModerationAction({
+    'action': 'forum_review',
+    'operation': 'decide',
+    'sessionId': lease.sessionId,
+    'topicId': topicId,
     'status': 'rejected',
-    'rejectionReason': cleanReason,
-    'reviewedBy': moderator?.uid,
-    'reviewedAt': FieldValue.serverTimestamp(),
-  }, SetOptions(merge: true));
-
-  await createForumReviewNotification(
-    topic: topic,
-    status: 'rejected',
-    rejectionReason: cleanReason,
-  );
+    'rejectionReason': reason.trim(),
+  });
+  lease.checkBlocked(result);
+  await lease.renew();
   forumTopicsRefreshTick.value++;
 }
 
 Future<void> showRejectForumTopicDialog(
   BuildContext context,
   String topicId,
+  ForumReviewLease lease,
 ) async {
   final controller = TextEditingController();
-
   try {
-    await showDialog<void>(
+    final reason = await showDialog<String>(
       context: context,
-      builder: (dialogContext) {
-        return AlertDialog(
-          backgroundColor: const Color(0xFF1A1A1A),
-          title: const Text(
-            'Причина отклонения',
-            style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900),
+      builder: (dialogContext) => AlertDialog(
+        title: Text(trText('Rejection reason')),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          maxLines: 3,
+          maxLength: 2000,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: Text(trText('Cancel')),
           ),
-          content: TextField(
-            controller: controller,
-            autofocus: true,
-            maxLines: 3,
-            style: const TextStyle(color: Colors.white),
-            decoration: const InputDecoration(
-              hintText: 'Укажите причину отклонения',
-              hintStyle: TextStyle(color: Colors.white38),
-              enabledBorder: OutlineInputBorder(
-                borderSide: BorderSide(color: Color(0xFF2A2A2A)),
-              ),
-              focusedBorder: OutlineInputBorder(
-                borderSide: BorderSide(color: blue),
-              ),
-            ),
+          ElevatedButton(
+            onPressed: () {
+              if (controller.text.trim().isNotEmpty)
+                Navigator.pop(dialogContext, controller.text.trim());
+            },
+            child: Text(trText('Reject')),
           ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(dialogContext),
-              child: const Text('Отмена'),
-            ),
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.redAccent,
-              ),
-              onPressed: () async {
-                final reason = controller.text.trim();
-                if (reason.isEmpty) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Укажите причину отклонения'),
-                      backgroundColor: Colors.redAccent,
-                    ),
-                  );
-                  return;
-                }
-
-                Navigator.pop(dialogContext);
-                await rejectForumTopic(topicId, reason);
-              },
-              child: const Text(
-                'Отклонить',
-                style: TextStyle(color: Colors.white),
-              ),
-            ),
-          ],
-        );
-      },
+        ],
+      ),
     );
+    if (reason != null) await rejectForumTopic(topicId, reason, lease);
   } finally {
     controller.dispose();
   }
 }
 
-class ForumModerationScreen extends StatelessWidget {
-  const ForumModerationScreen({super.key});
+class ForumReviewLease extends ChangeNotifier {
+  final String uid;
+  final Future<Map<String, dynamic>> Function(Map<String, dynamic>)?
+  requestAction;
+  List<Map<String, dynamic>> topics = [];
+  final String sessionId =
+      '${DateTime.now().microsecondsSinceEpoch}_${math.Random.secure().nextInt(1 << 32)}';
+  final Stopwatch _confirmedAge = Stopwatch();
+  Timer? _heartbeat;
+  Future<void>? _renewing;
+  bool _held = false;
+  bool _closed = false;
+  bool _foreground = true;
+  bool busy = false;
+  String reviewerUsername = '';
+  String errorText = '';
 
-  Widget topicTile(
-    BuildContext context,
-    QueryDocumentSnapshot<Map<String, dynamic>> doc,
-  ) {
-    final topic = doc.data();
-    final title = stringFromFirebase(topic['title'], trText('Untitled topic'));
-    final category = forumCategoryTitle(
-      forumCategoryIdFromFirebase(topic['categoryId'] ?? topic['category']),
+  ForumReviewLease({this.requestAction, String? userId})
+    : uid = userId ?? FirebaseAuth.instance.currentUser?.uid ?? '';
+
+  void checkBlocked(Map<String, dynamic> result) {
+    if (result['blocked'] != true) return;
+    markLost();
+    reviewerUsername = stringFromFirebase(
+      result['reviewerUsername'],
+      'another reviewer',
     );
-    final authorName = stringFromFirebase(topic['authorName'], 'ccs_driver');
-    final description = stringFromFirebase(topic['description'], '');
-
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: panelGlass,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: Colors.white12),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              const Icon(Icons.edit_note, color: blue),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Text(
-                  title,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w900,
-                    fontSize: 16,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'Категория: $category',
-            style: const TextStyle(color: Colors.white70),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            'Автор: @$authorName',
-            style: const TextStyle(color: Colors.white54, fontSize: 12),
-          ),
-          if (description.trim().isNotEmpty) ...[
-            const SizedBox(height: 10),
-            const Text(
-              'Описание:',
-              style: TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              description,
-              style: const TextStyle(color: Colors.white70, height: 1.35),
-            ),
-          ],
-          const SizedBox(height: 14),
-          Row(
-            children: [
-              Expanded(
-                child: OutlinedButton.icon(
-                  onPressed: () => showRejectForumTopicDialog(context, doc.id),
-                  icon: const Icon(Icons.close),
-                  label: const Text('Отклонить'),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: Colors.redAccent,
-                    side: const BorderSide(color: Colors.redAccent),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: ElevatedButton.icon(
-                  onPressed: () async {
-                    await approveForumTopic(doc.id);
-                    if (context.mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          backgroundColor: Colors.green,
-                          content: Text('✅ Тема одобрена'),
-                        ),
-                      );
-                    }
-                  },
-                  icon: const Icon(Icons.check),
-                  label: const Text('Одобрить'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.green,
-                    foregroundColor: Colors.white,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
+    errorText = '';
+    if (!_closed) notifyListeners();
+    throw StateError(
+      'Forum review is currently being checked by @$reviewerUsername',
     );
   }
 
-  Widget moderationScaffold(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.transparent,
-      appBar: AppBar(
-        title: const Text('Форум на проверке'),
-        backgroundColor: Colors.transparent,
-        foregroundColor: blue,
-      ),
-      body: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-        stream: FirebaseFirestore.instance
-            .collection('forum_topics')
-            .where('status', isEqualTo: 'pending')
-            .limit(50)
-            .debugSnapshots('forum: pending moderation listener'),
-        builder: (context, snapshot) {
-          final topics =
-              (snapshot.data?.docs ??
-                      const <QueryDocumentSnapshot<Map<String, dynamic>>>[])
-                  .toList()
-                ..sort((a, b) {
-                  final aMillis = timestampMillisFromFirebase(
-                    a.data()['createdAt'],
-                  );
-                  final bMillis = timestampMillisFromFirebase(
-                    b.data()['createdAt'],
-                  );
-                  return aMillis.compareTo(bMillis);
-                });
+  void readTopics(Map<String, dynamic> result) {
+    topics = (result['topics'] as List? ?? const [])
+        .whereType<Map>()
+        .map((x) => Map<String, dynamic>.from(x))
+        .toList();
+  }
 
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator(color: blue));
-          }
+  bool get active =>
+      (requestAction != null ||
+          FirebaseAuth.instance.currentUser?.uid == uid) &&
+      !_closed &&
+      _foreground &&
+      _held &&
+      _confirmedAge.isRunning &&
+      _confirmedAge.elapsed < const Duration(seconds: 75);
 
-          return ListView(
-            padding: const EdgeInsets.fromLTRB(12, 18, 12, 28),
-            children: [
-              const Text(
-                '📝 Форум',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 34,
-                  fontWeight: FontWeight.w900,
+  Future<Map<String, dynamic>> _send(String operation) async {
+    if ((requestAction == null &&
+            FirebaseAuth.instance.currentUser?.uid != uid) ||
+        uid.isEmpty) {
+      throw StateError('Review account changed');
+    }
+    return (requestAction ?? sendModerationAction)({
+      'action': 'forum_review',
+      'operation': operation,
+      'sessionId': sessionId,
+    }).timeout(const Duration(seconds: 15));
+  }
+
+  void _confirm() {
+    _held = true;
+    errorText = '';
+    _confirmedAge
+      ..reset()
+      ..start();
+    _heartbeat ??= Timer.periodic(const Duration(seconds: 25), (_) async {
+      if (_closed || !_foreground || !_held) return;
+      try {
+        await renew();
+      } catch (_) {
+        /* renew marks the session lost */
+      }
+    });
+  }
+
+  Future<bool> acquire() async {
+    errorText = '';
+    reviewerUsername = '';
+    final result = await _send('acquire');
+    if (_closed || !_foreground) {
+      unawaited(release());
+      return false;
+    }
+    if (result['ok'] == false || result['acquired'] is! bool) {
+      throw StateError('Unsupported forum review response');
+    }
+    if (result['acquired'] == false) {
+      _held = false;
+      reviewerUsername = stringFromFirebase(result['reviewerUsername'], '');
+      notifyListeners();
+      return false;
+    }
+    readTopics(result);
+    _confirm();
+    notifyListeners();
+    return true;
+  }
+
+  Future<void> renew() async {
+    if (_closed || !_foreground) throw StateError('Review is not active');
+    final existing = _renewing;
+    if (existing != null) return existing;
+    final future = _renew();
+    _renewing = future;
+    try {
+      await future;
+    } finally {
+      if (identical(_renewing, future)) _renewing = null;
+    }
+  }
+
+  Future<void> _renew() async {
+    try {
+      final result = await _send('renew');
+      if (result['blocked'] == true) {
+        try {
+          checkBlocked(result);
+        } catch (_) {}
+        return;
+      }
+      if (result['ok'] == false || result['renewed'] != true) {
+        throw StateError('Unsupported forum review response');
+      }
+      if (_closed || !_foreground) throw StateError('Review is not active');
+      readTopics(result);
+      _confirm();
+      notifyListeners();
+    } catch (error, stack) {
+      markLost(error: error);
+      debugPrint('Forum review renewal failed: $error\n$stack');
+      rethrow;
+    }
+  }
+
+  Future<void> ensureActive() async {
+    if (!active) {
+      throw StateError(trText('Review session ended. Reopen the review page.'));
+    }
+    await renew();
+    if (!active) throw StateError('Review session is no longer active');
+  }
+
+  void markLost({Object? error, bool opening = false}) {
+    _held = false;
+    topics = [];
+    _heartbeat?.cancel();
+    _heartbeat = null;
+    reviewerUsername = '';
+    final details = error?.toString().toLowerCase() ?? '';
+    if (error is TimeoutException || error is SocketException) {
+      errorText = 'Could not connect to the review server. Please try again.';
+    } else if (details.contains('unknown action') ||
+        details.contains('unsupported forum review response') ||
+        details.contains('request failed 404')) {
+      errorText = 'The review server needs updating. Contact an admin.';
+    } else if (details.contains('no permission') ||
+        details.contains('permission-denied')) {
+      errorText = 'No permission to review forum topics.';
+    } else {
+      errorText = opening
+          ? 'Could not open forum review. Please try again.'
+          : 'Review session ended. Reopen the review page.';
+    }
+    if (!_closed) notifyListeners();
+  }
+
+  void suspend() {
+    _foreground = false;
+    markLost();
+  }
+
+  Future<void> resume() async {
+    _foreground = true;
+    try {
+      await renew();
+    } catch (_) {}
+  }
+
+  Future<void> runAction(Future<void> Function() action) async {
+    if (busy || !active) return;
+    busy = true;
+    notifyListeners();
+    try {
+      await action();
+    } finally {
+      busy = false;
+      if (!_closed) notifyListeners();
+    }
+  }
+
+  Future<void> release() async {
+    try {
+      await _send('release');
+    } catch (_) {
+      // A failed release recovers through the server's 90-second expiry.
+    }
+  }
+
+  @override
+  void dispose() {
+    _closed = true;
+    _held = false;
+    topics = [];
+    _heartbeat?.cancel();
+    unawaited(release());
+    super.dispose();
+  }
+}
+
+class ForumModerationScreen extends StatefulWidget {
+  final ForumReviewLease Function()? leaseFactory;
+  const ForumModerationScreen({super.key, this.leaseFactory});
+  @override
+  State<ForumModerationScreen> createState() => _ForumModerationScreenState();
+}
+
+class _ForumModerationScreenState extends State<ForumModerationScreen>
+    with WidgetsBindingObserver {
+  ForumReviewLease? _lease;
+  bool _opening = false;
+  String _error = '';
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && userRoleIsStaff(currentUser.role)) _openReview();
+    });
+  }
+
+  void _changed() {
+    if (mounted) setState(() {});
+  }
+
+  void _closeLease() {
+    final old = _lease;
+    _lease = null;
+    old?.removeListener(_changed);
+    old?.dispose();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _closeLease();
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    final lease = _lease;
+    if (lease == null) return;
+    if (state == AppLifecycleState.resumed) {
+      // Returning requires explicitly reopening review.
+      return;
+    }
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.detached) {
+      lease.suspend();
+      unawaited(lease.release());
+    }
+  }
+
+  Future<void> _openReview() async {
+    if (_opening) return;
+    _closeLease();
+    final lease = (widget.leaseFactory?.call() ?? ForumReviewLease());
+    _lease = lease;
+    lease.addListener(_changed);
+    setState(() {
+      _opening = true;
+      _error = '';
+    });
+    try {
+      await lease.acquire();
+    } catch (error) {
+      lease.markLost(error: error, opening: true);
+    } finally {
+      if (mounted)
+        setState(() {
+          _opening = false;
+        });
+    }
+  }
+
+  Future<void> _decide(String topicId, bool approve) async {
+    final lease = _lease;
+    if (lease == null || !lease.active || lease.busy) return;
+    try {
+      await lease.runAction(() async {
+        if (approve) {
+          await approveForumTopic(topicId, lease);
+        } else {
+          await showRejectForumTopicDialog(context, topicId, lease);
+        }
+      });
+    } catch (error) {
+      if (mounted)
+        setState(() {
+          _error = 'Could not complete review: $error';
+        });
+    }
+  }
+
+  Widget _topicTile(Map<String, dynamic> topic) {
+    final topicId = stringFromFirebase(topic['id'], '');
+    final title = stringFromFirebase(topic['title'], trText('Untitled topic'));
+    final enabled = _lease?.active == true && _lease?.busy == false;
+    return Card(
+      color: panelGlass,
+      margin: const EdgeInsets.only(bottom: 12),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              title,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 17,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              '@${stringFromFirebase(topic['authorName'], 'ccs_driver')}',
+              style: const TextStyle(color: Colors.white70),
+            ),
+            Text(
+              forumCategoryTitle(
+                forumCategoryIdFromFirebase(
+                  topic['categoryId'] ?? topic['category'],
                 ),
               ),
-              const SizedBox(height: 6),
-              Text(
-                topics.isEmpty
-                    ? 'Нет тем на проверке.'
-                    : '${topics.length} тем на проверке.',
-                style: const TextStyle(color: Colors.white54),
-              ),
-              const SizedBox(height: 18),
-              if (topics.isEmpty)
-                const EmptyStateCard(
-                  icon: Icons.forum_outlined,
-                  title: 'Нет тем на проверке',
-                  text: 'Новые темы форума появятся здесь.',
-                )
-              else
-                for (final topic in topics) topicTile(context, topic),
-            ],
-          );
-        },
+              style: const TextStyle(color: Colors.white54),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              stringFromFirebase(topic['description'], ''),
+              style: const TextStyle(color: Colors.white70),
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: enabled ? () => _decide(topicId, false) : null,
+                    icon: const Icon(Icons.close),
+                    label: Text(trText('Reject')),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: enabled ? () => _decide(topicId, true) : null,
+                    icon: const Icon(Icons.check),
+                    label: Text(trText('Approve')),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    if (userRoleIsStaff(currentUser.role)) {
-      return moderationScaffold(context);
-    }
-
-    return FutureBuilder<bool>(
-      future: currentUserHasCommunityModerationAccess(),
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Scaffold(
-            backgroundColor: Colors.transparent,
-            body: Center(child: CircularProgressIndicator(color: blue)),
-          );
-        }
-
-        if (snapshot.data == true) {
-          return moderationScaffold(context);
-        }
-
-        return const Scaffold(
-          backgroundColor: Colors.transparent,
-          body: Center(
-            child: Text('No access', style: TextStyle(color: Colors.white)),
-          ),
-        );
-      },
+    final lease = _lease;
+    final active = lease?.active == true;
+    return Scaffold(
+      backgroundColor: Colors.transparent,
+      appBar: AppBar(
+        title: Text(trText('Forum review')),
+        foregroundColor: blue,
+        backgroundColor: Colors.transparent,
+        actions: [
+          if (active)
+            IconButton(
+              tooltip: trText('Refresh'),
+              icon: const Icon(Icons.refresh),
+              onPressed: lease!.busy
+                  ? null
+                  : () async {
+                      try {
+                        await lease.renew();
+                      } catch (_) {}
+                    },
+            ),
+        ],
+      ),
+      body: !userRoleIsStaff(currentUser.role)
+          ? const Center(
+              child: Text('No access', style: TextStyle(color: Colors.white)),
+            )
+          : Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  if (_opening)
+                    const Center(child: CircularProgressIndicator()),
+                  if (!_opening && !active) ...[
+                    if (lease?.reviewerUsername.isNotEmpty ?? false)
+                      Text(
+                        'Forum review is currently being checked by @${lease!.reviewerUsername}. You have shared topics awaiting review.',
+                        style: const TextStyle(color: Colors.orangeAccent),
+                      ),
+                    if (lease?.errorText.isNotEmpty ?? false)
+                      Text(
+                        trText(lease!.errorText),
+                        style: const TextStyle(color: Colors.orangeAccent),
+                      ),
+                    ElevatedButton(
+                      onPressed: _openReview,
+                      child: Text(trText('Try again')),
+                    ),
+                  ],
+                  if (_error.isNotEmpty)
+                    Text(
+                      _error,
+                      style: const TextStyle(color: Colors.redAccent),
+                    ),
+                  if (active)
+                    Expanded(
+                      child: lease!.topics.isEmpty
+                          ? Center(
+                              child: Text(
+                                trText('No topics awaiting review'),
+                                style: const TextStyle(color: Colors.white70),
+                              ),
+                            )
+                          : ListView(
+                              children: lease.topics.map(_topicTile).toList(),
+                            ),
+                    ),
+                ],
+              ),
+            ),
     );
   }
 }
@@ -54845,12 +59744,13 @@ class _AdminReviewScreenState extends State<AdminReviewScreen>
               ValueListenableBuilder<bool>(
                 valueListenable: firestoreDebugButtonVisible,
                 builder: (context, debugVisible, _) {
-                  return Container(
-                    decoration: BoxDecoration(
-                      color: panelGlass,
+                  return Material(
+                    color: panelGlass,
+                    shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(18),
-                      border: Border.all(color: Colors.white12),
+                      side: const BorderSide(color: Colors.white12),
                     ),
+                    clipBehavior: Clip.antiAlias,
                     child: SwitchListTile.adaptive(
                       value: debugVisible,
                       activeColor: blue,
@@ -55898,8 +60798,10 @@ class _AdminEditSpotScreenState extends State<AdminEditSpotScreen>
         contactInstagram: supportsContacts ? cleanInstagram : '',
         contactEmail: supportsContacts ? cleanEmail : '',
         openingHours: supportsContacts ? openingHours : const {},
-        ownerUid: supportsContacts ? (owner?.uid ?? '') : '',
-        ownerUsername: supportsContacts ? (owner?.username ?? '') : '',
+        ownerUid: supportsContacts ? (owner?.uid ?? '') : widget.spot.ownerUid,
+        ownerUsername: supportsContacts
+            ? (owner?.username ?? '')
+            : widget.spot.ownerUsername,
         photoUrl: finalPhotoUrls.isEmpty ? '' : finalPhotoUrls.first,
         photoUrls: finalPhotoUrls,
         verifiedOnly: verifiedOnlySpot,
