@@ -22,7 +22,45 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'firebase_options.dart';
+<<<<<<< HEAD
 import 'achievements_screen.dart';
+=======
+import 'in_app_badges.dart';
+import 'query_pages.dart';
+import 'session_count_stream.dart';
+import 'spots_interaction_guide.dart';
+import 'spot_presence_grouping.dart';
+
+final inAppBadges = InAppBadgeController(
+  FirebaseFirestore.instance,
+  forumCategoryForData: (data) =>
+      forumCategoryIdFromFirebase(data['categoryId'] ?? data['category']),
+  onRead: (label, readCount) =>
+      firestoreDebugTracker.recordRead(label, readCount),
+);
+int activityChatTabIndex = 0;
+ActivitySection? activitySectionForNavigation(int index) => switch (index) {
+  0 => ActivitySection.spots,
+  1 => ActivitySection.map,
+  3 => ActivitySection.values[activityChatTabIndex],
+  _ => null,
+};
+void observeLoadedSpotsForBadges() {
+  for (final spot in reviewSpots.value) {
+    inAppBadges.observeSpot(
+      spot.id,
+      math.max(spot.createdAtMillis, spot.updatedAtMillis),
+      own: spot.addedByUid == inAppBadges.uid,
+      eligible:
+          spot.status == SpotStatus.approved &&
+          (spot.expiresAtMillis == null ||
+              spot.expiresAtMillis! > DateTime.now().millisecondsSinceEpoch) &&
+          spotMatchesSelectedCountries(spot) &&
+          (!spot.verifiedOnly || currentUserCanUseVerifiedOnlySpots),
+    );
+  }
+}
+>>>>>>> cd4aab94 (2)
 
 // Paste the OAuth 2.0 Web Client ID from Firebase/Google Cloud here.
 // It usually looks like: 325709324670-xxxxx.apps.googleusercontent.com
@@ -23552,6 +23590,8 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
   LatLng? displayedUserLocation;
   LatLng? lastGpsUserLocation;
   LatLng? lastUploadedLiveLocation;
+  String? lastVisitCandidate;
+  DateTime? lastVisitRecordedAt;
   DateTime? lastGpsUserLocationAt;
   String? friendAtSpotCandidateId;
   String? friendAtSpotNotifiedSpotId;
@@ -24031,6 +24071,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
   }
 
   List<Marker> get markers {
+    final presence = spotPresenceGroups;
     final showFullIcons = currentMapZoom >= fullSpotIconMinZoom;
     final compactZoomProgress =
         ((currentMapZoom - 3) / (fullSpotIconMinZoom - 3))
@@ -24321,6 +24362,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
         point: spot.coordinates,
         width: markerWidth,
         height: markerHeight,
+<<<<<<< HEAD
         child: GestureDetector(
           behavior: HitTestBehavior.translucent,
           onTap: () {
@@ -24332,6 +24374,33 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
             });
           },
           child: showFullIcons ? fullMarker() : compactMarker(),
+=======
+        rotate: true,
+        child: IgnorePointer(
+          ignoring: visibilityOpacity <= 0.05,
+          child: Opacity(
+            opacity: visibilityOpacity,
+            child: GestureDetector(
+              behavior: HitTestBehavior.translucent,
+              onTap: () {
+                setState(() {
+                  selectedSpot = spot;
+                  selectedPoliceReport = null;
+                  selectedSosReport = null;
+                  selectedLiveLocation = null;
+                });
+              },
+              child: currentMapZoom >= 14 && (presence[spot.id]?.isNotEmpty ?? false)
+                ? Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+                    SpotPresenceCount(count: presence[spot.id]!.length, onTap: () => showSpotPeople(spot)),
+                    const SizedBox(height: 3),
+                    Flexible(child: Text(spot.name, maxLines: 1, overflow: TextOverflow.ellipsis,
+                      style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: mapStyle.mapLabelColor))),
+                  ])
+                : showFullIcons ? fullMarker() : compactMarker(),
+            ),
+          ),
+>>>>>>> cd4aab94 (2)
         ),
       );
     }).toList();
@@ -24647,6 +24716,31 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     return friendLiveLocationUids.contains(location.uid);
   }
 
+  Map<String, List<String>> get spotPresenceGroups => groupSpotPresence(
+    {for (final spot in visibleSpots.where((spot) => spot.isVisibleOnMapNow &&
+      (!spot.isTemporary || spot.isTemporaryActiveNow))) spot.id: spot.coordinates},
+    liveLocations.map((p) => PresencePoint(p.uid, p.coordinates, p.updatedAtMillis, p.expiresAtMillis)),
+    DateTime.now().millisecondsSinceEpoch,
+  );
+
+  List<LiveLocationData> peopleAtSpot(CarSpot spot) {
+    final ids = spotPresenceGroups[spot.id]?.toSet() ?? <String>{};
+    return liveLocations.where((person) => ids.contains(person.uid)).toList();
+  }
+
+  void showSpotPeople(CarSpot spot) {
+    showModalBottomSheet<void>(context: context, isScrollControlled: true,
+      backgroundColor: const Color(0xFF10141C),
+      builder: (_) => SpotPeopleSheet(
+        title: spot.name,
+        load: () => mounted ? peopleAtSpot(spot) : <LiveLocationData>[],
+        onProfile: (person) {
+          Navigator.of(context).pop();
+          openUserProfile(context, uid: person.uid, fallbackUsername: person.username);
+        },
+      ));
+  }
+
   String liveLocationCarIconAsset(LiveLocationData location) {
     if (liveLocationIsFriend(location)) {
       return friendUserCarIconAsset;
@@ -24673,10 +24767,14 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
 
   List<Marker> get liveLocationMarkers {
     final firebaseUser = FirebaseAuth.instance.currentUser;
+    final grouped = currentMapZoom >= 14
+        ? spotPresenceGroups.values.expand((ids) => ids).toSet()
+        : <String>{};
 
     return liveLocations
         .where(liveLocationShouldStayVisibleOnMap)
         .where((location) => location.uid != firebaseUser?.uid)
+        .where((location) => !grouped.contains(location.uid))
         .map((location) {
           final carIconSize = scaledMapIconValue(
             zoom: currentMapZoom,
@@ -27067,6 +27165,32 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     }
   }
 
+  Future<void> recordNearbySpotVisit(Position position, User user) async {
+    final grouped = groupSpotPresence(
+      {for (final spot in approvedPublicSpots().where((spot) => !spot.isGroupSpot &&
+        spot.isVisibleOnMapNow && (!spot.isTemporary || spot.isTemporaryActiveNow))) spot.id: spot.coordinates},
+      [PresencePoint(user.uid, LatLng(position.latitude, position.longitude),
+        position.timestamp.millisecondsSinceEpoch, DateTime.now().add(const Duration(minutes: 2)).millisecondsSinceEpoch)],
+      DateTime.now().millisecondsSinceEpoch,
+    );
+    if (grouped.isEmpty) { lastVisitCandidate = null; return; }
+    final spotId = grouped.keys.first;
+    final candidate = '${user.uid}:$spotId';
+    if (lastVisitCandidate == candidate && lastVisitRecordedAt != null &&
+        DateTime.now().difference(lastVisitRecordedAt!) < const Duration(minutes: 5)) return;
+    try {
+      final token = await user.getIdToken();
+      if (FirebaseAuth.instance.currentUser?.uid != user.uid) return;
+      final response = await postJsonToUrl(
+        'https://ccs-telegram-auth-server.vercel.app/api/spot-visit', {'spotId': spotId},
+        headers: {HttpHeaders.authorizationHeader: 'Bearer $token'},
+      );
+      if (response['ok'] == true) { lastVisitCandidate = candidate; lastVisitRecordedAt = DateTime.now(); }
+    } catch (_) {
+      // Recording retries on a later GPS sample; map sharing must stay available.
+    }
+  }
+
   Future<void> writeLiveLocation(
     Position position, {
     required bool renewWindow,
@@ -27134,6 +27258,8 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
       'lat': position.latitude,
       'lng': position.longitude,
       'coordinates': GeoPoint(position.latitude, position.longitude),
+      'accuracy': position.accuracy,
+      'isMocked': position.isMocked,
       'visibleToUserIds': nextVisibleToUserIds.isEmpty
           ? [firebaseUser.uid]
           : nextVisibleToUserIds,
@@ -27146,6 +27272,15 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
       'updatedAt': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
 
+<<<<<<< HEAD
+=======
+    // Use the newly saved sample for server-side five-minute arrival tracking.
+    unawaited(sendPushNotificationEvent({'type': 'friend_at_spot'}));
+    if (!position.isMocked && position.accuracy <= spotPresenceRadiusMeters) {
+      unawaited(recordNearbySpotVisit(position, firebaseUser));
+    }
+
+>>>>>>> cd4aab94 (2)
     await updateCurrentUserPresenceFields({
       'isSharingLiveLocation': true,
       'liveLocationExpiresAt': Timestamp.fromDate(expiresAt),
@@ -28041,6 +28176,8 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
               bottom: 16,
               child: SpotMapCard(
                 spot: spot,
+                peopleCount: peopleAtSpot(spot).length,
+                onPeople: () => showSpotPeople(spot),
                 onOpen: () => openSpotDetails(spot),
               ),
             ),
@@ -29007,11 +29144,81 @@ class PoliceReportMapCard extends StatelessWidget {
   }
 }
 
+String spotPeopleLabel(int count) => switch (appUiPreferences.language) {
+  AppLanguage.ru => 'Людей рядом: $count',
+  AppLanguage.lv => 'Cilvēki tuvumā: $count',
+  _ => 'People nearby: $count',
+};
+
+class SpotPresenceCount extends StatelessWidget {
+  final int count;
+  final VoidCallback onTap;
+  const SpotPresenceCount({super.key, required this.count, required this.onTap});
+  @override
+  Widget build(BuildContext context) => Tooltip(message: spotPeopleLabel(count),
+    child: Semantics(button: true, label: spotPeopleLabel(count), child: InkWell(
+      onTap: onTap, customBorder: const CircleBorder(),
+      child: Container(width: 46, height: 46,
+        decoration: BoxDecoration(shape: BoxShape.circle, color: blue,
+          border: Border.all(color: Colors.white70, width: 2),
+          boxShadow: const [BoxShadow(color: Colors.black38, blurRadius: 6)]),
+        padding: const EdgeInsets.all(5),
+        child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+          const Icon(Icons.people_alt, size: 13, color: Colors.white),
+          Expanded(child: FittedBox(child: Text(count > 999 ? '999+' : '$count',
+            style: const TextStyle(fontWeight: FontWeight.w900, color: Colors.white, fontSize: 16)))),
+        ]),
+      ),
+    )));
+}
+
+class SpotPeopleSheet extends StatefulWidget {
+  final String title;
+  final List<LiveLocationData> Function() load;
+  final void Function(LiveLocationData) onProfile;
+  const SpotPeopleSheet({super.key, required this.title, required this.load, required this.onProfile});
+  @override
+  State<SpotPeopleSheet> createState() => _SpotPeopleSheetState();
+}
+
+class _SpotPeopleSheetState extends State<SpotPeopleSheet> {
+  Timer? timer;
+  @override
+  void initState() {
+    super.initState();
+    timer = Timer.periodic(const Duration(seconds: 5), (_) { if (mounted) setState(() {}); });
+  }
+  @override
+  void dispose() { timer?.cancel(); super.dispose(); }
+  @override
+  Widget build(BuildContext context) {
+    final people = widget.load();
+    return SafeArea(child: SizedBox(height: MediaQuery.sizeOf(context).height * .55,
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        Padding(padding: const EdgeInsets.fromLTRB(20, 20, 20, 6),
+          child: Text(widget.title, maxLines: 2, overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800))),
+        Padding(padding: const EdgeInsets.fromLTRB(20, 0, 20, 12), child: Text(spotPeopleLabel(people.length))),
+        Expanded(child: ListView.builder(itemCount: people.length, itemBuilder: (context, index) {
+          final person = people[index];
+          return ListTile(leading: const CircleAvatar(child: Icon(Icons.person_outline)),
+            title: Text(displayUsername(person.username), maxLines: 1, overflow: TextOverflow.ellipsis),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => widget.onProfile(person));
+        })),
+      ]),
+    ));
+  }
+}
+
 class SpotMapCard extends StatelessWidget {
   final CarSpot spot;
   final VoidCallback onOpen;
+  final int peopleCount;
+  final VoidCallback? onPeople;
 
-  const SpotMapCard({super.key, required this.spot, required this.onOpen});
+  const SpotMapCard({super.key, required this.spot, required this.onOpen,
+    this.peopleCount = 0, this.onPeople});
 
   @override
   Widget build(BuildContext context) {
@@ -29080,6 +29287,11 @@ class SpotMapCard extends StatelessWidget {
                 Text(
                   spot.cityCountry,
                   style: const TextStyle(color: Colors.white54, fontSize: 12),
+                ),
+                if (onPeople != null) TextButton.icon(
+                  onPressed: onPeople,
+                  icon: const Icon(Icons.people_alt_outlined, size: 18),
+                  label: Text(spotPeopleLabel(peopleCount)),
                 ),
                 const SizedBox(height: 8),
                 Text(
