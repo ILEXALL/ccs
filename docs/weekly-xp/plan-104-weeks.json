@@ -1,0 +1,5208 @@
+{
+  "version": "ccs-weekly-v1",
+  "seed": "ccs-weekly-v1",
+  "weeks": [
+    {
+      "week": 1,
+      "tasks": [
+        {
+          "id": "visit-two",
+          "difficulty": 0,
+          "family": "visits",
+          "xp": 75,
+          "title": {
+            "en": "Visit two different spots",
+            "ru": "Посетить два разных спота",
+            "lv": "Apmeklēt divas dažādas vietas"
+          },
+          "metric": "verified_visits",
+          "target": 2,
+          "available": false
+        },
+        {
+          "id": "weekday-weekend",
+          "difficulty": 1,
+          "family": "explore",
+          "xp": 100,
+          "title": {
+            "en": "Visit different spots on a weekday and on the weekend",
+            "ru": "Посетить разные споты в будний и выходной день",
+            "lv": "Apmeklēt dažādas vietas darbdienā un nedēļas nogalē"
+          },
+          "metric": "weekday_and_weekend_visits",
+          "target": 2,
+          "available": false
+        },
+        {
+          "id": "publish-and-visit",
+          "difficulty": 2,
+          "family": "content",
+          "xp": 125,
+          "title": {
+            "en": "Publish a complete approved spot and visit two other spots",
+            "ru": "Опубликовать полный одобренный спот и посетить два чужих",
+            "lv": "Publicēt pilnīgu apstiprinātu vietu un apmeklēt divas citas"
+          },
+          "metric": "publish_and_two_visits",
+          "target": 3,
+          "available": false
+        }
+      ],
+      "totalXp": 300,
+      "weekKey": "2026-09-14",
+      "endWeekKey": "2026-09-21"
+    },
+    {
+      "week": 2,
+      "tasks": [
+        {
+          "id": "help-answer",
+          "difficulty": 0,
+          "family": "community",
+          "xp": 75,
+          "title": {
+            "en": "Have an answer marked helpful by a topic author",
+            "ru": "Получить отметку полезного ответа от автора темы",
+            "lv": "Saņemt tēmas autora atzīmi par noderīgu atbildi"
+          },
+          "metric": "accepted_helpful_answers",
+          "target": 1,
+          "available": false
+        },
+        {
+          "id": "new-two",
+          "difficulty": 1,
+          "family": "explore",
+          "xp": 100,
+          "title": {
+            "en": "Visit two spots you have never visited",
+            "ru": "Посетить два спота, где ещё не был",
+            "lv": "Apmeklēt divas vēl neapmeklētas vietas"
+          },
+          "metric": "first_visits",
+          "target": 2,
+          "available": false
+        },
+        {
+          "id": "visit-seven",
+          "difficulty": 2,
+          "family": "visits",
+          "xp": 125,
+          "title": {
+            "en": "Visit seven different spots",
+            "ru": "Посетить семь разных спотов",
+            "lv": "Apmeklēt septiņas dažādas vietas"
+          },
+          "metric": "verified_visits",
+          "target": 7,
+          "available": false
+        }
+      ],
+      "totalXp": 300,
+      "weekKey": "2026-09-21",
+      "endWeekKey": "2026-09-28"
+    },
+    {
+      "week": 3,
+      "tasks": [
+        {
+          "id": "photo-help",
+          "difficulty": 0,
+          "family": "content",
+          "xp": 75,
+          "title": {
+            "en": "Add an accepted photo to another author's spot",
+            "ru": "Добавить одобренное фото к чужому споту",
+            "lv": "Pievienot apstiprinātu foto cita autora vietai"
+          },
+          "metric": "accepted_photo_contributions",
+          "target": 1,
+          "available": false
+        },
+        {
+          "id": "meet-and-spot",
+          "difficulty": 1,
+          "family": "community",
+          "xp": 100,
+          "title": {
+            "en": "Attend a meet and visit a permanent spot",
+            "ru": "Посетить мит и постоянный спот",
+            "lv": "Apmeklēt tikšanos un pastāvīgu vietu"
+          },
+          "metric": "meet_and_permanent_visit",
+          "target": 2,
+          "available": false
+        },
+        {
+          "id": "visit-three-days",
+          "difficulty": 2,
+          "family": "visits",
+          "xp": 125,
+          "title": {
+            "en": "Visit different spots on three days",
+            "ru": "Посетить разные споты в три разных дня",
+            "lv": "Apmeklēt dažādas vietas trijās dienās"
+          },
+          "metric": "distinct_visit_days",
+          "target": 3,
+          "available": false
+        }
+      ],
+      "totalXp": 300,
+      "weekKey": "2026-09-28",
+      "endWeekKey": "2026-10-05"
+    },
+    {
+      "week": 4,
+      "tasks": [
+        {
+          "id": "visit-new",
+          "difficulty": 0,
+          "family": "visits",
+          "xp": 75,
+          "title": {
+            "en": "Visit a spot you have not visited before",
+            "ru": "Посетить спот, где ещё не был",
+            "lv": "Apmeklēt vēl neapmeklētu vietu"
+          },
+          "metric": "first_visits",
+          "target": 1,
+          "available": false
+        },
+        {
+          "id": "photo-two",
+          "difficulty": 1,
+          "family": "content",
+          "xp": 100,
+          "title": {
+            "en": "Add accepted photos to two other authors' spots",
+            "ru": "Добавить одобренные фото к двум чужим спотам",
+            "lv": "Pievienot apstiprinātus foto divām citu autoru vietām"
+          },
+          "metric": "accepted_photo_contributions",
+          "target": 2,
+          "available": false
+        },
+        {
+          "id": "new-three-days",
+          "difficulty": 2,
+          "family": "explore",
+          "xp": 125,
+          "title": {
+            "en": "Visit a new spot on each of three different days",
+            "ru": "Посетить новый для себя спот в каждый из трёх разных дней",
+            "lv": "Apmeklēt sev jaunu vietu katrā no trim dažādām dienām"
+          },
+          "metric": "first_visit_days",
+          "target": 3,
+          "available": false
+        }
+      ],
+      "totalXp": 300,
+      "weekKey": "2026-10-05",
+      "endWeekKey": "2026-10-12"
+    },
+    {
+      "week": 5,
+      "tasks": [
+        {
+          "id": "meet-visit",
+          "difficulty": 0,
+          "family": "community",
+          "xp": 75,
+          "title": {
+            "en": "Attend a meet hosted by another user",
+            "ru": "Посетить мит другого организатора",
+            "lv": "Apmeklēt cita rīkotu tikšanos"
+          },
+          "metric": "verified_meet_visits",
+          "target": 1,
+          "available": false
+        },
+        {
+          "id": "visit-two-days",
+          "difficulty": 1,
+          "family": "visits",
+          "xp": 100,
+          "title": {
+            "en": "Visit different spots on two days",
+            "ru": "Посетить разные споты в два разных дня",
+            "lv": "Apmeklēt dažādas vietas divās dienās"
+          },
+          "metric": "distinct_visit_days",
+          "target": 2,
+          "available": false
+        },
+        {
+          "id": "three-categories",
+          "difficulty": 2,
+          "family": "explore",
+          "xp": 125,
+          "title": {
+            "en": "Visit spots in three different categories",
+            "ru": "Посетить споты трёх разных категорий",
+            "lv": "Apmeklēt vietas trijās dažādās kategorijās"
+          },
+          "metric": "visited_categories",
+          "target": 3,
+          "available": false
+        }
+      ],
+      "totalXp": 300,
+      "weekKey": "2026-10-12",
+      "endWeekKey": "2026-10-19"
+    },
+    {
+      "week": 6,
+      "tasks": [
+        {
+          "id": "weekend-visit",
+          "difficulty": 0,
+          "family": "explore",
+          "xp": 75,
+          "title": {
+            "en": "Visit a spot on the weekend",
+            "ru": "Посетить спот в выходные",
+            "lv": "Apmeklēt vietu nedēļas nogalē"
+          },
+          "metric": "weekend_visits",
+          "target": 1,
+          "available": false
+        },
+        {
+          "id": "spot-gallery",
+          "difficulty": 1,
+          "family": "content",
+          "xp": 100,
+          "title": {
+            "en": "Publish an approved spot with three different photos",
+            "ru": "Опубликовать одобренный спот с тремя разными фото",
+            "lv": "Publicēt apstiprinātu vietu ar trim dažādiem foto"
+          },
+          "metric": "new_gallery_spots",
+          "target": 1,
+          "available": false
+        },
+        {
+          "id": "help-three-authors",
+          "difficulty": 2,
+          "family": "community",
+          "xp": 125,
+          "title": {
+            "en": "Help three different topic authors with accepted answers",
+            "ru": "Помочь трём авторам тем: они отметили твои ответы полезными",
+            "lv": "Palīdzēt trim tēmu autoriem ar atzītām atbildēm"
+          },
+          "metric": "helped_topic_authors",
+          "target": 3,
+          "available": false
+        }
+      ],
+      "totalXp": 300,
+      "weekKey": "2026-10-19",
+      "endWeekKey": "2026-10-26"
+    },
+    {
+      "week": 7,
+      "tasks": [
+        {
+          "id": "two-categories",
+          "difficulty": 0,
+          "family": "explore",
+          "xp": 75,
+          "title": {
+            "en": "Visit spots in two different categories",
+            "ru": "Посетить споты двух разных категорий",
+            "lv": "Apmeklēt vietas divās dažādās kategorijās"
+          },
+          "metric": "visited_categories",
+          "target": 2,
+          "available": false
+        },
+        {
+          "id": "help-two-authors",
+          "difficulty": 1,
+          "family": "community",
+          "xp": 100,
+          "title": {
+            "en": "Help two different topic authors with accepted answers",
+            "ru": "Помочь двум авторам тем: они отметили твои ответы полезными",
+            "lv": "Palīdzēt diviem tēmu autoriem ar atzītām atbildēm"
+          },
+          "metric": "helped_topic_authors",
+          "target": 2,
+          "available": false
+        },
+        {
+          "id": "photo-three",
+          "difficulty": 2,
+          "family": "content",
+          "xp": 125,
+          "title": {
+            "en": "Add accepted photos to three other authors' spots",
+            "ru": "Добавить одобренные фото к трём чужим спотам",
+            "lv": "Pievienot apstiprinātus foto trim citu autoru vietām"
+          },
+          "metric": "accepted_photo_contributions",
+          "target": 3,
+          "available": false
+        }
+      ],
+      "totalXp": 300,
+      "weekKey": "2026-10-26",
+      "endWeekKey": "2026-11-02"
+    },
+    {
+      "week": 8,
+      "tasks": [
+        {
+          "id": "spot-detail",
+          "difficulty": 0,
+          "family": "content",
+          "xp": 75,
+          "title": {
+            "en": "Publish an approved spot with a description and photo",
+            "ru": "Опубликовать одобренный спот с описанием и фото",
+            "lv": "Publicēt apstiprinātu vietu ar aprakstu un foto"
+          },
+          "metric": "new_complete_spots",
+          "target": 1,
+          "available": false
+        },
+        {
+          "id": "visit-four",
+          "difficulty": 1,
+          "family": "visits",
+          "xp": 100,
+          "title": {
+            "en": "Visit four different spots",
+            "ru": "Посетить четыре разных спота",
+            "lv": "Apmeklēt četras dažādas vietas"
+          },
+          "metric": "verified_visits",
+          "target": 4,
+          "available": false
+        },
+        {
+          "id": "meet-and-new-two",
+          "difficulty": 2,
+          "family": "community",
+          "xp": 125,
+          "title": {
+            "en": "Attend a meet and visit two new permanent spots",
+            "ru": "Посетить мит и два новых для себя постоянных спота",
+            "lv": "Apmeklēt tikšanos un divas sev jaunas pastāvīgas vietas"
+          },
+          "metric": "meet_and_two_first_visits",
+          "target": 3,
+          "available": false
+        }
+      ],
+      "totalXp": 300,
+      "weekKey": "2026-11-02",
+      "endWeekKey": "2026-11-09"
+    },
+    {
+      "week": 9,
+      "tasks": [
+        {
+          "id": "photo-help",
+          "difficulty": 0,
+          "family": "content",
+          "xp": 75,
+          "title": {
+            "en": "Add an accepted photo to another author's spot",
+            "ru": "Добавить одобренное фото к чужому споту",
+            "lv": "Pievienot apstiprinātu foto cita autora vietai"
+          },
+          "metric": "accepted_photo_contributions",
+          "target": 1,
+          "available": false
+        },
+        {
+          "id": "weekday-weekend",
+          "difficulty": 1,
+          "family": "explore",
+          "xp": 100,
+          "title": {
+            "en": "Visit different spots on a weekday and on the weekend",
+            "ru": "Посетить разные споты в будний и выходной день",
+            "lv": "Apmeklēt dažādas vietas darbdienā un nedēļas nogalē"
+          },
+          "metric": "weekday_and_weekend_visits",
+          "target": 2,
+          "available": false
+        },
+        {
+          "id": "visit-seven",
+          "difficulty": 2,
+          "family": "visits",
+          "xp": 125,
+          "title": {
+            "en": "Visit seven different spots",
+            "ru": "Посетить семь разных спотов",
+            "lv": "Apmeklēt septiņas dažādas vietas"
+          },
+          "metric": "verified_visits",
+          "target": 7,
+          "available": false
+        }
+      ],
+      "totalXp": 300,
+      "weekKey": "2026-11-09",
+      "endWeekKey": "2026-11-16"
+    },
+    {
+      "week": 10,
+      "tasks": [
+        {
+          "id": "meet-visit",
+          "difficulty": 0,
+          "family": "community",
+          "xp": 75,
+          "title": {
+            "en": "Attend a meet hosted by another user",
+            "ru": "Посетить мит другого организатора",
+            "lv": "Apmeklēt cita rīkotu tikšanos"
+          },
+          "metric": "verified_meet_visits",
+          "target": 1,
+          "available": false
+        },
+        {
+          "id": "new-two",
+          "difficulty": 1,
+          "family": "explore",
+          "xp": 100,
+          "title": {
+            "en": "Visit two spots you have never visited",
+            "ru": "Посетить два спота, где ещё не был",
+            "lv": "Apmeklēt divas vēl neapmeklētas vietas"
+          },
+          "metric": "first_visits",
+          "target": 2,
+          "available": false
+        },
+        {
+          "id": "visit-three-days",
+          "difficulty": 2,
+          "family": "visits",
+          "xp": 125,
+          "title": {
+            "en": "Visit different spots on three days",
+            "ru": "Посетить разные споты в три разных дня",
+            "lv": "Apmeklēt dažādas vietas trijās dienās"
+          },
+          "metric": "distinct_visit_days",
+          "target": 3,
+          "available": false
+        }
+      ],
+      "totalXp": 300,
+      "weekKey": "2026-11-16",
+      "endWeekKey": "2026-11-23"
+    },
+    {
+      "week": 11,
+      "tasks": [
+        {
+          "id": "visit-new",
+          "difficulty": 0,
+          "family": "visits",
+          "xp": 75,
+          "title": {
+            "en": "Visit a spot you have not visited before",
+            "ru": "Посетить спот, где ещё не был",
+            "lv": "Apmeklēt vēl neapmeklētu vietu"
+          },
+          "metric": "first_visits",
+          "target": 1,
+          "available": false
+        },
+        {
+          "id": "photo-two",
+          "difficulty": 1,
+          "family": "content",
+          "xp": 100,
+          "title": {
+            "en": "Add accepted photos to two other authors' spots",
+            "ru": "Добавить одобренные фото к двум чужим спотам",
+            "lv": "Pievienot apstiprinātus foto divām citu autoru vietām"
+          },
+          "metric": "accepted_photo_contributions",
+          "target": 2,
+          "available": false
+        },
+        {
+          "id": "three-categories",
+          "difficulty": 2,
+          "family": "explore",
+          "xp": 125,
+          "title": {
+            "en": "Visit spots in three different categories",
+            "ru": "Посетить споты трёх разных категорий",
+            "lv": "Apmeklēt vietas trijās dažādās kategorijās"
+          },
+          "metric": "visited_categories",
+          "target": 3,
+          "available": false
+        }
+      ],
+      "totalXp": 300,
+      "weekKey": "2026-11-23",
+      "endWeekKey": "2026-11-30"
+    },
+    {
+      "week": 12,
+      "tasks": [
+        {
+          "id": "help-answer",
+          "difficulty": 0,
+          "family": "community",
+          "xp": 75,
+          "title": {
+            "en": "Have an answer marked helpful by a topic author",
+            "ru": "Получить отметку полезного ответа от автора темы",
+            "lv": "Saņemt tēmas autora atzīmi par noderīgu atbildi"
+          },
+          "metric": "accepted_helpful_answers",
+          "target": 1,
+          "available": false
+        },
+        {
+          "id": "visit-two-days",
+          "difficulty": 1,
+          "family": "visits",
+          "xp": 100,
+          "title": {
+            "en": "Visit different spots on two days",
+            "ru": "Посетить разные споты в два разных дня",
+            "lv": "Apmeklēt dažādas vietas divās dienās"
+          },
+          "metric": "distinct_visit_days",
+          "target": 2,
+          "available": false
+        },
+        {
+          "id": "photo-three",
+          "difficulty": 2,
+          "family": "content",
+          "xp": 125,
+          "title": {
+            "en": "Add accepted photos to three other authors' spots",
+            "ru": "Добавить одобренные фото к трём чужим спотам",
+            "lv": "Pievienot apstiprinātus foto trim citu autoru vietām"
+          },
+          "metric": "accepted_photo_contributions",
+          "target": 3,
+          "available": false
+        }
+      ],
+      "totalXp": 300,
+      "weekKey": "2026-11-30",
+      "endWeekKey": "2026-12-07"
+    },
+    {
+      "week": 13,
+      "tasks": [
+        {
+          "id": "visit-two",
+          "difficulty": 0,
+          "family": "visits",
+          "xp": 75,
+          "title": {
+            "en": "Visit two different spots",
+            "ru": "Посетить два разных спота",
+            "lv": "Apmeklēt divas dažādas vietas"
+          },
+          "metric": "verified_visits",
+          "target": 2,
+          "available": false
+        },
+        {
+          "id": "help-two-authors",
+          "difficulty": 1,
+          "family": "community",
+          "xp": 100,
+          "title": {
+            "en": "Help two different topic authors with accepted answers",
+            "ru": "Помочь двум авторам тем: они отметили твои ответы полезными",
+            "lv": "Palīdzēt diviem tēmu autoriem ar atzītām atbildēm"
+          },
+          "metric": "helped_topic_authors",
+          "target": 2,
+          "available": false
+        },
+        {
+          "id": "new-three-days",
+          "difficulty": 2,
+          "family": "explore",
+          "xp": 125,
+          "title": {
+            "en": "Visit a new spot on each of three different days",
+            "ru": "Посетить новый для себя спот в каждый из трёх разных дней",
+            "lv": "Apmeklēt sev jaunu vietu katrā no trim dažādām dienām"
+          },
+          "metric": "first_visit_days",
+          "target": 3,
+          "available": false
+        }
+      ],
+      "totalXp": 300,
+      "weekKey": "2026-12-07",
+      "endWeekKey": "2026-12-14"
+    },
+    {
+      "week": 14,
+      "tasks": [
+        {
+          "id": "weekend-visit",
+          "difficulty": 0,
+          "family": "explore",
+          "xp": 75,
+          "title": {
+            "en": "Visit a spot on the weekend",
+            "ru": "Посетить спот в выходные",
+            "lv": "Apmeklēt vietu nedēļas nogalē"
+          },
+          "metric": "weekend_visits",
+          "target": 1,
+          "available": false
+        },
+        {
+          "id": "spot-gallery",
+          "difficulty": 1,
+          "family": "content",
+          "xp": 100,
+          "title": {
+            "en": "Publish an approved spot with three different photos",
+            "ru": "Опубликовать одобренный спот с тремя разными фото",
+            "lv": "Publicēt apstiprinātu vietu ar trim dažādiem foto"
+          },
+          "metric": "new_gallery_spots",
+          "target": 1,
+          "available": false
+        },
+        {
+          "id": "meet-and-new-two",
+          "difficulty": 2,
+          "family": "community",
+          "xp": 125,
+          "title": {
+            "en": "Attend a meet and visit two new permanent spots",
+            "ru": "Посетить мит и два новых для себя постоянных спота",
+            "lv": "Apmeklēt tikšanos un divas sev jaunas pastāvīgas vietas"
+          },
+          "metric": "meet_and_two_first_visits",
+          "target": 3,
+          "available": false
+        }
+      ],
+      "totalXp": 300,
+      "weekKey": "2026-12-14",
+      "endWeekKey": "2026-12-21"
+    },
+    {
+      "week": 15,
+      "tasks": [
+        {
+          "id": "two-categories",
+          "difficulty": 0,
+          "family": "explore",
+          "xp": 75,
+          "title": {
+            "en": "Visit spots in two different categories",
+            "ru": "Посетить споты двух разных категорий",
+            "lv": "Apmeklēt vietas divās dažādās kategorijās"
+          },
+          "metric": "visited_categories",
+          "target": 2,
+          "available": false
+        },
+        {
+          "id": "meet-and-spot",
+          "difficulty": 1,
+          "family": "community",
+          "xp": 100,
+          "title": {
+            "en": "Attend a meet and visit a permanent spot",
+            "ru": "Посетить мит и постоянный спот",
+            "lv": "Apmeklēt tikšanos un pastāvīgu vietu"
+          },
+          "metric": "meet_and_permanent_visit",
+          "target": 2,
+          "available": false
+        },
+        {
+          "id": "publish-and-visit",
+          "difficulty": 2,
+          "family": "content",
+          "xp": 125,
+          "title": {
+            "en": "Publish a complete approved spot and visit two other spots",
+            "ru": "Опубликовать полный одобренный спот и посетить два чужих",
+            "lv": "Publicēt pilnīgu apstiprinātu vietu un apmeklēt divas citas"
+          },
+          "metric": "publish_and_two_visits",
+          "target": 3,
+          "available": false
+        }
+      ],
+      "totalXp": 300,
+      "weekKey": "2026-12-21",
+      "endWeekKey": "2026-12-28"
+    },
+    {
+      "week": 16,
+      "tasks": [
+        {
+          "id": "spot-detail",
+          "difficulty": 0,
+          "family": "content",
+          "xp": 75,
+          "title": {
+            "en": "Publish an approved spot with a description and photo",
+            "ru": "Опубликовать одобренный спот с описанием и фото",
+            "lv": "Publicēt apstiprinātu vietu ar aprakstu un foto"
+          },
+          "metric": "new_complete_spots",
+          "target": 1,
+          "available": false
+        },
+        {
+          "id": "visit-four",
+          "difficulty": 1,
+          "family": "visits",
+          "xp": 100,
+          "title": {
+            "en": "Visit four different spots",
+            "ru": "Посетить четыре разных спота",
+            "lv": "Apmeklēt četras dažādas vietas"
+          },
+          "metric": "verified_visits",
+          "target": 4,
+          "available": false
+        },
+        {
+          "id": "help-three-authors",
+          "difficulty": 2,
+          "family": "community",
+          "xp": 125,
+          "title": {
+            "en": "Help three different topic authors with accepted answers",
+            "ru": "Помочь трём авторам тем: они отметили твои ответы полезными",
+            "lv": "Palīdzēt trim tēmu autoriem ar atzītām atbildēm"
+          },
+          "metric": "helped_topic_authors",
+          "target": 3,
+          "available": false
+        }
+      ],
+      "totalXp": 300,
+      "weekKey": "2026-12-28",
+      "endWeekKey": "2027-01-04"
+    },
+    {
+      "week": 17,
+      "tasks": [
+        {
+          "id": "photo-help",
+          "difficulty": 0,
+          "family": "content",
+          "xp": 75,
+          "title": {
+            "en": "Add an accepted photo to another author's spot",
+            "ru": "Добавить одобренное фото к чужому споту",
+            "lv": "Pievienot apstiprinātu foto cita autora vietai"
+          },
+          "metric": "accepted_photo_contributions",
+          "target": 1,
+          "available": false
+        },
+        {
+          "id": "visit-two-days",
+          "difficulty": 1,
+          "family": "visits",
+          "xp": 100,
+          "title": {
+            "en": "Visit different spots on two days",
+            "ru": "Посетить разные споты в два разных дня",
+            "lv": "Apmeklēt dažādas vietas divās dienās"
+          },
+          "metric": "distinct_visit_days",
+          "target": 2,
+          "available": false
+        },
+        {
+          "id": "new-three-days",
+          "difficulty": 2,
+          "family": "explore",
+          "xp": 125,
+          "title": {
+            "en": "Visit a new spot on each of three different days",
+            "ru": "Посетить новый для себя спот в каждый из трёх разных дней",
+            "lv": "Apmeklēt sev jaunu vietu katrā no trim dažādām dienām"
+          },
+          "metric": "first_visit_days",
+          "target": 3,
+          "available": false
+        }
+      ],
+      "totalXp": 300,
+      "weekKey": "2027-01-04",
+      "endWeekKey": "2027-01-11"
+    },
+    {
+      "week": 18,
+      "tasks": [
+        {
+          "id": "meet-visit",
+          "difficulty": 0,
+          "family": "community",
+          "xp": 75,
+          "title": {
+            "en": "Attend a meet hosted by another user",
+            "ru": "Посетить мит другого организатора",
+            "lv": "Apmeklēt cita rīkotu tikšanos"
+          },
+          "metric": "verified_meet_visits",
+          "target": 1,
+          "available": false
+        },
+        {
+          "id": "spot-gallery",
+          "difficulty": 1,
+          "family": "content",
+          "xp": 100,
+          "title": {
+            "en": "Publish an approved spot with three different photos",
+            "ru": "Опубликовать одобренный спот с тремя разными фото",
+            "lv": "Publicēt apstiprinātu vietu ar trim dažādiem foto"
+          },
+          "metric": "new_gallery_spots",
+          "target": 1,
+          "available": false
+        },
+        {
+          "id": "visit-seven",
+          "difficulty": 2,
+          "family": "visits",
+          "xp": 125,
+          "title": {
+            "en": "Visit seven different spots",
+            "ru": "Посетить семь разных спотов",
+            "lv": "Apmeklēt septiņas dažādas vietas"
+          },
+          "metric": "verified_visits",
+          "target": 7,
+          "available": false
+        }
+      ],
+      "totalXp": 300,
+      "weekKey": "2027-01-11",
+      "endWeekKey": "2027-01-18"
+    },
+    {
+      "week": 19,
+      "tasks": [
+        {
+          "id": "weekend-visit",
+          "difficulty": 0,
+          "family": "explore",
+          "xp": 75,
+          "title": {
+            "en": "Visit a spot on the weekend",
+            "ru": "Посетить спот в выходные",
+            "lv": "Apmeklēt vietu nedēļas nogalē"
+          },
+          "metric": "weekend_visits",
+          "target": 1,
+          "available": false
+        },
+        {
+          "id": "help-two-authors",
+          "difficulty": 1,
+          "family": "community",
+          "xp": 100,
+          "title": {
+            "en": "Help two different topic authors with accepted answers",
+            "ru": "Помочь двум авторам тем: они отметили твои ответы полезными",
+            "lv": "Palīdzēt diviem tēmu autoriem ar atzītām atbildēm"
+          },
+          "metric": "helped_topic_authors",
+          "target": 2,
+          "available": false
+        },
+        {
+          "id": "photo-three",
+          "difficulty": 2,
+          "family": "content",
+          "xp": 125,
+          "title": {
+            "en": "Add accepted photos to three other authors' spots",
+            "ru": "Добавить одобренные фото к трём чужим спотам",
+            "lv": "Pievienot apstiprinātus foto trim citu autoru vietām"
+          },
+          "metric": "accepted_photo_contributions",
+          "target": 3,
+          "available": false
+        }
+      ],
+      "totalXp": 300,
+      "weekKey": "2027-01-18",
+      "endWeekKey": "2027-01-25"
+    },
+    {
+      "week": 20,
+      "tasks": [
+        {
+          "id": "help-answer",
+          "difficulty": 0,
+          "family": "community",
+          "xp": 75,
+          "title": {
+            "en": "Have an answer marked helpful by a topic author",
+            "ru": "Получить отметку полезного ответа от автора темы",
+            "lv": "Saņemt tēmas autora atzīmi par noderīgu atbildi"
+          },
+          "metric": "accepted_helpful_answers",
+          "target": 1,
+          "available": false
+        },
+        {
+          "id": "photo-two",
+          "difficulty": 1,
+          "family": "content",
+          "xp": 100,
+          "title": {
+            "en": "Add accepted photos to two other authors' spots",
+            "ru": "Добавить одобренные фото к двум чужим спотам",
+            "lv": "Pievienot apstiprinātus foto divām citu autoru vietām"
+          },
+          "metric": "accepted_photo_contributions",
+          "target": 2,
+          "available": false
+        },
+        {
+          "id": "visit-three-days",
+          "difficulty": 2,
+          "family": "visits",
+          "xp": 125,
+          "title": {
+            "en": "Visit different spots on three days",
+            "ru": "Посетить разные споты в три разных дня",
+            "lv": "Apmeklēt dažādas vietas trijās dienās"
+          },
+          "metric": "distinct_visit_days",
+          "target": 3,
+          "available": false
+        }
+      ],
+      "totalXp": 300,
+      "weekKey": "2027-01-25",
+      "endWeekKey": "2027-02-01"
+    },
+    {
+      "week": 21,
+      "tasks": [
+        {
+          "id": "visit-two",
+          "difficulty": 0,
+          "family": "visits",
+          "xp": 75,
+          "title": {
+            "en": "Visit two different spots",
+            "ru": "Посетить два разных спота",
+            "lv": "Apmeklēt divas dažādas vietas"
+          },
+          "metric": "verified_visits",
+          "target": 2,
+          "available": false
+        },
+        {
+          "id": "meet-and-spot",
+          "difficulty": 1,
+          "family": "community",
+          "xp": 100,
+          "title": {
+            "en": "Attend a meet and visit a permanent spot",
+            "ru": "Посетить мит и постоянный спот",
+            "lv": "Apmeklēt tikšanos un pastāvīgu vietu"
+          },
+          "metric": "meet_and_permanent_visit",
+          "target": 2,
+          "available": false
+        },
+        {
+          "id": "publish-and-visit",
+          "difficulty": 2,
+          "family": "content",
+          "xp": 125,
+          "title": {
+            "en": "Publish a complete approved spot and visit two other spots",
+            "ru": "Опубликовать полный одобренный спот и посетить два чужих",
+            "lv": "Publicēt pilnīgu apstiprinātu vietu un apmeklēt divas citas"
+          },
+          "metric": "publish_and_two_visits",
+          "target": 3,
+          "available": false
+        }
+      ],
+      "totalXp": 300,
+      "weekKey": "2027-02-01",
+      "endWeekKey": "2027-02-08"
+    },
+    {
+      "week": 22,
+      "tasks": [
+        {
+          "id": "visit-new",
+          "difficulty": 0,
+          "family": "visits",
+          "xp": 75,
+          "title": {
+            "en": "Visit a spot you have not visited before",
+            "ru": "Посетить спот, где ещё не был",
+            "lv": "Apmeklēt vēl neapmeklētu vietu"
+          },
+          "metric": "first_visits",
+          "target": 1,
+          "available": false
+        },
+        {
+          "id": "new-two",
+          "difficulty": 1,
+          "family": "explore",
+          "xp": 100,
+          "title": {
+            "en": "Visit two spots you have never visited",
+            "ru": "Посетить два спота, где ещё не был",
+            "lv": "Apmeklēt divas vēl neapmeklētas vietas"
+          },
+          "metric": "first_visits",
+          "target": 2,
+          "available": false
+        },
+        {
+          "id": "help-three-authors",
+          "difficulty": 2,
+          "family": "community",
+          "xp": 125,
+          "title": {
+            "en": "Help three different topic authors with accepted answers",
+            "ru": "Помочь трём авторам тем: они отметили твои ответы полезными",
+            "lv": "Palīdzēt trim tēmu autoriem ar atzītām atbildēm"
+          },
+          "metric": "helped_topic_authors",
+          "target": 3,
+          "available": false
+        }
+      ],
+      "totalXp": 300,
+      "weekKey": "2027-02-08",
+      "endWeekKey": "2027-02-15"
+    },
+    {
+      "week": 23,
+      "tasks": [
+        {
+          "id": "two-categories",
+          "difficulty": 0,
+          "family": "explore",
+          "xp": 75,
+          "title": {
+            "en": "Visit spots in two different categories",
+            "ru": "Посетить споты двух разных категорий",
+            "lv": "Apmeklēt vietas divās dažādās kategorijās"
+          },
+          "metric": "visited_categories",
+          "target": 2,
+          "available": false
+        },
+        {
+          "id": "visit-four",
+          "difficulty": 1,
+          "family": "visits",
+          "xp": 100,
+          "title": {
+            "en": "Visit four different spots",
+            "ru": "Посетить четыре разных спота",
+            "lv": "Apmeklēt četras dažādas vietas"
+          },
+          "metric": "verified_visits",
+          "target": 4,
+          "available": false
+        },
+        {
+          "id": "meet-and-new-two",
+          "difficulty": 2,
+          "family": "community",
+          "xp": 125,
+          "title": {
+            "en": "Attend a meet and visit two new permanent spots",
+            "ru": "Посетить мит и два новых для себя постоянных спота",
+            "lv": "Apmeklēt tikšanos un divas sev jaunas pastāvīgas vietas"
+          },
+          "metric": "meet_and_two_first_visits",
+          "target": 3,
+          "available": false
+        }
+      ],
+      "totalXp": 300,
+      "weekKey": "2027-02-15",
+      "endWeekKey": "2027-02-22"
+    },
+    {
+      "week": 24,
+      "tasks": [
+        {
+          "id": "spot-detail",
+          "difficulty": 0,
+          "family": "content",
+          "xp": 75,
+          "title": {
+            "en": "Publish an approved spot with a description and photo",
+            "ru": "Опубликовать одобренный спот с описанием и фото",
+            "lv": "Publicēt apstiprinātu vietu ar aprakstu un foto"
+          },
+          "metric": "new_complete_spots",
+          "target": 1,
+          "available": false
+        },
+        {
+          "id": "weekday-weekend",
+          "difficulty": 1,
+          "family": "explore",
+          "xp": 100,
+          "title": {
+            "en": "Visit different spots on a weekday and on the weekend",
+            "ru": "Посетить разные споты в будний и выходной день",
+            "lv": "Apmeklēt dažādas vietas darbdienā un nedēļas nogalē"
+          },
+          "metric": "weekday_and_weekend_visits",
+          "target": 2,
+          "available": false
+        },
+        {
+          "id": "visit-three-days",
+          "difficulty": 2,
+          "family": "visits",
+          "xp": 125,
+          "title": {
+            "en": "Visit different spots on three days",
+            "ru": "Посетить разные споты в три разных дня",
+            "lv": "Apmeklēt dažādas vietas trijās dienās"
+          },
+          "metric": "distinct_visit_days",
+          "target": 3,
+          "available": false
+        }
+      ],
+      "totalXp": 300,
+      "weekKey": "2027-02-22",
+      "endWeekKey": "2027-03-01"
+    },
+    {
+      "week": 25,
+      "tasks": [
+        {
+          "id": "visit-two",
+          "difficulty": 0,
+          "family": "visits",
+          "xp": 75,
+          "title": {
+            "en": "Visit two different spots",
+            "ru": "Посетить два разных спота",
+            "lv": "Apmeklēt divas dažādas vietas"
+          },
+          "metric": "verified_visits",
+          "target": 2,
+          "available": false
+        },
+        {
+          "id": "photo-two",
+          "difficulty": 1,
+          "family": "content",
+          "xp": 100,
+          "title": {
+            "en": "Add accepted photos to two other authors' spots",
+            "ru": "Добавить одобренные фото к двум чужим спотам",
+            "lv": "Pievienot apstiprinātus foto divām citu autoru vietām"
+          },
+          "metric": "accepted_photo_contributions",
+          "target": 2,
+          "available": false
+        },
+        {
+          "id": "three-categories",
+          "difficulty": 2,
+          "family": "explore",
+          "xp": 125,
+          "title": {
+            "en": "Visit spots in three different categories",
+            "ru": "Посетить споты трёх разных категорий",
+            "lv": "Apmeklēt vietas trijās dažādās kategorijās"
+          },
+          "metric": "visited_categories",
+          "target": 3,
+          "available": false
+        }
+      ],
+      "totalXp": 300,
+      "weekKey": "2027-03-01",
+      "endWeekKey": "2027-03-08"
+    },
+    {
+      "week": 26,
+      "tasks": [
+        {
+          "id": "visit-new",
+          "difficulty": 0,
+          "family": "visits",
+          "xp": 75,
+          "title": {
+            "en": "Visit a spot you have not visited before",
+            "ru": "Посетить спот, где ещё не был",
+            "lv": "Apmeklēt vēl neapmeklētu vietu"
+          },
+          "metric": "first_visits",
+          "target": 1,
+          "available": false
+        },
+        {
+          "id": "help-two-authors",
+          "difficulty": 1,
+          "family": "community",
+          "xp": 100,
+          "title": {
+            "en": "Help two different topic authors with accepted answers",
+            "ru": "Помочь двум авторам тем: они отметили твои ответы полезными",
+            "lv": "Palīdzēt diviem tēmu autoriem ar atzītām atbildēm"
+          },
+          "metric": "helped_topic_authors",
+          "target": 2,
+          "available": false
+        },
+        {
+          "id": "photo-three",
+          "difficulty": 2,
+          "family": "content",
+          "xp": 125,
+          "title": {
+            "en": "Add accepted photos to three other authors' spots",
+            "ru": "Добавить одобренные фото к трём чужим спотам",
+            "lv": "Pievienot apstiprinātus foto trim citu autoru vietām"
+          },
+          "metric": "accepted_photo_contributions",
+          "target": 3,
+          "available": false
+        }
+      ],
+      "totalXp": 300,
+      "weekKey": "2027-03-08",
+      "endWeekKey": "2027-03-15"
+    },
+    {
+      "week": 27,
+      "tasks": [
+        {
+          "id": "two-categories",
+          "difficulty": 0,
+          "family": "explore",
+          "xp": 75,
+          "title": {
+            "en": "Visit spots in two different categories",
+            "ru": "Посетить споты двух разных категорий",
+            "lv": "Apmeklēt vietas divās dažādās kategorijās"
+          },
+          "metric": "visited_categories",
+          "target": 2,
+          "available": false
+        },
+        {
+          "id": "visit-two-days",
+          "difficulty": 1,
+          "family": "visits",
+          "xp": 100,
+          "title": {
+            "en": "Visit different spots on two days",
+            "ru": "Посетить разные споты в два разных дня",
+            "lv": "Apmeklēt dažādas vietas divās dienās"
+          },
+          "metric": "distinct_visit_days",
+          "target": 2,
+          "available": false
+        },
+        {
+          "id": "help-three-authors",
+          "difficulty": 2,
+          "family": "community",
+          "xp": 125,
+          "title": {
+            "en": "Help three different topic authors with accepted answers",
+            "ru": "Помочь трём авторам тем: они отметили твои ответы полезными",
+            "lv": "Palīdzēt trim tēmu autoriem ar atzītām atbildēm"
+          },
+          "metric": "helped_topic_authors",
+          "target": 3,
+          "available": false
+        }
+      ],
+      "totalXp": 300,
+      "weekKey": "2027-03-15",
+      "endWeekKey": "2027-03-22"
+    },
+    {
+      "week": 28,
+      "tasks": [
+        {
+          "id": "spot-detail",
+          "difficulty": 0,
+          "family": "content",
+          "xp": 75,
+          "title": {
+            "en": "Publish an approved spot with a description and photo",
+            "ru": "Опубликовать одобренный спот с описанием и фото",
+            "lv": "Publicēt apstiprinātu vietu ar aprakstu un foto"
+          },
+          "metric": "new_complete_spots",
+          "target": 1,
+          "available": false
+        },
+        {
+          "id": "new-two",
+          "difficulty": 1,
+          "family": "explore",
+          "xp": 100,
+          "title": {
+            "en": "Visit two spots you have never visited",
+            "ru": "Посетить два спота, где ещё не был",
+            "lv": "Apmeklēt divas vēl neapmeklētas vietas"
+          },
+          "metric": "first_visits",
+          "target": 2,
+          "available": false
+        },
+        {
+          "id": "visit-seven",
+          "difficulty": 2,
+          "family": "visits",
+          "xp": 125,
+          "title": {
+            "en": "Visit seven different spots",
+            "ru": "Посетить семь разных спотов",
+            "lv": "Apmeklēt septiņas dažādas vietas"
+          },
+          "metric": "verified_visits",
+          "target": 7,
+          "available": false
+        }
+      ],
+      "totalXp": 300,
+      "weekKey": "2027-03-22",
+      "endWeekKey": "2027-03-29"
+    },
+    {
+      "week": 29,
+      "tasks": [
+        {
+          "id": "meet-visit",
+          "difficulty": 0,
+          "family": "community",
+          "xp": 75,
+          "title": {
+            "en": "Attend a meet hosted by another user",
+            "ru": "Посетить мит другого организатора",
+            "lv": "Apmeklēt cita rīkotu tikšanos"
+          },
+          "metric": "verified_meet_visits",
+          "target": 1,
+          "available": false
+        },
+        {
+          "id": "spot-gallery",
+          "difficulty": 1,
+          "family": "content",
+          "xp": 100,
+          "title": {
+            "en": "Publish an approved spot with three different photos",
+            "ru": "Опубликовать одобренный спот с тремя разными фото",
+            "lv": "Publicēt apstiprinātu vietu ar trim dažādiem foto"
+          },
+          "metric": "new_gallery_spots",
+          "target": 1,
+          "available": false
+        },
+        {
+          "id": "three-categories",
+          "difficulty": 2,
+          "family": "explore",
+          "xp": 125,
+          "title": {
+            "en": "Visit spots in three different categories",
+            "ru": "Посетить споты трёх разных категорий",
+            "lv": "Apmeklēt vietas trijās dažādās kategorijās"
+          },
+          "metric": "visited_categories",
+          "target": 3,
+          "available": false
+        }
+      ],
+      "totalXp": 300,
+      "weekKey": "2027-03-29",
+      "endWeekKey": "2027-04-05"
+    },
+    {
+      "week": 30,
+      "tasks": [
+        {
+          "id": "photo-help",
+          "difficulty": 0,
+          "family": "content",
+          "xp": 75,
+          "title": {
+            "en": "Add an accepted photo to another author's spot",
+            "ru": "Добавить одобренное фото к чужому споту",
+            "lv": "Pievienot apstiprinātu foto cita autora vietai"
+          },
+          "metric": "accepted_photo_contributions",
+          "target": 1,
+          "available": false
+        },
+        {
+          "id": "meet-and-spot",
+          "difficulty": 1,
+          "family": "community",
+          "xp": 100,
+          "title": {
+            "en": "Attend a meet and visit a permanent spot",
+            "ru": "Посетить мит и постоянный спот",
+            "lv": "Apmeklēt tikšanos un pastāvīgu vietu"
+          },
+          "metric": "meet_and_permanent_visit",
+          "target": 2,
+          "available": false
+        },
+        {
+          "id": "new-three-days",
+          "difficulty": 2,
+          "family": "explore",
+          "xp": 125,
+          "title": {
+            "en": "Visit a new spot on each of three different days",
+            "ru": "Посетить новый для себя спот в каждый из трёх разных дней",
+            "lv": "Apmeklēt sev jaunu vietu katrā no trim dažādām dienām"
+          },
+          "metric": "first_visit_days",
+          "target": 3,
+          "available": false
+        }
+      ],
+      "totalXp": 300,
+      "weekKey": "2027-04-05",
+      "endWeekKey": "2027-04-12"
+    },
+    {
+      "week": 31,
+      "tasks": [
+        {
+          "id": "weekend-visit",
+          "difficulty": 0,
+          "family": "explore",
+          "xp": 75,
+          "title": {
+            "en": "Visit a spot on the weekend",
+            "ru": "Посетить спот в выходные",
+            "lv": "Apmeklēt vietu nedēļas nogalē"
+          },
+          "metric": "weekend_visits",
+          "target": 1,
+          "available": false
+        },
+        {
+          "id": "visit-four",
+          "difficulty": 1,
+          "family": "visits",
+          "xp": 100,
+          "title": {
+            "en": "Visit four different spots",
+            "ru": "Посетить четыре разных спота",
+            "lv": "Apmeklēt četras dažādas vietas"
+          },
+          "metric": "verified_visits",
+          "target": 4,
+          "available": false
+        },
+        {
+          "id": "meet-and-new-two",
+          "difficulty": 2,
+          "family": "community",
+          "xp": 125,
+          "title": {
+            "en": "Attend a meet and visit two new permanent spots",
+            "ru": "Посетить мит и два новых для себя постоянных спота",
+            "lv": "Apmeklēt tikšanos un divas sev jaunas pastāvīgas vietas"
+          },
+          "metric": "meet_and_two_first_visits",
+          "target": 3,
+          "available": false
+        }
+      ],
+      "totalXp": 300,
+      "weekKey": "2027-04-12",
+      "endWeekKey": "2027-04-19"
+    },
+    {
+      "week": 32,
+      "tasks": [
+        {
+          "id": "help-answer",
+          "difficulty": 0,
+          "family": "community",
+          "xp": 75,
+          "title": {
+            "en": "Have an answer marked helpful by a topic author",
+            "ru": "Получить отметку полезного ответа от автора темы",
+            "lv": "Saņemt tēmas autora atzīmi par noderīgu atbildi"
+          },
+          "metric": "accepted_helpful_answers",
+          "target": 1,
+          "available": false
+        },
+        {
+          "id": "weekday-weekend",
+          "difficulty": 1,
+          "family": "explore",
+          "xp": 100,
+          "title": {
+            "en": "Visit different spots on a weekday and on the weekend",
+            "ru": "Посетить разные споты в будний и выходной день",
+            "lv": "Apmeklēt dažādas vietas darbdienā un nedēļas nogalē"
+          },
+          "metric": "weekday_and_weekend_visits",
+          "target": 2,
+          "available": false
+        },
+        {
+          "id": "publish-and-visit",
+          "difficulty": 2,
+          "family": "content",
+          "xp": 125,
+          "title": {
+            "en": "Publish a complete approved spot and visit two other spots",
+            "ru": "Опубликовать полный одобренный спот и посетить два чужих",
+            "lv": "Publicēt pilnīgu apstiprinātu vietu un apmeklēt divas citas"
+          },
+          "metric": "publish_and_two_visits",
+          "target": 3,
+          "available": false
+        }
+      ],
+      "totalXp": 300,
+      "weekKey": "2027-04-19",
+      "endWeekKey": "2027-04-26"
+    },
+    {
+      "week": 33,
+      "tasks": [
+        {
+          "id": "spot-detail",
+          "difficulty": 0,
+          "family": "content",
+          "xp": 75,
+          "title": {
+            "en": "Publish an approved spot with a description and photo",
+            "ru": "Опубликовать одобренный спот с описанием и фото",
+            "lv": "Publicēt apstiprinātu vietu ar aprakstu un foto"
+          },
+          "metric": "new_complete_spots",
+          "target": 1,
+          "available": false
+        },
+        {
+          "id": "new-two",
+          "difficulty": 1,
+          "family": "explore",
+          "xp": 100,
+          "title": {
+            "en": "Visit two spots you have never visited",
+            "ru": "Посетить два спота, где ещё не был",
+            "lv": "Apmeklēt divas vēl neapmeklētas vietas"
+          },
+          "metric": "first_visits",
+          "target": 2,
+          "available": false
+        },
+        {
+          "id": "help-three-authors",
+          "difficulty": 2,
+          "family": "community",
+          "xp": 125,
+          "title": {
+            "en": "Help three different topic authors with accepted answers",
+            "ru": "Помочь трём авторам тем: они отметили твои ответы полезными",
+            "lv": "Palīdzēt trim tēmu autoriem ar atzītām atbildēm"
+          },
+          "metric": "helped_topic_authors",
+          "target": 3,
+          "available": false
+        }
+      ],
+      "totalXp": 300,
+      "weekKey": "2027-04-26",
+      "endWeekKey": "2027-05-03"
+    },
+    {
+      "week": 34,
+      "tasks": [
+        {
+          "id": "two-categories",
+          "difficulty": 0,
+          "family": "explore",
+          "xp": 75,
+          "title": {
+            "en": "Visit spots in two different categories",
+            "ru": "Посетить споты двух разных категорий",
+            "lv": "Apmeklēt vietas divās dažādās kategorijās"
+          },
+          "metric": "visited_categories",
+          "target": 2,
+          "available": false
+        },
+        {
+          "id": "photo-two",
+          "difficulty": 1,
+          "family": "content",
+          "xp": 100,
+          "title": {
+            "en": "Add accepted photos to two other authors' spots",
+            "ru": "Добавить одобренные фото к двум чужим спотам",
+            "lv": "Pievienot apstiprinātus foto divām citu autoru vietām"
+          },
+          "metric": "accepted_photo_contributions",
+          "target": 2,
+          "available": false
+        },
+        {
+          "id": "visit-seven",
+          "difficulty": 2,
+          "family": "visits",
+          "xp": 125,
+          "title": {
+            "en": "Visit seven different spots",
+            "ru": "Посетить семь разных спотов",
+            "lv": "Apmeklēt septiņas dažādas vietas"
+          },
+          "metric": "verified_visits",
+          "target": 7,
+          "available": false
+        }
+      ],
+      "totalXp": 300,
+      "weekKey": "2027-05-03",
+      "endWeekKey": "2027-05-10"
+    },
+    {
+      "week": 35,
+      "tasks": [
+        {
+          "id": "meet-visit",
+          "difficulty": 0,
+          "family": "community",
+          "xp": 75,
+          "title": {
+            "en": "Attend a meet hosted by another user",
+            "ru": "Посетить мит другого организатора",
+            "lv": "Apmeklēt cita rīkotu tikšanos"
+          },
+          "metric": "verified_meet_visits",
+          "target": 1,
+          "available": false
+        },
+        {
+          "id": "visit-four",
+          "difficulty": 1,
+          "family": "visits",
+          "xp": 100,
+          "title": {
+            "en": "Visit four different spots",
+            "ru": "Посетить четыре разных спота",
+            "lv": "Apmeklēt četras dažādas vietas"
+          },
+          "metric": "verified_visits",
+          "target": 4,
+          "available": false
+        },
+        {
+          "id": "new-three-days",
+          "difficulty": 2,
+          "family": "explore",
+          "xp": 125,
+          "title": {
+            "en": "Visit a new spot on each of three different days",
+            "ru": "Посетить новый для себя спот в каждый из трёх разных дней",
+            "lv": "Apmeklēt sev jaunu vietu katrā no trim dažādām dienām"
+          },
+          "metric": "first_visit_days",
+          "target": 3,
+          "available": false
+        }
+      ],
+      "totalXp": 300,
+      "weekKey": "2027-05-10",
+      "endWeekKey": "2027-05-17"
+    },
+    {
+      "week": 36,
+      "tasks": [
+        {
+          "id": "help-answer",
+          "difficulty": 0,
+          "family": "community",
+          "xp": 75,
+          "title": {
+            "en": "Have an answer marked helpful by a topic author",
+            "ru": "Получить отметку полезного ответа от автора темы",
+            "lv": "Saņemt tēmas autora atzīmi par noderīgu atbildi"
+          },
+          "metric": "accepted_helpful_answers",
+          "target": 1,
+          "available": false
+        },
+        {
+          "id": "spot-gallery",
+          "difficulty": 1,
+          "family": "content",
+          "xp": 100,
+          "title": {
+            "en": "Publish an approved spot with three different photos",
+            "ru": "Опубликовать одобренный спот с тремя разными фото",
+            "lv": "Publicēt apstiprinātu vietu ar trim dažādiem foto"
+          },
+          "metric": "new_gallery_spots",
+          "target": 1,
+          "available": false
+        },
+        {
+          "id": "three-categories",
+          "difficulty": 2,
+          "family": "explore",
+          "xp": 125,
+          "title": {
+            "en": "Visit spots in three different categories",
+            "ru": "Посетить споты трёх разных категорий",
+            "lv": "Apmeklēt vietas trijās dažādās kategorijās"
+          },
+          "metric": "visited_categories",
+          "target": 3,
+          "available": false
+        }
+      ],
+      "totalXp": 300,
+      "weekKey": "2027-05-17",
+      "endWeekKey": "2027-05-24"
+    },
+    {
+      "week": 37,
+      "tasks": [
+        {
+          "id": "photo-help",
+          "difficulty": 0,
+          "family": "content",
+          "xp": 75,
+          "title": {
+            "en": "Add an accepted photo to another author's spot",
+            "ru": "Добавить одобренное фото к чужому споту",
+            "lv": "Pievienot apstiprinātu foto cita autora vietai"
+          },
+          "metric": "accepted_photo_contributions",
+          "target": 1,
+          "available": false
+        },
+        {
+          "id": "visit-two-days",
+          "difficulty": 1,
+          "family": "visits",
+          "xp": 100,
+          "title": {
+            "en": "Visit different spots on two days",
+            "ru": "Посетить разные споты в два разных дня",
+            "lv": "Apmeklēt dažādas vietas divās dienās"
+          },
+          "metric": "distinct_visit_days",
+          "target": 2,
+          "available": false
+        },
+        {
+          "id": "meet-and-new-two",
+          "difficulty": 2,
+          "family": "community",
+          "xp": 125,
+          "title": {
+            "en": "Attend a meet and visit two new permanent spots",
+            "ru": "Посетить мит и два новых для себя постоянных спота",
+            "lv": "Apmeklēt tikšanos un divas sev jaunas pastāvīgas vietas"
+          },
+          "metric": "meet_and_two_first_visits",
+          "target": 3,
+          "available": false
+        }
+      ],
+      "totalXp": 300,
+      "weekKey": "2027-05-24",
+      "endWeekKey": "2027-05-31"
+    },
+    {
+      "week": 38,
+      "tasks": [
+        {
+          "id": "visit-new",
+          "difficulty": 0,
+          "family": "visits",
+          "xp": 75,
+          "title": {
+            "en": "Visit a spot you have not visited before",
+            "ru": "Посетить спот, где ещё не был",
+            "lv": "Apmeklēt vēl neapmeklētu vietu"
+          },
+          "metric": "first_visits",
+          "target": 1,
+          "available": false
+        },
+        {
+          "id": "weekday-weekend",
+          "difficulty": 1,
+          "family": "explore",
+          "xp": 100,
+          "title": {
+            "en": "Visit different spots on a weekday and on the weekend",
+            "ru": "Посетить разные споты в будний и выходной день",
+            "lv": "Apmeklēt dažādas vietas darbdienā un nedēļas nogalē"
+          },
+          "metric": "weekday_and_weekend_visits",
+          "target": 2,
+          "available": false
+        },
+        {
+          "id": "photo-three",
+          "difficulty": 2,
+          "family": "content",
+          "xp": 125,
+          "title": {
+            "en": "Add accepted photos to three other authors' spots",
+            "ru": "Добавить одобренные фото к трём чужим спотам",
+            "lv": "Pievienot apstiprinātus foto trim citu autoru vietām"
+          },
+          "metric": "accepted_photo_contributions",
+          "target": 3,
+          "available": false
+        }
+      ],
+      "totalXp": 300,
+      "weekKey": "2027-05-31",
+      "endWeekKey": "2027-06-07"
+    },
+    {
+      "week": 39,
+      "tasks": [
+        {
+          "id": "weekend-visit",
+          "difficulty": 0,
+          "family": "explore",
+          "xp": 75,
+          "title": {
+            "en": "Visit a spot on the weekend",
+            "ru": "Посетить спот в выходные",
+            "lv": "Apmeklēt vietu nedēļas nogalē"
+          },
+          "metric": "weekend_visits",
+          "target": 1,
+          "available": false
+        },
+        {
+          "id": "meet-and-spot",
+          "difficulty": 1,
+          "family": "community",
+          "xp": 100,
+          "title": {
+            "en": "Attend a meet and visit a permanent spot",
+            "ru": "Посетить мит и постоянный спот",
+            "lv": "Apmeklēt tikšanos un pastāvīgu vietu"
+          },
+          "metric": "meet_and_permanent_visit",
+          "target": 2,
+          "available": false
+        },
+        {
+          "id": "publish-and-visit",
+          "difficulty": 2,
+          "family": "content",
+          "xp": 125,
+          "title": {
+            "en": "Publish a complete approved spot and visit two other spots",
+            "ru": "Опубликовать полный одобренный спот и посетить два чужих",
+            "lv": "Publicēt pilnīgu apstiprinātu vietu un apmeklēt divas citas"
+          },
+          "metric": "publish_and_two_visits",
+          "target": 3,
+          "available": false
+        }
+      ],
+      "totalXp": 300,
+      "weekKey": "2027-06-07",
+      "endWeekKey": "2027-06-14"
+    },
+    {
+      "week": 40,
+      "tasks": [
+        {
+          "id": "spot-detail",
+          "difficulty": 0,
+          "family": "content",
+          "xp": 75,
+          "title": {
+            "en": "Publish an approved spot with a description and photo",
+            "ru": "Опубликовать одобренный спот с описанием и фото",
+            "lv": "Publicēt apstiprinātu vietu ar aprakstu un foto"
+          },
+          "metric": "new_complete_spots",
+          "target": 1,
+          "available": false
+        },
+        {
+          "id": "help-two-authors",
+          "difficulty": 1,
+          "family": "community",
+          "xp": 100,
+          "title": {
+            "en": "Help two different topic authors with accepted answers",
+            "ru": "Помочь двум авторам тем: они отметили твои ответы полезными",
+            "lv": "Palīdzēt diviem tēmu autoriem ar atzītām atbildēm"
+          },
+          "metric": "helped_topic_authors",
+          "target": 2,
+          "available": false
+        },
+        {
+          "id": "visit-three-days",
+          "difficulty": 2,
+          "family": "visits",
+          "xp": 125,
+          "title": {
+            "en": "Visit different spots on three days",
+            "ru": "Посетить разные споты в три разных дня",
+            "lv": "Apmeklēt dažādas vietas trijās dienās"
+          },
+          "metric": "distinct_visit_days",
+          "target": 3,
+          "available": false
+        }
+      ],
+      "totalXp": 300,
+      "weekKey": "2027-06-14",
+      "endWeekKey": "2027-06-21"
+    },
+    {
+      "week": 41,
+      "tasks": [
+        {
+          "id": "visit-two",
+          "difficulty": 0,
+          "family": "visits",
+          "xp": 75,
+          "title": {
+            "en": "Visit two different spots",
+            "ru": "Посетить два разных спота",
+            "lv": "Apmeklēt divas dažādas vietas"
+          },
+          "metric": "verified_visits",
+          "target": 2,
+          "available": false
+        },
+        {
+          "id": "spot-gallery",
+          "difficulty": 1,
+          "family": "content",
+          "xp": 100,
+          "title": {
+            "en": "Publish an approved spot with three different photos",
+            "ru": "Опубликовать одобренный спот с тремя разными фото",
+            "lv": "Publicēt apstiprinātu vietu ar trim dažādiem foto"
+          },
+          "metric": "new_gallery_spots",
+          "target": 1,
+          "available": false
+        },
+        {
+          "id": "new-three-days",
+          "difficulty": 2,
+          "family": "explore",
+          "xp": 125,
+          "title": {
+            "en": "Visit a new spot on each of three different days",
+            "ru": "Посетить новый для себя спот в каждый из трёх разных дней",
+            "lv": "Apmeklēt sev jaunu vietu katrā no trim dažādām dienām"
+          },
+          "metric": "first_visit_days",
+          "target": 3,
+          "available": false
+        }
+      ],
+      "totalXp": 300,
+      "weekKey": "2027-06-21",
+      "endWeekKey": "2027-06-28"
+    },
+    {
+      "week": 42,
+      "tasks": [
+        {
+          "id": "meet-visit",
+          "difficulty": 0,
+          "family": "community",
+          "xp": 75,
+          "title": {
+            "en": "Attend a meet hosted by another user",
+            "ru": "Посетить мит другого организатора",
+            "lv": "Apmeklēt cita rīkotu tikšanos"
+          },
+          "metric": "verified_meet_visits",
+          "target": 1,
+          "available": false
+        },
+        {
+          "id": "visit-two-days",
+          "difficulty": 1,
+          "family": "visits",
+          "xp": 100,
+          "title": {
+            "en": "Visit different spots on two days",
+            "ru": "Посетить разные споты в два разных дня",
+            "lv": "Apmeklēt dažādas vietas divās dienās"
+          },
+          "metric": "distinct_visit_days",
+          "target": 2,
+          "available": false
+        },
+        {
+          "id": "photo-three",
+          "difficulty": 2,
+          "family": "content",
+          "xp": 125,
+          "title": {
+            "en": "Add accepted photos to three other authors' spots",
+            "ru": "Добавить одобренные фото к трём чужим спотам",
+            "lv": "Pievienot apstiprinātus foto trim citu autoru vietām"
+          },
+          "metric": "accepted_photo_contributions",
+          "target": 3,
+          "available": false
+        }
+      ],
+      "totalXp": 300,
+      "weekKey": "2027-06-28",
+      "endWeekKey": "2027-07-05"
+    },
+    {
+      "week": 43,
+      "tasks": [
+        {
+          "id": "photo-help",
+          "difficulty": 0,
+          "family": "content",
+          "xp": 75,
+          "title": {
+            "en": "Add an accepted photo to another author's spot",
+            "ru": "Добавить одобренное фото к чужому споту",
+            "lv": "Pievienot apstiprinātu foto cita autora vietai"
+          },
+          "metric": "accepted_photo_contributions",
+          "target": 1,
+          "available": false
+        },
+        {
+          "id": "visit-four",
+          "difficulty": 1,
+          "family": "visits",
+          "xp": 100,
+          "title": {
+            "en": "Visit four different spots",
+            "ru": "Посетить четыре разных спота",
+            "lv": "Apmeklēt četras dažādas vietas"
+          },
+          "metric": "verified_visits",
+          "target": 4,
+          "available": false
+        },
+        {
+          "id": "three-categories",
+          "difficulty": 2,
+          "family": "explore",
+          "xp": 125,
+          "title": {
+            "en": "Visit spots in three different categories",
+            "ru": "Посетить споты трёх разных категорий",
+            "lv": "Apmeklēt vietas trijās dažādās kategorijās"
+          },
+          "metric": "visited_categories",
+          "target": 3,
+          "available": false
+        }
+      ],
+      "totalXp": 300,
+      "weekKey": "2027-07-05",
+      "endWeekKey": "2027-07-12"
+    },
+    {
+      "week": 44,
+      "tasks": [
+        {
+          "id": "two-categories",
+          "difficulty": 0,
+          "family": "explore",
+          "xp": 75,
+          "title": {
+            "en": "Visit spots in two different categories",
+            "ru": "Посетить споты двух разных категорий",
+            "lv": "Apmeklēt vietas divās dažādās kategorijās"
+          },
+          "metric": "visited_categories",
+          "target": 2,
+          "available": false
+        },
+        {
+          "id": "meet-and-spot",
+          "difficulty": 1,
+          "family": "community",
+          "xp": 100,
+          "title": {
+            "en": "Attend a meet and visit a permanent spot",
+            "ru": "Посетить мит и постоянный спот",
+            "lv": "Apmeklēt tikšanos un pastāvīgu vietu"
+          },
+          "metric": "meet_and_permanent_visit",
+          "target": 2,
+          "available": false
+        },
+        {
+          "id": "visit-three-days",
+          "difficulty": 2,
+          "family": "visits",
+          "xp": 125,
+          "title": {
+            "en": "Visit different spots on three days",
+            "ru": "Посетить разные споты в три разных дня",
+            "lv": "Apmeklēt dažādas vietas trijās dienās"
+          },
+          "metric": "distinct_visit_days",
+          "target": 3,
+          "available": false
+        }
+      ],
+      "totalXp": 300,
+      "weekKey": "2027-07-12",
+      "endWeekKey": "2027-07-19"
+    },
+    {
+      "week": 45,
+      "tasks": [
+        {
+          "id": "visit-two",
+          "difficulty": 0,
+          "family": "visits",
+          "xp": 75,
+          "title": {
+            "en": "Visit two different spots",
+            "ru": "Посетить два разных спота",
+            "lv": "Apmeklēt divas dažādas vietas"
+          },
+          "metric": "verified_visits",
+          "target": 2,
+          "available": false
+        },
+        {
+          "id": "photo-two",
+          "difficulty": 1,
+          "family": "content",
+          "xp": 100,
+          "title": {
+            "en": "Add accepted photos to two other authors' spots",
+            "ru": "Добавить одобренные фото к двум чужим спотам",
+            "lv": "Pievienot apstiprinātus foto divām citu autoru vietām"
+          },
+          "metric": "accepted_photo_contributions",
+          "target": 2,
+          "available": false
+        },
+        {
+          "id": "help-three-authors",
+          "difficulty": 2,
+          "family": "community",
+          "xp": 125,
+          "title": {
+            "en": "Help three different topic authors with accepted answers",
+            "ru": "Помочь трём авторам тем: они отметили твои ответы полезными",
+            "lv": "Palīdzēt trim tēmu autoriem ar atzītām atbildēm"
+          },
+          "metric": "helped_topic_authors",
+          "target": 3,
+          "available": false
+        }
+      ],
+      "totalXp": 300,
+      "weekKey": "2027-07-19",
+      "endWeekKey": "2027-07-26"
+    },
+    {
+      "week": 46,
+      "tasks": [
+        {
+          "id": "help-answer",
+          "difficulty": 0,
+          "family": "community",
+          "xp": 75,
+          "title": {
+            "en": "Have an answer marked helpful by a topic author",
+            "ru": "Получить отметку полезного ответа от автора темы",
+            "lv": "Saņemt tēmas autora atzīmi par noderīgu atbildi"
+          },
+          "metric": "accepted_helpful_answers",
+          "target": 1,
+          "available": false
+        },
+        {
+          "id": "weekday-weekend",
+          "difficulty": 1,
+          "family": "explore",
+          "xp": 100,
+          "title": {
+            "en": "Visit different spots on a weekday and on the weekend",
+            "ru": "Посетить разные споты в будний и выходной день",
+            "lv": "Apmeklēt dažādas vietas darbdienā un nedēļas nogalē"
+          },
+          "metric": "weekday_and_weekend_visits",
+          "target": 2,
+          "available": false
+        },
+        {
+          "id": "visit-seven",
+          "difficulty": 2,
+          "family": "visits",
+          "xp": 125,
+          "title": {
+            "en": "Visit seven different spots",
+            "ru": "Посетить семь разных спотов",
+            "lv": "Apmeklēt septiņas dažādas vietas"
+          },
+          "metric": "verified_visits",
+          "target": 7,
+          "available": false
+        }
+      ],
+      "totalXp": 300,
+      "weekKey": "2027-07-26",
+      "endWeekKey": "2027-08-02"
+    },
+    {
+      "week": 47,
+      "tasks": [
+        {
+          "id": "weekend-visit",
+          "difficulty": 0,
+          "family": "explore",
+          "xp": 75,
+          "title": {
+            "en": "Visit a spot on the weekend",
+            "ru": "Посетить спот в выходные",
+            "lv": "Apmeklēt vietu nedēļas nogalē"
+          },
+          "metric": "weekend_visits",
+          "target": 1,
+          "available": false
+        },
+        {
+          "id": "help-two-authors",
+          "difficulty": 1,
+          "family": "community",
+          "xp": 100,
+          "title": {
+            "en": "Help two different topic authors with accepted answers",
+            "ru": "Помочь двум авторам тем: они отметили твои ответы полезными",
+            "lv": "Palīdzēt diviem tēmu autoriem ar atzītām atbildēm"
+          },
+          "metric": "helped_topic_authors",
+          "target": 2,
+          "available": false
+        },
+        {
+          "id": "publish-and-visit",
+          "difficulty": 2,
+          "family": "content",
+          "xp": 125,
+          "title": {
+            "en": "Publish a complete approved spot and visit two other spots",
+            "ru": "Опубликовать полный одобренный спот и посетить два чужих",
+            "lv": "Publicēt pilnīgu apstiprinātu vietu un apmeklēt divas citas"
+          },
+          "metric": "publish_and_two_visits",
+          "target": 3,
+          "available": false
+        }
+      ],
+      "totalXp": 300,
+      "weekKey": "2027-08-02",
+      "endWeekKey": "2027-08-09"
+    },
+    {
+      "week": 48,
+      "tasks": [
+        {
+          "id": "visit-new",
+          "difficulty": 0,
+          "family": "visits",
+          "xp": 75,
+          "title": {
+            "en": "Visit a spot you have not visited before",
+            "ru": "Посетить спот, где ещё не был",
+            "lv": "Apmeklēt vēl neapmeklētu vietu"
+          },
+          "metric": "first_visits",
+          "target": 1,
+          "available": false
+        },
+        {
+          "id": "new-two",
+          "difficulty": 1,
+          "family": "explore",
+          "xp": 100,
+          "title": {
+            "en": "Visit two spots you have never visited",
+            "ru": "Посетить два спота, где ещё не был",
+            "lv": "Apmeklēt divas vēl neapmeklētas vietas"
+          },
+          "metric": "first_visits",
+          "target": 2,
+          "available": false
+        },
+        {
+          "id": "meet-and-new-two",
+          "difficulty": 2,
+          "family": "community",
+          "xp": 125,
+          "title": {
+            "en": "Attend a meet and visit two new permanent spots",
+            "ru": "Посетить мит и два новых для себя постоянных спота",
+            "lv": "Apmeklēt tikšanos un divas sev jaunas pastāvīgas vietas"
+          },
+          "metric": "meet_and_two_first_visits",
+          "target": 3,
+          "available": false
+        }
+      ],
+      "totalXp": 300,
+      "weekKey": "2027-08-09",
+      "endWeekKey": "2027-08-16"
+    },
+    {
+      "week": 49,
+      "tasks": [
+        {
+          "id": "two-categories",
+          "difficulty": 0,
+          "family": "explore",
+          "xp": 75,
+          "title": {
+            "en": "Visit spots in two different categories",
+            "ru": "Посетить споты двух разных категорий",
+            "lv": "Apmeklēt vietas divās dažādās kategorijās"
+          },
+          "metric": "visited_categories",
+          "target": 2,
+          "available": false
+        },
+        {
+          "id": "spot-gallery",
+          "difficulty": 1,
+          "family": "content",
+          "xp": 100,
+          "title": {
+            "en": "Publish an approved spot with three different photos",
+            "ru": "Опубликовать одобренный спот с тремя разными фото",
+            "lv": "Publicēt apstiprinātu vietu ar trim dažādiem foto"
+          },
+          "metric": "new_gallery_spots",
+          "target": 1,
+          "available": false
+        },
+        {
+          "id": "help-three-authors",
+          "difficulty": 2,
+          "family": "community",
+          "xp": 125,
+          "title": {
+            "en": "Help three different topic authors with accepted answers",
+            "ru": "Помочь трём авторам тем: они отметили твои ответы полезными",
+            "lv": "Palīdzēt trim tēmu autoriem ar atzītām atbildēm"
+          },
+          "metric": "helped_topic_authors",
+          "target": 3,
+          "available": false
+        }
+      ],
+      "totalXp": 300,
+      "weekKey": "2027-08-16",
+      "endWeekKey": "2027-08-23"
+    },
+    {
+      "week": 50,
+      "tasks": [
+        {
+          "id": "help-answer",
+          "difficulty": 0,
+          "family": "community",
+          "xp": 75,
+          "title": {
+            "en": "Have an answer marked helpful by a topic author",
+            "ru": "Получить отметку полезного ответа от автора темы",
+            "lv": "Saņemt tēmas autora atzīmi par noderīgu atbildi"
+          },
+          "metric": "accepted_helpful_answers",
+          "target": 1,
+          "available": false
+        },
+        {
+          "id": "visit-two-days",
+          "difficulty": 1,
+          "family": "visits",
+          "xp": 100,
+          "title": {
+            "en": "Visit different spots on two days",
+            "ru": "Посетить разные споты в два разных дня",
+            "lv": "Apmeklēt dažādas vietas divās dienās"
+          },
+          "metric": "distinct_visit_days",
+          "target": 2,
+          "available": false
+        },
+        {
+          "id": "new-three-days",
+          "difficulty": 2,
+          "family": "explore",
+          "xp": 125,
+          "title": {
+            "en": "Visit a new spot on each of three different days",
+            "ru": "Посетить новый для себя спот в каждый из трёх разных дней",
+            "lv": "Apmeklēt sev jaunu vietu katrā no trim dažādām dienām"
+          },
+          "metric": "first_visit_days",
+          "target": 3,
+          "available": false
+        }
+      ],
+      "totalXp": 300,
+      "weekKey": "2027-08-23",
+      "endWeekKey": "2027-08-30"
+    },
+    {
+      "week": 51,
+      "tasks": [
+        {
+          "id": "meet-visit",
+          "difficulty": 0,
+          "family": "community",
+          "xp": 75,
+          "title": {
+            "en": "Attend a meet hosted by another user",
+            "ru": "Посетить мит другого организатора",
+            "lv": "Apmeklēt cita rīkotu tikšanos"
+          },
+          "metric": "verified_meet_visits",
+          "target": 1,
+          "available": false
+        },
+        {
+          "id": "photo-two",
+          "difficulty": 1,
+          "family": "content",
+          "xp": 100,
+          "title": {
+            "en": "Add accepted photos to two other authors' spots",
+            "ru": "Добавить одобренные фото к двум чужим спотам",
+            "lv": "Pievienot apstiprinātus foto divām citu autoru vietām"
+          },
+          "metric": "accepted_photo_contributions",
+          "target": 2,
+          "available": false
+        },
+        {
+          "id": "visit-three-days",
+          "difficulty": 2,
+          "family": "visits",
+          "xp": 125,
+          "title": {
+            "en": "Visit different spots on three days",
+            "ru": "Посетить разные споты в три разных дня",
+            "lv": "Apmeklēt dažādas vietas trijās dienās"
+          },
+          "metric": "distinct_visit_days",
+          "target": 3,
+          "available": false
+        }
+      ],
+      "totalXp": 300,
+      "weekKey": "2027-08-30",
+      "endWeekKey": "2027-09-06"
+    },
+    {
+      "week": 52,
+      "tasks": [
+        {
+          "id": "visit-new",
+          "difficulty": 0,
+          "family": "visits",
+          "xp": 75,
+          "title": {
+            "en": "Visit a spot you have not visited before",
+            "ru": "Посетить спот, где ещё не был",
+            "lv": "Apmeklēt vēl neapmeklētu vietu"
+          },
+          "metric": "first_visits",
+          "target": 1,
+          "available": false
+        },
+        {
+          "id": "meet-and-spot",
+          "difficulty": 1,
+          "family": "community",
+          "xp": 100,
+          "title": {
+            "en": "Attend a meet and visit a permanent spot",
+            "ru": "Посетить мит и постоянный спот",
+            "lv": "Apmeklēt tikšanos un pastāvīgu vietu"
+          },
+          "metric": "meet_and_permanent_visit",
+          "target": 2,
+          "available": false
+        },
+        {
+          "id": "photo-three",
+          "difficulty": 2,
+          "family": "content",
+          "xp": 125,
+          "title": {
+            "en": "Add accepted photos to three other authors' spots",
+            "ru": "Добавить одобренные фото к трём чужим спотам",
+            "lv": "Pievienot apstiprinātus foto trim citu autoru vietām"
+          },
+          "metric": "accepted_photo_contributions",
+          "target": 3,
+          "available": false
+        }
+      ],
+      "totalXp": 300,
+      "weekKey": "2027-09-06",
+      "endWeekKey": "2027-09-13"
+    },
+    {
+      "week": 53,
+      "tasks": [
+        {
+          "id": "visit-two",
+          "difficulty": 0,
+          "family": "visits",
+          "xp": 75,
+          "title": {
+            "en": "Visit two different spots",
+            "ru": "Посетить два разных спота",
+            "lv": "Apmeklēt divas dažādas vietas"
+          },
+          "metric": "verified_visits",
+          "target": 2,
+          "available": false
+        },
+        {
+          "id": "help-two-authors",
+          "difficulty": 1,
+          "family": "community",
+          "xp": 100,
+          "title": {
+            "en": "Help two different topic authors with accepted answers",
+            "ru": "Помочь двум авторам тем: они отметили твои ответы полезными",
+            "lv": "Palīdzēt diviem tēmu autoriem ar atzītām atbildēm"
+          },
+          "metric": "helped_topic_authors",
+          "target": 2,
+          "available": false
+        },
+        {
+          "id": "three-categories",
+          "difficulty": 2,
+          "family": "explore",
+          "xp": 125,
+          "title": {
+            "en": "Visit spots in three different categories",
+            "ru": "Посетить споты трёх разных категорий",
+            "lv": "Apmeklēt vietas trijās dažādās kategorijās"
+          },
+          "metric": "visited_categories",
+          "target": 3,
+          "available": false
+        }
+      ],
+      "totalXp": 300,
+      "weekKey": "2027-09-13",
+      "endWeekKey": "2027-09-20"
+    },
+    {
+      "week": 54,
+      "tasks": [
+        {
+          "id": "photo-help",
+          "difficulty": 0,
+          "family": "content",
+          "xp": 75,
+          "title": {
+            "en": "Add an accepted photo to another author's spot",
+            "ru": "Добавить одобренное фото к чужому споту",
+            "lv": "Pievienot apstiprinātu foto cita autora vietai"
+          },
+          "metric": "accepted_photo_contributions",
+          "target": 1,
+          "available": false
+        },
+        {
+          "id": "visit-four",
+          "difficulty": 1,
+          "family": "visits",
+          "xp": 100,
+          "title": {
+            "en": "Visit four different spots",
+            "ru": "Посетить четыре разных спота",
+            "lv": "Apmeklēt četras dažādas vietas"
+          },
+          "metric": "verified_visits",
+          "target": 4,
+          "available": false
+        },
+        {
+          "id": "meet-and-new-two",
+          "difficulty": 2,
+          "family": "community",
+          "xp": 125,
+          "title": {
+            "en": "Attend a meet and visit two new permanent spots",
+            "ru": "Посетить мит и два новых для себя постоянных спота",
+            "lv": "Apmeklēt tikšanos un divas sev jaunas pastāvīgas vietas"
+          },
+          "metric": "meet_and_two_first_visits",
+          "target": 3,
+          "available": false
+        }
+      ],
+      "totalXp": 300,
+      "weekKey": "2027-09-20",
+      "endWeekKey": "2027-09-27"
+    },
+    {
+      "week": 55,
+      "tasks": [
+        {
+          "id": "spot-detail",
+          "difficulty": 0,
+          "family": "content",
+          "xp": 75,
+          "title": {
+            "en": "Publish an approved spot with a description and photo",
+            "ru": "Опубликовать одобренный спот с описанием и фото",
+            "lv": "Publicēt apstiprinātu vietu ar aprakstu un foto"
+          },
+          "metric": "new_complete_spots",
+          "target": 1,
+          "available": false
+        },
+        {
+          "id": "weekday-weekend",
+          "difficulty": 1,
+          "family": "explore",
+          "xp": 100,
+          "title": {
+            "en": "Visit different spots on a weekday and on the weekend",
+            "ru": "Посетить разные споты в будний и выходной день",
+            "lv": "Apmeklēt dažādas vietas darbdienā un nedēļas nogalē"
+          },
+          "metric": "weekday_and_weekend_visits",
+          "target": 2,
+          "available": false
+        },
+        {
+          "id": "visit-seven",
+          "difficulty": 2,
+          "family": "visits",
+          "xp": 125,
+          "title": {
+            "en": "Visit seven different spots",
+            "ru": "Посетить семь разных спотов",
+            "lv": "Apmeklēt septiņas dažādas vietas"
+          },
+          "metric": "verified_visits",
+          "target": 7,
+          "available": false
+        }
+      ],
+      "totalXp": 300,
+      "weekKey": "2027-09-27",
+      "endWeekKey": "2027-10-04"
+    },
+    {
+      "week": 56,
+      "tasks": [
+        {
+          "id": "meet-visit",
+          "difficulty": 0,
+          "family": "community",
+          "xp": 75,
+          "title": {
+            "en": "Attend a meet hosted by another user",
+            "ru": "Посетить мит другого организатора",
+            "lv": "Apmeklēt cita rīkotu tikšanos"
+          },
+          "metric": "verified_meet_visits",
+          "target": 1,
+          "available": false
+        },
+        {
+          "id": "new-two",
+          "difficulty": 1,
+          "family": "explore",
+          "xp": 100,
+          "title": {
+            "en": "Visit two spots you have never visited",
+            "ru": "Посетить два спота, где ещё не был",
+            "lv": "Apmeklēt divas vēl neapmeklētas vietas"
+          },
+          "metric": "first_visits",
+          "target": 2,
+          "available": false
+        },
+        {
+          "id": "publish-and-visit",
+          "difficulty": 2,
+          "family": "content",
+          "xp": 125,
+          "title": {
+            "en": "Publish a complete approved spot and visit two other spots",
+            "ru": "Опубликовать полный одобренный спот и посетить два чужих",
+            "lv": "Publicēt pilnīgu apstiprinātu vietu un apmeklēt divas citas"
+          },
+          "metric": "publish_and_two_visits",
+          "target": 3,
+          "available": false
+        }
+      ],
+      "totalXp": 300,
+      "weekKey": "2027-10-04",
+      "endWeekKey": "2027-10-11"
+    },
+    {
+      "week": 57,
+      "tasks": [
+        {
+          "id": "weekend-visit",
+          "difficulty": 0,
+          "family": "explore",
+          "xp": 75,
+          "title": {
+            "en": "Visit a spot on the weekend",
+            "ru": "Посетить спот в выходные",
+            "lv": "Apmeklēt vietu nedēļas nogalē"
+          },
+          "metric": "weekend_visits",
+          "target": 1,
+          "available": false
+        },
+        {
+          "id": "photo-two",
+          "difficulty": 1,
+          "family": "content",
+          "xp": 100,
+          "title": {
+            "en": "Add accepted photos to two other authors' spots",
+            "ru": "Добавить одобренные фото к двум чужим спотам",
+            "lv": "Pievienot apstiprinātus foto divām citu autoru vietām"
+          },
+          "metric": "accepted_photo_contributions",
+          "target": 2,
+          "available": false
+        },
+        {
+          "id": "visit-three-days",
+          "difficulty": 2,
+          "family": "visits",
+          "xp": 125,
+          "title": {
+            "en": "Visit different spots on three days",
+            "ru": "Посетить разные споты в три разных дня",
+            "lv": "Apmeklēt dažādas vietas trijās dienās"
+          },
+          "metric": "distinct_visit_days",
+          "target": 3,
+          "available": false
+        }
+      ],
+      "totalXp": 300,
+      "weekKey": "2027-10-11",
+      "endWeekKey": "2027-10-18"
+    },
+    {
+      "week": 58,
+      "tasks": [
+        {
+          "id": "visit-new",
+          "difficulty": 0,
+          "family": "visits",
+          "xp": 75,
+          "title": {
+            "en": "Visit a spot you have not visited before",
+            "ru": "Посетить спот, где ещё не был",
+            "lv": "Apmeklēt vēl neapmeklētu vietu"
+          },
+          "metric": "first_visits",
+          "target": 1,
+          "available": false
+        },
+        {
+          "id": "meet-and-spot",
+          "difficulty": 1,
+          "family": "community",
+          "xp": 100,
+          "title": {
+            "en": "Attend a meet and visit a permanent spot",
+            "ru": "Посетить мит и постоянный спот",
+            "lv": "Apmeklēt tikšanos un pastāvīgu vietu"
+          },
+          "metric": "meet_and_permanent_visit",
+          "target": 2,
+          "available": false
+        },
+        {
+          "id": "three-categories",
+          "difficulty": 2,
+          "family": "explore",
+          "xp": 125,
+          "title": {
+            "en": "Visit spots in three different categories",
+            "ru": "Посетить споты трёх разных категорий",
+            "lv": "Apmeklēt vietas trijās dažādās kategorijās"
+          },
+          "metric": "visited_categories",
+          "target": 3,
+          "available": false
+        }
+      ],
+      "totalXp": 300,
+      "weekKey": "2027-10-18",
+      "endWeekKey": "2027-10-25"
+    },
+    {
+      "week": 59,
+      "tasks": [
+        {
+          "id": "visit-two",
+          "difficulty": 0,
+          "family": "visits",
+          "xp": 75,
+          "title": {
+            "en": "Visit two different spots",
+            "ru": "Посетить два разных спота",
+            "lv": "Apmeklēt divas dažādas vietas"
+          },
+          "metric": "verified_visits",
+          "target": 2,
+          "available": false
+        },
+        {
+          "id": "spot-gallery",
+          "difficulty": 1,
+          "family": "content",
+          "xp": 100,
+          "title": {
+            "en": "Publish an approved spot with three different photos",
+            "ru": "Опубликовать одобренный спот с тремя разными фото",
+            "lv": "Publicēt apstiprinātu vietu ar trim dažādiem foto"
+          },
+          "metric": "new_gallery_spots",
+          "target": 1,
+          "available": false
+        },
+        {
+          "id": "help-three-authors",
+          "difficulty": 2,
+          "family": "community",
+          "xp": 125,
+          "title": {
+            "en": "Help three different topic authors with accepted answers",
+            "ru": "Помочь трём авторам тем: они отметили твои ответы полезными",
+            "lv": "Palīdzēt trim tēmu autoriem ar atzītām atbildēm"
+          },
+          "metric": "helped_topic_authors",
+          "target": 3,
+          "available": false
+        }
+      ],
+      "totalXp": 300,
+      "weekKey": "2027-10-25",
+      "endWeekKey": "2027-11-01"
+    },
+    {
+      "week": 60,
+      "tasks": [
+        {
+          "id": "spot-detail",
+          "difficulty": 0,
+          "family": "content",
+          "xp": 75,
+          "title": {
+            "en": "Publish an approved spot with a description and photo",
+            "ru": "Опубликовать одобренный спот с описанием и фото",
+            "lv": "Publicēt apstiprinātu vietu ar aprakstu un foto"
+          },
+          "metric": "new_complete_spots",
+          "target": 1,
+          "available": false
+        },
+        {
+          "id": "help-two-authors",
+          "difficulty": 1,
+          "family": "community",
+          "xp": 100,
+          "title": {
+            "en": "Help two different topic authors with accepted answers",
+            "ru": "Помочь двум авторам тем: они отметили твои ответы полезными",
+            "lv": "Palīdzēt diviem tēmu autoriem ar atzītām atbildēm"
+          },
+          "metric": "helped_topic_authors",
+          "target": 2,
+          "available": false
+        },
+        {
+          "id": "new-three-days",
+          "difficulty": 2,
+          "family": "explore",
+          "xp": 125,
+          "title": {
+            "en": "Visit a new spot on each of three different days",
+            "ru": "Посетить новый для себя спот в каждый из трёх разных дней",
+            "lv": "Apmeklēt sev jaunu vietu katrā no trim dažādām dienām"
+          },
+          "metric": "first_visit_days",
+          "target": 3,
+          "available": false
+        }
+      ],
+      "totalXp": 300,
+      "weekKey": "2027-11-01",
+      "endWeekKey": "2027-11-08"
+    },
+    {
+      "week": 61,
+      "tasks": [
+        {
+          "id": "weekend-visit",
+          "difficulty": 0,
+          "family": "explore",
+          "xp": 75,
+          "title": {
+            "en": "Visit a spot on the weekend",
+            "ru": "Посетить спот в выходные",
+            "lv": "Apmeklēt vietu nedēļas nogalē"
+          },
+          "metric": "weekend_visits",
+          "target": 1,
+          "available": false
+        },
+        {
+          "id": "visit-two-days",
+          "difficulty": 1,
+          "family": "visits",
+          "xp": 100,
+          "title": {
+            "en": "Visit different spots on two days",
+            "ru": "Посетить разные споты в два разных дня",
+            "lv": "Apmeklēt dažādas vietas divās dienās"
+          },
+          "metric": "distinct_visit_days",
+          "target": 2,
+          "available": false
+        },
+        {
+          "id": "publish-and-visit",
+          "difficulty": 2,
+          "family": "content",
+          "xp": 125,
+          "title": {
+            "en": "Publish a complete approved spot and visit two other spots",
+            "ru": "Опубликовать полный одобренный спот и посетить два чужих",
+            "lv": "Publicēt pilnīgu apstiprinātu vietu un apmeklēt divas citas"
+          },
+          "metric": "publish_and_two_visits",
+          "target": 3,
+          "available": false
+        }
+      ],
+      "totalXp": 300,
+      "weekKey": "2027-11-08",
+      "endWeekKey": "2027-11-15"
+    },
+    {
+      "week": 62,
+      "tasks": [
+        {
+          "id": "photo-help",
+          "difficulty": 0,
+          "family": "content",
+          "xp": 75,
+          "title": {
+            "en": "Add an accepted photo to another author's spot",
+            "ru": "Добавить одобренное фото к чужому споту",
+            "lv": "Pievienot apstiprinātu foto cita autora vietai"
+          },
+          "metric": "accepted_photo_contributions",
+          "target": 1,
+          "available": false
+        },
+        {
+          "id": "new-two",
+          "difficulty": 1,
+          "family": "explore",
+          "xp": 100,
+          "title": {
+            "en": "Visit two spots you have never visited",
+            "ru": "Посетить два спота, где ещё не был",
+            "lv": "Apmeklēt divas vēl neapmeklētas vietas"
+          },
+          "metric": "first_visits",
+          "target": 2,
+          "available": false
+        },
+        {
+          "id": "meet-and-new-two",
+          "difficulty": 2,
+          "family": "community",
+          "xp": 125,
+          "title": {
+            "en": "Attend a meet and visit two new permanent spots",
+            "ru": "Посетить мит и два новых для себя постоянных спота",
+            "lv": "Apmeklēt tikšanos un divas sev jaunas pastāvīgas vietas"
+          },
+          "metric": "meet_and_two_first_visits",
+          "target": 3,
+          "available": false
+        }
+      ],
+      "totalXp": 300,
+      "weekKey": "2027-11-15",
+      "endWeekKey": "2027-11-22"
+    },
+    {
+      "week": 63,
+      "tasks": [
+        {
+          "id": "help-answer",
+          "difficulty": 0,
+          "family": "community",
+          "xp": 75,
+          "title": {
+            "en": "Have an answer marked helpful by a topic author",
+            "ru": "Получить отметку полезного ответа от автора темы",
+            "lv": "Saņemt tēmas autora atzīmi par noderīgu atbildi"
+          },
+          "metric": "accepted_helpful_answers",
+          "target": 1,
+          "available": false
+        },
+        {
+          "id": "visit-four",
+          "difficulty": 1,
+          "family": "visits",
+          "xp": 100,
+          "title": {
+            "en": "Visit four different spots",
+            "ru": "Посетить четыре разных спота",
+            "lv": "Apmeklēt četras dažādas vietas"
+          },
+          "metric": "verified_visits",
+          "target": 4,
+          "available": false
+        },
+        {
+          "id": "photo-three",
+          "difficulty": 2,
+          "family": "content",
+          "xp": 125,
+          "title": {
+            "en": "Add accepted photos to three other authors' spots",
+            "ru": "Добавить одобренные фото к трём чужим спотам",
+            "lv": "Pievienot apstiprinātus foto trim citu autoru vietām"
+          },
+          "metric": "accepted_photo_contributions",
+          "target": 3,
+          "available": false
+        }
+      ],
+      "totalXp": 300,
+      "weekKey": "2027-11-22",
+      "endWeekKey": "2027-11-29"
+    },
+    {
+      "week": 64,
+      "tasks": [
+        {
+          "id": "two-categories",
+          "difficulty": 0,
+          "family": "explore",
+          "xp": 75,
+          "title": {
+            "en": "Visit spots in two different categories",
+            "ru": "Посетить споты двух разных категорий",
+            "lv": "Apmeklēt vietas divās dažādās kategorijās"
+          },
+          "metric": "visited_categories",
+          "target": 2,
+          "available": false
+        },
+        {
+          "id": "meet-and-spot",
+          "difficulty": 1,
+          "family": "community",
+          "xp": 100,
+          "title": {
+            "en": "Attend a meet and visit a permanent spot",
+            "ru": "Посетить мит и постоянный спот",
+            "lv": "Apmeklēt tikšanos un pastāvīgu vietu"
+          },
+          "metric": "meet_and_permanent_visit",
+          "target": 2,
+          "available": false
+        },
+        {
+          "id": "visit-seven",
+          "difficulty": 2,
+          "family": "visits",
+          "xp": 125,
+          "title": {
+            "en": "Visit seven different spots",
+            "ru": "Посетить семь разных спотов",
+            "lv": "Apmeklēt septiņas dažādas vietas"
+          },
+          "metric": "verified_visits",
+          "target": 7,
+          "available": false
+        }
+      ],
+      "totalXp": 300,
+      "weekKey": "2027-11-29",
+      "endWeekKey": "2027-12-06"
+    },
+    {
+      "week": 65,
+      "tasks": [
+        {
+          "id": "meet-visit",
+          "difficulty": 0,
+          "family": "community",
+          "xp": 75,
+          "title": {
+            "en": "Attend a meet hosted by another user",
+            "ru": "Посетить мит другого организатора",
+            "lv": "Apmeklēt cita rīkotu tikšanos"
+          },
+          "metric": "verified_meet_visits",
+          "target": 1,
+          "available": false
+        },
+        {
+          "id": "weekday-weekend",
+          "difficulty": 1,
+          "family": "explore",
+          "xp": 100,
+          "title": {
+            "en": "Visit different spots on a weekday and on the weekend",
+            "ru": "Посетить разные споты в будний и выходной день",
+            "lv": "Apmeklēt dažādas vietas darbdienā un nedēļas nogalē"
+          },
+          "metric": "weekday_and_weekend_visits",
+          "target": 2,
+          "available": false
+        },
+        {
+          "id": "visit-three-days",
+          "difficulty": 2,
+          "family": "visits",
+          "xp": 125,
+          "title": {
+            "en": "Visit different spots on three days",
+            "ru": "Посетить разные споты в три разных дня",
+            "lv": "Apmeklēt dažādas vietas trijās dienās"
+          },
+          "metric": "distinct_visit_days",
+          "target": 3,
+          "available": false
+        }
+      ],
+      "totalXp": 300,
+      "weekKey": "2027-12-06",
+      "endWeekKey": "2027-12-13"
+    },
+    {
+      "week": 66,
+      "tasks": [
+        {
+          "id": "spot-detail",
+          "difficulty": 0,
+          "family": "content",
+          "xp": 75,
+          "title": {
+            "en": "Publish an approved spot with a description and photo",
+            "ru": "Опубликовать одобренный спот с описанием и фото",
+            "lv": "Publicēt apstiprinātu vietu ar aprakstu un foto"
+          },
+          "metric": "new_complete_spots",
+          "target": 1,
+          "available": false
+        },
+        {
+          "id": "visit-two-days",
+          "difficulty": 1,
+          "family": "visits",
+          "xp": 100,
+          "title": {
+            "en": "Visit different spots on two days",
+            "ru": "Посетить разные споты в два разных дня",
+            "lv": "Apmeklēt dažādas vietas divās dienās"
+          },
+          "metric": "distinct_visit_days",
+          "target": 2,
+          "available": false
+        },
+        {
+          "id": "three-categories",
+          "difficulty": 2,
+          "family": "explore",
+          "xp": 125,
+          "title": {
+            "en": "Visit spots in three different categories",
+            "ru": "Посетить споты трёх разных категорий",
+            "lv": "Apmeklēt vietas trijās dažādās kategorijās"
+          },
+          "metric": "visited_categories",
+          "target": 3,
+          "available": false
+        }
+      ],
+      "totalXp": 300,
+      "weekKey": "2027-12-13",
+      "endWeekKey": "2027-12-20"
+    },
+    {
+      "week": 67,
+      "tasks": [
+        {
+          "id": "visit-new",
+          "difficulty": 0,
+          "family": "visits",
+          "xp": 75,
+          "title": {
+            "en": "Visit a spot you have not visited before",
+            "ru": "Посетить спот, где ещё не был",
+            "lv": "Apmeklēt vēl neapmeklētu vietu"
+          },
+          "metric": "first_visits",
+          "target": 1,
+          "available": false
+        },
+        {
+          "id": "help-two-authors",
+          "difficulty": 1,
+          "family": "community",
+          "xp": 100,
+          "title": {
+            "en": "Help two different topic authors with accepted answers",
+            "ru": "Помочь двум авторам тем: они отметили твои ответы полезными",
+            "lv": "Palīdzēt diviem tēmu autoriem ar atzītām atbildēm"
+          },
+          "metric": "helped_topic_authors",
+          "target": 2,
+          "available": false
+        },
+        {
+          "id": "publish-and-visit",
+          "difficulty": 2,
+          "family": "content",
+          "xp": 125,
+          "title": {
+            "en": "Publish a complete approved spot and visit two other spots",
+            "ru": "Опубликовать полный одобренный спот и посетить два чужих",
+            "lv": "Publicēt pilnīgu apstiprinātu vietu un apmeklēt divas citas"
+          },
+          "metric": "publish_and_two_visits",
+          "target": 3,
+          "available": false
+        }
+      ],
+      "totalXp": 300,
+      "weekKey": "2027-12-20",
+      "endWeekKey": "2027-12-27"
+    },
+    {
+      "week": 68,
+      "tasks": [
+        {
+          "id": "two-categories",
+          "difficulty": 0,
+          "family": "explore",
+          "xp": 75,
+          "title": {
+            "en": "Visit spots in two different categories",
+            "ru": "Посетить споты двух разных категорий",
+            "lv": "Apmeklēt vietas divās dažādās kategorijās"
+          },
+          "metric": "visited_categories",
+          "target": 2,
+          "available": false
+        },
+        {
+          "id": "visit-four",
+          "difficulty": 1,
+          "family": "visits",
+          "xp": 100,
+          "title": {
+            "en": "Visit four different spots",
+            "ru": "Посетить четыре разных спота",
+            "lv": "Apmeklēt četras dažādas vietas"
+          },
+          "metric": "verified_visits",
+          "target": 4,
+          "available": false
+        },
+        {
+          "id": "help-three-authors",
+          "difficulty": 2,
+          "family": "community",
+          "xp": 125,
+          "title": {
+            "en": "Help three different topic authors with accepted answers",
+            "ru": "Помочь трём авторам тем: они отметили твои ответы полезными",
+            "lv": "Palīdzēt trim tēmu autoriem ar atzītām atbildēm"
+          },
+          "metric": "helped_topic_authors",
+          "target": 3,
+          "available": false
+        }
+      ],
+      "totalXp": 300,
+      "weekKey": "2027-12-27",
+      "endWeekKey": "2028-01-03"
+    },
+    {
+      "week": 69,
+      "tasks": [
+        {
+          "id": "photo-help",
+          "difficulty": 0,
+          "family": "content",
+          "xp": 75,
+          "title": {
+            "en": "Add an accepted photo to another author's spot",
+            "ru": "Добавить одобренное фото к чужому споту",
+            "lv": "Pievienot apstiprinātu foto cita autora vietai"
+          },
+          "metric": "accepted_photo_contributions",
+          "target": 1,
+          "available": false
+        },
+        {
+          "id": "weekday-weekend",
+          "difficulty": 1,
+          "family": "explore",
+          "xp": 100,
+          "title": {
+            "en": "Visit different spots on a weekday and on the weekend",
+            "ru": "Посетить разные споты в будний и выходной день",
+            "lv": "Apmeklēt dažādas vietas darbdienā un nedēļas nogalē"
+          },
+          "metric": "weekday_and_weekend_visits",
+          "target": 2,
+          "available": false
+        },
+        {
+          "id": "meet-and-new-two",
+          "difficulty": 2,
+          "family": "community",
+          "xp": 125,
+          "title": {
+            "en": "Attend a meet and visit two new permanent spots",
+            "ru": "Посетить мит и два новых для себя постоянных спота",
+            "lv": "Apmeklēt tikšanos un divas sev jaunas pastāvīgas vietas"
+          },
+          "metric": "meet_and_two_first_visits",
+          "target": 3,
+          "available": false
+        }
+      ],
+      "totalXp": 300,
+      "weekKey": "2028-01-03",
+      "endWeekKey": "2028-01-10"
+    },
+    {
+      "week": 70,
+      "tasks": [
+        {
+          "id": "visit-two",
+          "difficulty": 0,
+          "family": "visits",
+          "xp": 75,
+          "title": {
+            "en": "Visit two different spots",
+            "ru": "Посетить два разных спота",
+            "lv": "Apmeklēt divas dažādas vietas"
+          },
+          "metric": "verified_visits",
+          "target": 2,
+          "available": false
+        },
+        {
+          "id": "new-two",
+          "difficulty": 1,
+          "family": "explore",
+          "xp": 100,
+          "title": {
+            "en": "Visit two spots you have never visited",
+            "ru": "Посетить два спота, где ещё не был",
+            "lv": "Apmeklēt divas vēl neapmeklētas vietas"
+          },
+          "metric": "first_visits",
+          "target": 2,
+          "available": false
+        },
+        {
+          "id": "photo-three",
+          "difficulty": 2,
+          "family": "content",
+          "xp": 125,
+          "title": {
+            "en": "Add accepted photos to three other authors' spots",
+            "ru": "Добавить одобренные фото к трём чужим спотам",
+            "lv": "Pievienot apstiprinātus foto trim citu autoru vietām"
+          },
+          "metric": "accepted_photo_contributions",
+          "target": 3,
+          "available": false
+        }
+      ],
+      "totalXp": 300,
+      "weekKey": "2028-01-10",
+      "endWeekKey": "2028-01-17"
+    },
+    {
+      "week": 71,
+      "tasks": [
+        {
+          "id": "weekend-visit",
+          "difficulty": 0,
+          "family": "explore",
+          "xp": 75,
+          "title": {
+            "en": "Visit a spot on the weekend",
+            "ru": "Посетить спот в выходные",
+            "lv": "Apmeklēt vietu nedēļas nogalē"
+          },
+          "metric": "weekend_visits",
+          "target": 1,
+          "available": false
+        },
+        {
+          "id": "spot-gallery",
+          "difficulty": 1,
+          "family": "content",
+          "xp": 100,
+          "title": {
+            "en": "Publish an approved spot with three different photos",
+            "ru": "Опубликовать одобренный спот с тремя разными фото",
+            "lv": "Publicēt apstiprinātu vietu ar trim dažādiem foto"
+          },
+          "metric": "new_gallery_spots",
+          "target": 1,
+          "available": false
+        },
+        {
+          "id": "visit-seven",
+          "difficulty": 2,
+          "family": "visits",
+          "xp": 125,
+          "title": {
+            "en": "Visit seven different spots",
+            "ru": "Посетить семь разных спотов",
+            "lv": "Apmeklēt septiņas dažādas vietas"
+          },
+          "metric": "verified_visits",
+          "target": 7,
+          "available": false
+        }
+      ],
+      "totalXp": 300,
+      "weekKey": "2028-01-17",
+      "endWeekKey": "2028-01-24"
+    },
+    {
+      "week": 72,
+      "tasks": [
+        {
+          "id": "help-answer",
+          "difficulty": 0,
+          "family": "community",
+          "xp": 75,
+          "title": {
+            "en": "Have an answer marked helpful by a topic author",
+            "ru": "Получить отметку полезного ответа от автора темы",
+            "lv": "Saņemt tēmas autora atzīmi par noderīgu atbildi"
+          },
+          "metric": "accepted_helpful_answers",
+          "target": 1,
+          "available": false
+        },
+        {
+          "id": "photo-two",
+          "difficulty": 1,
+          "family": "content",
+          "xp": 100,
+          "title": {
+            "en": "Add accepted photos to two other authors' spots",
+            "ru": "Добавить одобренные фото к двум чужим спотам",
+            "lv": "Pievienot apstiprinātus foto divām citu autoru vietām"
+          },
+          "metric": "accepted_photo_contributions",
+          "target": 2,
+          "available": false
+        },
+        {
+          "id": "new-three-days",
+          "difficulty": 2,
+          "family": "explore",
+          "xp": 125,
+          "title": {
+            "en": "Visit a new spot on each of three different days",
+            "ru": "Посетить новый для себя спот в каждый из трёх разных дней",
+            "lv": "Apmeklēt sev jaunu vietu katrā no trim dažādām dienām"
+          },
+          "metric": "first_visit_days",
+          "target": 3,
+          "available": false
+        }
+      ],
+      "totalXp": 300,
+      "weekKey": "2028-01-24",
+      "endWeekKey": "2028-01-31"
+    },
+    {
+      "week": 73,
+      "tasks": [
+        {
+          "id": "two-categories",
+          "difficulty": 0,
+          "family": "explore",
+          "xp": 75,
+          "title": {
+            "en": "Visit spots in two different categories",
+            "ru": "Посетить споты двух разных категорий",
+            "lv": "Apmeklēt vietas divās dažādās kategorijās"
+          },
+          "metric": "visited_categories",
+          "target": 2,
+          "available": false
+        },
+        {
+          "id": "visit-two-days",
+          "difficulty": 1,
+          "family": "visits",
+          "xp": 100,
+          "title": {
+            "en": "Visit different spots on two days",
+            "ru": "Посетить разные споты в два разных дня",
+            "lv": "Apmeklēt dažādas vietas divās dienās"
+          },
+          "metric": "distinct_visit_days",
+          "target": 2,
+          "available": false
+        },
+        {
+          "id": "meet-and-new-two",
+          "difficulty": 2,
+          "family": "community",
+          "xp": 125,
+          "title": {
+            "en": "Attend a meet and visit two new permanent spots",
+            "ru": "Посетить мит и два новых для себя постоянных спота",
+            "lv": "Apmeklēt tikšanos un divas sev jaunas pastāvīgas vietas"
+          },
+          "metric": "meet_and_two_first_visits",
+          "target": 3,
+          "available": false
+        }
+      ],
+      "totalXp": 300,
+      "weekKey": "2028-01-31",
+      "endWeekKey": "2028-02-07"
+    },
+    {
+      "week": 74,
+      "tasks": [
+        {
+          "id": "photo-help",
+          "difficulty": 0,
+          "family": "content",
+          "xp": 75,
+          "title": {
+            "en": "Add an accepted photo to another author's spot",
+            "ru": "Добавить одобренное фото к чужому споту",
+            "lv": "Pievienot apstiprinātu foto cita autora vietai"
+          },
+          "metric": "accepted_photo_contributions",
+          "target": 1,
+          "available": false
+        },
+        {
+          "id": "weekday-weekend",
+          "difficulty": 1,
+          "family": "explore",
+          "xp": 100,
+          "title": {
+            "en": "Visit different spots on a weekday and on the weekend",
+            "ru": "Посетить разные споты в будний и выходной день",
+            "lv": "Apmeklēt dažādas vietas darbdienā un nedēļas nogalē"
+          },
+          "metric": "weekday_and_weekend_visits",
+          "target": 2,
+          "available": false
+        },
+        {
+          "id": "visit-three-days",
+          "difficulty": 2,
+          "family": "visits",
+          "xp": 125,
+          "title": {
+            "en": "Visit different spots on three days",
+            "ru": "Посетить разные споты в три разных дня",
+            "lv": "Apmeklēt dažādas vietas trijās dienās"
+          },
+          "metric": "distinct_visit_days",
+          "target": 3,
+          "available": false
+        }
+      ],
+      "totalXp": 300,
+      "weekKey": "2028-02-07",
+      "endWeekKey": "2028-02-14"
+    },
+    {
+      "week": 75,
+      "tasks": [
+        {
+          "id": "spot-detail",
+          "difficulty": 0,
+          "family": "content",
+          "xp": 75,
+          "title": {
+            "en": "Publish an approved spot with a description and photo",
+            "ru": "Опубликовать одобренный спот с описанием и фото",
+            "lv": "Publicēt apstiprinātu vietu ar aprakstu un foto"
+          },
+          "metric": "new_complete_spots",
+          "target": 1,
+          "available": false
+        },
+        {
+          "id": "meet-and-spot",
+          "difficulty": 1,
+          "family": "community",
+          "xp": 100,
+          "title": {
+            "en": "Attend a meet and visit a permanent spot",
+            "ru": "Посетить мит и постоянный спот",
+            "lv": "Apmeklēt tikšanos un pastāvīgu vietu"
+          },
+          "metric": "meet_and_permanent_visit",
+          "target": 2,
+          "available": false
+        },
+        {
+          "id": "visit-seven",
+          "difficulty": 2,
+          "family": "visits",
+          "xp": 125,
+          "title": {
+            "en": "Visit seven different spots",
+            "ru": "Посетить семь разных спотов",
+            "lv": "Apmeklēt septiņas dažādas vietas"
+          },
+          "metric": "verified_visits",
+          "target": 7,
+          "available": false
+        }
+      ],
+      "totalXp": 300,
+      "weekKey": "2028-02-14",
+      "endWeekKey": "2028-02-21"
+    },
+    {
+      "week": 76,
+      "tasks": [
+        {
+          "id": "help-answer",
+          "difficulty": 0,
+          "family": "community",
+          "xp": 75,
+          "title": {
+            "en": "Have an answer marked helpful by a topic author",
+            "ru": "Получить отметку полезного ответа от автора темы",
+            "lv": "Saņemt tēmas autora atzīmi par noderīgu atbildi"
+          },
+          "metric": "accepted_helpful_answers",
+          "target": 1,
+          "available": false
+        },
+        {
+          "id": "new-two",
+          "difficulty": 1,
+          "family": "explore",
+          "xp": 100,
+          "title": {
+            "en": "Visit two spots you have never visited",
+            "ru": "Посетить два спота, где ещё не был",
+            "lv": "Apmeklēt divas vēl neapmeklētas vietas"
+          },
+          "metric": "first_visits",
+          "target": 2,
+          "available": false
+        },
+        {
+          "id": "publish-and-visit",
+          "difficulty": 2,
+          "family": "content",
+          "xp": 125,
+          "title": {
+            "en": "Publish a complete approved spot and visit two other spots",
+            "ru": "Опубликовать полный одобренный спот и посетить два чужих",
+            "lv": "Publicēt pilnīgu apstiprinātu vietu un apmeklēt divas citas"
+          },
+          "metric": "publish_and_two_visits",
+          "target": 3,
+          "available": false
+        }
+      ],
+      "totalXp": 300,
+      "weekKey": "2028-02-21",
+      "endWeekKey": "2028-02-28"
+    },
+    {
+      "week": 77,
+      "tasks": [
+        {
+          "id": "meet-visit",
+          "difficulty": 0,
+          "family": "community",
+          "xp": 75,
+          "title": {
+            "en": "Attend a meet hosted by another user",
+            "ru": "Посетить мит другого организатора",
+            "lv": "Apmeklēt cita rīkotu tikšanos"
+          },
+          "metric": "verified_meet_visits",
+          "target": 1,
+          "available": false
+        },
+        {
+          "id": "photo-two",
+          "difficulty": 1,
+          "family": "content",
+          "xp": 100,
+          "title": {
+            "en": "Add accepted photos to two other authors' spots",
+            "ru": "Добавить одобренные фото к двум чужим спотам",
+            "lv": "Pievienot apstiprinātus foto divām citu autoru vietām"
+          },
+          "metric": "accepted_photo_contributions",
+          "target": 2,
+          "available": false
+        },
+        {
+          "id": "new-three-days",
+          "difficulty": 2,
+          "family": "explore",
+          "xp": 125,
+          "title": {
+            "en": "Visit a new spot on each of three different days",
+            "ru": "Посетить новый для себя спот в каждый из трёх разных дней",
+            "lv": "Apmeklēt sev jaunu vietu katrā no trim dažādām dienām"
+          },
+          "metric": "first_visit_days",
+          "target": 3,
+          "available": false
+        }
+      ],
+      "totalXp": 300,
+      "weekKey": "2028-02-28",
+      "endWeekKey": "2028-03-06"
+    },
+    {
+      "week": 78,
+      "tasks": [
+        {
+          "id": "visit-new",
+          "difficulty": 0,
+          "family": "visits",
+          "xp": 75,
+          "title": {
+            "en": "Visit a spot you have not visited before",
+            "ru": "Посетить спот, где ещё не был",
+            "lv": "Apmeklēt vēl neapmeklētu vietu"
+          },
+          "metric": "first_visits",
+          "target": 1,
+          "available": false
+        },
+        {
+          "id": "help-two-authors",
+          "difficulty": 1,
+          "family": "community",
+          "xp": 100,
+          "title": {
+            "en": "Help two different topic authors with accepted answers",
+            "ru": "Помочь двум авторам тем: они отметили твои ответы полезными",
+            "lv": "Palīdzēt diviem tēmu autoriem ar atzītām atbildēm"
+          },
+          "metric": "helped_topic_authors",
+          "target": 2,
+          "available": false
+        },
+        {
+          "id": "three-categories",
+          "difficulty": 2,
+          "family": "explore",
+          "xp": 125,
+          "title": {
+            "en": "Visit spots in three different categories",
+            "ru": "Посетить споты трёх разных категорий",
+            "lv": "Apmeklēt vietas trijās dažādās kategorijās"
+          },
+          "metric": "visited_categories",
+          "target": 3,
+          "available": false
+        }
+      ],
+      "totalXp": 300,
+      "weekKey": "2028-03-06",
+      "endWeekKey": "2028-03-13"
+    },
+    {
+      "week": 79,
+      "tasks": [
+        {
+          "id": "weekend-visit",
+          "difficulty": 0,
+          "family": "explore",
+          "xp": 75,
+          "title": {
+            "en": "Visit a spot on the weekend",
+            "ru": "Посетить спот в выходные",
+            "lv": "Apmeklēt vietu nedēļas nogalē"
+          },
+          "metric": "weekend_visits",
+          "target": 1,
+          "available": false
+        },
+        {
+          "id": "visit-four",
+          "difficulty": 1,
+          "family": "visits",
+          "xp": 100,
+          "title": {
+            "en": "Visit four different spots",
+            "ru": "Посетить четыре разных спота",
+            "lv": "Apmeklēt četras dažādas vietas"
+          },
+          "metric": "verified_visits",
+          "target": 4,
+          "available": false
+        },
+        {
+          "id": "photo-three",
+          "difficulty": 2,
+          "family": "content",
+          "xp": 125,
+          "title": {
+            "en": "Add accepted photos to three other authors' spots",
+            "ru": "Добавить одобренные фото к трём чужим спотам",
+            "lv": "Pievienot apstiprinātus foto trim citu autoru vietām"
+          },
+          "metric": "accepted_photo_contributions",
+          "target": 3,
+          "available": false
+        }
+      ],
+      "totalXp": 300,
+      "weekKey": "2028-03-13",
+      "endWeekKey": "2028-03-20"
+    },
+    {
+      "week": 80,
+      "tasks": [
+        {
+          "id": "visit-two",
+          "difficulty": 0,
+          "family": "visits",
+          "xp": 75,
+          "title": {
+            "en": "Visit two different spots",
+            "ru": "Посетить два разных спота",
+            "lv": "Apmeklēt divas dažādas vietas"
+          },
+          "metric": "verified_visits",
+          "target": 2,
+          "available": false
+        },
+        {
+          "id": "weekday-weekend",
+          "difficulty": 1,
+          "family": "explore",
+          "xp": 100,
+          "title": {
+            "en": "Visit different spots on a weekday and on the weekend",
+            "ru": "Посетить разные споты в будний и выходной день",
+            "lv": "Apmeklēt dažādas vietas darbdienā un nedēļas nogalē"
+          },
+          "metric": "weekday_and_weekend_visits",
+          "target": 2,
+          "available": false
+        },
+        {
+          "id": "help-three-authors",
+          "difficulty": 2,
+          "family": "community",
+          "xp": 125,
+          "title": {
+            "en": "Help three different topic authors with accepted answers",
+            "ru": "Помочь трём авторам тем: они отметили твои ответы полезными",
+            "lv": "Palīdzēt trim tēmu autoriem ar atzītām atbildēm"
+          },
+          "metric": "helped_topic_authors",
+          "target": 3,
+          "available": false
+        }
+      ],
+      "totalXp": 300,
+      "weekKey": "2028-03-20",
+      "endWeekKey": "2028-03-27"
+    },
+    {
+      "week": 81,
+      "tasks": [
+        {
+          "id": "two-categories",
+          "difficulty": 0,
+          "family": "explore",
+          "xp": 75,
+          "title": {
+            "en": "Visit spots in two different categories",
+            "ru": "Посетить споты двух разных категорий",
+            "lv": "Apmeklēt vietas divās dažādās kategorijās"
+          },
+          "metric": "visited_categories",
+          "target": 2,
+          "available": false
+        },
+        {
+          "id": "spot-gallery",
+          "difficulty": 1,
+          "family": "content",
+          "xp": 100,
+          "title": {
+            "en": "Publish an approved spot with three different photos",
+            "ru": "Опубликовать одобренный спот с тремя разными фото",
+            "lv": "Publicēt apstiprinātu vietu ar trim dažādiem foto"
+          },
+          "metric": "new_gallery_spots",
+          "target": 1,
+          "available": false
+        },
+        {
+          "id": "visit-seven",
+          "difficulty": 2,
+          "family": "visits",
+          "xp": 125,
+          "title": {
+            "en": "Visit seven different spots",
+            "ru": "Посетить семь разных спотов",
+            "lv": "Apmeklēt septiņas dažādas vietas"
+          },
+          "metric": "verified_visits",
+          "target": 7,
+          "available": false
+        }
+      ],
+      "totalXp": 300,
+      "weekKey": "2028-03-27",
+      "endWeekKey": "2028-04-03"
+    },
+    {
+      "week": 82,
+      "tasks": [
+        {
+          "id": "spot-detail",
+          "difficulty": 0,
+          "family": "content",
+          "xp": 75,
+          "title": {
+            "en": "Publish an approved spot with a description and photo",
+            "ru": "Опубликовать одобренный спот с описанием и фото",
+            "lv": "Publicēt apstiprinātu vietu ar aprakstu un foto"
+          },
+          "metric": "new_complete_spots",
+          "target": 1,
+          "available": false
+        },
+        {
+          "id": "meet-and-spot",
+          "difficulty": 1,
+          "family": "community",
+          "xp": 100,
+          "title": {
+            "en": "Attend a meet and visit a permanent spot",
+            "ru": "Посетить мит и постоянный спот",
+            "lv": "Apmeklēt tikšanos un pastāvīgu vietu"
+          },
+          "metric": "meet_and_permanent_visit",
+          "target": 2,
+          "available": false
+        },
+        {
+          "id": "visit-three-days",
+          "difficulty": 2,
+          "family": "visits",
+          "xp": 125,
+          "title": {
+            "en": "Visit different spots on three days",
+            "ru": "Посетить разные споты в три разных дня",
+            "lv": "Apmeklēt dažādas vietas trijās dienās"
+          },
+          "metric": "distinct_visit_days",
+          "target": 3,
+          "available": false
+        }
+      ],
+      "totalXp": 300,
+      "weekKey": "2028-04-03",
+      "endWeekKey": "2028-04-10"
+    },
+    {
+      "week": 83,
+      "tasks": [
+        {
+          "id": "help-answer",
+          "difficulty": 0,
+          "family": "community",
+          "xp": 75,
+          "title": {
+            "en": "Have an answer marked helpful by a topic author",
+            "ru": "Получить отметку полезного ответа от автора темы",
+            "lv": "Saņemt tēmas autora atzīmi par noderīgu atbildi"
+          },
+          "metric": "accepted_helpful_answers",
+          "target": 1,
+          "available": false
+        },
+        {
+          "id": "visit-two-days",
+          "difficulty": 1,
+          "family": "visits",
+          "xp": 100,
+          "title": {
+            "en": "Visit different spots on two days",
+            "ru": "Посетить разные споты в два разных дня",
+            "lv": "Apmeklēt dažādas vietas divās dienās"
+          },
+          "metric": "distinct_visit_days",
+          "target": 2,
+          "available": false
+        },
+        {
+          "id": "three-categories",
+          "difficulty": 2,
+          "family": "explore",
+          "xp": 125,
+          "title": {
+            "en": "Visit spots in three different categories",
+            "ru": "Посетить споты трёх разных категорий",
+            "lv": "Apmeklēt vietas trijās dažādās kategorijās"
+          },
+          "metric": "visited_categories",
+          "target": 3,
+          "available": false
+        }
+      ],
+      "totalXp": 300,
+      "weekKey": "2028-04-10",
+      "endWeekKey": "2028-04-17"
+    },
+    {
+      "week": 84,
+      "tasks": [
+        {
+          "id": "visit-two",
+          "difficulty": 0,
+          "family": "visits",
+          "xp": 75,
+          "title": {
+            "en": "Visit two different spots",
+            "ru": "Посетить два разных спота",
+            "lv": "Apmeklēt divas dažādas vietas"
+          },
+          "metric": "verified_visits",
+          "target": 2,
+          "available": false
+        },
+        {
+          "id": "help-two-authors",
+          "difficulty": 1,
+          "family": "community",
+          "xp": 100,
+          "title": {
+            "en": "Help two different topic authors with accepted answers",
+            "ru": "Помочь двум авторам тем: они отметили твои ответы полезными",
+            "lv": "Palīdzēt diviem tēmu autoriem ar atzītām atbildēm"
+          },
+          "metric": "helped_topic_authors",
+          "target": 2,
+          "available": false
+        },
+        {
+          "id": "photo-three",
+          "difficulty": 2,
+          "family": "content",
+          "xp": 125,
+          "title": {
+            "en": "Add accepted photos to three other authors' spots",
+            "ru": "Добавить одобренные фото к трём чужим спотам",
+            "lv": "Pievienot apstiprinātus foto trim citu autoru vietām"
+          },
+          "metric": "accepted_photo_contributions",
+          "target": 3,
+          "available": false
+        }
+      ],
+      "totalXp": 300,
+      "weekKey": "2028-04-17",
+      "endWeekKey": "2028-04-24"
+    },
+    {
+      "week": 85,
+      "tasks": [
+        {
+          "id": "photo-help",
+          "difficulty": 0,
+          "family": "content",
+          "xp": 75,
+          "title": {
+            "en": "Add an accepted photo to another author's spot",
+            "ru": "Добавить одобренное фото к чужому споту",
+            "lv": "Pievienot apstiprinātu foto cita autora vietai"
+          },
+          "metric": "accepted_photo_contributions",
+          "target": 1,
+          "available": false
+        },
+        {
+          "id": "new-two",
+          "difficulty": 1,
+          "family": "explore",
+          "xp": 100,
+          "title": {
+            "en": "Visit two spots you have never visited",
+            "ru": "Посетить два спота, где ещё не был",
+            "lv": "Apmeklēt divas vēl neapmeklētas vietas"
+          },
+          "metric": "first_visits",
+          "target": 2,
+          "available": false
+        },
+        {
+          "id": "help-three-authors",
+          "difficulty": 2,
+          "family": "community",
+          "xp": 125,
+          "title": {
+            "en": "Help three different topic authors with accepted answers",
+            "ru": "Помочь трём авторам тем: они отметили твои ответы полезными",
+            "lv": "Palīdzēt trim tēmu autoriem ar atzītām atbildēm"
+          },
+          "metric": "helped_topic_authors",
+          "target": 3,
+          "available": false
+        }
+      ],
+      "totalXp": 300,
+      "weekKey": "2028-04-24",
+      "endWeekKey": "2028-05-01"
+    },
+    {
+      "week": 86,
+      "tasks": [
+        {
+          "id": "visit-new",
+          "difficulty": 0,
+          "family": "visits",
+          "xp": 75,
+          "title": {
+            "en": "Visit a spot you have not visited before",
+            "ru": "Посетить спот, где ещё не был",
+            "lv": "Apmeklēt vēl neapmeklētu vietu"
+          },
+          "metric": "first_visits",
+          "target": 1,
+          "available": false
+        },
+        {
+          "id": "spot-gallery",
+          "difficulty": 1,
+          "family": "content",
+          "xp": 100,
+          "title": {
+            "en": "Publish an approved spot with three different photos",
+            "ru": "Опубликовать одобренный спот с тремя разными фото",
+            "lv": "Publicēt apstiprinātu vietu ar trim dažādiem foto"
+          },
+          "metric": "new_gallery_spots",
+          "target": 1,
+          "available": false
+        },
+        {
+          "id": "meet-and-new-two",
+          "difficulty": 2,
+          "family": "community",
+          "xp": 125,
+          "title": {
+            "en": "Attend a meet and visit two new permanent spots",
+            "ru": "Посетить мит и два новых для себя постоянных спота",
+            "lv": "Apmeklēt tikšanos un divas sev jaunas pastāvīgas vietas"
+          },
+          "metric": "meet_and_two_first_visits",
+          "target": 3,
+          "available": false
+        }
+      ],
+      "totalXp": 300,
+      "weekKey": "2028-05-01",
+      "endWeekKey": "2028-05-08"
+    },
+    {
+      "week": 87,
+      "tasks": [
+        {
+          "id": "weekend-visit",
+          "difficulty": 0,
+          "family": "explore",
+          "xp": 75,
+          "title": {
+            "en": "Visit a spot on the weekend",
+            "ru": "Посетить спот в выходные",
+            "lv": "Apmeklēt vietu nedēļas nogalē"
+          },
+          "metric": "weekend_visits",
+          "target": 1,
+          "available": false
+        },
+        {
+          "id": "visit-four",
+          "difficulty": 1,
+          "family": "visits",
+          "xp": 100,
+          "title": {
+            "en": "Visit four different spots",
+            "ru": "Посетить четыре разных спота",
+            "lv": "Apmeklēt četras dažādas vietas"
+          },
+          "metric": "verified_visits",
+          "target": 4,
+          "available": false
+        },
+        {
+          "id": "publish-and-visit",
+          "difficulty": 2,
+          "family": "content",
+          "xp": 125,
+          "title": {
+            "en": "Publish a complete approved spot and visit two other spots",
+            "ru": "Опубликовать полный одобренный спот и посетить два чужих",
+            "lv": "Publicēt pilnīgu apstiprinātu vietu un apmeklēt divas citas"
+          },
+          "metric": "publish_and_two_visits",
+          "target": 3,
+          "available": false
+        }
+      ],
+      "totalXp": 300,
+      "weekKey": "2028-05-08",
+      "endWeekKey": "2028-05-15"
+    },
+    {
+      "week": 88,
+      "tasks": [
+        {
+          "id": "meet-visit",
+          "difficulty": 0,
+          "family": "community",
+          "xp": 75,
+          "title": {
+            "en": "Attend a meet hosted by another user",
+            "ru": "Посетить мит другого организатора",
+            "lv": "Apmeklēt cita rīkotu tikšanos"
+          },
+          "metric": "verified_meet_visits",
+          "target": 1,
+          "available": false
+        },
+        {
+          "id": "visit-two-days",
+          "difficulty": 1,
+          "family": "visits",
+          "xp": 100,
+          "title": {
+            "en": "Visit different spots on two days",
+            "ru": "Посетить разные споты в два разных дня",
+            "lv": "Apmeklēt dažādas vietas divās dienās"
+          },
+          "metric": "distinct_visit_days",
+          "target": 2,
+          "available": false
+        },
+        {
+          "id": "new-three-days",
+          "difficulty": 2,
+          "family": "explore",
+          "xp": 125,
+          "title": {
+            "en": "Visit a new spot on each of three different days",
+            "ru": "Посетить новый для себя спот в каждый из трёх разных дней",
+            "lv": "Apmeklēt sev jaunu vietu katrā no trim dažādām dienām"
+          },
+          "metric": "first_visit_days",
+          "target": 3,
+          "available": false
+        }
+      ],
+      "totalXp": 300,
+      "weekKey": "2028-05-15",
+      "endWeekKey": "2028-05-22"
+    },
+    {
+      "week": 89,
+      "tasks": [
+        {
+          "id": "help-answer",
+          "difficulty": 0,
+          "family": "community",
+          "xp": 75,
+          "title": {
+            "en": "Have an answer marked helpful by a topic author",
+            "ru": "Получить отметку полезного ответа от автора темы",
+            "lv": "Saņemt tēmas autora atzīmi par noderīgu atbildi"
+          },
+          "metric": "accepted_helpful_answers",
+          "target": 1,
+          "available": false
+        },
+        {
+          "id": "photo-two",
+          "difficulty": 1,
+          "family": "content",
+          "xp": 100,
+          "title": {
+            "en": "Add accepted photos to two other authors' spots",
+            "ru": "Добавить одобренные фото к двум чужим спотам",
+            "lv": "Pievienot apstiprinātus foto divām citu autoru vietām"
+          },
+          "metric": "accepted_photo_contributions",
+          "target": 2,
+          "available": false
+        },
+        {
+          "id": "visit-seven",
+          "difficulty": 2,
+          "family": "visits",
+          "xp": 125,
+          "title": {
+            "en": "Visit seven different spots",
+            "ru": "Посетить семь разных спотов",
+            "lv": "Apmeklēt septiņas dažādas vietas"
+          },
+          "metric": "verified_visits",
+          "target": 7,
+          "available": false
+        }
+      ],
+      "totalXp": 300,
+      "weekKey": "2028-05-22",
+      "endWeekKey": "2028-05-29"
+    },
+    {
+      "week": 90,
+      "tasks": [
+        {
+          "id": "visit-two",
+          "difficulty": 0,
+          "family": "visits",
+          "xp": 75,
+          "title": {
+            "en": "Visit two different spots",
+            "ru": "Посетить два разных спота",
+            "lv": "Apmeklēt divas dažādas vietas"
+          },
+          "metric": "verified_visits",
+          "target": 2,
+          "available": false
+        },
+        {
+          "id": "meet-and-spot",
+          "difficulty": 1,
+          "family": "community",
+          "xp": 100,
+          "title": {
+            "en": "Attend a meet and visit a permanent spot",
+            "ru": "Посетить мит и постоянный спот",
+            "lv": "Apmeklēt tikšanos un pastāvīgu vietu"
+          },
+          "metric": "meet_and_permanent_visit",
+          "target": 2,
+          "available": false
+        },
+        {
+          "id": "three-categories",
+          "difficulty": 2,
+          "family": "explore",
+          "xp": 125,
+          "title": {
+            "en": "Visit spots in three different categories",
+            "ru": "Посетить споты трёх разных категорий",
+            "lv": "Apmeklēt vietas trijās dažādās kategorijās"
+          },
+          "metric": "visited_categories",
+          "target": 3,
+          "available": false
+        }
+      ],
+      "totalXp": 300,
+      "weekKey": "2028-05-29",
+      "endWeekKey": "2028-06-05"
+    },
+    {
+      "week": 91,
+      "tasks": [
+        {
+          "id": "two-categories",
+          "difficulty": 0,
+          "family": "explore",
+          "xp": 75,
+          "title": {
+            "en": "Visit spots in two different categories",
+            "ru": "Посетить споты двух разных категорий",
+            "lv": "Apmeklēt vietas divās dažādās kategorijās"
+          },
+          "metric": "visited_categories",
+          "target": 2,
+          "available": false
+        },
+        {
+          "id": "spot-gallery",
+          "difficulty": 1,
+          "family": "content",
+          "xp": 100,
+          "title": {
+            "en": "Publish an approved spot with three different photos",
+            "ru": "Опубликовать одобренный спот с тремя разными фото",
+            "lv": "Publicēt apstiprinātu vietu ar trim dažādiem foto"
+          },
+          "metric": "new_gallery_spots",
+          "target": 1,
+          "available": false
+        },
+        {
+          "id": "meet-and-new-two",
+          "difficulty": 2,
+          "family": "community",
+          "xp": 125,
+          "title": {
+            "en": "Attend a meet and visit two new permanent spots",
+            "ru": "Посетить мит и два новых для себя постоянных спота",
+            "lv": "Apmeklēt tikšanos un divas sev jaunas pastāvīgas vietas"
+          },
+          "metric": "meet_and_two_first_visits",
+          "target": 3,
+          "available": false
+        }
+      ],
+      "totalXp": 300,
+      "weekKey": "2028-06-05",
+      "endWeekKey": "2028-06-12"
+    },
+    {
+      "week": 92,
+      "tasks": [
+        {
+          "id": "photo-help",
+          "difficulty": 0,
+          "family": "content",
+          "xp": 75,
+          "title": {
+            "en": "Add an accepted photo to another author's spot",
+            "ru": "Добавить одобренное фото к чужому споту",
+            "lv": "Pievienot apstiprinātu foto cita autora vietai"
+          },
+          "metric": "accepted_photo_contributions",
+          "target": 1,
+          "available": false
+        },
+        {
+          "id": "weekday-weekend",
+          "difficulty": 1,
+          "family": "explore",
+          "xp": 100,
+          "title": {
+            "en": "Visit different spots on a weekday and on the weekend",
+            "ru": "Посетить разные споты в будний и выходной день",
+            "lv": "Apmeklēt dažādas vietas darbdienā un nedēļas nogalē"
+          },
+          "metric": "weekday_and_weekend_visits",
+          "target": 2,
+          "available": false
+        },
+        {
+          "id": "help-three-authors",
+          "difficulty": 2,
+          "family": "community",
+          "xp": 125,
+          "title": {
+            "en": "Help three different topic authors with accepted answers",
+            "ru": "Помочь трём авторам тем: они отметили твои ответы полезными",
+            "lv": "Palīdzēt trim tēmu autoriem ar atzītām atbildēm"
+          },
+          "metric": "helped_topic_authors",
+          "target": 3,
+          "available": false
+        }
+      ],
+      "totalXp": 300,
+      "weekKey": "2028-06-12",
+      "endWeekKey": "2028-06-19"
+    },
+    {
+      "week": 93,
+      "tasks": [
+        {
+          "id": "weekend-visit",
+          "difficulty": 0,
+          "family": "explore",
+          "xp": 75,
+          "title": {
+            "en": "Visit a spot on the weekend",
+            "ru": "Посетить спот в выходные",
+            "lv": "Apmeklēt vietu nedēļas nogalē"
+          },
+          "metric": "weekend_visits",
+          "target": 1,
+          "available": false
+        },
+        {
+          "id": "help-two-authors",
+          "difficulty": 1,
+          "family": "community",
+          "xp": 100,
+          "title": {
+            "en": "Help two different topic authors with accepted answers",
+            "ru": "Помочь двум авторам тем: они отметили твои ответы полезными",
+            "lv": "Palīdzēt diviem tēmu autoriem ar atzītām atbildēm"
+          },
+          "metric": "helped_topic_authors",
+          "target": 2,
+          "available": false
+        },
+        {
+          "id": "visit-three-days",
+          "difficulty": 2,
+          "family": "visits",
+          "xp": 125,
+          "title": {
+            "en": "Visit different spots on three days",
+            "ru": "Посетить разные споты в три разных дня",
+            "lv": "Apmeklēt dažādas vietas trijās dienās"
+          },
+          "metric": "distinct_visit_days",
+          "target": 3,
+          "available": false
+        }
+      ],
+      "totalXp": 300,
+      "weekKey": "2028-06-19",
+      "endWeekKey": "2028-06-26"
+    },
+    {
+      "week": 94,
+      "tasks": [
+        {
+          "id": "meet-visit",
+          "difficulty": 0,
+          "family": "community",
+          "xp": 75,
+          "title": {
+            "en": "Attend a meet hosted by another user",
+            "ru": "Посетить мит другого организатора",
+            "lv": "Apmeklēt cita rīkotu tikšanos"
+          },
+          "metric": "verified_meet_visits",
+          "target": 1,
+          "available": false
+        },
+        {
+          "id": "new-two",
+          "difficulty": 1,
+          "family": "explore",
+          "xp": 100,
+          "title": {
+            "en": "Visit two spots you have never visited",
+            "ru": "Посетить два спота, где ещё не был",
+            "lv": "Apmeklēt divas vēl neapmeklētas vietas"
+          },
+          "metric": "first_visits",
+          "target": 2,
+          "available": false
+        },
+        {
+          "id": "photo-three",
+          "difficulty": 2,
+          "family": "content",
+          "xp": 125,
+          "title": {
+            "en": "Add accepted photos to three other authors' spots",
+            "ru": "Добавить одобренные фото к трём чужим спотам",
+            "lv": "Pievienot apstiprinātus foto trim citu autoru vietām"
+          },
+          "metric": "accepted_photo_contributions",
+          "target": 3,
+          "available": false
+        }
+      ],
+      "totalXp": 300,
+      "weekKey": "2028-06-26",
+      "endWeekKey": "2028-07-03"
+    },
+    {
+      "week": 95,
+      "tasks": [
+        {
+          "id": "spot-detail",
+          "difficulty": 0,
+          "family": "content",
+          "xp": 75,
+          "title": {
+            "en": "Publish an approved spot with a description and photo",
+            "ru": "Опубликовать одобренный спот с описанием и фото",
+            "lv": "Publicēt apstiprinātu vietu ar aprakstu un foto"
+          },
+          "metric": "new_complete_spots",
+          "target": 1,
+          "available": false
+        },
+        {
+          "id": "visit-four",
+          "difficulty": 1,
+          "family": "visits",
+          "xp": 100,
+          "title": {
+            "en": "Visit four different spots",
+            "ru": "Посетить четыре разных спота",
+            "lv": "Apmeklēt četras dažādas vietas"
+          },
+          "metric": "verified_visits",
+          "target": 4,
+          "available": false
+        },
+        {
+          "id": "new-three-days",
+          "difficulty": 2,
+          "family": "explore",
+          "xp": 125,
+          "title": {
+            "en": "Visit a new spot on each of three different days",
+            "ru": "Посетить новый для себя спот в каждый из трёх разных дней",
+            "lv": "Apmeklēt sev jaunu vietu katrā no trim dažādām dienām"
+          },
+          "metric": "first_visit_days",
+          "target": 3,
+          "available": false
+        }
+      ],
+      "totalXp": 300,
+      "weekKey": "2028-07-03",
+      "endWeekKey": "2028-07-10"
+    },
+    {
+      "week": 96,
+      "tasks": [
+        {
+          "id": "visit-new",
+          "difficulty": 0,
+          "family": "visits",
+          "xp": 75,
+          "title": {
+            "en": "Visit a spot you have not visited before",
+            "ru": "Посетить спот, где ещё не был",
+            "lv": "Apmeklēt vēl neapmeklētu vietu"
+          },
+          "metric": "first_visits",
+          "target": 1,
+          "available": false
+        },
+        {
+          "id": "weekday-weekend",
+          "difficulty": 1,
+          "family": "explore",
+          "xp": 100,
+          "title": {
+            "en": "Visit different spots on a weekday and on the weekend",
+            "ru": "Посетить разные споты в будний и выходной день",
+            "lv": "Apmeklēt dažādas vietas darbdienā un nedēļas nogalē"
+          },
+          "metric": "weekday_and_weekend_visits",
+          "target": 2,
+          "available": false
+        },
+        {
+          "id": "publish-and-visit",
+          "difficulty": 2,
+          "family": "content",
+          "xp": 125,
+          "title": {
+            "en": "Publish a complete approved spot and visit two other spots",
+            "ru": "Опубликовать полный одобренный спот и посетить два чужих",
+            "lv": "Publicēt pilnīgu apstiprinātu vietu un apmeklēt divas citas"
+          },
+          "metric": "publish_and_two_visits",
+          "target": 3,
+          "available": false
+        }
+      ],
+      "totalXp": 300,
+      "weekKey": "2028-07-10",
+      "endWeekKey": "2028-07-17"
+    },
+    {
+      "week": 97,
+      "tasks": [
+        {
+          "id": "two-categories",
+          "difficulty": 0,
+          "family": "explore",
+          "xp": 75,
+          "title": {
+            "en": "Visit spots in two different categories",
+            "ru": "Посетить споты двух разных категорий",
+            "lv": "Apmeklēt vietas divās dažādās kategorijās"
+          },
+          "metric": "visited_categories",
+          "target": 2,
+          "available": false
+        },
+        {
+          "id": "photo-two",
+          "difficulty": 1,
+          "family": "content",
+          "xp": 100,
+          "title": {
+            "en": "Add accepted photos to two other authors' spots",
+            "ru": "Добавить одобренные фото к двум чужим спотам",
+            "lv": "Pievienot apstiprinātus foto divām citu autoru vietām"
+          },
+          "metric": "accepted_photo_contributions",
+          "target": 2,
+          "available": false
+        },
+        {
+          "id": "meet-and-new-two",
+          "difficulty": 2,
+          "family": "community",
+          "xp": 125,
+          "title": {
+            "en": "Attend a meet and visit two new permanent spots",
+            "ru": "Посетить мит и два новых для себя постоянных спота",
+            "lv": "Apmeklēt tikšanos un divas sev jaunas pastāvīgas vietas"
+          },
+          "metric": "meet_and_two_first_visits",
+          "target": 3,
+          "available": false
+        }
+      ],
+      "totalXp": 300,
+      "weekKey": "2028-07-17",
+      "endWeekKey": "2028-07-24"
+    },
+    {
+      "week": 98,
+      "tasks": [
+        {
+          "id": "weekend-visit",
+          "difficulty": 0,
+          "family": "explore",
+          "xp": 75,
+          "title": {
+            "en": "Visit a spot on the weekend",
+            "ru": "Посетить спот в выходные",
+            "lv": "Apmeklēt vietu nedēļas nogalē"
+          },
+          "metric": "weekend_visits",
+          "target": 1,
+          "available": false
+        },
+        {
+          "id": "spot-gallery",
+          "difficulty": 1,
+          "family": "content",
+          "xp": 100,
+          "title": {
+            "en": "Publish an approved spot with three different photos",
+            "ru": "Опубликовать одобренный спот с тремя разными фото",
+            "lv": "Publicēt apstiprinātu vietu ar trim dažādiem foto"
+          },
+          "metric": "new_gallery_spots",
+          "target": 1,
+          "available": false
+        },
+        {
+          "id": "visit-three-days",
+          "difficulty": 2,
+          "family": "visits",
+          "xp": 125,
+          "title": {
+            "en": "Visit different spots on three days",
+            "ru": "Посетить разные споты в три разных дня",
+            "lv": "Apmeklēt dažādas vietas trijās dienās"
+          },
+          "metric": "distinct_visit_days",
+          "target": 3,
+          "available": false
+        }
+      ],
+      "totalXp": 300,
+      "weekKey": "2028-07-24",
+      "endWeekKey": "2028-07-31"
+    },
+    {
+      "week": 99,
+      "tasks": [
+        {
+          "id": "photo-help",
+          "difficulty": 0,
+          "family": "content",
+          "xp": 75,
+          "title": {
+            "en": "Add an accepted photo to another author's spot",
+            "ru": "Добавить одобренное фото к чужому споту",
+            "lv": "Pievienot apstiprinātu foto cita autora vietai"
+          },
+          "metric": "accepted_photo_contributions",
+          "target": 1,
+          "available": false
+        },
+        {
+          "id": "help-two-authors",
+          "difficulty": 1,
+          "family": "community",
+          "xp": 100,
+          "title": {
+            "en": "Help two different topic authors with accepted answers",
+            "ru": "Помочь двум авторам тем: они отметили твои ответы полезными",
+            "lv": "Palīdzēt diviem tēmu autoriem ar atzītām atbildēm"
+          },
+          "metric": "helped_topic_authors",
+          "target": 2,
+          "available": false
+        },
+        {
+          "id": "three-categories",
+          "difficulty": 2,
+          "family": "explore",
+          "xp": 125,
+          "title": {
+            "en": "Visit spots in three different categories",
+            "ru": "Посетить споты трёх разных категорий",
+            "lv": "Apmeklēt vietas trijās dažādās kategorijās"
+          },
+          "metric": "visited_categories",
+          "target": 3,
+          "available": false
+        }
+      ],
+      "totalXp": 300,
+      "weekKey": "2028-07-31",
+      "endWeekKey": "2028-08-07"
+    },
+    {
+      "week": 100,
+      "tasks": [
+        {
+          "id": "visit-new",
+          "difficulty": 0,
+          "family": "visits",
+          "xp": 75,
+          "title": {
+            "en": "Visit a spot you have not visited before",
+            "ru": "Посетить спот, где ещё не был",
+            "lv": "Apmeklēt vēl neapmeklētu vietu"
+          },
+          "metric": "first_visits",
+          "target": 1,
+          "available": false
+        },
+        {
+          "id": "new-two",
+          "difficulty": 1,
+          "family": "explore",
+          "xp": 100,
+          "title": {
+            "en": "Visit two spots you have never visited",
+            "ru": "Посетить два спота, где ещё не был",
+            "lv": "Apmeklēt divas vēl neapmeklētas vietas"
+          },
+          "metric": "first_visits",
+          "target": 2,
+          "available": false
+        },
+        {
+          "id": "publish-and-visit",
+          "difficulty": 2,
+          "family": "content",
+          "xp": 125,
+          "title": {
+            "en": "Publish a complete approved spot and visit two other spots",
+            "ru": "Опубликовать полный одобренный спот и посетить два чужих",
+            "lv": "Publicēt pilnīgu apstiprinātu vietu un apmeklēt divas citas"
+          },
+          "metric": "publish_and_two_visits",
+          "target": 3,
+          "available": false
+        }
+      ],
+      "totalXp": 300,
+      "weekKey": "2028-08-07",
+      "endWeekKey": "2028-08-14"
+    },
+    {
+      "week": 101,
+      "tasks": [
+        {
+          "id": "visit-two",
+          "difficulty": 0,
+          "family": "visits",
+          "xp": 75,
+          "title": {
+            "en": "Visit two different spots",
+            "ru": "Посетить два разных спота",
+            "lv": "Apmeklēt divas dažādas vietas"
+          },
+          "metric": "verified_visits",
+          "target": 2,
+          "available": false
+        },
+        {
+          "id": "meet-and-spot",
+          "difficulty": 1,
+          "family": "community",
+          "xp": 100,
+          "title": {
+            "en": "Attend a meet and visit a permanent spot",
+            "ru": "Посетить мит и постоянный спот",
+            "lv": "Apmeklēt tikšanos un pastāvīgu vietu"
+          },
+          "metric": "meet_and_permanent_visit",
+          "target": 2,
+          "available": false
+        },
+        {
+          "id": "new-three-days",
+          "difficulty": 2,
+          "family": "explore",
+          "xp": 125,
+          "title": {
+            "en": "Visit a new spot on each of three different days",
+            "ru": "Посетить новый для себя спот в каждый из трёх разных дней",
+            "lv": "Apmeklēt sev jaunu vietu katrā no trim dažādām dienām"
+          },
+          "metric": "first_visit_days",
+          "target": 3,
+          "available": false
+        }
+      ],
+      "totalXp": 300,
+      "weekKey": "2028-08-14",
+      "endWeekKey": "2028-08-21"
+    },
+    {
+      "week": 102,
+      "tasks": [
+        {
+          "id": "spot-detail",
+          "difficulty": 0,
+          "family": "content",
+          "xp": 75,
+          "title": {
+            "en": "Publish an approved spot with a description and photo",
+            "ru": "Опубликовать одобренный спот с описанием и фото",
+            "lv": "Publicēt apstiprinātu vietu ar aprakstu un foto"
+          },
+          "metric": "new_complete_spots",
+          "target": 1,
+          "available": false
+        },
+        {
+          "id": "visit-two-days",
+          "difficulty": 1,
+          "family": "visits",
+          "xp": 100,
+          "title": {
+            "en": "Visit different spots on two days",
+            "ru": "Посетить разные споты в два разных дня",
+            "lv": "Apmeklēt dažādas vietas divās dienās"
+          },
+          "metric": "distinct_visit_days",
+          "target": 2,
+          "available": false
+        },
+        {
+          "id": "help-three-authors",
+          "difficulty": 2,
+          "family": "community",
+          "xp": 125,
+          "title": {
+            "en": "Help three different topic authors with accepted answers",
+            "ru": "Помочь трём авторам тем: они отметили твои ответы полезными",
+            "lv": "Palīdzēt trim tēmu autoriem ar atzītām atbildēm"
+          },
+          "metric": "helped_topic_authors",
+          "target": 3,
+          "available": false
+        }
+      ],
+      "totalXp": 300,
+      "weekKey": "2028-08-21",
+      "endWeekKey": "2028-08-28"
+    },
+    {
+      "week": 103,
+      "tasks": [
+        {
+          "id": "meet-visit",
+          "difficulty": 0,
+          "family": "community",
+          "xp": 75,
+          "title": {
+            "en": "Attend a meet hosted by another user",
+            "ru": "Посетить мит другого организатора",
+            "lv": "Apmeklēt cita rīkotu tikšanos"
+          },
+          "metric": "verified_meet_visits",
+          "target": 1,
+          "available": false
+        },
+        {
+          "id": "photo-two",
+          "difficulty": 1,
+          "family": "content",
+          "xp": 100,
+          "title": {
+            "en": "Add accepted photos to two other authors' spots",
+            "ru": "Добавить одобренные фото к двум чужим спотам",
+            "lv": "Pievienot apstiprinātus foto divām citu autoru vietām"
+          },
+          "metric": "accepted_photo_contributions",
+          "target": 2,
+          "available": false
+        },
+        {
+          "id": "visit-seven",
+          "difficulty": 2,
+          "family": "visits",
+          "xp": 125,
+          "title": {
+            "en": "Visit seven different spots",
+            "ru": "Посетить семь разных спотов",
+            "lv": "Apmeklēt septiņas dažādas vietas"
+          },
+          "metric": "verified_visits",
+          "target": 7,
+          "available": false
+        }
+      ],
+      "totalXp": 300,
+      "weekKey": "2028-08-28",
+      "endWeekKey": "2028-09-04"
+    },
+    {
+      "week": 104,
+      "tasks": [
+        {
+          "id": "help-answer",
+          "difficulty": 0,
+          "family": "community",
+          "xp": 75,
+          "title": {
+            "en": "Have an answer marked helpful by a topic author",
+            "ru": "Получить отметку полезного ответа от автора темы",
+            "lv": "Saņemt tēmas autora atzīmi par noderīgu atbildi"
+          },
+          "metric": "accepted_helpful_answers",
+          "target": 1,
+          "available": false
+        },
+        {
+          "id": "visit-four",
+          "difficulty": 1,
+          "family": "visits",
+          "xp": 100,
+          "title": {
+            "en": "Visit four different spots",
+            "ru": "Посетить четыре разных спота",
+            "lv": "Apmeklēt četras dažādas vietas"
+          },
+          "metric": "verified_visits",
+          "target": 4,
+          "available": false
+        },
+        {
+          "id": "three-categories",
+          "difficulty": 2,
+          "family": "explore",
+          "xp": 125,
+          "title": {
+            "en": "Visit spots in three different categories",
+            "ru": "Посетить споты трёх разных категорий",
+            "lv": "Apmeklēt vietas trijās dažādās kategorijās"
+          },
+          "metric": "visited_categories",
+          "target": 3,
+          "available": false
+        }
+      ],
+      "totalXp": 300,
+      "weekKey": "2028-09-04",
+      "endWeekKey": "2028-09-11"
+    }
+  ],
+  "startWeek": "2026-09-14",
+  "timeZone": "Europe/Riga"
+}

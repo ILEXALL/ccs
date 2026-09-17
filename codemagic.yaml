@@ -33,7 +33,7 @@ workflows:
 
       - name: Build iOS IPA
         script: |
-          flutter build ipa --release --export-options-plist=/Users/builder/export_options.plist
+          flutter build ipa --release --export-options-plist=/Users/builder/export_options.plist --dart-define=CCS_CARTO_BASEMAP_KEY=cb1_2n69_1_8c3e5525543822b4ade84b5d
 
     artifacts:
       - build/ios/ipa/*.ipa

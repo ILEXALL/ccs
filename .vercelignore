@@ -1,0 +1,7 @@
+*
+!telegram_auth_server
+!telegram_auth_server/**
+telegram_auth_server/.env
+telegram_auth_server/.env.*
+telegram_auth_server/.vercel
+telegram_auth_server/node_modules
