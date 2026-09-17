@@ -180,6 +180,8 @@ class LiveLocationService : Service(), LocationListener {
     }
 
     private fun uploadLocation(location: Location) {
+        // Last-known provider fixes must not count as fresh dwell observations.
+        if (System.currentTimeMillis() - location.time > 90_000L) return
         val currentUid = auth.currentUser?.uid
         if (currentUid == null || currentUid != uid) {
             return
@@ -216,6 +218,7 @@ class LiveLocationService : Service(), LocationListener {
         firestore.collection("live_locations")
             .document(uid)
             .set(liveLocationData, SetOptions.merge())
+            .addOnSuccessListener { checkSpotPresence() }
 
         val userData = mutableMapOf<String, Any>(
             "isSharingLiveLocation" to true,
@@ -233,8 +236,49 @@ class LiveLocationService : Service(), LocationListener {
             .set(userData, SetOptions.merge())
     }
 
+    private var presenceRequestInFlight = false
+    private var lastPresenceRequestMillis = 0L
+
+    private fun checkSpotPresence() {
+        val user = auth.currentUser ?: return
+        val now = System.currentTimeMillis()
+        if (user.uid != uid || presenceRequestInFlight || now - lastPresenceRequestMillis < 15_000L) return
+        presenceRequestInFlight = true
+        lastPresenceRequestMillis = now
+        user.getIdToken(false).addOnCompleteListener { task ->
+            val token = if (task.isSuccessful) task.result?.token else null
+            if (token.isNullOrBlank()) {
+                presenceRequestInFlight = false
+                return@addOnCompleteListener
+            }
+            Thread {
+                var connection: java.net.HttpURLConnection? = null
+                try {
+                    connection = java.net.URL("https://ccs-telegram-auth-server.vercel.app/api/push-notification")
+                        .openConnection() as java.net.HttpURLConnection
+                    connection.requestMethod = "POST"
+                    connection.connectTimeout = 15_000
+                    connection.readTimeout = 25_000
+                    connection.doOutput = true
+                    connection.setRequestProperty("Authorization", "Bearer $token")
+                    connection.setRequestProperty("Content-Type", "application/json")
+                    connection.outputStream.use { it.write("{\"type\":\"friend_at_spot\"}".toByteArray(Charsets.UTF_8)) }
+                    connection.responseCode
+                } catch (_: Exception) {
+                    // The next GPS upload retries; the backend deduplicates visits.
+                } finally {
+                    connection?.disconnect()
+                    android.os.Handler(android.os.Looper.getMainLooper()).post {
+                        presenceRequestInFlight = false
+                    }
+                }
+            }.start()
+        }
+    }
+
     private fun stopExpiredSharing() {
         firestore.collection("live_locations").document(uid).delete()
+            .addOnSuccessListener { checkSpotPresence() }
         firestore.collection("users").document(uid).set(
             mapOf(
                 "isSharingLiveLocation" to false,

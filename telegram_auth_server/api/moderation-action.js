@@ -1,4 +1,10 @@
+const {deleteSpotAction} = require('../lib/spot-delete');
+const {drainForumPublications} = require('../lib/forum-publications');
 const { admin, db } = require('../lib/firebase-admin');
+const { spotReviewAction } = require('../lib/spot-review');
+const { forumReviewAction } = require('../lib/forum-review');
+const { banUserAction } = require('../lib/user-ban');
+const { canModerateCountry, communityCountry } = require('../lib/regional-moderation');
 
 function cleanString(value, fallback = '') {
   return typeof value === 'string' && value.trim() ? value.trim() : fallback;
@@ -31,13 +37,11 @@ function actorCanManageChat(actorUid, actorUser, chat) {
   const memberIds = stringArray(chat.memberIds);
   const moderatorIds = stringArray(chat.moderatorIds);
 
-  return (
-    chat.isGroup === true &&
-    memberIds.includes(actorUid) &&
-    (chatOwnerUid(chat) === actorUid ||
-      moderatorIds.includes(actorUid) ||
-      isStaff(actorUser))
-  );
+  if (actorUser.role === 'moderator' && !canModerateCountry(actorUser, chat.countryCode)) return false;
+  return chat.isGroup === true &&
+    (canModerateCountry(actorUser, chat.countryCode, true) ||
+      (memberIds.includes(actorUid) &&
+        (chatOwnerUid(chat) === actorUid || moderatorIds.includes(actorUid))));
 }
 
 function compactMemberFields(chat, targetUid) {
@@ -95,21 +99,6 @@ async function actorContext(req) {
   }
 
   return { uid: token.uid, user };
-}
-
-async function actorIsGlobalModerator(uid, user) {
-  if (isStaff(user) || user.globalModerator === true || user.globalChatModerator === true) {
-    return true;
-  }
-
-  const configSnapshot = await db.collection('app_config').doc('global_chat').get();
-  const config = configSnapshot.data() || {};
-  const moderatorIds = [
-    ...stringArray(config.moderatorIds),
-    ...stringArray(config.globalModeratorIds),
-  ];
-
-  return moderatorIds.includes(uid);
 }
 
 function moderationLogRef() {
@@ -346,10 +335,6 @@ async function deleteChatMessage({ actor, body }) {
 async function deleteGlobalMessage({ actor, body }) {
   const messageId = requireBodyString(body, 'messageId');
 
-  if (!(await actorIsGlobalModerator(actor.uid, actor.user))) {
-    throw new Error('No permission to moderate global chat');
-  }
-
   const messageRef = db.collection('global_chat').doc(messageId);
 
   await db.runTransaction(async (transaction) => {
@@ -360,6 +345,9 @@ async function deleteGlobalMessage({ actor, body }) {
     }
 
     const message = messageSnapshot.data() || {};
+    if (!canModerateCountry(actor.user, communityCountry(message), true)) {
+      throw new Error('This message is outside your assigned countries');
+    }
 
     transaction.delete(messageRef);
     writeModerationLog(transaction, {
@@ -371,13 +359,14 @@ async function deleteGlobalMessage({ actor, body }) {
   });
 }
 
-async function clearGlobalChat({ actor }) {
-  if (!(await actorIsGlobalModerator(actor.uid, actor.user))) {
-    throw new Error('No permission to moderate global chat');
+async function clearGlobalChat({ actor, body }) {
+  const country = cleanString(body.countryCode).toUpperCase();
+  if (!country || !canModerateCountry(actor.user, country, true)) {
+    throw new Error('Select a country you are assigned to moderate');
   }
-
   const snapshot = await db
     .collection('global_chat')
+    .where('countryCode', '==', country)
     .orderBy('timestamp', 'desc')
     .limit(100)
     .get();
@@ -386,6 +375,7 @@ async function clearGlobalChat({ actor }) {
   snapshot.docs.forEach((doc) => batch.delete(doc.ref));
   batch.set(moderationLogRef(), {
     action: 'global_chat_cleared',
+    countryCode: country,
     actorUid: actor.uid,
     messageCount: snapshot.size,
     createdAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -394,10 +384,6 @@ async function clearGlobalChat({ actor }) {
 }
 
 async function setForumTopicPinned({ actor, body }) {
-  if (!isStaff(actor.user)) {
-    throw new Error('No permission to pin forum topics');
-  }
-
   const topicId = requireBodyString(body, 'topicId');
   const pinned = body.pinned === true;
   const topicRef = db.collection('forum_topics').doc(topicId);
@@ -409,6 +395,9 @@ async function setForumTopicPinned({ actor, body }) {
       throw new Error('Topic not found');
     }
 
+    if (!canModerateCountry(actor.user, communityCountry(topicSnapshot.data()), true)) {
+      throw new Error('This topic is outside your assigned countries');
+    }
     transaction.update(topicRef, {
       isPinned: pinned,
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -434,7 +423,10 @@ async function updateForumTopicHeader({ actor, body }) {
     }
 
     const topic = topicSnapshot.data() || {};
-    if (!isStaff(actor.user) && cleanString(topic.authorId) !== actor.uid) {
+    if (actor.user.role === 'moderator' && !canModerateCountry(actor.user, communityCountry(topic))) {
+      throw new Error('This topic is outside your assigned countries');
+    }
+    if (!canModerateCountry(actor.user, communityCountry(topic), true) && cleanString(topic.authorId) !== actor.uid) {
       throw new Error('No permission to edit this topic');
     }
 
@@ -463,7 +455,10 @@ async function deleteForumTopic({ actor, body }) {
     }
 
     const topic = topicSnapshot.data() || {};
-    if (!isStaff(actor.user) && cleanString(topic.authorId) !== actor.uid) {
+    if (actor.user.role === 'moderator' && !canModerateCountry(actor.user, communityCountry(topic))) {
+      throw new Error('This topic is outside your assigned countries');
+    }
+    if (!canModerateCountry(actor.user, communityCountry(topic), true) && cleanString(topic.authorId) !== actor.uid) {
       throw new Error('No permission to delete this topic');
     }
 
@@ -494,11 +489,14 @@ async function deleteForumReply({ actor, body }) {
     }
 
     const topic = topicSnapshot.data() || {};
+    if (actor.user.role === 'moderator' && !canModerateCountry(actor.user, communityCountry(topic))) {
+      throw new Error('This topic is outside your assigned countries');
+    }
     const reply = replySnapshot.data() || {};
     const replyAuthorId = cleanString(reply.userId);
 
     if (
-      !isStaff(actor.user) &&
+      !canModerateCountry(actor.user, communityCountry(topic), true) &&
       cleanString(topic.authorId) !== actor.uid &&
       replyAuthorId !== actor.uid
     ) {
@@ -521,6 +519,10 @@ async function deleteForumReply({ actor, body }) {
 }
 
 const handlers = {
+  delete_spot: deleteSpotAction,
+  ban_user: banUserAction,
+  spot_review: spotReviewAction,
+  forum_review: forumReviewAction,
   set_chat_moderator: setChatModerator,
   remove_chat_member: removeChatMember,
   add_chat_members: addChatMembers,
@@ -553,8 +555,17 @@ module.exports = async function handler(req, res) {
       return res.status(400).json({ ok: false, error: 'Unknown action' });
     }
 
-    await actionHandler({ actor, body: req.body || {} });
-    return res.status(200).json({ ok: true });
+    const result = await actionHandler({ actor, body: req.body || {} });
+    if (action === 'forum_review') {
+      try {
+        const {handleForumTopicCreated} = await import('./push-notification.js');
+        await drainForumPublications(handleForumTopicCreated);
+      } catch (error) {
+        // The decision is already committed; never report it as a failed save.
+        console.error('Forum publication retry deferred:', error.message);
+      }
+    }
+    return res.status(200).json({ ok: true, ...(result || {}) });
   } catch (error) {
     return res.status(403).json({
       ok: false,

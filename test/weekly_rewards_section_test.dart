@@ -1,3 +1,4 @@
+import 'support/preview_font.dart';
 import 'package:ccs_app/achievements_screen.dart';
 import 'package:ccs_app/weekly_rewards_section.dart';
 import 'package:flutter/material.dart';
@@ -17,7 +18,7 @@ void main() {
       final key = GlobalKey();
       await tester.runAsync(() async {
         final font = FontLoader('PreviewFont');
-        font.addFont(File('C:/Windows/Fonts/arial.ttf').readAsBytes().then(ByteData.sublistView));
+        font.addFont(File(previewFontPath).readAsBytes().then(ByteData.sublistView));
         await font.load();
         final icons = FontLoader('MaterialIcons');
         icons.addFont(rootBundle.load('fonts/MaterialIcons-Regular.otf'));

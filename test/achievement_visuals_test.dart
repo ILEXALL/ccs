@@ -1,3 +1,4 @@
+import 'support/preview_font.dart';
 import 'dart:io';
 import 'dart:ui' as ui;
 import 'package:ccs_app/achievements_screen.dart';
@@ -8,7 +9,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 Future<void> fonts(WidgetTester tester) => tester.runAsync(() async {
-  final file = File('C:/Windows/Fonts/arial.ttf');
+  final file = File(previewFontPath);
   if (await file.exists()) {
     final font = FontLoader('PreviewFont');
     font.addFont(file.readAsBytes().then(ByteData.sublistView));
