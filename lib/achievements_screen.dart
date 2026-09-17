@@ -26,10 +26,8 @@ class AchievementsScreen extends StatefulWidget {
 
 class _AchievementsScreenState extends State<AchievementsScreen> {
   late Future<Map<String, dynamic>> result;
-  String category = 'all';
   String? selectedId;
   bool saving = false;
-  bool earnedOnly = false;
   String t(String en, String ru, String lv) =>
       achievementText(widget.language, en, ru, lv);
   @override
@@ -126,41 +124,18 @@ class _AchievementsScreenState extends State<AchievementsScreen> {
         final items = (data['items'] as List)
             .map((e) => Map<String, dynamic>.from(e as Map))
             .toList();
-        final groups = <String, String>{'all': t('All', 'Все', 'Visi')};
-        for (final item in items) {
-          groups[item['category'] as String] = item['category'] == 'tourist'
-              ? t('Tourist', 'Турист', 'Ceļotājs')
-              : (item['title'] as Map)[widget.language] as String? ??
-                    (item['title'] as Map)['en'] as String;
-        }
-        final visible = items
-            .where(
-              (e) =>
-                  (category == 'all' || e['category'] == category) &&
-                  (!earnedOnly || e['status'] == 'confirmed'),
-            )
-            .toList();
+        final visible = items;
+        final unlocked = items
+            .where((item) => item['status'] == 'confirmed')
+            .length;
         return ListView(
           padding: const EdgeInsets.all(16),
           children: [
-            if (data['public'] != true) ...[
-              SegmentedButton<bool>(
-                segments: [
-                  ButtonSegment(
-                    value: false,
-                    label: Text(t('All', 'Все', 'Visi')),
-                  ),
-                  ButtonSegment(
-                    value: true,
-                    label: Text(t('Unlocked', 'Получено', 'Iegūts')),
-                  ),
-                ],
-                selected: {earnedOnly},
-                onSelectionChanged: (values) =>
-                    setState(() => earnedOnly = values.single),
-              ),
-              const SizedBox(height: 14),
-            ],
+            Text(
+              '$unlocked / ${items.length} ${t('Unlocked', 'Получено', 'Iegūts')}',
+              style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 16),
             if (visible.isEmpty)
               Padding(
                 padding: const EdgeInsets.symmetric(vertical: 24),
@@ -196,103 +171,134 @@ class _AchievementsScreenState extends State<AchievementsScreen> {
                   ),
                 ),
               ),
-            DropdownButtonFormField<String>(
-              initialValue: category,
-              isExpanded: true,
-              items: groups.entries
-                  .map(
-                    (e) => DropdownMenuItem(value: e.key, child: Text(e.value)),
-                  )
-                  .toList(),
-              onChanged: (value) => setState(() => category = value ?? 'all'),
+            LayoutBuilder(
+              builder: (context, constraints) {
+                final columns = (constraints.maxWidth / 180).floor().clamp(
+                  2,
+                  6,
+                );
+                final scale = MediaQuery.textScalerOf(context).scale(14) / 14;
+                return GridView.builder(
+                  key: const ValueKey('achievement-board'),
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  itemCount: visible.length,
+                  gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: columns,
+                    crossAxisSpacing: 12,
+                    mainAxisSpacing: 12,
+                    mainAxisExtent: 300 + 260 * (scale - 1).clamp(0, 10),
+                  ),
+                  itemBuilder: (context, index) =>
+                      achievementTile(visible[index]),
+                );
+              },
             ),
-            const SizedBox(height: 16),
-            for (final item in visible)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 16),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.center,
-                  children: [
-                    AchievementBadge(item: item),
-                    const SizedBox(width: 14),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            (item['title'] as Map)[widget.language]
-                                    as String? ??
-                                (item['title'] as Map)['en'] as String,
-                            style: const TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                          Text(achievementRequirement(item, widget.language)),
-                          if (item['status'] == 'confirmed' &&
-                              data['public'] != true)
-                            Text(
-                              '${item['threshold']} / ${item['threshold']}',
-                              style: const TextStyle(color: Color(0xFF72D8AE)),
-                            ),
-                          const SizedBox(height: 4),
-                          Text(
-                            '+${item['xp']} XP',
-                            style: const TextStyle(color: Color(0xFF72D8AE)),
-                          ),
-                          Text(
-                            item['status'] == 'confirmed'
-                                ? t('Unlocked', 'Получено', 'Iegūts')
-                                : item['status'] == 'pending'
-                                ? t(
-                                    'XP pending',
-                                    'XP ожидает начисления',
-                                    'XP gaida piešķiršanu',
-                                  )
-                                : item['status'] == 'revoked'
-                                ? t('Revoked', 'Отозвано', 'Atsaukts')
-                                : item['available'] != true
-                                ? t(
-                                    'Not available yet',
-                                    'Пока недоступно',
-                                    'Vēl nav pieejams',
-                                  )
-                                : '${item['progress']} / ${item['threshold']}',
-                            style: const TextStyle(color: Colors.white60),
-                          ),
-                          if (widget.select != null &&
-                              item['status'] == 'confirmed')
-                            TextButton.icon(
-                              key: ValueKey('select-${item['id']}'),
-                              onPressed: saving || selectedId == item['id']
-                                  ? null
-                                  : () => select(item['id'] as String),
-                              icon: Icon(
-                                selectedId == item['id']
-                                    ? Icons.check_circle
-                                    : Icons.star_outline,
-                              ),
-                              label: Text(
-                                selectedId == item['id']
-                                    ? t('On profile', 'В профиле', 'Profilā')
-                                    : t(
-                                        'Show on profile',
-                                        'Выбрать главным',
-                                        'Rādīt profilā',
-                                      ),
-                              ),
-                            ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
           ],
         );
       },
     ),
   );
+  Widget achievementTile(Map<String, dynamic> item) {
+    final earned = item['status'] == 'confirmed';
+    final color = earned
+        ? achievementTierColors[((item['tier'] as int? ?? 1) - 1).clamp(0, 4)]
+        : Colors.white38;
+    final title =
+        (item['title'] as Map)[widget.language] as String? ??
+        (item['title'] as Map)['en'] as String;
+    final status = earned
+        ? t('Unlocked', 'Получено', 'Iegūts')
+        : item['status'] == 'revoked'
+        ? t('Revoked', 'Отозвано', 'Atsaukts')
+        : item['available'] != true
+        ? t('Not available yet', 'Пока недоступно', 'Vēl nav pieejams')
+        : '${item['progress'] ?? 0} / ${item['threshold']}';
+    return Semantics(
+      label: '$title. $status',
+      child: Container(
+        key: ValueKey('achievement-tile-${item['id']}'),
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(18),
+          color: earned
+              ? color.withValues(alpha: .09)
+              : const Color(0xFF171A20),
+          border: Border.all(color: color.withValues(alpha: earned ? .65 : .2)),
+          boxShadow: earned
+              ? [BoxShadow(color: color.withValues(alpha: .12), blurRadius: 12)]
+              : [],
+        ),
+        child: Column(
+          children: [
+            AchievementBadge(item: item),
+            const SizedBox(height: 8),
+            Text(
+              title,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: earned ? Colors.white : Colors.white54,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Tooltip(
+              message: achievementRequirement(item, widget.language),
+              child: Text(
+                achievementRequirement(item, widget.language),
+                maxLines: 3,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontSize: 12, color: Colors.white54),
+              ),
+            ),
+            const Spacer(),
+            Text(
+              '+${item['xp']} XP',
+              style: TextStyle(color: color, fontWeight: FontWeight.w700),
+            ),
+            Text(
+              status,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 12, color: color),
+            ),
+            if (widget.select != null && earned)
+              TextButton(
+                key: ValueKey('select-${item['id']}'),
+                onPressed: saving || selectedId == item['id']
+                    ? null
+                    : () => select(item['id'] as String),
+                child: Text(
+                  selectedId == item['id']
+                      ? t('On profile', 'В профиле', 'Profilā')
+                      : t(
+                          'Show on profile',
+                          'Выбрать главным',
+                          'Rādīt profilā',
+                        ),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.center,
+                ),
+              )
+            else if (!earned)
+              const Padding(
+                padding: EdgeInsets.only(top: 8),
+                child: Icon(
+                  Icons.lock_outline,
+                  size: 16,
+                  color: Colors.white30,
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 String achievementRequirement(Map<String, dynamic> item, String language) {
@@ -473,9 +479,23 @@ class _XpRewardsScreenState extends State<XpRewardsScreen> {
           itemCount: items.length + 2,
           separatorBuilder: (_, _) => const Divider(height: 28),
           itemBuilder: (context, index) {
-            if (index == 0) return WeeklyRewardsSection(language: widget.language, weekly: snapshot.data?['weekly'] as Map?);
-            if (index == 1) return Text(t('Regular rewards', 'Обычные начисления', 'Parastās atlīdzības'),
-              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800));
+            if (index == 0)
+              return WeeklyRewardsSection(
+                language: widget.language,
+                weekly: snapshot.data?['weekly'] as Map?,
+              );
+            if (index == 1)
+              return Text(
+                t(
+                  'Regular rewards',
+                  'Обычные начисления',
+                  'Parastās atlīdzības',
+                ),
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w800,
+                ),
+              );
             final item = items[index - 2];
             return Row(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -533,6 +553,39 @@ class AchievementBadge extends StatelessWidget {
   const AchievementBadge({super.key, required this.item});
   @override
   Widget build(BuildContext context) {
+    final badge = buildBadge();
+    if (item['status'] == 'confirmed') return badge;
+    return Opacity(
+      opacity: .45,
+      child: ColorFiltered(
+        colorFilter: const ColorFilter.matrix([
+          .2126,
+          .7152,
+          .0722,
+          0,
+          0,
+          .2126,
+          .7152,
+          .0722,
+          0,
+          0,
+          .2126,
+          .7152,
+          .0722,
+          0,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0,
+        ]),
+        child: badge,
+      ),
+    );
+  }
+
+  Widget buildBadge() {
     if (item['category'] != 'tourist') return AchievementEmblem(item: item);
     return SizedBox(
       width: 88,

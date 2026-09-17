@@ -139,3 +139,14 @@ test('weekly ranking ignores stale legacy mirrors after full revocation and rest
   await f.adjust('admin', {...request, requestId: 'restore', operation: 'restore', expectedRevision: 1});
   assert.equal((await entries())[0].weeklyXp, 50);
 });
+
+test('historical catch-up can be revoked and restored without changing weekly XP', async () => {
+  const f = setup();
+  Object.assign(f.rows.get('xp_transactions/reward'), {historicalCatchup:true, weekKey:null});
+  const week = structuredClone(f.rows.get('xp_user_weeks/tester_2026-09-07'));
+  assert.equal((await f.adjust('admin', request)).xpTotal, 50);
+  assert.equal(f.rows.get('xp_user_stats/tester').weeklyXp,100);
+  assert.deepEqual(f.rows.get('xp_user_weeks/tester_2026-09-07'),week);
+  assert.equal((await f.adjust('admin', {...request,requestId:'restore-history',operation:'restore',expectedRevision:1})).xpTotal,100);
+  assert.equal(f.rows.has('xp_user_weeks/tester_null'),false);
+});

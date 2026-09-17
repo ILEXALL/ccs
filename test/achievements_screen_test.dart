@@ -58,6 +58,55 @@ void main() {
       expect(saved, isNull);
     },
   );
+  testWidgets('board keeps locked and earned badges visible at enlarged text', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(320, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final items = [
+      for (var i = 0; i < 67; i++)
+        {
+          'id': 'spots.$i',
+          'category': 'spots',
+          'title': {'en': 'Permanent spots'},
+          'xp': 50,
+          'threshold': i + 1,
+          'tier': 1,
+          'available': true,
+          'status': i == 0 ? 'confirmed' : 'locked',
+          'progress': 1,
+        },
+    ];
+    await tester.pumpWidget(
+      MaterialApp(
+        home: MediaQuery(
+          data: const MediaQueryData(textScaler: TextScaler.linear(1.6)),
+          child: AchievementsScreen(
+            language: 'en',
+            load: () async => {'enabled': true, 'items': items},
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final grid = tester.widget<GridView>(
+      find.byKey(const ValueKey('achievement-board')),
+    );
+    expect(grid.childrenDelegate.estimatedChildCount, 67);
+    final earned = find.byKey(const ValueKey('achievement-tile-spots.0'));
+    final locked = find.byKey(const ValueKey('achievement-tile-spots.1'));
+    expect(
+      find.descendant(of: earned, matching: find.byType(ColorFiltered)),
+      findsNothing,
+    );
+    expect(
+      find.descendant(of: locked, matching: find.byType(ColorFiltered)),
+      findsOneWidget,
+    );
+    expect(tester.takeException(), isNull);
+  });
   for (final language in ['en', 'ru', 'lv']) {
     testWidgets('XP actions $language fit narrow screen with enlarged text', (
       tester,
@@ -193,7 +242,7 @@ void main() {
             'unit': category == 'tourist' ? 'country' : 'count',
             'progress': 0,
             'available': category == 'spots',
-            'status': 'locked',
+            'status': category == 'spots' ? 'confirmed' : 'locked',
             if (category == 'tourist')
               'asset': 'assets/achievements/latvia.png',
           },

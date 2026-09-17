@@ -55,16 +55,17 @@ async function adjustXp(actorId, input) {
     const delta = operation === 'revoke' ? -source.amount : source.amount;
     const total = stats.xpTotal + delta;
     if (!Number.isSafeInteger(total) || total < 0) throw new Error('Inconsistent XP balance');
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(source.weekKey || '')) {
+    const historical = source.historicalCatchup === true && source.weekKey === null;
+    if (!historical && !/^\d{4}-\d{2}-\d{2}$/.test(source.weekKey || '')) {
       throw new Error('Missing reward week');
     }
     const weekRef = db.collection('xp_user_weeks').doc(`${source.userId}_${source.weekKey}`);
-    const weekSnapshot = await tx.get(weekRef);
-    const week = weekSnapshot.data() || {};
+    const weekSnapshot = historical ? null : await tx.get(weekRef);
+    const week = weekSnapshot?.data() || {};
     const consumed = week.confirmedXp;
     const revoked = (week.revokedXp || 0) - delta;
-    if (!weekSnapshot.exists || !Number.isSafeInteger(consumed) ||
-        !Number.isSafeInteger(revoked) || revoked < 0 || revoked > consumed) {
+    if (!historical && (!weekSnapshot.exists || !Number.isSafeInteger(consumed) ||
+        !Number.isSafeInteger(revoked) || revoked < 0 || revoked > consumed)) {
       throw new Error('Inconsistent weekly XP balance');
     }
     const featuredRef = db.collection('xp_featured_achievements').doc(source.userId);
@@ -76,12 +77,12 @@ async function adjustXp(actorId, input) {
       level: calculateLevel(total), revision: revision + 1, duplicate: false };
     // Weekly earning capacity stays consumed, preventing revoke/earn/restore farming.
     tx.update(statsRef, { xpTotal: total, level: result.level,
-      ...(stats.weeklyXpWeek === source.weekKey ? {
+      ...(!historical && stats.weeklyXpWeek === source.weekKey ? {
         weeklyXp: consumed - revoked,
         weeklyConsumedXp: Math.max(0, consumed - (week.achievementBonusXp || 0)),
       } : {}),
       xpUpdatedAt: timestamp, xpLastTransactionId: correctionId });
-    tx.update(weekRef, { revokedXp: revoked, updatedAt: timestamp });
+    if (!historical) tx.update(weekRef, { revokedXp: revoked, updatedAt: timestamp });
     if (operation === 'revoke' && featured?.item?.id === source.objectId) {
       tx.set(featuredRef, {item: null});
     }
