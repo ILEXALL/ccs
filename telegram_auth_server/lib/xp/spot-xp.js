@@ -1,7 +1,7 @@
 const MIN_NORMAL_DESCRIPTION_CHARS = 20;
 
 function shouldAwardSpotApprovalXp(before, after) {
-  if (!after || after.status !== 'approved' || after.isTemporary === true) {
+  if (!after || after.deleted === true || after.status !== 'approved' || after.isTemporary === true) {
     return false;
   }
 
@@ -9,7 +9,7 @@ function shouldAwardSpotApprovalXp(before, after) {
 }
 
 function evaluatePermanentSpotApprovalXp(spotId, spot) {
-  if (spot.status !== 'approved' || spot.isTemporary === true) {
+  if (!spot || spot.deleted === true || spot.status !== 'approved' || spot.isTemporary === true) {
     return [];
   }
 

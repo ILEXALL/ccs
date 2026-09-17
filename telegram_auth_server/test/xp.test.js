@@ -101,7 +101,8 @@ test('pending review is not automatically confirmed by weekly settlement', async
 });
 
 test('deleted or rejected spots cannot receive deferred XP', async () => {
-  for (const spot of [null, {status: 'rejected', addedByUid: 'tester'}]) {
+  for (const spot of [null, {status: 'rejected', addedByUid: 'tester'},
+      {status: 'approved', addedByUid: 'tester', deleted: true}]) {
     const f = fixture({ 'xp_user_weeks/tester_2026-09-07': {confirmedXp: 3000} });
     const input = award({action: 'spot.approved', objectType: 'spot', objectId: 's'});
     await f.awards.awardXp(input, monday);
@@ -151,7 +152,7 @@ test('notification opt-out at root or settings suppresses notification but prese
 async function leaderboard(f, uid, period) {
   const response = { status(code) { this.code = code; return this; },
     json(body) { this.body = body; return this; }, setHeader() {} };
-  await f.load('../api/xp-leaderboard.js')({ method: 'POST',
+  await f.load('../handlers/xp-leaderboard.js')({ method: 'POST',
     headers: { authorization: `Bearer ${uid}` }, body: { period, limit: 100 } }, response);
   return response;
 }
@@ -280,4 +281,25 @@ test('weekly ranking continues past 250 hidden leaders to fill top 100', async (
   assert.equal(entries.length, 100);
   assert.equal(entries[0].userId, 'u0250');
   assert.equal(entries[99].rank, 100);
+});
+
+test('soft-deleted approved spots cannot earn new XP', () => {
+  assert.equal(evaluatePermanentSpotApprovalXp('deleted', {
+    status: 'approved', addedByUid: 'tester', deleted: true,
+    description: 'a'.repeat(30), photoUrl: 'photo',
+  }).length, 0);
+});
+
+test('pending review entries cannot starve later weekly-cap rewards', async () => {
+  const f = fixture({'xp_user_weeks/tester_2026-09-07': {confirmedXp: 3000}});
+  await f.awards.awardXp(award(), monday);
+  for (let i = 0; i < 100; i++) f.rows.set('xp_transactions/000' + i, {
+    userId: 'tester', status: 'pending', reason: 'REVIEW_REQUIRED',
+  });
+  const result = await f.awards.settlePendingXp('tester', {
+    now: new Date('2026-09-14T12:00:00Z'),
+  });
+  assert.equal(result.length, 1);
+  assert.equal(result[0].awarded, true);
+  assert.equal(f.rows.get('xp_user_stats/tester').xpTotal, 50);
 });

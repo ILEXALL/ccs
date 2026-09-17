@@ -123,3 +123,12 @@ test('[rules moderation] concurrent conflicting decisions accept only one', asyn
   ]);
   assert.equal(outcomes.filter((x) => x.status === 'fulfilled').length, 1);
 });
+
+test('[rules spots] optional region config preserves country bans', async () => {
+  await seed({'app_config/main': {bannedCountryCodes: ['LV']}});
+  await assertFails(setDoc(doc(client('owner'), 'spots/blocked-code'), spot()));
+  await seed({'app_config/main': {bannedCountryKeys: ['lv']}});
+  await assertFails(setDoc(doc(client('owner'), 'spots/blocked-key'), spot()));
+  await seed({'app_config/main': {bannedCountryCodes: [], bannedCountryKeys: []}});
+  await assertSucceeds(setDoc(doc(client('owner'), 'spots/allowed'), spot()));
+});

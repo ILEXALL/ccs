@@ -122,13 +122,13 @@ service cloud.firestore {
     }
 
     function spotCreationRegionAllowed(data) {
-      let config = get(/databases/$(database)/documents/app_config/main).data;
+      let configPath = /databases/$(database)/documents/app_config/main;
       let code = data.get('countryCode', '');
       let country = currentUserData().get('country', '');
-      return validCommunityCountryCode(code) && (config == null || (
-        !(code in config.get('bannedCountryCodes', []))
-        && !(code.lower() in config.get('bannedCountryKeys', []))
-        && !(country.lower() in config.get('bannedCountryKeys', []))));
+      return validCommunityCountryCode(code) && (!exists(configPath) || (
+        !(code in get(configPath).data.get('bannedCountryCodes', []))
+        && !(code.lower() in get(configPath).data.get('bannedCountryKeys', []))
+        && !(country.lower() in get(configPath).data.get('bannedCountryKeys', []))));
     }
 
     function regionalFeaturesAllowed() {

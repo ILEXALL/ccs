@@ -78,7 +78,7 @@ test('endpoint binds visit to authenticated UID and rejects missing or invalid t
   const fs = require('node:fs'); const path = require('node:path'); const vm = require('node:vm');
   const calls = [];
   const module = {exports: {}};
-  vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../api/spot-visit.js'), 'utf8'), {
+  vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../handlers/spot-visit.js'), 'utf8'), {
     module,
     require: name => name.includes('firebase-admin') ? {
       db: {}, admin: {auth: () => ({verifyIdToken: async token => {

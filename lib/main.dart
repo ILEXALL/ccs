@@ -56007,7 +56007,7 @@ class XpHistoryScreen extends StatelessWidget {
           : StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
               stream: xpTransactionsCollection()
                   .where('userId', isEqualTo: cleanUserId)
-                  // Keep the first XP test build independent from Firestore composite indexes.
+                  .orderBy('createdAt', descending: true)
                   .limit(100)
                   .debugSnapshots('profile: xp history listener'),
               builder: (context, snapshot) {

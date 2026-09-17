@@ -5,7 +5,7 @@ const { fixture } = require('./support');
 async function request(f, endpoint, uid, body, method = 'POST') {
   const res = { status(code) { this.code = code; return this; },
     json(body) { this.body = body; return this; }, setHeader() {} };
-  await f.load(`../api/${endpoint}.js`)({ method,
+  await f.load(endpoint === 'moderation-action' ? '../api/moderation-action.js' : '../api/community.js')({ method, query: {endpoint},
     headers: uid ? { authorization: `Bearer ${uid}` } : {}, body }, res);
   return res;
 }

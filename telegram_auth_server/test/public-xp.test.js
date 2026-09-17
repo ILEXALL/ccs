@@ -54,7 +54,7 @@ test('public history returns latest 100 confirmed entries only', async () => {
 
 test('public XP endpoint uses authenticated identity, not a client-supplied actor', async () => {
   const f = fixture({'users/viewer': {blockedUserIds: ['tester']}});
-  const handler = f.load('../api/xp-sync.js');
+  const handler = f.load('../handlers/xp-sync.js');
   const res = {code: 0, body: null, setHeader() {},
     status(code) { this.code = code; return this; }, json(body) { this.body = body; return this; }};
   await handler({method: 'POST', headers: {authorization: 'Bearer viewer'},

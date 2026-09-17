@@ -89,7 +89,7 @@ async function awardXp(input, options = {}) {
       const source = await transaction.get(db.collection('spots').doc(normalized.objectId));
       const spot = source.data() || {};
       const ownerId = stringValue(spot.addedByUid) || stringValue(spot.ownerUid);
-      if (!source.exists || spot.status !== 'approved' || spot.isTemporary === true ||
+      if (!source.exists || spot.deleted === true || spot.status !== 'approved' || spot.isTemporary === true ||
           ownerId !== normalized.userId) {
         return blockedResult(normalized, transactionId, weekKey, 'SPOT_NO_LONGER_ELIGIBLE');
       }
@@ -331,15 +331,22 @@ function isOneTimeAward(input) {
 }
 
 async function settlePendingXp(userId, options = {}) {
-  const snapshot = await db.collection('xp_transactions')
-    .where('userId', '==', userId).where('status', '==', 'pending')
-    .limit(100).get();
   const results = [];
-  for (const document of snapshot.docs) {
-    const data = document.data();
-    if (data.reason !== 'WEEKLY_LIMIT_REACHED' || !isOneTimeAward(data)) continue;
-    results.push(await awardXp({ ...data, amount: data.requestedAmount,
-      status: 'confirmed' }, options));
+  let cursor;
+  while (true) {
+    let query = db.collection('xp_transactions')
+      .where('userId', '==', userId).where('status', '==', 'pending')
+      .orderBy('__name__').limit(100);
+    if (cursor) query = query.startAfter(cursor);
+    const snapshot = await query.get();
+    for (const document of snapshot.docs) {
+      const data = document.data();
+      if (data.reason !== 'WEEKLY_LIMIT_REACHED' || !isOneTimeAward(data)) continue;
+      results.push(await awardXp({ ...data, amount: data.requestedAmount,
+        status: 'confirmed' }, options));
+    }
+    if (snapshot.docs.length < 100) break;
+    cursor = snapshot.docs[snapshot.docs.length - 1];
   }
   return results;
 }

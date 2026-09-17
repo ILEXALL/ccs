@@ -1,7 +1,7 @@
-name: ccs_app
+﻿name: ccs_app
 description: "A new Flutter project."
 publish_to: 'none'
-version: 1.0.8+1
+version: 1.0.9+1
 
 environment:
   sdk: ^3.12.0
@@ -16,6 +16,7 @@ dependencies:
   firebase_auth: ^6.5.2
   firebase_messaging: ^16.3.0
 
+  package_info_plus: ^10.1.0
   cupertino_icons: ^1.0.8
   flutter_map: ^8.3.0
   latlong2: ^0.9.1
@@ -32,6 +33,8 @@ dependencies:
   firebase_app_check: 0.4.4
 
 dev_dependencies:
+  integration_test:
+    sdk: flutter
   flutter_test:
     sdk: flutter
 
@@ -52,6 +55,8 @@ flutter:
     - assets/country_outlines.json
     - assets/bg.png
     - assets/bg_map.png
+    - assets/achievements/
+    - assets/xp_wheels/
     - assets/spot_icons/
     - assets/user_cars/
     - assets/ccs_logo.png

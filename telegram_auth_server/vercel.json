@@ -1,0 +1,16 @@
+{
+  "rewrites": [
+    {
+      "source": "/api/xp-sync",
+      "destination": "/api/community?endpoint=xp-sync"
+    },
+    {
+      "source": "/api/xp-leaderboard",
+      "destination": "/api/community?endpoint=xp-leaderboard"
+    },
+    {
+      "source": "/api/spot-visit",
+      "destination": "/api/community?endpoint=spot-visit"
+    }
+  ]
+}

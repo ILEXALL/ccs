@@ -79,7 +79,7 @@ test('authenticated endpoint exposes adjustment only to admin', async () => {
   for (const [uid, expected] of [['tester', 403], ['admin', 200]]) {
     const res = { status(code) { this.code = code; return this; },
       json(body) { this.body = body; return this; }, setHeader() {} };
-    await f.load('../api/xp-sync.js')({method: 'POST',
+    await f.load('../handlers/xp-sync.js')({method: 'POST',
       headers: {authorization: `Bearer ${uid}`}, body: {...request, action: 'adjust_xp'}}, res);
     assert.equal(res.code, expected);
   }
@@ -129,7 +129,7 @@ test('weekly ranking ignores stale legacy mirrors after full revocation and rest
   async function entries() {
     const res = {status(code) {this.code = code; return this;},
       json(body) {this.body = body; return this;}, setHeader() {}};
-    await f.load('../api/xp-leaderboard.js')({method: 'POST',
+    await f.load('../handlers/xp-leaderboard.js')({method: 'POST',
       headers: {authorization: 'Bearer tester'}, body: {period: 'weekly', limit: 100}}, res);
     assert.equal(res.code, 200);
     return res.body.result.entries;
