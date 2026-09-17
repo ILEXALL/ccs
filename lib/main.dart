@@ -1,4 +1,4 @@
-import 'dart:async';
+﻿import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
@@ -9418,10 +9418,7 @@ Future<List<XpLeaderboardEntry>> loadXpLeaderboardEntries({
     try {
       final response = await postJsonToUrl(
         url,
-        {
-          'limit': 100,
-          'period': xpLeaderboardPeriodValue(period),
-        },
+        {'limit': 100, 'period': xpLeaderboardPeriodValue(period)},
         headers: {HttpHeaders.authorizationHeader: 'Bearer $idToken'},
       );
       final result = mapFromFirebase(response['result']);
@@ -18719,10 +18716,7 @@ Future<void> updateSpotStatus(
       !updatedSpot.isTemporary &&
       updatedSpot.id.isNotEmpty) {
     unawaited(
-      syncXpWithServer({
-        'action': 'sync_spot',
-        'spotId': updatedSpot.id,
-      }),
+      syncXpWithServer({'action': 'sync_spot', 'spotId': updatedSpot.id}),
     );
   }
 
@@ -22906,7 +22900,12 @@ class _MainScreenState extends State<_MainContentScreen>
                                 builder: (context, unreadCountsByChatId, _) {
                                   return _CcsBottomNavItem(
                                     icon: Icons.diversity_3_outlined,
-                                    label: achievementText(appUiPreferences.language.name, 'Community', 'Сообщество', 'Kopiena'),
+                                    label: achievementText(
+                                      appUiPreferences.language.name,
+                                      'Community',
+                                      'Сообщество',
+                                      'Kopiena',
+                                    ),
                                     selected: index == 3,
                                     badgeCount: inAppBadges.chatCount,
                                     onTap: openChatTab,
@@ -27756,7 +27755,8 @@ class _MapScreenState extends State<MapScreen>
       return Marker(
         key: ValueKey('spot_${spot.id}'),
         point: spot.coordinates,
-        width: markerWidth + (showPeople ? SpotPresenceMarker.sideSpace * 2 : 0),
+        width:
+            markerWidth + (showPeople ? SpotPresenceMarker.sideSpace * 2 : 0),
         height: markerHeight,
         rotate: true,
         child: IgnorePointer(
@@ -27764,21 +27764,21 @@ class _MapScreenState extends State<MapScreen>
           child: Opacity(
             opacity: visibilityOpacity,
             child: SpotPresenceMarker(
-          onSpotTap: () {
-            setState(() {
-              selectedSpot = spot;
-              selectedPoliceReport = null;
-              selectedSosReport = null;
-              selectedLiveLocation = null;
-            });
-          },
-          marker: showFullIcons ? fullMarker() : compactMarker(),
-          peopleButton: showPeople
-              ? SpotPresenceCount(
-                  count: peopleCount,
-                  onTap: () => showSpotPeople(spot),
-                )
-              : null,
+              onSpotTap: () {
+                setState(() {
+                  selectedSpot = spot;
+                  selectedPoliceReport = null;
+                  selectedSosReport = null;
+                  selectedLiveLocation = null;
+                });
+              },
+              marker: showFullIcons ? fullMarker() : compactMarker(),
+              peopleButton: showPeople
+                  ? SpotPresenceCount(
+                      count: peopleCount,
+                      onTap: () => showSpotPeople(spot),
+                    )
+                  : null,
             ),
           ),
         ),
@@ -28107,9 +28107,22 @@ class _MapScreenState extends State<MapScreen>
   }
 
   Map<String, List<String>> get spotPresenceGroups => groupSpotPresence(
-    {for (final spot in visibleSpots.where((spot) => spot.isVisibleOnMapNow &&
-      (!spot.isTemporary || spot.isTemporaryActiveNow))) spot.id: spot.coordinates},
-    liveLocations.map((p) => PresencePoint(p.uid, p.coordinates, p.updatedAtMillis, p.expiresAtMillis)),
+    {
+      for (final spot in visibleSpots.where(
+        (spot) =>
+            spot.isVisibleOnMapNow &&
+            (!spot.isTemporary || spot.isTemporaryActiveNow),
+      ))
+        spot.id: spot.coordinates,
+    },
+    liveLocations.map(
+      (p) => PresencePoint(
+        p.uid,
+        p.coordinates,
+        p.updatedAtMillis,
+        p.expiresAtMillis,
+      ),
+    ),
     DateTime.now().millisecondsSinceEpoch,
   );
 
@@ -28119,16 +28132,23 @@ class _MapScreenState extends State<MapScreen>
   }
 
   void showSpotPeople(CarSpot spot) {
-    showModalBottomSheet<void>(context: context, isScrollControlled: true,
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
       backgroundColor: const Color(0xFF10141C),
       builder: (_) => SpotPeopleSheet(
         title: spot.name,
         load: () => mounted ? peopleAtSpot(spot) : <LiveLocationData>[],
         onProfile: (person) {
           Navigator.of(context).pop();
-          openUserProfile(context, uid: person.uid, fallbackUsername: person.username);
+          openUserProfile(
+            context,
+            uid: person.uid,
+            fallbackUsername: person.username,
+          );
         },
-      ));
+      ),
+    );
   }
 
   String liveLocationCarIconAsset(LiveLocationData location) {
@@ -30469,25 +30489,48 @@ class _MapScreenState extends State<MapScreen>
 
   Future<void> recordNearbySpotVisit(Position position, User user) async {
     final grouped = groupSpotPresence(
-      {for (final spot in approvedPublicSpots().where((spot) => !spot.isGroupSpot &&
-        spot.isVisibleOnMapNow && (!spot.isTemporary || spot.isTemporaryActiveNow))) spot.id: spot.coordinates},
-      [PresencePoint(user.uid, LatLng(position.latitude, position.longitude),
-        position.timestamp.millisecondsSinceEpoch, DateTime.now().add(const Duration(minutes: 2)).millisecondsSinceEpoch)],
+      {
+        for (final spot in approvedPublicSpots().where(
+          (spot) =>
+              !spot.isGroupSpot &&
+              spot.isVisibleOnMapNow &&
+              (!spot.isTemporary || spot.isTemporaryActiveNow),
+        ))
+          spot.id: spot.coordinates,
+      },
+      [
+        PresencePoint(
+          user.uid,
+          LatLng(position.latitude, position.longitude),
+          position.timestamp.millisecondsSinceEpoch,
+          DateTime.now().add(const Duration(minutes: 2)).millisecondsSinceEpoch,
+        ),
+      ],
       DateTime.now().millisecondsSinceEpoch,
     );
-    if (grouped.isEmpty) { lastVisitCandidate = null; return; }
+    if (grouped.isEmpty) {
+      lastVisitCandidate = null;
+      return;
+    }
     final spotId = grouped.keys.first;
     final candidate = '${user.uid}:$spotId';
-    if (lastVisitCandidate == candidate && lastVisitRecordedAt != null &&
-        DateTime.now().difference(lastVisitRecordedAt!) < const Duration(minutes: 5)) return;
+    if (lastVisitCandidate == candidate &&
+        lastVisitRecordedAt != null &&
+        DateTime.now().difference(lastVisitRecordedAt!) <
+            const Duration(minutes: 5))
+      return;
     try {
       final token = await user.getIdToken();
       if (FirebaseAuth.instance.currentUser?.uid != user.uid) return;
       final response = await postJsonToUrl(
-        'https://ccs-telegram-auth-server.vercel.app/api/spot-visit', {'spotId': spotId},
+        'https://ccs-telegram-auth-server.vercel.app/api/spot-visit',
+        {'spotId': spotId},
         headers: {HttpHeaders.authorizationHeader: 'Bearer $token'},
       );
-      if (response['ok'] == true) { lastVisitCandidate = candidate; lastVisitRecordedAt = DateTime.now(); }
+      if (response['ok'] == true) {
+        lastVisitCandidate = candidate;
+        lastVisitRecordedAt = DateTime.now();
+      }
     } catch (_) {
       // Recording retries on a later GPS sample; map sharing must stay available.
     }
@@ -32505,30 +32548,64 @@ String spotPeopleLabel(int count) => switch (appUiPreferences.language) {
 class SpotPresenceCount extends StatelessWidget {
   final int count;
   final VoidCallback onTap;
-  const SpotPresenceCount({super.key, required this.count, required this.onTap});
+  const SpotPresenceCount({
+    super.key,
+    required this.count,
+    required this.onTap,
+  });
   @override
-  Widget build(BuildContext context) => Tooltip(message: spotPeopleLabel(count),
-    child: Semantics(button: true, label: spotPeopleLabel(count), child: InkWell(
-      onTap: onTap, customBorder: const CircleBorder(),
-      child: Container(width: 46, height: 46,
-        decoration: BoxDecoration(shape: BoxShape.circle, color: blue,
-          border: Border.all(color: Colors.white70, width: 2),
-          boxShadow: const [BoxShadow(color: Colors.black38, blurRadius: 6)]),
-        padding: const EdgeInsets.all(5),
-        child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-          const Icon(Icons.people_alt, size: 13, color: Colors.white),
-          Expanded(child: FittedBox(child: Text(count > 999 ? '999+' : '$count',
-            style: const TextStyle(fontWeight: FontWeight.w900, color: Colors.white, fontSize: 16)))),
-        ]),
+  Widget build(BuildContext context) => Tooltip(
+    message: spotPeopleLabel(count),
+    child: Semantics(
+      button: true,
+      label: spotPeopleLabel(count),
+      child: InkWell(
+        onTap: onTap,
+        customBorder: const CircleBorder(),
+        child: Container(
+          width: 46,
+          height: 46,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: blue,
+            border: Border.all(color: Colors.white70, width: 2),
+            boxShadow: const [BoxShadow(color: Colors.black38, blurRadius: 6)],
+          ),
+          padding: const EdgeInsets.all(5),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(Icons.people_alt, size: 13, color: Colors.white),
+              Expanded(
+                child: FittedBox(
+                  child: Text(
+                    count > 999 ? '999+' : '$count',
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w900,
+                      color: Colors.white,
+                      fontSize: 16,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
-    )));
+    ),
+  );
 }
 
 class SpotPeopleSheet extends StatefulWidget {
   final String title;
   final List<LiveLocationData> Function() load;
   final void Function(LiveLocationData) onProfile;
-  const SpotPeopleSheet({super.key, required this.title, required this.load, required this.onProfile});
+  const SpotPeopleSheet({
+    super.key,
+    required this.title,
+    required this.load,
+    required this.onProfile,
+  });
   @override
   State<SpotPeopleSheet> createState() => _SpotPeopleSheetState();
 }
@@ -32538,28 +32615,66 @@ class _SpotPeopleSheetState extends State<SpotPeopleSheet> {
   @override
   void initState() {
     super.initState();
-    timer = Timer.periodic(const Duration(seconds: 5), (_) { if (mounted) setState(() {}); });
+    timer = Timer.periodic(const Duration(seconds: 5), (_) {
+      if (mounted) setState(() {});
+    });
   }
+
   @override
-  void dispose() { timer?.cancel(); super.dispose(); }
+  void dispose() {
+    timer?.cancel();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
     final people = widget.load();
-    return SafeArea(child: SizedBox(height: MediaQuery.sizeOf(context).height * .55,
-      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        Padding(padding: const EdgeInsets.fromLTRB(20, 20, 20, 6),
-          child: Text(widget.title, maxLines: 2, overflow: TextOverflow.ellipsis,
-            style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800))),
-        Padding(padding: const EdgeInsets.fromLTRB(20, 0, 20, 12), child: Text(spotPeopleLabel(people.length))),
-        Expanded(child: ListView.builder(itemCount: people.length, itemBuilder: (context, index) {
-          final person = people[index];
-          return ListTile(leading: const CircleAvatar(child: Icon(Icons.person_outline)),
-            title: Text(displayUsername(person.username), maxLines: 1, overflow: TextOverflow.ellipsis),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () => widget.onProfile(person));
-        })),
-      ]),
-    ));
+    return SafeArea(
+      child: SizedBox(
+        height: MediaQuery.sizeOf(context).height * .55,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 20, 20, 6),
+              child: Text(
+                widget.title,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+              child: Text(spotPeopleLabel(people.length)),
+            ),
+            Expanded(
+              child: ListView.builder(
+                itemCount: people.length,
+                itemBuilder: (context, index) {
+                  final person = people[index];
+                  return ListTile(
+                    leading: const CircleAvatar(
+                      child: Icon(Icons.person_outline),
+                    ),
+                    title: Text(
+                      displayUsername(person.username),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () => widget.onProfile(person),
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
 
@@ -32569,8 +32684,13 @@ class SpotMapCard extends StatelessWidget {
   final int peopleCount;
   final VoidCallback? onPeople;
 
-  const SpotMapCard({super.key, required this.spot, required this.onOpen,
-    this.peopleCount = 0, this.onPeople});
+  const SpotMapCard({
+    super.key,
+    required this.spot,
+    required this.onOpen,
+    this.peopleCount = 0,
+    this.onPeople,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -32644,11 +32764,12 @@ class SpotMapCard extends StatelessWidget {
                   spot.cityCountry,
                   style: const TextStyle(color: Colors.white54, fontSize: 12),
                 ),
-                if (onPeople != null) TextButton.icon(
-                  onPressed: onPeople,
-                  icon: const Icon(Icons.people_alt_outlined, size: 18),
-                  label: Text(spotPeopleLabel(peopleCount)),
-                ),
+                if (onPeople != null)
+                  TextButton.icon(
+                    onPressed: onPeople,
+                    icon: const Icon(Icons.people_alt_outlined, size: 18),
+                    label: Text(spotPeopleLabel(peopleCount)),
+                  ),
                 const SizedBox(height: 8),
                 Text(
                   spot.description,
@@ -36887,10 +37008,7 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
 
       if (canCreateApprovedSpot && !savedNewSpot.isTemporary) {
         unawaited(
-          syncXpWithServer({
-            'action': 'sync_spot',
-            'spotId': savedNewSpot.id,
-          }),
+          syncXpWithServer({'action': 'sync_spot', 'spotId': savedNewSpot.id}),
         );
       }
 
@@ -39327,9 +39445,17 @@ Widget chatAvatarWidget(ChatThreadData chat, String currentUid) {
 Tab communityTab({required Widget icon, required String label}) => Tab(
   height: 62,
   icon: icon,
-  child: SizedBox(width: double.infinity, child: FittedBox(
-    fit: BoxFit.scaleDown, child: Text(label, maxLines: 1,
-      style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800)))),
+  child: SizedBox(
+    width: double.infinity,
+    child: FittedBox(
+      fit: BoxFit.scaleDown,
+      child: Text(
+        label,
+        maxLines: 1,
+        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800),
+      ),
+    ),
+  ),
 );
 
 class ChatScreen extends StatefulWidget {
@@ -39574,8 +39700,15 @@ class _ChatScreenState extends State<ChatScreen>
                                   ),
                                   text: trText('Forum'),
                                 ),
-                                Tab(icon: const Icon(Icons.emoji_events_outlined),
-                                  text: achievementText(appUiPreferences.language.name, 'Ranking', 'Рейтинг', 'Reitings')),
+                                Tab(
+                                  icon: const Icon(Icons.emoji_events_outlined),
+                                  text: achievementText(
+                                    appUiPreferences.language.name,
+                                    'Ranking',
+                                    'Рейтинг',
+                                    'Reitings',
+                                  ),
+                                ),
                               ],
                             );
                           },
@@ -51333,10 +51466,7 @@ class XpUserStats {
       weeklyXp: math.max(0, intFromFirebase(data['weeklyXp'], 0)),
       weeklyXpWeek: stringFromFirebase(data['weeklyXpWeek'], ''),
       xpBlocked: data['xpBlocked'] == true,
-      xpLastTransactionId: stringFromFirebase(
-        data['xpLastTransactionId'],
-        '',
-      ),
+      xpLastTransactionId: stringFromFirebase(data['xpLastTransactionId'], ''),
     );
   }
 
@@ -51366,9 +51496,7 @@ class XpUserStats {
       return 0;
     }
 
-    return ((xpTotal - currentLevelXp) / levelRange)
-        .clamp(0.0, 1.0)
-        .toDouble();
+    return ((xpTotal - currentLevelXp) / levelRange).clamp(0.0, 1.0).toDouble();
   }
 }
 
@@ -51508,7 +51636,10 @@ class XpTransactionData {
     if (action == 'achievement.unlock') {
       final parts = objectId.split('.');
       if (parts.length == 2) {
-        final requirement = achievementRequirement({'category': parts.first, 'threshold': parts.last}, appUiPreferences.language.name);
+        final requirement = achievementRequirement({
+          'category': parts.first,
+          'threshold': parts.last,
+        }, appUiPreferences.language.name);
         return '${xpTransactionActionLabel(action)}: $requirement${parts.first == 'tourist' ? ' (${parts.last})' : ''}';
       }
     }
@@ -51547,7 +51678,12 @@ class XpTransactionData {
 String xpTransactionActionLabel(String action) {
   switch (action.trim().toLowerCase()) {
     case 'achievement.unlock':
-      return achievementText(appUiPreferences.language.name, 'Achievement unlocked', 'Достижение получено', 'Sasniegums iegūts');
+      return achievementText(
+        appUiPreferences.language.name,
+        'Achievement unlocked',
+        'Достижение получено',
+        'Sasniegums iegūts',
+      );
     case 'profile.avatar':
       return 'Profile avatar';
     case 'profile.bio':
@@ -51584,7 +51720,12 @@ String xpTransactionActionLabel(String action) {
 String xpTransactionObjectTypeLabel(String objectType) {
   switch (objectType.trim().toLowerCase()) {
     case 'achievement':
-      return achievementText(appUiPreferences.language.name, 'Achievement', 'Достижение', 'Sasniegums');
+      return achievementText(
+        appUiPreferences.language.name,
+        'Achievement',
+        'Достижение',
+        'Sasniegums',
+      );
     case 'profile':
       return 'Profile';
     case 'garage_car':
@@ -55362,62 +55503,114 @@ class _ProfileHeader extends StatelessWidget {
   }
 }
 
-Future<Map<String, dynamic>> xpScreenRequest(String action, [Map<String, dynamic> extra = const {}]) async {
+Future<Map<String, dynamic>> xpScreenRequest(
+  String action, [
+  Map<String, dynamic> extra = const {},
+]) async {
   final user = FirebaseAuth.instance.currentUser;
   if (user == null) throw StateError('Not signed in');
   final token = await user.getIdToken();
   Object? lastError;
   for (final url in xpSyncUrls) {
     try {
-      final response = await postJsonToUrl(url, {'action': action, ...extra},
-        headers: {HttpHeaders.authorizationHeader: 'Bearer $token'});
+      final response = await postJsonToUrl(
+        url,
+        {'action': action, ...extra},
+        headers: {HttpHeaders.authorizationHeader: 'Bearer $token'},
+      );
       if (response['ok'] != true) throw StateError('XP unavailable');
       return Map<String, dynamic>.from(response['result'] as Map);
-    } catch (error) { lastError = error; }
+    } catch (error) {
+      lastError = error;
+    }
   }
   throw lastError ?? StateError('XP unavailable');
 }
 
 void openAchievements(BuildContext context) {
-  Navigator.of(context).push(appPageRoute(builder: (_) => AchievementsScreen(
-    language: appUiPreferences.language.name,
-    load: () => xpScreenRequest('achievements'),
-    select: (id) async { await xpScreenRequest('select_achievement', {'achievementId': id}); },
-  )));
+  Navigator.of(context).push(
+    appPageRoute(
+      builder: (_) => AchievementsScreen(
+        language: appUiPreferences.language.name,
+        load: () => xpScreenRequest('achievements'),
+        select: (id) async {
+          await xpScreenRequest('select_achievement', {'achievementId': id});
+        },
+      ),
+    ),
+  );
 }
 
 void openPublicAchievements(BuildContext context, String userId) {
-  if (userId == currentUser.uid) { openAchievements(context); return; }
-  Navigator.of(context).push(appPageRoute(builder: (_) => AchievementsScreen(
-    language: appUiPreferences.language.name,
-    load: () => xpScreenRequest('public_achievements', {'userId': userId}),
-  )));
+  if (userId == currentUser.uid) {
+    openAchievements(context);
+    return;
+  }
+  Navigator.of(context).push(
+    appPageRoute(
+      builder: (_) => AchievementsScreen(
+        language: appUiPreferences.language.name,
+        load: () => xpScreenRequest('public_achievements', {'userId': userId}),
+      ),
+    ),
+  );
 }
 
 class FeaturedAchievement extends StatelessWidget {
   final String userId;
   const FeaturedAchievement({super.key, required this.userId});
   @override
-  Widget build(BuildContext context) => StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-    stream: FirebaseFirestore.instance.collection('xp_featured_achievements').doc(userId).snapshots(),
-    builder: (context, snapshot) {
-      final value = snapshot.data?.data()?['item'];
-      if (snapshot.hasError || value is! Map) return const SizedBox.shrink();
-      final item = Map<String, dynamic>.from(value);
-      return Padding(padding: const EdgeInsets.only(left: 8), child: InkWell(
-        onTap: () {
-          if (userId == currentUser.uid) { openAchievements(context); return; }
-          openPublicAchievements(context, userId);
+  Widget build(BuildContext context) =>
+      StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+        stream: FirebaseFirestore.instance
+            .collection('xp_featured_achievements')
+            .doc(userId)
+            .snapshots(),
+        builder: (context, snapshot) {
+          final value = snapshot.data?.data()?['item'];
+          if (snapshot.hasError || value is! Map)
+            return const SizedBox.shrink();
+          final item = Map<String, dynamic>.from(value);
+          return Padding(
+            padding: const EdgeInsets.only(left: 8),
+            child: InkWell(
+              onTap: () {
+                if (userId == currentUser.uid) {
+                  openAchievements(context);
+                  return;
+                }
+                openPublicAchievements(context, userId);
+              },
+              child: SizedBox(
+                width: 86,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    SizedBox(
+                      width: 66,
+                      height: 72,
+                      child: FittedBox(child: AchievementBadge(item: item)),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      achievementCategoryLabel(
+                        item['category'] as String,
+                        appUiPreferences.language.name,
+                      ),
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        fontSize: 10.5,
+                        fontWeight: FontWeight.w700,
+                        color: Colors.white70,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
         },
-        child: SizedBox(width: 86, child: Column(mainAxisSize: MainAxisSize.min, children: [
-          SizedBox(width: 66, height: 72, child: FittedBox(child: AchievementBadge(item: item))),
-          const SizedBox(height: 4),
-          Text(achievementCategoryLabel(item['category'] as String, appUiPreferences.language.name),
-            textAlign: TextAlign.center, style: const TextStyle(fontSize: 10.5, fontWeight: FontWeight.w700, color: Colors.white70)),
-        ])),
-      ));
-    },
-  );
+      );
 }
 
 class XpSummaryCard extends StatelessWidget {
@@ -55468,28 +55661,60 @@ class PublicXpSummaryCard extends StatefulWidget {
 
 class _PublicXpSummaryCardState extends State<PublicXpSummaryCard> {
   late Future<Map<String, dynamic>> request;
-  void load() { request = xpScreenRequest('public_xp', {'userId': widget.userId, 'section': 'stats'}); }
+  void load() {
+    request = xpScreenRequest('public_xp', {
+      'userId': widget.userId,
+      'section': 'stats',
+    });
+  }
+
   @override
-  void initState() { super.initState(); load(); }
+  void initState() {
+    super.initState();
+    load();
+  }
+
   @override
   void didUpdateWidget(PublicXpSummaryCard oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.userId != widget.userId) load();
   }
+
   @override
   Widget build(BuildContext context) => FutureBuilder<Map<String, dynamic>>(
     future: request,
     builder: (context, snapshot) {
       final total = intFromFirebase(snapshot.data?['xpTotal'], 0);
-      return Column(children: [
-        XpSummaryContent(stats: XpUserStats(userId: widget.userId, xpTotal: total,
-          level: xpLevelFromTotal(total), weeklyXp: 0, weeklyXpWeek: '',
-          xpBlocked: false, xpLastTransactionId: ''),
-          loading: snapshot.connectionState == ConnectionState.waiting,
-          unavailable: snapshot.hasError, onTap: widget.onHistory),
-        if (snapshot.hasError) TextButton(onPressed: () => setState(load),
-          child: Text(achievementText(appUiPreferences.language.name, 'Retry', 'Повторить', 'Mēģināt vēlreiz'))),
-      ]);
+      return Column(
+        children: [
+          XpSummaryContent(
+            stats: XpUserStats(
+              userId: widget.userId,
+              xpTotal: total,
+              level: xpLevelFromTotal(total),
+              weeklyXp: 0,
+              weeklyXpWeek: '',
+              xpBlocked: false,
+              xpLastTransactionId: '',
+            ),
+            loading: snapshot.connectionState == ConnectionState.waiting,
+            unavailable: snapshot.hasError,
+            onTap: widget.onHistory,
+          ),
+          if (snapshot.hasError)
+            TextButton(
+              onPressed: () => setState(load),
+              child: Text(
+                achievementText(
+                  appUiPreferences.language.name,
+                  'Retry',
+                  'Повторить',
+                  'Mēģināt vēlreiz',
+                ),
+              ),
+            ),
+        ],
+      );
     },
   );
 }
@@ -55692,9 +55917,7 @@ class XpSummaryContent extends StatelessWidget {
               value: progressValue,
               minHeight: 8,
               backgroundColor: accentColor.withValues(alpha: 0.15),
-              valueColor: AlwaysStoppedAnimation<Color>(
-                accentColor,
-              ),
+              valueColor: AlwaysStoppedAnimation<Color>(accentColor),
             ),
           ),
           const SizedBox(height: 8),
@@ -55726,13 +55949,24 @@ class XpSummaryContent extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 12),
-          XpProfileActions(language: appUiPreferences.language.name,
-              onAchievements: () => openPublicAchievements(context, stats.userId),
-              onRewards: () => Navigator.of(context).push(appPageRoute(builder: (_) => XpRewardsScreen(
-                language: appUiPreferences.language.name, load: () => stats.userId == currentUser.uid
-                  ? xpScreenRequest('rewards')
-                  : xpScreenRequest('public_xp', {'userId': stats.userId, 'section': 'rewards'})))),
-              onHistory: onTap),
+          XpProfileActions(
+            language: appUiPreferences.language.name,
+            onAchievements: () => openPublicAchievements(context, stats.userId),
+            onRewards: () => Navigator.of(context).push(
+              appPageRoute(
+                builder: (_) => XpRewardsScreen(
+                  language: appUiPreferences.language.name,
+                  load: () => stats.userId == currentUser.uid
+                      ? xpScreenRequest('rewards')
+                      : xpScreenRequest('public_xp', {
+                          'userId': stats.userId,
+                          'section': 'rewards',
+                        }),
+                ),
+              ),
+            ),
+            onHistory: onTap,
+          ),
         ],
       ),
     );
@@ -55750,7 +55984,8 @@ class XpHistoryScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final cleanUserId = userId.trim();
 
-    if (cleanUserId != currentUser.uid) return PublicXpHistoryScreen(userId: cleanUserId);
+    if (cleanUserId != currentUser.uid)
+      return PublicXpHistoryScreen(userId: cleanUserId);
 
     return Scaffold(
       backgroundColor: Colors.transparent,
@@ -55847,41 +56082,92 @@ class PublicXpHistoryScreen extends StatefulWidget {
 
 class _PublicXpHistoryScreenState extends State<PublicXpHistoryScreen> {
   late Future<Map<String, dynamic>> request;
-  void load() { request = xpScreenRequest('public_xp', {'userId': widget.userId, 'section': 'history'}); }
+  void load() {
+    request = xpScreenRequest('public_xp', {
+      'userId': widget.userId,
+      'section': 'history',
+    });
+  }
+
   @override
-  void initState() { super.initState(); load(); }
+  void initState() {
+    super.initState();
+    load();
+  }
+
   @override
   void didUpdateWidget(PublicXpHistoryScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.userId != widget.userId) load();
   }
+
   @override
   Widget build(BuildContext context) => Scaffold(
     backgroundColor: Colors.transparent,
-    appBar: AppBar(title: const Text('XP History'), actions: [
-      IconButton(icon: const Icon(Icons.refresh), tooltip: trText('Retry'), onPressed: () => setState(load)),
-    ]),
-    body: FutureBuilder<Map<String, dynamic>>(future: request, builder: (context, snapshot) {
-      if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
-      if (snapshot.hasError) return Center(child: Column(mainAxisSize: MainAxisSize.min, children: [
-        const Text('Could not load XP history.'),
-        TextButton(onPressed: () => setState(load), child: Text(achievementText(appUiPreferences.language.name,
-          'Retry', 'Повторить', 'Mēģināt vēlreiz'))),
-      ]));
-      final items = (snapshot.data?['items'] as List? ?? []).cast<Map>();
-      if (items.isEmpty) {
-        return const Center(child: Text('No XP history yet'));
-      }
-      return ListView(padding: const EdgeInsets.all(14), children: [
-        for (final item in items) XpTransactionTile(transaction: XpTransactionData(
-          id: '', userId: widget.userId, action: item['action'] as String,
-          objectType: item['objectType'] as String, objectId: item['achievementId'] as String? ?? '',
-          stage: '', status: 'confirmed', reason: '', weekKey: '',
-          amount: intFromFirebase(item['amount'], 0), requestedAmount: 0,
-          createdAtMillis: intFromFirebase(item['createdAtMillis'], 0), metadata: const {},
-        )),
-      ]);
-    }),
+    appBar: AppBar(
+      title: const Text('XP History'),
+      actions: [
+        IconButton(
+          icon: const Icon(Icons.refresh),
+          tooltip: trText('Retry'),
+          onPressed: () => setState(load),
+        ),
+      ],
+    ),
+    body: FutureBuilder<Map<String, dynamic>>(
+      future: request,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting)
+          return const Center(child: CircularProgressIndicator());
+        if (snapshot.hasError)
+          return Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text('Could not load XP history.'),
+                TextButton(
+                  onPressed: () => setState(load),
+                  child: Text(
+                    achievementText(
+                      appUiPreferences.language.name,
+                      'Retry',
+                      'Повторить',
+                      'Mēģināt vēlreiz',
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          );
+        final items = (snapshot.data?['items'] as List? ?? []).cast<Map>();
+        if (items.isEmpty) {
+          return const Center(child: Text('No XP history yet'));
+        }
+        return ListView(
+          padding: const EdgeInsets.all(14),
+          children: [
+            for (final item in items)
+              XpTransactionTile(
+                transaction: XpTransactionData(
+                  id: '',
+                  userId: widget.userId,
+                  action: item['action'] as String,
+                  objectType: item['objectType'] as String,
+                  objectId: item['achievementId'] as String? ?? '',
+                  stage: '',
+                  status: 'confirmed',
+                  reason: '',
+                  weekKey: '',
+                  amount: intFromFirebase(item['amount'], 0),
+                  requestedAmount: 0,
+                  createdAtMillis: intFromFirebase(item['createdAtMillis'], 0),
+                  metadata: const {},
+                ),
+              ),
+          ],
+        );
+      },
+    ),
   );
 }
 
@@ -56032,10 +56318,12 @@ class XpLeaderboardScreen extends StatefulWidget {
   State<XpLeaderboardScreen> createState() => _XpLeaderboardScreenState();
 }
 
-class _XpLeaderboardScreenState extends State<XpLeaderboardScreen> with AutomaticKeepAliveClientMixin {
+class _XpLeaderboardScreenState extends State<XpLeaderboardScreen>
+    with AutomaticKeepAliveClientMixin {
   @override
   bool get wantKeepAlive => true;
-  final Map<XpLeaderboardPeriod, Future<List<XpLeaderboardEntry>>> periodEntries = {};
+  final Map<XpLeaderboardPeriod, Future<List<XpLeaderboardEntry>>>
+  periodEntries = {};
   final Map<XpLeaderboardPeriod, DateTime> periodLoadedAt = {};
   XpLeaderboardPeriod selectedPeriod = XpLeaderboardPeriod.allTime;
   late Future<List<XpLeaderboardEntry>> entriesFuture;
@@ -56052,7 +56340,8 @@ class _XpLeaderboardScreenState extends State<XpLeaderboardScreen> with Automati
 
   Future<List<XpLeaderboardEntry>> loadPeriod(XpLeaderboardPeriod period) {
     final loadedAt = periodLoadedAt[period];
-    if (loadedAt == null || DateTime.now().difference(loadedAt) > const Duration(seconds: 60)) {
+    if (loadedAt == null ||
+        DateTime.now().difference(loadedAt) > const Duration(seconds: 60)) {
       periodEntries.remove(period);
     }
     return periodEntries.putIfAbsent(period, () {
@@ -56064,7 +56353,9 @@ class _XpLeaderboardScreenState extends State<XpLeaderboardScreen> with Automati
   Future<void> refresh() async {
     periodEntries.remove(selectedPeriod);
     final nextFuture = loadEntries();
-    setState(() { entriesFuture = nextFuture; });
+    setState(() {
+      entriesFuture = nextFuture;
+    });
     await nextFuture;
   }
 
@@ -56085,12 +56376,21 @@ class _XpLeaderboardScreenState extends State<XpLeaderboardScreen> with Automati
     super.build(context);
     return Scaffold(
       backgroundColor: Colors.transparent,
-      appBar: widget.embedded ? null : AppBar(
-        title: Text(achievementText(appUiPreferences.language.name, 'Ranking', 'Рейтинг', 'Reitings')),
-        backgroundColor: Colors.transparent,
-        foregroundColor: blue,
-        actions: ccsAppBarActions(showXpLeaderboard: false),
-      ),
+      appBar: widget.embedded
+          ? null
+          : AppBar(
+              title: Text(
+                achievementText(
+                  appUiPreferences.language.name,
+                  'Ranking',
+                  'Рейтинг',
+                  'Reitings',
+                ),
+              ),
+              backgroundColor: Colors.transparent,
+              foregroundColor: blue,
+              actions: ccsAppBarActions(showXpLeaderboard: false),
+            ),
       body: FutureBuilder<List<XpLeaderboardEntry>>(
         future: entriesFuture,
         builder: (context, snapshot) {
@@ -56304,63 +56604,178 @@ class XpLeaderboardTile extends StatelessWidget {
     final highlighted = entry.rank <= 10;
     final accent = rankColor;
     Widget metric(String label, String value, Color color) => Expanded(
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text(label, maxLines: 1, overflow: TextOverflow.ellipsis,
-          style: const TextStyle(color: Colors.white54, fontSize: 10)),
-        const SizedBox(height: 4),
-        FittedBox(fit: BoxFit.scaleDown, child: Text(value,
-          style: TextStyle(color: color, fontSize: 14, fontWeight: FontWeight.w800))),
-      ]),
-    );
-    return Padding(padding: const EdgeInsets.only(bottom: 10), child: Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: () => openUserProfile(context, uid: entry.userId, fallbackUsername: entry.displayName),
-        borderRadius: BorderRadius.circular(8),
-        child: Container(
-          padding: const EdgeInsets.all(13),
-          decoration: BoxDecoration(
-            color: panelGlass,
-            gradient: highlighted ? LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight,
-              colors: [accent.withValues(alpha: podium ? .16 : .09), const Color(0xED11151D)]) : null,
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: highlighted ? accent.withValues(alpha: podium ? .55 : .3) : Colors.white12),
-            boxShadow: podium ? [BoxShadow(color: accent.withValues(alpha: .08), blurRadius: 12, offset: const Offset(0, 3))] : null,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(color: Colors.white54, fontSize: 10),
           ),
-          child: Column(children: [
-            Row(children: [
-              SizedBox(width: 32, height: 48, child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-                if (highlighted) Icon(podium ? Icons.emoji_events_rounded : Icons.star_rounded, size: podium ? 19 : 13, color: accent),
-                Text('#${entry.rank}', style: TextStyle(color: accent, fontSize: 13, fontWeight: FontWeight.w900)),
-              ])),
-              const SizedBox(width: 8), avatar(), const SizedBox(width: 10),
-              Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Row(children: [
-                  Flexible(child: Text(entry.displayName, maxLines: 1, overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w800))),
-                  if (entry.verified) const Padding(padding: EdgeInsets.only(left: 4),
-                    child: Icon(Icons.verified_rounded, color: blue, size: 14)),
-                ]),
-                if (entry.locationLabel.isNotEmpty) ...[
-                  const SizedBox(height: 4),
-                  Text(entry.locationLabel, maxLines: 1, overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(color: Colors.white54, fontSize: 11)),
-                ],
-              ])),
-              const Icon(Icons.chevron_right, color: Colors.white38, size: 18),
-            ]),
-            const SizedBox(height: 12),
-            Row(children: [
-              metric(trText('Level'), '${entry.level}', blue),
-              const SizedBox(width: 8),
-              metric(trText('Total XP'), formatXpValue(entry.xpTotal), const Color(0xFF8CD5FF)),
-              const SizedBox(width: 8),
-              metric(trText('Weekly XP'), formatXpValue(entry.weeklyXp), const Color(0xFFA8B3C4)),
-            ]),
-          ]),
+          const SizedBox(height: 4),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Text(
+              value,
+              style: TextStyle(
+                color: color,
+                fontSize: 14,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: () => openUserProfile(
+            context,
+            uid: entry.userId,
+            fallbackUsername: entry.displayName,
+          ),
+          borderRadius: BorderRadius.circular(8),
+          child: Container(
+            padding: const EdgeInsets.all(13),
+            decoration: BoxDecoration(
+              color: panelGlass,
+              gradient: highlighted
+                  ? LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [
+                        accent.withValues(alpha: podium ? .16 : .09),
+                        const Color(0xED11151D),
+                      ],
+                    )
+                  : null,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(
+                color: highlighted
+                    ? accent.withValues(alpha: podium ? .55 : .3)
+                    : Colors.white12,
+              ),
+              boxShadow: podium
+                  ? [
+                      BoxShadow(
+                        color: accent.withValues(alpha: .08),
+                        blurRadius: 12,
+                        offset: const Offset(0, 3),
+                      ),
+                    ]
+                  : null,
+            ),
+            child: Column(
+              children: [
+                Row(
+                  children: [
+                    SizedBox(
+                      width: 32,
+                      height: 48,
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          if (highlighted)
+                            Icon(
+                              podium
+                                  ? Icons.emoji_events_rounded
+                                  : Icons.star_rounded,
+                              size: podium ? 19 : 13,
+                              color: accent,
+                            ),
+                          Text(
+                            '#${entry.rank}',
+                            style: TextStyle(
+                              color: accent,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    avatar(),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Flexible(
+                                child: Text(
+                                  entry.displayName,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
+                              ),
+                              if (entry.verified)
+                                const Padding(
+                                  padding: EdgeInsets.only(left: 4),
+                                  child: Icon(
+                                    Icons.verified_rounded,
+                                    color: blue,
+                                    size: 14,
+                                  ),
+                                ),
+                            ],
+                          ),
+                          if (entry.locationLabel.isNotEmpty) ...[
+                            const SizedBox(height: 4),
+                            Text(
+                              entry.locationLabel,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: Colors.white54,
+                                fontSize: 11,
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                    const Icon(
+                      Icons.chevron_right,
+                      color: Colors.white38,
+                      size: 18,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    metric(trText('Level'), '${entry.level}', blue),
+                    const SizedBox(width: 8),
+                    metric(
+                      trText('Total XP'),
+                      formatXpValue(entry.xpTotal),
+                      const Color(0xFF8CD5FF),
+                    ),
+                    const SizedBox(width: 8),
+                    metric(
+                      trText('Weekly XP'),
+                      formatXpValue(entry.weeklyXp),
+                      const Color(0xFFA8B3C4),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
         ),
       ),
-    ));
+    );
   }
 }
 
