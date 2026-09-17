@@ -65,14 +65,21 @@ test('[access] endpoints reject missing authentication and unsupported method', 
   }
 });
 
-test('[moderation] only staff can pin a forum topic', async () => {
-  for (const role of ['user', 'moderator', 'admin']) {
-    const f = fixture({ 'users/tester': { role }, 'forum_topics/t': { isPinned: false } });
+test('[moderation] forum pinning respects staff country assignments', async () => {
+  for (const [role, countries, allowed] of [
+    ['user', ['LV'], false],
+    ['moderator', [], false],
+    ['moderator', ['EE'], false],
+    ['moderator', ['LV'], true],
+    ['admin', [], true],
+  ]) {
+    const f = fixture({ 'users/tester': { role, moderatorCountryCodes: countries },
+      'forum_topics/t': { isPinned: false, countryCode: 'LV' } });
     const res = await request(f, 'moderation-action', 'tester', {
       action: 'set_forum_topic_pinned', topicId: 't', pinned: true,
     });
-    assert.equal(res.code, role === 'user' ? 403 : 200);
-    assert.equal(f.rows.get('forum_topics/t').isPinned, role !== 'user');
+    assert.equal(res.code, allowed ? 200 : 403);
+    assert.equal(f.rows.get('forum_topics/t').isPinned, allowed);
   }
 });
 

@@ -1,3 +1,4 @@
+import 'support/preview_font.dart';
 import 'dart:io';
 import 'dart:ui' as ui;
 import 'package:ccs_app/achievements_screen.dart';
@@ -150,7 +151,7 @@ void main() {
         final font = FontLoader('PreviewFont');
         font.addFont(
           File(
-            'C:/Windows/Fonts/arial.ttf',
+            previewFontPath,
           ).readAsBytes().then((b) => ByteData.sublistView(b)),
         );
         await font.load();

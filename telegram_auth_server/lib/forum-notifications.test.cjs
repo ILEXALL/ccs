@@ -43,10 +43,13 @@ function fixture(sourcePath) {
     pushes.push(payload);return {successCount:payload.tokens.length,responses:payload.tokens.map(()=>({success:true}))};
   }})};
   const source=fs.readFileSync(sourcePath,'utf8')
+    .replace("import publications from '../lib/forum-publications.js';", '')
     .replace("import crypto from 'node:crypto';",'')
     .replace("import admin from 'firebase-admin';",'')
-    .replace('export default async function handler','async function handler');
-  const context={crypto,admin,console,process,Date:class extends Date {static now(){return now;}},exports:{}};
+    .replace('export default async function handler','async function handler')
+    .replaceAll('export async function ', 'async function ');
+  const publications = { drainForumPublications() { throw new Error('Outbox draining is outside this delivery fixture'); } };
+  const context={publications,crypto,admin,console,process,Date:class extends Date {static now(){return now;}},exports:{}};
   vm.runInNewContext(source+'\nexports.publish = notifyUsersAboutNewSpot; exports.reply=handleForumReply; exports.legacy=handleForumReplyAdmin; exports.topic=handleForumTopicCreated;',context);
   async function publish(id,temporary=false,type=temporary?'temporary_event':'new_spot') {
     return context.exports.publish({spotId:id,spot:{name:id,cityCountry:'Riga, Latvia',addedByUid:'owner',isTemporary:temporary},notificationType:type,deliveryKey:'caller-supplied:'+id});
