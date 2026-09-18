@@ -9399,11 +9399,12 @@ class XpLeaderboardPage {
 
 class XpLeaderboardPageExpired implements Exception {}
 
-typedef XpLeaderboardPageLoader = Future<XpLeaderboardPage> Function({
-  required XpLeaderboardPeriod period,
-  required String search,
-  Map<String, dynamic>? cursor,
-});
+typedef XpLeaderboardPageLoader =
+    Future<XpLeaderboardPage> Function({
+      required XpLeaderboardPeriod period,
+      required String search,
+      Map<String, dynamic>? cursor,
+    });
 
 Future<XpLeaderboardPage> loadXpLeaderboardEntries({
   XpLeaderboardPeriod period = XpLeaderboardPeriod.allTime,
@@ -56961,8 +56962,14 @@ class _CreatorSpotsBadgeState extends State<CreatorSpotsBadge>
 
   Future<int> loadCount() async {
     if (widget.uid.isEmpty) return 0;
-    final result = await creatorSpotsQuery(widget.uid).count().get();
-    return result.count ?? 0;
+    final result = await xpScreenRequest('creator_spots', {
+      'userId': widget.uid,
+    });
+    final value = result['count'];
+    if (value is! num || value < 0) {
+      throw const FormatException('Invalid created spots count');
+    }
+    return value.toInt();
   }
 
   @override

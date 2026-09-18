@@ -119,16 +119,14 @@ void main() {
           ),
         );
         await tester.pumpAndSettle();
-        final main = find.byKey(const ValueKey('achievement-board-main'));
+        final main = find.byKey(const ValueKey('achievement-row-spots'));
         final countries = find.byKey(
           const ValueKey('achievement-board-countries'),
         );
-        final grid = tester.widget<GridView>(main);
-        final columns =
-            (grid.gridDelegate as SliverGridDelegateWithFixedCrossAxisCount)
-                .crossAxisCount;
-        expect(columns, inInclusiveRange(5, 6));
-        expect(grid.childrenDelegate.estimatedChildCount, 6);
+        expect(
+          find.descendant(of: main, matching: find.byType(AchievementBadge)),
+          findsNWidgets(6),
+        );
         expect(
           tester
               .widget<GridView>(countries)
@@ -144,7 +142,7 @@ void main() {
           find.descendant(of: countries, matching: find.text('Latvia')),
           findsOneWidget,
         );
-        expect(find.text('Main achievements'), findsOneWidget);
+        expect(find.text('Spots'), findsOneWidget);
         expect(find.text('Countries'), findsOneWidget);
         expect(find.text('Show on profile'), findsNothing);
         expect(find.text('Remove from profile'), findsNothing);
@@ -230,10 +228,13 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    final grid = tester.widget<GridView>(
-      find.byKey(const ValueKey('achievement-board-main')),
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('achievement-row-spots')),
+        matching: find.byType(AchievementBadge),
+      ),
+      findsNWidgets(67),
     );
-    expect(grid.childrenDelegate.estimatedChildCount, 67);
     final earned = find.byKey(const ValueKey('achievement-tile-spots.0'));
     final locked = find.byKey(const ValueKey('achievement-tile-spots.1'));
     expect(

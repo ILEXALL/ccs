@@ -51,7 +51,7 @@ test('reward guide uses evaluator amounts and only own original confirmed reward
   const spot = result.items.find(item => item.id === 'spot.approved');
   assert.equal(spot.earnedXp, 50); assert.equal(spot.completed, 1); assert.equal(spot.pending, 1);
 });
-test('public achievements expose only unlocked catalogue items and never award XP', async () => {
+test('public achievements expose the full board and never expose private ledger data or award XP', async () => {
   const f = setup();
   f.rows.get('app_config/xp').achievements_enabled = true;
   f.rows.set('spots/one', {addedByUid: 'tester', status: 'approved'});
@@ -60,14 +60,16 @@ test('public achievements expose only unlocked catalogue items and never award X
   f.rows.set('xp_transactions/private', {userId: 'tester', action: 'profile.avatar', status: 'confirmed', amount: 50, secret: 'private'});
   const before = JSON.stringify([...f.rows]);
   const result = await f.publicAchievements('viewer', 'tester');
-  assert.equal(result.items.length, 1);
+  assert.equal(result.items.length, f.catalog().length);
+  assert.equal(result.items.find(i=>i.id==='spots.5').status, 'locked');
+  assert.equal(result.items.find(i=>i.id==='spots.5').progress, 1);
   assert.equal(result.items[0].id, 'spots.1');
   assert.equal(result.items[0].status, 'confirmed');
   assert.equal(JSON.stringify(result).includes('private'), false);
   assert.equal(JSON.stringify([...f.rows]), before);
   const reward = [...f.rows.values()].find(row => row.action === 'achievement.unlock');
   reward.status = 'revoked';
-  assert.equal((await f.publicAchievements('viewer', 'tester')).items.length, 0);
+  assert.equal((await f.publicAchievements('viewer', 'tester')).items.find(i=>i.id==='spots.1').status, 'locked');
 });
 
 test('public achievements respect privacy, blocks and account status', async () => {
@@ -195,4 +197,27 @@ test('retired reports are absent from personal/public boards and cannot be selec
   }
   await assert.rejects(f.selectAchievement('tester', 'reports.1'), /Unknown achievement/);
   assert.equal(JSON.stringify([...f.rows]), before);
+});
+
+test('all active non-country achievements have five cumulative tiers', () => {
+  const items=setup().catalog();
+  for(const category of new Set(items.filter(i=>i.category!=='tourist').map(i=>i.category))){
+    const group=items.filter(i=>i.category===category);
+    assert.deepEqual(Array.from(group,i=>i.tier),[1,2,3,4,5]);
+    assert.ok(group.every((item,index)=>index===0||item.threshold>group[index-1].threshold));
+  }
+});
+test('50 spots unlock all five tiers without spending progress or awarding twice', async () => {
+  const f=setup();f.rows.get('app_config/xp').achievements_enabled=true;
+  for(let i=0;i<50;i++)f.rows.set('spots/s'+i,{addedByUid:'tester',status:'approved'});
+  const first=await f.syncAchievements('tester',now);
+  const spots=first.items.filter(i=>i.category==='spots');
+  assert.ok(spots.every(i=>i.progress===50&&i.status==='confirmed'));
+  const total=f.rows.get('xp_user_stats/tester').xpTotal;
+  await f.syncAchievements('tester',now);assert.equal(f.rows.get('xp_user_stats/tester').xpTotal,total);
+  f.rows.set('users/viewer',{});
+  const publicBoard=await f.publicAchievements('viewer','tester');
+  assert.ok(publicBoard.items.filter(i=>i.category==='spots').every(i=>i.progress===50&&i.status==='confirmed'));
+  f.rows.get('app_config/xp').achievements_enabled=false;
+  assert.ok((await f.syncAchievements('tester',now)).items.filter(i=>i.category==='spots').every(i=>i.progress===50));
 });

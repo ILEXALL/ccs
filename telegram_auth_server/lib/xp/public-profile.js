@@ -1,4 +1,5 @@
 const {db} = require('../firebase-admin');
+const {createdSpotCount} = require('./spot-counts');
 const {assertPublicXpAccess, catalog, retiredAchievementIds} = require('./achievements');
 const {rewardCatalog, rewardProgress} = require('./rewards');
 
@@ -30,4 +31,9 @@ async function publicXpProfile(actorId, userId, section = 'stats') {
     })).sort((a, b) => b.createdAtMillis - a.createdAtMillis).slice(0, 100);
   return {items};
 }
-module.exports = {publicXpProfile};
+async function creatorSpotCount(actorId, userId) {
+  // Owners can inspect their own count even when their profile is private.
+  if (actorId !== userId) await assertPublicXpAccess(actorId, userId);
+  return {count: await createdSpotCount(userId)};
+}
+module.exports = {publicXpProfile, creatorSpotCount};

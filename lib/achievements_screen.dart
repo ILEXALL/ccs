@@ -98,7 +98,14 @@ class _AchievementsScreenState extends State<AchievementsScreen> {
                 ),
               ),
               const SizedBox(height: 8),
+              if (item['category'] != 'tourist')
+                Text(tierName(item), textAlign: TextAlign.center),
               Text(status(item), textAlign: TextAlign.center),
+              if (item['available'] == true && item['status'] == 'confirmed')
+                Text(
+                  '${item['progress'] ?? item['threshold']} / ${item['threshold']}',
+                  textAlign: TextAlign.center,
+                ),
               const SizedBox(height: 16),
               TextButton(
                 onPressed: () => Navigator.pop(context),
@@ -159,6 +166,13 @@ class _AchievementsScreenState extends State<AchievementsScreen> {
         final main = items
             .where((item) => item['category'] != 'tourist')
             .toList();
+        final categories = <String, List<Map<String, dynamic>>>{};
+        for (final item in main) {
+          (categories[item['category'] as String] ??= []).add(item);
+        }
+        for (final row in categories.values) {
+          row.sort((a, b) => (a['tier'] as int).compareTo(b['tier'] as int));
+        }
         final countries = items
             .where((item) => item['category'] == 'tourist')
             .toList();
@@ -196,16 +210,8 @@ class _AchievementsScreenState extends State<AchievementsScreen> {
                   ),
                 ),
               ),
-            if (main.isNotEmpty)
-              section(
-                'main',
-                t(
-                  'Main achievements',
-                  'Основные достижения',
-                  'Pamata sasniegumi',
-                ),
-                main,
-              ),
+            for (final entry in categories.entries)
+              categoryRow(entry.key, entry.value),
             if (countries.isNotEmpty)
               section(
                 'countries',
@@ -217,6 +223,57 @@ class _AchievementsScreenState extends State<AchievementsScreen> {
       },
     ),
   );
+
+  String tierName(Map<String, dynamic> item) {
+    final tier = ((item['tier'] as int? ?? 1) - 1).clamp(0, 4);
+    return [
+      t('Bronze', 'Бронза', 'Bronza'),
+      t('Silver', 'Серебро', 'Sudrabs'),
+      t('Gold', 'Золото', 'Zelts'),
+      t('Platinum', 'Платина', 'Platīns'),
+      t('Diamond', 'Алмаз', 'Dimants'),
+    ][tier];
+  }
+
+  Widget categoryRow(String category, List<Map<String, dynamic>> items) =>
+      Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(top: 8, bottom: 12),
+            child: Text(
+              achievementCategoryLabel(category, widget.language),
+              style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
+            ),
+          ),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final scale = MediaQuery.textScalerOf(context).scale(12) / 12;
+              final minWidth = 48 * scale.clamp(1, 3);
+              final tileWidth = ((constraints.maxWidth - 24) / 5)
+                  .clamp(minWidth, 160)
+                  .toDouble();
+              return SingleChildScrollView(
+                key: ValueKey('achievement-row-$category'),
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  children: [
+                    for (var i = 0; i < items.length; i++) ...[
+                      if (i > 0) const SizedBox(width: 6),
+                      SizedBox(
+                        width: tileWidth,
+                        height: 60 + 48 * scale.clamp(1, 10),
+                        child: achievementTile(items[i]),
+                      ),
+                    ],
+                  ],
+                ),
+              );
+            },
+          ),
+          const SizedBox(height: 16),
+        ],
+      );
 
   Widget section(String id, String heading, List<Map<String, dynamic>> items) =>
       Column(
@@ -260,9 +317,7 @@ class _AchievementsScreenState extends State<AchievementsScreen> {
     final color = earned
         ? achievementTierColors[((item['tier'] as int? ?? 1) - 1).clamp(0, 4)]
         : Colors.white38;
-    final label = item['category'] == 'tourist'
-        ? title(item)
-        : achievementCategoryLabel(item['category'] as String, widget.language);
+    final label = item['category'] == 'tourist' ? title(item) : tierName(item);
     return Semantics(
       label:
           '${title(item)}. ${achievementRequirement(item, widget.language)}. ${status(item)}. +${item['xp']} XP',

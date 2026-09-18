@@ -24,8 +24,8 @@ const achievementTierColors = [
   Color(0xFFCE935D),
   Color(0xFFCBD9E4),
   Color(0xFFFFD36C),
-  Color(0xFF83DCFA),
   Color(0xFFAD9CF7),
+  Color(0xFF83DCFA),
 ];
 
 class AchievementEmblem extends StatelessWidget {

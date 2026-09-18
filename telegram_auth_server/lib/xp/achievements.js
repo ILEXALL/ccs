@@ -1,3 +1,4 @@
+const {createdSpotCount} = require('./spot-counts');
 const { db, admin } = require('../firebase-admin');
 const { awardManyXp } = require('./xp-firestore');
 const { buildXpTransactionId } = require('./xp-engine');
@@ -55,27 +56,29 @@ function completedMonths(created, now) {
   return Math.max(0, months);
 }
 
+async function achievementProgress(userId, now = new Date()) {
+  const [spots, authUser] = await Promise.all([
+    createdSpotCount(userId), admin.auth().getUser(userId),
+  ]);
+  return {spots, tenure: completedMonths(authUser.metadata.creationTime, now)};
+}
+
+function boardItems(earned, progress) {
+  const totals = {...progress};
+  for (const item of catalog()) {
+    if (earned.get(item.id)?.status === 'confirmed') {
+      totals[item.category] = Math.max(totals[item.category] || 0, item.threshold);
+    }
+  }
+  return catalog().map(item => ({...item, progress: totals[item.category] || 0,
+    status: earned.get(item.id)?.status === 'confirmed' ? 'confirmed' : earned.get(item.id)?.status || 'locked'}));
+}
+
 async function syncAchievements(userId, options = {}) {
   const config = (await db.collection('app_config').doc('xp').get()).data() || {};
   const enabled = config.achievements_enabled === true;
-  const progress = {};
-  // No client counters or claimed GPS coordinates are accepted as achievement evidence.
+  const progress = await achievementProgress(userId, options.now || new Date());
   if (enabled) {
-    const ids = new Set();
-    const [addedSpots, ownedSpots, authUser] = await Promise.all([
-      db.collection('spots').where('addedByUid', '==', userId).get(),
-      db.collection('spots').where('ownerUid', '==', userId).get(),
-      admin.auth().getUser(userId),
-    ]);
-    for (const snapshot of [addedSpots, ownedSpots]) {
-      for (const doc of snapshot.docs) {
-        const spot = doc.data();
-        if ((spot.addedByUid || spot.ownerUid) === userId &&
-            spot.status === 'approved' && spot.isTemporary !== true && spot.deleted !== true) ids.add(doc.id);
-      }
-    }
-    progress.spots = ids.size;
-    progress.tenure = completedMonths(authUser.metadata.creationTime, options.now || new Date());
     await awardManyXp(catalog().filter(item => item.available && progress[item.category] >= item.threshold)
       .map(item => ({userId, action: 'achievement.unlock', objectType: 'achievement',
         objectId: item.id, stage: 'unlocked', amount: item.xp,
@@ -91,8 +94,7 @@ async function syncAchievements(userId, options = {}) {
   const earned = new Map(transactions.docs.map(doc => doc.data())
     .filter(data => data.action === 'achievement.unlock').map(data => [data.objectId, data]));
   const featured = featuredSnapshot.data();
-  return { enabled, selectedId: featured?.item?.id || null, items: catalog().map(item => ({...item, progress: progress[item.category] || 0,
-    status: earned.get(item.id)?.status || 'locked'})) };
+  return { enabled, selectedId: featured?.item?.id || null, items: boardItems(earned, progress) };
 }
 
 async function selectAchievement(userId, achievementId) {
@@ -132,10 +134,15 @@ async function publicAchievements(actorId, userId) {
   const awards = await db.getAll(...items.map(item => db.collection('xp_transactions').doc(
     buildXpTransactionId({userId, action: 'achievement.unlock', objectType: 'achievement',
       objectId: item.id, stage: 'unlocked', amount: item.xp}))));
-  return {enabled: true, public: true, items: items.filter((item, index) => {
+  const progress = await achievementProgress(userId);
+  const earned = new Map();
+  items.forEach((item, index) => {
     const award = awards[index].data();
-    return award?.status === 'confirmed' && award.userId === userId;
-  }).map(item => ({...item, status: 'confirmed', progress: item.threshold}))};
+    // Public viewers see earned/locked states only, never moderation reasons.
+    if (award?.status === 'confirmed' && award.userId === userId) earned.set(item.id, {status: 'confirmed'});
+  });
+  return {enabled: true, public: true, items: boardItems(earned, progress)};
+
 }
 
 module.exports = { catalog, retiredAchievementIds, completedMonths, syncAchievements, selectAchievement, publicAchievements, assertPublicXpAccess };
