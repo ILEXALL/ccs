@@ -31,6 +31,7 @@ import 'achievements_screen.dart';
 import 'in_app_badges.dart';
 import 'query_pages.dart';
 import 'session_count_stream.dart';
+import 'firestore_usage_estimate.dart';
 import 'spots_interaction_guide.dart';
 import 'spot_presence_grouping.dart';
 
@@ -266,7 +267,7 @@ class FirestoreDebugTracker extends ChangeNotifier {
   final Map<String, FirestoreDebugStats> statsByLabel = {};
   final Map<String, FirestoreDebugStats> sessionStatsByLabel = {};
   final List<FirestoreDebugEvent> recentEvents = [];
-  final DateTime sessionStartedAt = DateTime.now();
+  DateTime sessionStartedAt = DateTime.now();
   Timer? _persistTimer;
   bool _loadedFromStorage = false;
 
@@ -385,6 +386,7 @@ class FirestoreDebugTracker extends ChangeNotifier {
   }
 
   void reset() {
+    sessionStartedAt = DateTime.now();
     statsByLabel.clear();
     sessionStatsByLabel.clear();
     recentEvents.clear();
@@ -565,6 +567,7 @@ class FirestoreCloudUsageController extends ChangeNotifier {
   }
 
   Future<void> refresh() async {
+    if (currentUser.role != UserRole.admin) return;
     if (isLoading) {
       return;
     }
@@ -577,14 +580,20 @@ class FirestoreCloudUsageController extends ChangeNotifier {
       final uri = Uri.parse(firestoreUsageUrl);
       final client = HttpClient();
       try {
+        final token = await FirebaseAuth.instance.currentUser?.getIdToken();
+        if (token == null) throw StateError('Admin sign-in required');
         final request = await client.getUrl(uri);
+        request.headers.set(HttpHeaders.authorizationHeader, 'Bearer $token');
         request.headers.set(HttpHeaders.acceptHeader, 'application/json');
         final response = await request.close();
         final body = await utf8.decoder.bind(response).join();
 
         if (response.statusCode < 200 || response.statusCode >= 300) {
+          final failure = jsonDecode(body);
           throw StateError(
-            'Usage endpoint returned ${response.statusCode}: ${body.trim()}',
+            failure is Map
+                ? '${failure['error'] ?? 'Cloud usage unavailable'}'
+                : 'Cloud usage unavailable',
           );
         }
 
@@ -653,9 +662,9 @@ final firestoreDebugTracker = FirestoreDebugTracker();
 final firestoreCloudUsageController = FirestoreCloudUsageController();
 final firestoreDebugButtonVisible = ValueNotifier<bool>(true);
 const firestoreDebugButtonVisibleKey = 'firestore_debug_button_visible';
-const firestoreDebugTrackerStorageKey = 'firestore_debug_tracker_storage_v1';
+const firestoreDebugTrackerStorageKey = 'firestore_debug_tracker_server_v2';
 const firestoreCloudUsageBaselineStorageKey =
-    'firestore_cloud_usage_baseline_v1';
+    'firestore_cloud_usage_baseline_ops_v2';
 const appDeviceIdStorageKey = 'ccs_app_device_id_v1';
 
 Future<void> loadFirestoreDebugButtonPreference() async {
@@ -667,6 +676,7 @@ Future<void> loadFirestoreDebugButtonPreference() async {
 }
 
 Future<void> saveFirestoreDebugButtonPreference(bool value) async {
+  if (currentUser.role != UserRole.admin) return;
   firestoreDebugButtonVisible.value = value;
 
   try {
@@ -679,60 +689,114 @@ Future<QuerySnapshot<Map<String, dynamic>>> trackedQueryGet(
   String label,
   Query<Map<String, dynamic>> query, [
   GetOptions? options,
-]) async {
-  final snapshot = await query.get(options);
-  firestoreDebugTracker.recordRead(
-    label,
-    firestoreDebugBillableQueryReadCount(snapshot.docs.length),
-  );
-  return snapshot;
-}
-
+]) => query.debugGet(options, label);
 Future<DocumentSnapshot<Map<String, dynamic>>> trackedDocGet(
   String label,
   DocumentReference<Map<String, dynamic>> ref, [
   GetOptions? options,
-]) async {
-  final snapshot = await ref.get(options);
-  firestoreDebugTracker.recordRead(label, 1);
-  return snapshot;
-}
-
+]) => ref.debugGet(options, label);
 Stream<QuerySnapshot<Map<String, dynamic>>> trackedQuerySnapshots(
   String label,
   Query<Map<String, dynamic>> query, {
   bool includeMetadataChanges = false,
-}) {
-  var firstSnapshot = true;
-
-  return query.snapshots(includeMetadataChanges: includeMetadataChanges).map((
-    snapshot,
-  ) {
-    final readCount = firstSnapshot
-        ? firestoreDebugBillableQueryReadCount(snapshot.docs.length)
-        : snapshot.docChanges.length;
-    firstSnapshot = false;
-    firestoreDebugTracker.recordRead(label, readCount);
-    return snapshot;
-  });
-}
-
+}) => observedQuerySnapshots(
+  query,
+  label,
+  includeMetadataChanges: includeMetadataChanges,
+);
 Stream<DocumentSnapshot<Map<String, dynamic>>> trackedDocSnapshots(
   String label,
   DocumentReference<Map<String, dynamic>> ref,
-) {
-  var firstSnapshot = true;
+) => observedDocSnapshots(ref, label);
+int firestoreDebugBillableQueryReadCount(int documentCount) =>
+    math.max(1, documentCount);
 
-  return ref.snapshots().map((snapshot) {
-    firestoreDebugTracker.recordRead(label, firstSnapshot ? 1 : 1);
-    firstSnapshot = false;
-    return snapshot;
-  });
+Stream<QuerySnapshot<T>> observedQuerySnapshots<T extends Object?>(
+  Query<T> query,
+  String label, {
+  bool includeMetadataChanges = false,
+}) async* {
+  final estimate = ServerReadEstimate();
+  Map<String, Object?>? delivered;
+  await for (final snapshot in query.snapshots(includeMetadataChanges: true)) {
+    final data = {for (final doc in snapshot.docs) doc.id: doc.data()};
+    firestoreDebugTracker.recordRead(
+      label,
+      estimate.observe(
+        data,
+        fromCache: snapshot.metadata.isFromCache,
+        pendingWrites: snapshot.metadata.hasPendingWrites,
+      ),
+    );
+    // Observe server acknowledgements internally without adding metadata-only
+    // callbacks to application listeners that did not request them.
+    if (includeMetadataChanges ||
+        delivered == null ||
+        !sameFirestoreValue(delivered, data) ||
+        delivered.keys.join('|') != data.keys.join('|')) {
+      delivered = data;
+      yield snapshot;
+    }
+  }
 }
 
-int firestoreDebugBillableQueryReadCount(int documentCount) {
-  // Firestore bills at least one read for a query, even when it returns no documents.
-  return math.max(1, documentCount);
+Stream<DocumentSnapshot<T>> observedDocSnapshots<T extends Object?>(
+  DocumentReference<T> ref,
+  String label,
+) async* {
+  final estimate = ServerReadEstimate();
+  Object? delivered;
+  var first = true;
+  await for (final snapshot in ref.snapshots(includeMetadataChanges: true)) {
+    final data = snapshot.data();
+    firestoreDebugTracker.recordRead(
+      label,
+      estimate.observe(
+        {ref.id: data},
+        fromCache: snapshot.metadata.isFromCache,
+        pendingWrites: snapshot.metadata.hasPendingWrites,
+      ),
+    );
+    if (first || !sameFirestoreValue(delivered, data)) {
+      first = false;
+      delivered = data;
+      yield snapshot;
+    }
+  }
+}
+
+final _queuedDebugOperations = Expando<List<void Function()>>();
+void queueDebugOperation(Object owner, void Function() operation) {
+  (_queuedDebugOperations[owner] ??= []).add(operation);
+}
+
+void confirmDebugOperations(Object owner) {
+  final operations = _queuedDebugOperations[owner] ?? [];
+  _queuedDebugOperations[owner] = null;
+  for (final operation in operations) {
+    operation();
+  }
+}
+
+extension ConfirmedFirestoreTransaction on FirebaseFirestore {
+  Future<T> debugRunTransaction<T>(
+    Future<T> Function(Transaction) handler, {
+    Duration timeout = const Duration(seconds: 30),
+    int maxAttempts = 5,
+  }) async {
+    Transaction? last;
+    final result = await runTransaction<T>(
+      (transaction) {
+        last = transaction;
+        _queuedDebugOperations[transaction] = [];
+        return handler(transaction);
+      },
+      timeout: timeout,
+      maxAttempts: maxAttempts,
+    );
+    if (last != null) confirmDebugOperations(last!);
+    return result;
+  }
 }
 
 String firestoreDebugTargetLabel(Object target) {
@@ -798,10 +862,12 @@ extension FirestoreDebugQueryExtension<T extends Object?> on Query<T> {
   ]) async {
     final debugLabel = firestoreDebugCallerLabel('query.get', this, label);
     final snapshot = await get(options);
-    firestoreDebugTracker.recordRead(
-      debugLabel,
-      firestoreDebugBillableQueryReadCount(snapshot.docs.length),
-    );
+    if (!snapshot.metadata.isFromCache && !snapshot.metadata.hasPendingWrites) {
+      firestoreDebugTracker.recordRead(
+        debugLabel,
+        firestoreDebugBillableQueryReadCount(snapshot.docs.length),
+      );
+    }
     return snapshot;
   }
 
@@ -811,16 +877,7 @@ extension FirestoreDebugQueryExtension<T extends Object?> on Query<T> {
       this,
       label,
     );
-    var firstSnapshot = true;
-
-    return snapshots().map((snapshot) {
-      final count = firstSnapshot
-          ? firestoreDebugBillableQueryReadCount(snapshot.docs.length)
-          : snapshot.docChanges.length;
-      firstSnapshot = false;
-      firestoreDebugTracker.recordRead(debugLabel, count);
-      return snapshot;
-    });
+    return observedQuerySnapshots(this, debugLabel);
   }
 }
 
@@ -832,35 +889,33 @@ extension FirestoreDebugDocumentReferenceExtension<T extends Object?>
   ]) async {
     final debugLabel = firestoreDebugCallerLabel('doc.get', this, label);
     final snapshot = await get(options);
-    firestoreDebugTracker.recordRead(debugLabel, 1);
+    if (!snapshot.metadata.isFromCache && !snapshot.metadata.hasPendingWrites)
+      firestoreDebugTracker.recordRead(debugLabel, 1);
     return snapshot;
   }
 
   Stream<DocumentSnapshot<T>> debugSnapshots([String? label]) {
     final debugLabel = firestoreDebugCallerLabel('doc.snapshots', this, label);
 
-    return snapshots().map((snapshot) {
-      firestoreDebugTracker.recordRead(debugLabel, 1);
-      return snapshot;
-    });
+    return observedDocSnapshots(this, debugLabel);
   }
 
   Future<void> debugSet(T data, [SetOptions? options, String? label]) async {
     final debugLabel = firestoreDebugCallerLabel('doc.set', this, label);
+    await set(data, options);
     firestoreDebugTracker.recordWrite(debugLabel, 1);
-    return set(data, options);
   }
 
   Future<void> debugUpdate(Map<Object, Object?> data, [String? label]) async {
     final debugLabel = firestoreDebugCallerLabel('doc.update', this, label);
+    await update(data);
     firestoreDebugTracker.recordWrite(debugLabel, 1);
-    return update(data);
   }
 
   Future<void> debugDelete([String? label]) async {
     final debugLabel = firestoreDebugCallerLabel('doc.delete', this, label);
+    await delete();
     firestoreDebugTracker.recordDelete(debugLabel, 1);
-    return delete();
   }
 }
 
@@ -871,7 +926,8 @@ extension FirestoreDebugTransactionExtension on Transaction {
   ]) async {
     final debugLabel = firestoreDebugCallerLabel('transaction.get', ref, label);
     final snapshot = await get(ref);
-    firestoreDebugTracker.recordRead(debugLabel, 1);
+    if (!snapshot.metadata.isFromCache && !snapshot.metadata.hasPendingWrites)
+      firestoreDebugTracker.recordRead(debugLabel, 1);
     return snapshot;
   }
 
@@ -882,7 +938,10 @@ extension FirestoreDebugTransactionExtension on Transaction {
     String? label,
   ]) {
     final debugLabel = firestoreDebugCallerLabel('transaction.set', ref, label);
-    firestoreDebugTracker.recordWrite(debugLabel, 1);
+    queueDebugOperation(
+      this,
+      () => firestoreDebugTracker.recordWrite(debugLabel, 1),
+    );
     set(ref, data, options);
     return this;
   }
@@ -897,7 +956,10 @@ extension FirestoreDebugTransactionExtension on Transaction {
       ref,
       label,
     );
-    firestoreDebugTracker.recordWrite(debugLabel, 1);
+    queueDebugOperation(
+      this,
+      () => firestoreDebugTracker.recordWrite(debugLabel, 1),
+    );
     update(ref, data);
     return this;
   }
@@ -911,7 +973,10 @@ extension FirestoreDebugTransactionExtension on Transaction {
       ref,
       label,
     );
-    firestoreDebugTracker.recordDelete(debugLabel, 1);
+    queueDebugOperation(
+      this,
+      () => firestoreDebugTracker.recordDelete(debugLabel, 1),
+    );
     delete(ref);
     return this;
   }
@@ -921,12 +986,18 @@ extension FirestoreDebugCollectionReferenceExtension<T extends Object?>
     on CollectionReference<T> {
   Future<DocumentReference<T>> debugAdd(T data, [String? label]) async {
     final debugLabel = firestoreDebugCallerLabel('collection.add', this, label);
+    final ref = await add(data);
     firestoreDebugTracker.recordWrite(debugLabel, 1);
-    return add(data);
+    return ref;
   }
 }
 
 extension FirestoreDebugWriteBatchExtension on WriteBatch {
+  Future<void> debugCommit() async {
+    await commit();
+    confirmDebugOperations(this);
+  }
+
   void debugSet<T extends Object?>(
     DocumentReference<T> ref,
     T data, [
@@ -934,7 +1005,10 @@ extension FirestoreDebugWriteBatchExtension on WriteBatch {
     String? label,
   ]) {
     final debugLabel = firestoreDebugCallerLabel('batch.set', ref, label);
-    firestoreDebugTracker.recordWrite(debugLabel, 1);
+    queueDebugOperation(
+      this,
+      () => firestoreDebugTracker.recordWrite(debugLabel, 1),
+    );
     set(ref, data, options);
   }
 
@@ -944,7 +1018,10 @@ extension FirestoreDebugWriteBatchExtension on WriteBatch {
     String? label,
   ]) {
     final debugLabel = firestoreDebugCallerLabel('batch.update', ref, label);
-    firestoreDebugTracker.recordWrite(debugLabel, 1);
+    queueDebugOperation(
+      this,
+      () => firestoreDebugTracker.recordWrite(debugLabel, 1),
+    );
     update(ref, data);
   }
 
@@ -953,7 +1030,10 @@ extension FirestoreDebugWriteBatchExtension on WriteBatch {
     String? label,
   ]) {
     final debugLabel = firestoreDebugCallerLabel('batch.delete', ref, label);
-    firestoreDebugTracker.recordDelete(debugLabel, 1);
+    queueDebugOperation(
+      this,
+      () => firestoreDebugTracker.recordDelete(debugLabel, 1),
+    );
     delete(ref);
   }
 }
@@ -967,10 +1047,12 @@ class FirestoreDebugScreen extends StatefulWidget {
 
 class _FirestoreDebugScreenState extends State<FirestoreDebugScreen> {
   Timer? _cloudUsageRefreshTimer;
+  String _sortBy = 'Reads';
 
   @override
   void initState() {
     super.initState();
+    if (currentUser.role != UserRole.admin) return;
     unawaited(firestoreCloudUsageController.loadBaseline());
     unawaited(firestoreCloudUsageController.refresh());
     _cloudUsageRefreshTimer = Timer.periodic(const Duration(minutes: 1), (_) {
@@ -993,26 +1075,38 @@ class _FirestoreDebugScreenState extends State<FirestoreDebugScreen> {
   }
 
   Future<void> _resetCounters() async {
+    if (currentUser.role != UserRole.admin) return;
     firestoreDebugTracker.reset();
-    await firestoreCloudUsageController.resetBaselineToCurrent();
+    // Reset only this device's diagnostic window; cloud totals stay unchanged.
   }
 
   @override
   Widget build(BuildContext context) {
+    if (currentUser.role != UserRole.admin) {
+      return const Scaffold(body: Center(child: Text('No access')));
+    }
     return AnimatedBuilder(
       animation: Listenable.merge([
         firestoreDebugTracker,
         firestoreCloudUsageController,
       ]),
       builder: (context, _) {
-        final entries = firestoreDebugTracker.statsByLabel.entries.toList()
-          ..sort((first, second) {
-            final readCompare = second.value.reads.compareTo(first.value.reads);
-            if (readCompare != 0) {
-              return readCompare;
-            }
-            return second.value.total.compareTo(first.value.total);
-          });
+        final entries =
+            firestoreDebugTracker.sessionStatsByLabel.entries.toList()
+              ..sort((first, second) {
+                int value(FirestoreDebugStats stats) => _sortBy == 'Writes'
+                    ? stats.writes
+                    : _sortBy == 'Deletes'
+                    ? stats.deletes
+                    : stats.reads;
+                final readCompare = value(
+                  second.value,
+                ).compareTo(value(first.value));
+                if (readCompare != 0) {
+                  return readCompare;
+                }
+                return second.value.total.compareTo(first.value.total);
+              });
         final logs = firestoreDebugTracker.recentEvents;
         final unlabeledEvents = firestoreDebugTracker.unlabeledEvents;
         final hasUnlabeledCalls = unlabeledEvents > 0;
@@ -1023,7 +1117,7 @@ class _FirestoreDebugScreenState extends State<FirestoreDebugScreen> {
         return Scaffold(
           backgroundColor: Colors.transparent,
           appBar: AppBar(
-            title: const Text('Firestore debug'),
+            title: const Text('Firestore usage'),
             backgroundColor: Colors.transparent,
             foregroundColor: blue,
             actions: [
@@ -1035,7 +1129,7 @@ class _FirestoreDebugScreenState extends State<FirestoreDebugScreen> {
                 icon: const Icon(Icons.cloud_sync_outlined),
               ),
               IconButton(
-                tooltip: 'Reset counters',
+                tooltip: 'Start a new device measurement',
                 onPressed: () => unawaited(_resetCounters()),
                 icon: const Icon(Icons.restart_alt),
               ),
@@ -1044,6 +1138,11 @@ class _FirestoreDebugScreenState extends State<FirestoreDebugScreen> {
           body: ListView(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
             children: [
+              _FirestoreCloudUsageCard(
+                controller: firestoreCloudUsageController,
+                timeLabel: _timeLabel,
+              ),
+              const SizedBox(height: 12),
               Container(
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
@@ -1055,7 +1154,7 @@ class _FirestoreDebugScreenState extends State<FirestoreDebugScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'This launch • since $sessionStartedLabel',
+                      'This device • server activity estimate • since $sessionStartedLabel',
                       style: const TextStyle(
                         color: Colors.white,
                         fontSize: 13,
@@ -1088,48 +1187,17 @@ class _FirestoreDebugScreenState extends State<FirestoreDebugScreen> {
                         ),
                       ],
                     ),
-                    const SizedBox(height: 14),
+                    const SizedBox(height: 12),
                     const Text(
-                      'Since reset',
+                      'Cache snapshots and pending or failed writes are excluded. Reads are estimates, not billing totals: shared listeners, reconnects, query removals, index reads and security-rule reads cannot be measured exactly by the app. Backend and other-device activity appears only in the cloud totals.',
                       style: TextStyle(
-                        color: Colors.white70,
-                        fontSize: 10.8,
-                        fontWeight: FontWeight.w800,
+                        color: Colors.white60,
+                        fontSize: 12,
+                        height: 1.4,
                       ),
-                    ),
-                    const SizedBox(height: 8),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: _FirestoreDebugTotal(
-                            label: 'Reads',
-                            value: firestoreDebugTracker.totalReads,
-                            icon: Icons.download_outlined,
-                          ),
-                        ),
-                        Expanded(
-                          child: _FirestoreDebugTotal(
-                            label: 'Writes',
-                            value: firestoreDebugTracker.totalWrites,
-                            icon: Icons.upload_outlined,
-                          ),
-                        ),
-                        Expanded(
-                          child: _FirestoreDebugTotal(
-                            label: 'Deletes',
-                            value: firestoreDebugTracker.totalDeletes,
-                            icon: Icons.delete_outline,
-                          ),
-                        ),
-                      ],
                     ),
                   ],
                 ),
-              ),
-              const SizedBox(height: 7),
-              _FirestoreCloudUsageCard(
-                controller: firestoreCloudUsageController,
-                timeLabel: _timeLabel,
               ),
               const SizedBox(height: 10),
               Container(
@@ -1173,7 +1241,7 @@ class _FirestoreDebugScreenState extends State<FirestoreDebugScreen> {
               ),
               const SizedBox(height: 14),
               const Text(
-                'Top features',
+                'Feature costs on this device',
                 style: TextStyle(
                   color: Colors.white,
                   fontSize: 18,
@@ -1181,6 +1249,21 @@ class _FirestoreDebugScreenState extends State<FirestoreDebugScreen> {
                 ),
               ),
               const SizedBox(height: 8),
+              DropdownButton<String>(
+                value: _sortBy,
+                dropdownColor: panel,
+                items: ['Reads', 'Writes', 'Deletes']
+                    .map(
+                      (value) => DropdownMenuItem(
+                        value: value,
+                        child: Text('Sort by $value'),
+                      ),
+                    )
+                    .toList(),
+                onChanged: (value) {
+                  if (value != null) setState(() => _sortBy = value);
+                },
+              ),
               if (entries.isEmpty)
                 const EmptyStateCard(
                   icon: Icons.bug_report_outlined,
@@ -1209,7 +1292,7 @@ class _FirestoreDebugScreenState extends State<FirestoreDebugScreen> {
                         ),
                         const SizedBox(height: 6),
                         Text(
-                          'R ${entry.value.reads}  •  W ${entry.value.writes}  •  D ${entry.value.deletes}  •  events ${entry.value.events}  •  last ${_timeLabel(entry.value.lastAt)}',
+                          'Reads ~${entry.value.reads}  •  Writes ${entry.value.writes}  •  Deletes ${entry.value.deletes}  •  last ${_timeLabel(entry.value.lastAt)}',
                           style: const TextStyle(
                             color: Colors.white60,
                             fontSize: 12,
@@ -1260,18 +1343,14 @@ class _FirestoreDebugScreenState extends State<FirestoreDebugScreen> {
 class _FirestoreCloudUsageCard extends StatelessWidget {
   final FirestoreCloudUsageController controller;
   final String Function(DateTime?) timeLabel;
-
   const _FirestoreCloudUsageCard({
     required this.controller,
     required this.timeLabel,
   });
-
   @override
   Widget build(BuildContext context) {
     final snapshot = controller.snapshot;
     final error = controller.errorMessage;
-    final lastFetched = controller.lastFetchedAt;
-
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -1284,15 +1363,15 @@ class _FirestoreCloudUsageCard extends StatelessWidget {
         children: [
           Row(
             children: [
-              const Icon(Icons.cloud_outlined, color: blue, size: 20),
+              const Icon(Icons.cloud_outlined, color: blue),
               const SizedBox(width: 8),
               const Expanded(
                 child: Text(
-                  'Firebase reported usage',
+                  'Actual Firestore activity',
                   style: TextStyle(
                     color: Colors.white,
-                    fontSize: 16,
                     fontWeight: FontWeight.w900,
+                    fontSize: 16,
                   ),
                 ),
               ),
@@ -1300,105 +1379,83 @@ class _FirestoreCloudUsageCard extends StatelessWidget {
                 const SizedBox(
                   width: 18,
                   height: 18,
-                  child: CircularProgressIndicator(color: blue, strokeWidth: 2),
+                  child: CircularProgressIndicator(strokeWidth: 2),
                 ),
             ],
           ),
-          const SizedBox(height: 6),
-          Text(
-            snapshot == null
-                ? 'Cloud Monitoring totals will appear here after /api/firestore-usage is deployed.'
-                : '${snapshot.windowLabel} from Google Cloud Monitoring • last app refresh ${timeLabel(lastFetched)}',
-            style: const TextStyle(
-              color: Colors.white60,
-              fontSize: 12,
-              fontWeight: FontWeight.w700,
-            ),
+          const SizedBox(height: 8),
+          const Text(
+            'Project-wide • all users and backend • today (UTC). Google metrics can arrive several minutes late; these are operation counts, not a final invoice.',
+            style: TextStyle(color: Colors.white60, height: 1.4, fontSize: 12),
           ),
-          if (error != null && error.trim().isNotEmpty) ...[
-            const SizedBox(height: 8),
+          if (error != null) ...[
+            const SizedBox(height: 12),
             Text(
-              error,
+              snapshot == null
+                  ? 'Cloud usage unavailable. No usage total is shown.'
+                  : 'Refresh failed. Showing the last successful report.',
               style: const TextStyle(
                 color: Colors.orangeAccent,
-                fontSize: 12,
                 fontWeight: FontWeight.w700,
               ),
             ),
-          ],
-          const SizedBox(height: 14),
-          const Text(
-            'Since debug reset',
-            style: TextStyle(
-              color: Colors.white70,
-              fontSize: 12,
-              fontWeight: FontWeight.w800,
+            const SizedBox(height: 6),
+            Text(
+              error,
+              style: const TextStyle(color: Colors.white60, fontSize: 12),
             ),
-          ),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              Expanded(
-                child: _FirestoreDebugTotal(
-                  label: 'Reads',
-                  value: controller.readsSinceReset,
-                  icon: Icons.download_outlined,
-                ),
+          ],
+          if (snapshot == null && error == null)
+            const Padding(
+              padding: EdgeInsets.only(top: 12),
+              child: Text(
+                'Waiting for Google Cloud metrics…',
+                style: TextStyle(color: Colors.white60),
               ),
-              Expanded(
-                child: _FirestoreDebugTotal(
-                  label: 'Writes',
-                  value: controller.writesSinceReset,
-                  icon: Icons.upload_outlined,
-                ),
-              ),
-              Expanded(
-                child: _FirestoreDebugTotal(
-                  label: 'Deletes',
-                  value: controller.deletesSinceReset,
-                  icon: Icons.delete_outline,
-                ),
-              ),
-            ],
-          ),
+            ),
           if (snapshot != null) ...[
-            const SizedBox(height: 14),
-            Text(
-              'Today total: R ${snapshot.reads} • W ${snapshot.writes} • D ${snapshot.deletes}',
-              style: const TextStyle(
-                color: Colors.white60,
-                fontSize: 12,
-                fontWeight: FontWeight.w700,
-              ),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                Expanded(
+                  child: _FirestoreDebugTotal(
+                    label: 'Reads',
+                    value: snapshot.reads,
+                    icon: Icons.download_outlined,
+                  ),
+                ),
+                Expanded(
+                  child: _FirestoreDebugTotal(
+                    label: 'Writes',
+                    value: snapshot.writes,
+                    icon: Icons.upload_outlined,
+                  ),
+                ),
+                Expanded(
+                  child: _FirestoreDebugTotal(
+                    label: 'Deletes',
+                    value: snapshot.deletes,
+                    icon: Icons.delete_outline,
+                  ),
+                ),
+              ],
             ),
-            const SizedBox(height: 4),
+            const SizedBox(height: 12),
             Text(
-              'Read type since reset: query ${controller.queryReadsSinceReset} • lookup ${controller.lookupReadsSinceReset}',
-              style: const TextStyle(
-                color: Colors.white60,
-                fontSize: 12,
-                fontWeight: FontWeight.w700,
-              ),
+              'Read breakdown: query ${snapshot.queryReads} • lookup ${snapshot.lookupReads}',
+              style: const TextStyle(color: Colors.white70, fontSize: 12),
             ),
-            const SizedBox(height: 4),
+            const SizedBox(height: 6),
             Text(
-              'Network now: ${snapshot.activeConnections} connections • ${snapshot.snapshotListeners} listeners',
-              style: const TextStyle(
-                color: Colors.white60,
-                fontSize: 12,
-                fontWeight: FontWeight.w700,
-              ),
+              'Connections: ${snapshot.activeConnections} • listeners: ${snapshot.snapshotListeners}',
+              style: const TextStyle(color: Colors.white70, fontSize: 12),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'Last refresh: ${timeLabel(controller.lastFetchedAt)}',
+              style: const TextStyle(color: Colors.white38, fontSize: 11),
             ),
           ],
-          const SizedBox(height: 8),
-          const Text(
-            'Reset stores the current Google metric totals as a local baseline. It cannot reset Firebase Console counters.',
-            style: TextStyle(
-              color: Colors.white38,
-              fontSize: 11,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
         ],
       ),
     );
@@ -8123,6 +8180,7 @@ void startCurrentUserDocumentWatcher() {
   }
 
   bool receivedServerProfile = false;
+  final profileReadEstimate = ServerReadEstimate();
 
   currentUserDocumentSubscription = usersCollection()
       .doc(firebaseUser.uid)
@@ -8142,7 +8200,11 @@ void startCurrentUserDocumentWatcher() {
           }
           firestoreDebugTracker.recordRead(
             'startup: current user document listener',
-            1,
+            profileReadEstimate.observe(
+              {snapshot.id: snapshot.data()},
+              fromCache: snapshot.metadata.isFromCache,
+              pendingWrites: snapshot.metadata.hasPendingWrites,
+            ),
           );
 
           final wasBanActive = currentUser.banActive;
@@ -8528,7 +8590,7 @@ Future<String> reserveUsernameForCurrentUser({
         : usernamesCollection().doc(previousKey);
 
     try {
-      await FirebaseFirestore.instance.runTransaction((transaction) async {
+      await FirebaseFirestore.instance.debugRunTransaction((transaction) async {
         final snapshot = await transaction.debugGet(usernameRef);
         final previousSnapshot = previousRef == null
             ? null
@@ -10894,40 +10956,40 @@ Future<CarSpot> transferSpotOwnership(
     throw StateError('Only admins and moderators can transfer ownership.');
   }
   final ref = spotsCollection().doc(expected.id);
-  final updated = await FirebaseFirestore.instance.runTransaction<CarSpot>((
-    transaction,
-  ) async {
-    final snapshot = await transaction.debugGet(
-      ref,
-      'ownership transfer: spot',
-    );
-    final target = await transaction.debugGet(
-      usersCollection().doc(recipient.uid),
-      'ownership transfer: recipient',
-    );
-    final data = snapshot.data();
-    if (data == null || !target.exists) {
-      throw StateError('The spot or user no longer exists.');
-    }
-    if (stringFromFirebase(data['addedByUid'], '') != expected.addedByUid ||
-        stringFromFirebase(data['ownerUid'], '') != expected.ownerUid) {
-      throw StateError('Ownership changed. Reopen the spot and try again.');
-    }
-    final fields = spotOwnershipTransferFields(
-      spot: data,
-      recipientUid: target.id,
-      recipient: target.data()!,
-      actorUid: uid,
-    );
-    transaction.debugUpdate(ref, fields, 'ownership transfer');
-    return CarSpot.fromFirestore(snapshot).copyWith(
-      addedByUid: target.id,
-      addedBy: fields['addedBy']! as String,
-      ownerUid: target.id,
-      ownerUsername: fields['ownerUsername']! as String,
-      updatedAtMillis: DateTime.now().millisecondsSinceEpoch,
-    );
-  });
+  final updated = await FirebaseFirestore.instance.debugRunTransaction<CarSpot>(
+    (transaction) async {
+      final snapshot = await transaction.debugGet(
+        ref,
+        'ownership transfer: spot',
+      );
+      final target = await transaction.debugGet(
+        usersCollection().doc(recipient.uid),
+        'ownership transfer: recipient',
+      );
+      final data = snapshot.data();
+      if (data == null || !target.exists) {
+        throw StateError('The spot or user no longer exists.');
+      }
+      if (stringFromFirebase(data['addedByUid'], '') != expected.addedByUid ||
+          stringFromFirebase(data['ownerUid'], '') != expected.ownerUid) {
+        throw StateError('Ownership changed. Reopen the spot and try again.');
+      }
+      final fields = spotOwnershipTransferFields(
+        spot: data,
+        recipientUid: target.id,
+        recipient: target.data()!,
+        actorUid: uid,
+      );
+      transaction.debugUpdate(ref, fields, 'ownership transfer');
+      return CarSpot.fromFirestore(snapshot).copyWith(
+        addedByUid: target.id,
+        addedBy: fields['addedBy']! as String,
+        ownerUid: target.id,
+        ownerUsername: fields['ownerUsername']! as String,
+        updatedAtMillis: DateTime.now().millisecondsSinceEpoch,
+      );
+    },
+  );
   upsertSpotIntoLocalImmediateCache(updated);
   reviewSpots.value = reviewSpots.value
       .map((spot) => isSameSpot(spot, updated) ? updated : spot)
@@ -11449,7 +11511,7 @@ Future<void> createCommunityNotificationCenterItems({
         );
       }
 
-      await batch.commit();
+      await batch.debugCommit();
     }
     debugPrint(
       'Community bell items created. type=$type recipients=${cleanRecipients.length}',
@@ -11766,7 +11828,7 @@ Future<void> createNewSpotNotificationForUsers(CarSpot spot) async {
     }
 
     if (writes > 0) {
-      await batch.commit();
+      await batch.debugCommit();
     }
   } catch (error, stack) {
     debugPrint('Could not create new spot notifications: $error');
@@ -11970,7 +12032,7 @@ Future<void> markChatNotificationsRead(String chatId) async {
           'readAt': FieldValue.serverTimestamp(),
         }, SetOptions(merge: true));
       }
-      await batch.commit();
+      await batch.debugCommit();
     }
 
     final nextCounts = Map<String, int>.from(chatUnreadCountsByChatId.value)
@@ -12481,7 +12543,7 @@ Future<void> acceptFriendRequest(FriendRequestData request) async {
   );
   final requestRef = friendRequestsCollection().doc(request.id);
 
-  await FirebaseFirestore.instance.runTransaction((transaction) async {
+  await FirebaseFirestore.instance.debugRunTransaction((transaction) async {
     transaction.debugSet(friendshipRef, {
       'userIds': [request.fromUid, request.toUid]..sort(),
       'users': {
@@ -13912,7 +13974,7 @@ Future<void> sendChatMessage({
     SetOptions(merge: true),
     'chat: update summary after message send',
   );
-  await batch.commit();
+  await batch.debugCommit();
 
   // Do not create a local user_notifications chat row here. The push backend
   // creates the notification-center item for chat messages. Creating a local
@@ -13993,7 +14055,7 @@ Future<void> markChatMessagesReadByCurrentUser({
     return;
   }
 
-  await batch.commit();
+  await batch.debugCommit();
 }
 
 Future<Position?> getChatSharePosition(BuildContext context) async {
@@ -14581,7 +14643,7 @@ Future<void> leaveGroupChat(ChatThreadData chat) async {
   // same value (especially an empty photo URL). arrayRemove() would remove
   // every matching value, corrupting the parallel arrays and causing schema
   // validation in Firestore rules to reject the leave operation.
-  await FirebaseFirestore.instance.runTransaction((transaction) async {
+  await FirebaseFirestore.instance.debugRunTransaction((transaction) async {
     final snapshot = await transaction.debugGet(
       chatRef,
       'chat: leave group server verify',
@@ -15164,7 +15226,7 @@ Future<void> createMeetSpotNotificationsForNearbyUsers(CarSpot spot) async {
   }
 
   if (writes > 0) {
-    await batch.commit();
+    await batch.debugCommit();
   }
 }
 
@@ -15333,7 +15395,7 @@ Future<void> notifyStaffAboutCommunityEvent({
           'admin notifications: community event',
         );
       }
-      await batch.commit();
+      await batch.debugCommit();
     } catch (error, stack) {
       // The push endpoint may still be able to deliver even when client rules do
       // not permit direct writes to admin_notifications.
@@ -15550,7 +15612,7 @@ Future<void> createAdminUserReportNotifications({
     }, SetOptions(merge: true));
   }
 
-  await batch.commit();
+  await batch.debugCommit();
 }
 
 Future<void> createAdminSpotReviewNotification(CarSpot spot) async {
@@ -15598,7 +15660,7 @@ Future<void> createAdminSpotReviewNotification(CarSpot spot) async {
       );
     }
 
-    await batch.commit();
+    await batch.debugCommit();
   } catch (error, stack) {
     debugPrint('Pending spot admin notification documents failed: $error');
     debugPrint('$stack');
@@ -15694,7 +15756,7 @@ Future<void> createAdminSpotDecisionNotification(
     }, SetOptions(merge: true));
   }
 
-  await batch.commit();
+  await batch.debugCommit();
 }
 
 class PoliceReportData {
@@ -16888,7 +16950,7 @@ Future<void> _backfillLegacySpotCountryCodes(Iterable<CarSpot> spots) async {
         'admin: legacy spot country code backfill',
       );
     }
-    await batch.commit();
+    await batch.debugCommit();
   } catch (error, stack) {
     _spotCountryCodeBackfillsThisSession.removeAll(
       missing.map((spot) => spot.id),
@@ -17944,7 +18006,7 @@ Future<void> toggleSpotLike(
     setCurrentUserSpotLikedLocally(spotId, targetLiked);
 
     try {
-      await FirebaseFirestore.instance.runTransaction((transaction) async {
+      await FirebaseFirestore.instance.debugRunTransaction((transaction) async {
         // Firestore can rerun this callback after a concurrent write.
         likeDelta = 0;
         final likeSnapshot = await transaction.debugGet(likeRef);
@@ -18098,7 +18160,7 @@ Future<void> toggleCommentLike(
   setCommentLikeCountLocally(review.id, nextCount);
 
   try {
-    await FirebaseFirestore.instance.runTransaction((transaction) async {
+    await FirebaseFirestore.instance.debugRunTransaction((transaction) async {
       final likeSnapshot = await transaction.debugGet(
         likeRef,
         'comment like toggle existing like get',
@@ -18233,7 +18295,7 @@ Future<SpotReviewData> saveSpotReview({
   }
 
   try {
-    await FirebaseFirestore.instance.runTransaction((transaction) async {
+    await FirebaseFirestore.instance.debugRunTransaction((transaction) async {
       final dailyCountSnapshot = await transaction.debugGet(
         dailyCountRef,
         'spot comment daily count get',
@@ -18639,7 +18701,7 @@ Future<void> updateSpotCountersOnServer(
   final spotRef = spotsCollection().doc(spotId);
 
   try {
-    await FirebaseFirestore.instance.runTransaction((transaction) async {
+    await FirebaseFirestore.instance.debugRunTransaction((transaction) async {
       final snapshot = await transaction.debugGet(
         spotRef,
         'spot counter safe current spot get',
@@ -20354,7 +20416,7 @@ Future<void> pruneOldNotificationCenterItems(
       for (final reference in references) {
         batch.debugDelete(reference);
       }
-      await batch.commit();
+      await batch.debugCommit();
     } catch (error, stack) {
       debugPrint('Notification center old-item pruning failed: $error');
       debugPrint('$stack');
@@ -20567,7 +20629,7 @@ Future<void> markNotificationCenterItemsRead(
           'readAt': FieldValue.serverTimestamp(),
         }, SetOptions(merge: true));
       }
-      await batch.commit();
+      await batch.debugCommit();
     }
 
     notificationCenterUnreadCount.value = 0;
@@ -20614,7 +20676,7 @@ Future<void> clearNotificationCenterItems(
       for (final reference in references) {
         batch.debugDelete(reference);
       }
-      await batch.commit();
+      await batch.debugCommit();
     } catch (error, stack) {
       debugPrint('Notification center could not clear Firestore items: $error');
       debugPrint('$stack');
@@ -22871,7 +22933,7 @@ class _MainScreenState extends State<_MainContentScreen>
                 ValueListenableBuilder<bool>(
                   valueListenable: firestoreDebugButtonVisible,
                   builder: (context, visible, _) {
-                    if (!visible || !userRoleIsStaff(currentUser.role)) {
+                    if (!visible || currentUser.role != UserRole.admin) {
                       return const SizedBox.shrink();
                     }
 
@@ -27817,6 +27879,16 @@ class _MapScreenState extends State<MapScreen>
       return Marker(
         key: ValueKey('spot_${spot.id}'),
         point: spot.coordinates,
+        alignment: showFullIcons
+            ? spotIconTipAlignment(
+                asset: spotIconAssetPathForSpot(spot, mapStyle: mapStyle),
+                iconSize: markerVisualSize,
+                markerWidth:
+                    markerWidth +
+                    (showPeople ? SpotPresenceMarker.sideSpace * 2 : 0),
+                markerHeight: markerHeight,
+              )
+            : Alignment.center,
         width:
             markerWidth + (showPeople ? SpotPresenceMarker.sideSpace * 2 : 0),
         height: markerHeight,
@@ -29791,7 +29863,7 @@ class _MapScreenState extends State<MapScreen>
     var removed = false;
 
     try {
-      await FirebaseFirestore.instance.runTransaction((transaction) async {
+      await FirebaseFirestore.instance.debugRunTransaction((transaction) async {
         final snapshot = await transaction.debugGet(reportRef);
 
         if (!snapshot.exists) {
@@ -37033,7 +37105,7 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
           ),
         );
       }
-      await batch.commit();
+      await batch.debugCommit();
       committed = true;
       // The write is already confirmed. Do not wait for a second network
       // request (or notification fan-out) to show the creator their spot.
@@ -41710,7 +41782,9 @@ class _GlobalChatTabState extends State<GlobalChatTab>
     final userRef = usersCollection().doc(firebaseUser.uid);
     final attemptAtMillis = DateTime.now().millisecondsSinceEpoch;
 
-    return FirebaseFirestore.instance.runTransaction<int>((transaction) async {
+    return FirebaseFirestore.instance.debugRunTransaction<int>((
+      transaction,
+    ) async {
       final userSnapshot = await transaction.debugGet(
         userRef,
         'global chat: rate limit user read',
@@ -59384,7 +59458,7 @@ class _AdminUsersScreenState extends State<AdminUsersScreen>
   @override
   void initState() {
     super.initState();
-    bannedOnly = widget.initialBannedOnly && currentUser.role == UserRole.admin;
+    bannedOnly = widget.initialBannedOnly && userRoleIsStaff(currentUser.role);
   }
 
   @override
@@ -60563,7 +60637,7 @@ class _AdminUsersScreenState extends State<AdminUsersScreen>
               .map(AdminUserData.fromFirestore)
               .where((user) => !user.deleted)
               .toList();
-          final canUseBannedList = currentUser.role == UserRole.admin;
+          final canUseBannedList = userRoleIsStaff(currentUser.role);
           final users = bannedOnly
               ? allUsers.where((user) => user.banned).toList()
               : allUsers;
@@ -61428,7 +61502,7 @@ Future<void> requestSpotRemovalFromAdmins(
       );
     }
 
-    await batch.commit();
+    await batch.debugCommit();
 
     if (!context.mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
@@ -62323,7 +62397,7 @@ class _AdminReviewScreenState extends State<AdminReviewScreen>
   @override
   void initState() {
     super.initState();
-    startAdminReviewSpotSync();
+    if (userRoleIsStaff(currentUser.role)) startAdminReviewSpotSync();
   }
 
   @override
@@ -62356,6 +62430,9 @@ class _AdminReviewScreenState extends State<AdminReviewScreen>
 
   @override
   Widget build(BuildContext context) {
+    if (!userRoleIsStaff(currentUser.role)) {
+      return const Scaffold(body: Center(child: Text('No access')));
+    }
     return Scaffold(
       backgroundColor: Colors.transparent,
       appBar: AppBar(
@@ -62416,43 +62493,45 @@ class _AdminReviewScreenState extends State<AdminReviewScreen>
                 ),
               ],
               const SizedBox(height: 16),
-              ValueListenableBuilder<bool>(
-                valueListenable: firestoreDebugButtonVisible,
-                builder: (context, debugVisible, _) {
-                  return Material(
-                    color: panelGlass,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(18),
-                      side: const BorderSide(color: Colors.white12),
-                    ),
-                    clipBehavior: Clip.antiAlias,
-                    child: SwitchListTile.adaptive(
-                      value: debugVisible,
-                      activeColor: blue,
-                      contentPadding: const EdgeInsets.fromLTRB(16, 4, 12, 4),
-                      secondary: const Icon(
-                        Icons.bug_report_outlined,
-                        color: blue,
+              if (currentUser.role == UserRole.admin) ...[
+                ValueListenableBuilder<bool>(
+                  valueListenable: firestoreDebugButtonVisible,
+                  builder: (context, debugVisible, _) {
+                    return Material(
+                      color: panelGlass,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(18),
+                        side: const BorderSide(color: Colors.white12),
                       ),
-                      title: const Text(
-                        'Debug mode',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.w900,
+                      clipBehavior: Clip.antiAlias,
+                      child: SwitchListTile.adaptive(
+                        value: debugVisible,
+                        activeColor: blue,
+                        contentPadding: const EdgeInsets.fromLTRB(16, 4, 12, 4),
+                        secondary: const Icon(
+                          Icons.bug_report_outlined,
+                          color: blue,
                         ),
+                        title: const Text(
+                          'Debug mode',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                        subtitle: const Text(
+                          'Show or hide the Firestore debug bug button',
+                          style: TextStyle(color: Colors.white54),
+                        ),
+                        onChanged: (value) {
+                          unawaited(saveFirestoreDebugButtonPreference(value));
+                        },
                       ),
-                      subtitle: const Text(
-                        'Show or hide the Firestore debug bug button',
-                        style: TextStyle(color: Colors.white54),
-                      ),
-                      onChanged: (value) {
-                        unawaited(saveFirestoreDebugButtonPreference(value));
-                      },
-                    ),
-                  );
-                },
-              ),
-              const SizedBox(height: 10),
+                    );
+                  },
+                ),
+                const SizedBox(height: 10),
+              ],
               _ProfileActionTile(
                 icon: Icons.people_alt,
                 title: 'Users',
@@ -62493,22 +62572,22 @@ class _AdminReviewScreenState extends State<AdminReviewScreen>
                 },
               ),
               const SizedBox(height: 10),
+              _ProfileActionTile(
+                icon: Icons.block,
+                title: 'Banned app users',
+                subtitle: 'Open banned users and remove bans',
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    appPageRoute(
+                      builder: (_) =>
+                          const AdminUsersScreen(initialBannedOnly: true),
+                    ),
+                  );
+                },
+              ),
+              const SizedBox(height: 10),
               if (currentUser.role == UserRole.admin) ...[
-                _ProfileActionTile(
-                  icon: Icons.block,
-                  title: 'Banned app users',
-                  subtitle: 'Open banned users and remove bans',
-                  onTap: () {
-                    Navigator.push(
-                      context,
-                      appPageRoute(
-                        builder: (_) =>
-                            const AdminUsersScreen(initialBannedOnly: true),
-                      ),
-                    );
-                  },
-                ),
-                const SizedBox(height: 10),
                 _ProfileActionTile(
                   icon: Icons.public_off_outlined,
                   title: 'Regional restrictions',

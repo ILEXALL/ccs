@@ -1,3 +1,4 @@
+const {debugAccessStatus} = require('../lib/debug-access');
 const { monitoringConfig } = require('../lib/monitoring-config');
 const { GoogleAuth } = require('google-auth-library');
 
@@ -6,7 +7,7 @@ const MONITORING_BASE = 'https://monitoring.googleapis.com/v3';
 
 function startOfTodayIso() {
   const now = new Date();
-  return new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())).toISOString();
 }
 
 function secondsAgoIso(seconds) {
@@ -48,13 +49,14 @@ async function listTimeSeries({
   aligner,
   reducer,
   groupByFields = [],
+  onSample,
 }) {
   const url = new URL(`${MONITORING_BASE}/projects/${projectId}/timeSeries`);
-  url.searchParams.set('filter', `metric.type="${metricType}"`);
+  url.searchParams.set('filter', `metric.type="${metricType}" AND resource.type="firestore.googleapis.com/Database"`);
   url.searchParams.set('interval.startTime', startTime);
   url.searchParams.set('interval.endTime', endTime);
   url.searchParams.set('view', 'FULL');
-  url.searchParams.set('aggregation.alignmentPeriod', '86400s');
+  url.searchParams.set('aggregation.alignmentPeriod', '60s');
   url.searchParams.set('aggregation.perSeriesAligner', aligner);
 
   if (reducer) {
@@ -65,24 +67,28 @@ async function listTimeSeries({
     url.searchParams.append('aggregation.groupByFields', field);
   }
 
-  const response = await fetch(url, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-
-  const text = await response.text();
-
-  if (!response.ok) {
-    if (response.status === 403) { throw new Error('Cloud Monitoring access denied. Verify GOOGLE_CLOUD_PROJECT_ID and grant the configured monitoring service account roles/monitoring.viewer on that project.'); }
-    throw new Error(`${metricType} failed ${response.status}: ${text}`);
-  }
-
-  return JSON.parse(text).timeSeries || [];
+  const series = [];
+  do {
+    const response = await fetch(url, {headers: {Authorization: `Bearer ${token}`}});
+    if (!response.ok) {
+      if (response.status === 403) throw new Error('Monitoring permission missing: grant roles/monitoring.viewer to the configured usage-reader service account in this Firebase project.');
+      throw new Error(`Google Cloud metrics unavailable (HTTP ${response.status}).`);
+    }
+    const body = await response.json();
+    for (const item of body.timeSeries || []) {
+      series.push(item);
+      for (const point of item.points || []) onSample?.(point.interval?.endTime);
+    }
+    if (!body.nextPageToken) break;
+    url.searchParams.set('pageToken', body.nextPageToken);
+  } while (true);
+  return series;
 }
 
 async function readDeltaMetric(args) {
   const series = await listTimeSeries({
     ...args,
-    aligner: 'ALIGN_DELTA',
+    aligner: 'ALIGN_SUM',
     reducer: 'REDUCE_SUM',
   });
 
@@ -92,7 +98,7 @@ async function readDeltaMetric(args) {
 async function readMetricByType(args) {
   const series = await listTimeSeries({
     ...args,
-    aligner: 'ALIGN_DELTA',
+    aligner: 'ALIGN_SUM',
     reducer: 'REDUCE_SUM',
     groupByFields: ['metric.labels.type'],
   });
@@ -135,6 +141,8 @@ module.exports = async function handler(req, res) {
   }
 
   try {
+    const access = await debugAccessStatus(req);
+    if (access !== 200) return res.status(access).json({ok: false, error: access === 401 ? 'Unauthorized' : 'Admin access required'});
     const { credentials, projectId } = monitoringConfig();
 
     const auth = new GoogleAuth({
@@ -149,7 +157,10 @@ module.exports = async function handler(req, res) {
     const dayStart = startOfTodayIso();
     const recentStart = secondsAgoIso(10 * 60);
 
+    let sampledThroughMillis = 0;
+    const onSample = (time) => { sampledThroughMillis = Math.max(sampledThroughMillis, Date.parse(time) || 0); };
     const common = {
+      onSample,
       token,
       projectId,
       startTime: dayStart,
@@ -166,19 +177,19 @@ module.exports = async function handler(req, res) {
     ] = await Promise.all([
       readDeltaMetric({
         ...common,
-        metricType: 'firestore.googleapis.com/document/read_count',
+        metricType: 'firestore.googleapis.com/document/read_ops_count',
       }),
       readDeltaMetric({
         ...common,
-        metricType: 'firestore.googleapis.com/document/write_count',
+        metricType: 'firestore.googleapis.com/document/write_ops_count',
       }),
       readDeltaMetric({
         ...common,
-        metricType: 'firestore.googleapis.com/document/delete_count',
+        metricType: 'firestore.googleapis.com/document/delete_ops_count',
       }),
       readMetricByType({
         ...common,
-        metricType: 'firestore.googleapis.com/document/read_count',
+        metricType: 'firestore.googleapis.com/document/read_ops_count',
       }),
       readGaugeMetric({
         token,
@@ -196,10 +207,12 @@ module.exports = async function handler(req, res) {
       }),
     ]);
 
+    if (!sampledThroughMillis) throw new Error('No Firestore metric samples are available for today yet.');
     return res.status(200).json({
+      sampledThroughMillis,
       ok: true,
       source: 'google_cloud_monitoring',
-      window: 'Today',
+      window: 'Today (UTC)',
       generatedAtMillis: Date.now(),
       period: {
         startMillis: new Date(dayStart).getTime(),
