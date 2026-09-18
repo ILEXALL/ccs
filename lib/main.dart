@@ -4330,6 +4330,7 @@ Future<void> _openChatLink(BuildContext context, String value) async {
 
 class ChatLinkText extends StatefulWidget {
   final String text;
+  final Color linkColor;
   final TextStyle? style;
   final TextAlign? textAlign;
   final bool? softWrap;
@@ -4339,6 +4340,7 @@ class ChatLinkText extends StatefulWidget {
   const ChatLinkText(
     this.text, {
     super.key,
+    this.linkColor = blue,
     this.style,
     this.textAlign,
     this.softWrap,
@@ -4398,9 +4400,9 @@ class _ChatLinkTextState extends State<ChatLinkText> {
         TextSpan(
           text: part.text,
           style: (baseStyle ?? const TextStyle()).copyWith(
-            color: blue,
+            color: widget.linkColor,
             decoration: TextDecoration.underline,
-            decorationColor: blue,
+            decorationColor: widget.linkColor,
           ),
           recognizer: recognizer,
         ),
@@ -42045,6 +42047,7 @@ class _GlobalChatTabState extends State<GlobalChatTab>
               if (text.trim().isNotEmpty)
                 ChatLinkText(
                   text,
+                  linkColor: mine ? const Color(0xFFFFF3B0) : blue,
                   style: const TextStyle(
                     color: Colors.white,
                     height: 1.25,
@@ -45813,6 +45816,7 @@ class _ForumTopicPageState extends State<ForumTopicPage>
           if (text.trim().isNotEmpty)
             ChatLinkText(
               text,
+              linkColor: mine ? const Color(0xFFFFF3B0) : blue,
               style: const TextStyle(
                 color: Colors.white,
                 height: 1.32,
@@ -50715,6 +50719,7 @@ class _ChatConversationScreenState extends State<ChatConversationScreen>
               if (message.text.trim().isNotEmpty)
                 ChatLinkText(
                   message.text,
+                  linkColor: mine ? const Color(0xFFFFF3B0) : blue,
                   style: TextStyle(
                     color: Colors.white,
                     fontSize: 13.5,
@@ -53816,20 +53821,12 @@ class PublicUserProfileScreen extends StatelessWidget {
               CreatorSpotsBadge(uid: profile.uid, username: profile.username),
             ],
           ),
-          if (socialButtons.isNotEmpty) ...[
-            const SizedBox(height: 9),
-            Row(
-              children: [
-                for (var index = 0; index < socialButtons.length; index++) ...[
-                  if (index > 0) const SizedBox(width: 7),
-                  Expanded(child: socialButtons[index]),
-                ],
-              ],
+          if (showActions || socialButtons.isNotEmpty) ...[
+            const SizedBox(height: 14),
+            _ProfileActionFooter(
+              action: showActions ? messageButton(context, profile) : null,
+              links: socialButtons,
             ),
-          ],
-          if (showActions) ...[
-            const SizedBox(height: 10),
-            messageButton(context, profile),
           ],
         ],
       ),
@@ -53921,19 +53918,19 @@ class PublicUserProfileScreen extends StatelessWidget {
     final settings = profile.settings;
     final links = <Widget>[
       if (settings.instagram.trim().isNotEmpty)
-        _SocialLinkRow(
+        _CompactSocialLinkButton(
           icon: Icons.camera_alt,
           label: 'Instagram',
           value: settings.instagram,
         ),
       if (settings.tiktok.trim().isNotEmpty)
-        _SocialLinkRow(
+        _CompactSocialLinkButton(
           icon: Icons.music_note,
           label: 'TikTok',
           value: settings.tiktok,
         ),
       if (settings.telegram.trim().isNotEmpty)
-        _SocialLinkRow(
+        _CompactSocialLinkButton(
           icon: Icons.send,
           label: 'Telegram',
           value: settings.telegram,
@@ -53963,10 +53960,7 @@ class PublicUserProfileScreen extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 12),
-          for (var index = 0; index < links.length; index++) ...[
-            if (index > 0) const SizedBox(height: 10),
-            links[index],
-          ],
+          Wrap(spacing: 8, runSpacing: 8, children: links),
         ],
       ),
     );
@@ -55536,21 +55530,21 @@ class _ProfileHeader extends StatelessWidget {
               ),
             ],
           ),
-          const SizedBox(height: 10),
-          const _CompactProfileSocialLinks(),
-          const SizedBox(height: 10),
-          SizedBox(
-            width: double.infinity,
-            height: 38,
-            child: OutlinedButton.icon(
-              onPressed: onEdit,
-              icon: const Icon(Icons.edit, size: 16),
-              label: const Text('Edit Profile'),
-              style: OutlinedButton.styleFrom(
-                foregroundColor: Colors.white,
-                side: const BorderSide(color: Colors.white24),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(9),
+          const SizedBox(height: 14),
+          _CompactProfileSocialLinks(
+            action: SizedBox(
+              width: double.infinity,
+              height: 44,
+              child: OutlinedButton.icon(
+                onPressed: onEdit,
+                icon: const Icon(Icons.edit, size: 16),
+                label: const Text('Edit Profile'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: Colors.white,
+                  side: const BorderSide(color: Colors.white24),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(9),
+                  ),
                 ),
               ),
             ),
@@ -57584,7 +57578,8 @@ class _EmptyGarageCard extends StatelessWidget {
 }
 
 class _CompactProfileSocialLinks extends StatelessWidget {
-  const _CompactProfileSocialLinks();
+  final Widget action;
+  const _CompactProfileSocialLinks({required this.action});
 
   @override
   Widget build(BuildContext context) {
@@ -57612,28 +57607,58 @@ class _CompactProfileSocialLinks extends StatelessWidget {
             ),
         ];
 
-        if (links.isEmpty) {
-          return const SizedBox.shrink();
-        }
-
-        return Row(
-          children: [
-            for (var index = 0; index < links.length; index++) ...[
-              if (index > 0) const SizedBox(width: 7),
-              Expanded(child: links[index]),
-            ],
-          ],
-        );
+        return _ProfileActionFooter(action: action, links: links);
       },
     );
   }
+}
+
+class _ProfileActionFooter extends StatelessWidget {
+  final Widget? action;
+  final List<Widget> links;
+  const _ProfileActionFooter({this.action, required this.links});
+
+  @override
+  Widget build(BuildContext context) => Column(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      const Divider(height: 1, color: Colors.white10),
+      const SizedBox(height: 12),
+      LayoutBuilder(
+        builder: (context, constraints) {
+          final socials = Wrap(spacing: 8, runSpacing: 8, children: links);
+          if (action == null)
+            return Align(alignment: Alignment.centerRight, child: socials);
+          if (links.isEmpty) return action!;
+          final linksWidth = links.length * 44 + (links.length - 1) * 8;
+          final actionWidth = 145 * MediaQuery.textScalerOf(context).scale(1);
+          if (constraints.maxWidth < actionWidth + linksWidth + 12) {
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                action!,
+                const SizedBox(height: 10),
+                Align(alignment: Alignment.centerRight, child: socials),
+              ],
+            );
+          }
+          return Row(
+            children: [
+              Expanded(child: action!),
+              const SizedBox(width: 12),
+              socials,
+            ],
+          );
+        },
+      ),
+    ],
+  );
 }
 
 class _CompactSocialLinkButton extends StatelessWidget {
   final IconData icon;
   final String label;
   final String value;
-
   const _CompactSocialLinkButton({
     required this.icon,
     required this.label,
@@ -57641,99 +57666,38 @@ class _CompactSocialLinkButton extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) {
-    return Tooltip(
+  Widget build(BuildContext context) => Semantics(
+    button: true,
+    label: label,
+    child: Tooltip(
       message: label,
-      child: InkWell(
-        onTap: () => launchExternalUrl(context, value.trim(), kind: label),
-        borderRadius: BorderRadius.circular(9),
-        child: Container(
-          height: 34,
-          padding: const EdgeInsets.symmetric(horizontal: 8),
-          decoration: BoxDecoration(
-            color: blue.withValues(alpha: 0.10),
-            borderRadius: BorderRadius.circular(9),
-            border: Border.all(color: blue.withValues(alpha: 0.24)),
-          ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(icon, color: blue, size: 16),
-              const SizedBox(width: 5),
-              Flexible(
-                child: Text(
-                  label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: Colors.white70,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-              ),
-            ],
+      child: Material(
+        color: const Color(0xFF181A20),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(10),
+          side: const BorderSide(color: Colors.white12),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: () => launchExternalUrl(context, value.trim(), kind: label),
+          child: SizedBox(
+            width: 44,
+            height: 44,
+            child: Center(
+              child: label == 'Instagram' || label == 'Telegram'
+                  ? Image.asset(
+                      'assets/social/${label.toLowerCase()}.png',
+                      width: 22,
+                      height: 22,
+                      excludeFromSemantics: true,
+                    )
+                  : Icon(icon, size: 22, color: Colors.white70),
+            ),
           ),
         ),
       ),
-    );
-  }
-}
-
-class _SocialLinkRow extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final String value;
-
-  const _SocialLinkRow({
-    required this.icon,
-    required this.label,
-    required this.value,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final cleanValue = value.trim();
-
-    if (cleanValue.isEmpty) {
-      return const SizedBox.shrink();
-    }
-
-    return InkWell(
-      onTap: () => launchExternalUrl(context, cleanValue, kind: label),
-      borderRadius: BorderRadius.circular(12),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 5),
-        child: Row(
-          children: [
-            Icon(icon, color: blue, size: 19),
-            const SizedBox(width: 10),
-            SizedBox(
-              width: 82,
-              child: Text(
-                label,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-            ),
-            Expanded(
-              child: Text(
-                cleanValue,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                textAlign: TextAlign.right,
-                style: const TextStyle(color: blue),
-              ),
-            ),
-            const SizedBox(width: 8),
-            const Icon(Icons.open_in_new, color: Colors.white38, size: 15),
-          ],
-        ),
-      ),
-    );
-  }
+    ),
+  );
 }
 
 class _BuildChip extends StatelessWidget {
