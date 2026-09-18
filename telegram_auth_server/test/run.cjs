@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const readline = require('node:readline/promises');
 
 const suites = {
-  xp: { name: 'XP', files: ['xp.test.js', 'xp-matrix.test.js', 'xp-adjustments.test.js', 'achievements.test.js'],
+  xp: { name: 'XP', files: ['xp.test.js', 'xp-matrix.test.js', 'xp-adjustments.test.js', 'achievements.test.js', 'leaderboard-pages.test.js'],
     gaps: ['Правила Firebase, одновременные запросы, интерфейс и доставка пушей'] },
   profiles: { name: 'Profiles', files: ['workflows.test.js'], pattern: '\\[profiles\\]',
     gaps: ['Редактирование профиля, сохранение гаража, загрузка фото и правила приватности'] },

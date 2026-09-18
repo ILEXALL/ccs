@@ -102,6 +102,39 @@ class _SpotsInteractionGuideState extends State<SpotsInteractionGuide>
     _drag = controller.position.drag(details, () => _drag = null);
   }
 
+  void _endDrag(DragEndDetails details) {
+    final drag = _drag;
+    _drag = null;
+    // A completed finger gesture counts immediately, even while the list
+    // continues coasting or the category slider snaps into place.
+    _finishGesture();
+    drag?.end(details);
+  }
+
+  void _cancelDrag() {
+    _dragging = false;
+    _dragDistance = 0;
+    _drag?.cancel();
+    _drag = null;
+  }
+
+  void _finishGesture() {
+    final step = _step;
+    final completed = _dragging && _dragDistance.abs() >= 40;
+    _dragging = false;
+    _dragDistance = 0;
+    if (!completed || step == null || !_isActive(step)) return;
+    setState(() => _step = step + 1);
+    // Serialize writes so a fast second gesture cannot save an older step last.
+    _save = _save.then((_) async {
+      try {
+        await _preferences!.setInt(SpotsInteractionGuide.progressKey, step + 1);
+      } catch (error) {
+        debugPrint('Could not save Spots guide progress: $error');
+      }
+    });
+  }
+
   Widget _buildOverlay(BuildContext context) => Stack(
     children: [
       const Positioned.fill(
@@ -118,32 +151,31 @@ class _SpotsInteractionGuideState extends State<SpotsInteractionGuide>
       ),
       Positioned.fromRect(
         rect: _targetRect,
-        child: GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onHorizontalDragStart: _step == 0 ? _startDrag : null,
-          onHorizontalDragUpdate: _step == 0
-              ? (details) => _drag?.update(details)
-              : null,
-          onHorizontalDragEnd: _step == 0
-              ? (details) => _drag?.end(details)
-              : null,
-          onHorizontalDragCancel: _step == 0 ? () => _drag?.cancel() : null,
-          onVerticalDragStart: _step == 1 ? _startDrag : null,
-          onVerticalDragUpdate: _step == 1
-              ? (details) => _drag?.update(details)
-              : null,
-          onVerticalDragEnd: _step == 1
-              ? (details) => _drag?.end(details)
-              : null,
-          onVerticalDragCancel: _step == 1 ? () => _drag?.cancel() : null,
-          child: Semantics(
-            label: widget.translate(
-              _step == 0
-                  ? 'Swipe the categories left or right to explore.'
-                  : 'Swipe the spot cards up or down to browse.',
+        child: Listener(
+          onPointerCancel: (_) => _cancelDrag(),
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onHorizontalDragStart: _step == 0 ? _startDrag : null,
+            onHorizontalDragUpdate: _step == 0
+                ? (details) => _drag?.update(details)
+                : null,
+            onHorizontalDragEnd: _step == 0 ? _endDrag : null,
+            onHorizontalDragCancel: _step == 0 ? _cancelDrag : null,
+            onVerticalDragStart: _step == 1 ? _startDrag : null,
+            onVerticalDragUpdate: _step == 1
+                ? (details) => _drag?.update(details)
+                : null,
+            onVerticalDragEnd: _step == 1 ? _endDrag : null,
+            onVerticalDragCancel: _step == 1 ? _cancelDrag : null,
+            child: Semantics(
+              label: widget.translate(
+                _step == 0
+                    ? 'Swipe the categories left or right to explore.'
+                    : 'Swipe the spot cards up or down to browse.',
+              ),
+              liveRegion: true,
+              child: const SizedBox.expand(),
             ),
-            liveRegion: true,
-            child: const SizedBox.expand(),
           ),
         ),
       ),
@@ -199,23 +231,7 @@ class _SpotsInteractionGuideState extends State<SpotsInteractionGuide>
       // Short lists still teach the gesture through their edge resistance.
       _dragDistance += notification.dragDetails!.primaryDelta ?? 0;
     } else if (notification is ScrollEndNotification) {
-      final completed = _dragging && _dragDistance.abs() >= 40;
-      _dragging = false;
-      _dragDistance = 0;
-      if (completed) {
-        setState(() => _step = step + 1);
-        // Serialize writes so a fast second gesture cannot save an older step last.
-        _save = _save.then((_) async {
-          try {
-            await _preferences!.setInt(
-              SpotsInteractionGuide.progressKey,
-              step + 1,
-            );
-          } catch (error) {
-            debugPrint('Could not save Spots guide progress: $error');
-          }
-        });
-      }
+      _finishGesture();
     }
     return false;
   }

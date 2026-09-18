@@ -63,3 +63,21 @@ test('public XP endpoint uses authenticated identity, not a client-supplied acto
   await handler({method: 'POST', headers: {}, body: {action: 'public_xp', userId: 'tester'}}, res);
   assert.equal(res.code, 401);
 });
+
+
+test('retiring report achievements preserves historical XP and public history', async () => {
+  const f = fixture({'users/viewer': {}});
+  const {publicXpProfile} = f.load('../lib/xp/public-profile.js');
+  f.rows.set('xp_user_stats/tester', {xpTotal: 25});
+  f.rows.set('xp_transactions/old-report', {userId: 'tester', action: 'achievement.unlock',
+    objectId: 'reports.1', status: 'confirmed', amount: 25, createdAtMillis: 10});
+  f.rows.set('xp_transactions/forged-report', {userId: 'tester', action: 'achievement.unlock',
+    objectId: 'reports.999', status: 'confirmed', amount: 999});
+  const before = JSON.stringify([...f.rows]);
+  const history = await publicXpProfile('viewer', 'tester', 'history');
+  assert.equal(history.items.length, 1);
+  assert.equal(history.items[0].achievementId, 'reports.1');
+  assert.equal(history.items[0].amount, 25);
+  assert.equal((await publicXpProfile('viewer', 'tester')).xpTotal, 25);
+  assert.equal(JSON.stringify([...f.rows]), before);
+});

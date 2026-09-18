@@ -1,9 +1,9 @@
 const { admin, db } = require('../lib/firebase-admin');
 const { weekKeyFor } = require('../lib/xp/xp-engine');
 
-const DEFAULT_LIMIT = 100;
+const DEFAULT_LIMIT = 10;
 const MAX_LIMIT = 100;
-const STATS_FETCH_LIMIT = 100;
+const STATS_FETCH_LIMIT = 10;
 const WEEK_FETCH_LIMIT = 1000;
 const LEADERBOARD_PERIODS = new Set(['all_time', 'weekly']);
 
@@ -117,54 +117,93 @@ function xpFromWeekDoc(data = {}) {
     numberValue(data.revokedXp));
 }
 
-async function loadAllTimeLeaderboard(limit, weekKey) {
-  const query = db
-    .collection('xp_user_stats')
-    .orderBy('xpTotal', 'desc')
-    .limit(STATS_FETCH_LIMIT);
-  const entries = [];
-  let cursor;
-  while (entries.length < limit) {
-    const statsSnapshot = await (cursor ? query.startAfter(cursor) : query).get();
-    const statsDocs = statsSnapshot.docs.filter((doc) => {
-    const data = doc.data() || {};
-    return data.xpBlocked !== true && numberValue(data.xpTotal) > 0;
-  });
-  const userRefs = statsDocs.map((doc) => {
-      const data = doc.data() || {};
-      const userId = cleanString(data.userId, doc.id);
-      return db.collection('users').doc(userId);
-    });
-  const userSnapshots = userRefs.length ? await db.getAll(...userRefs) : [];
-
-  for (let index = 0; index < statsDocs.length; index += 1) {
-    const userSnapshot = userSnapshots[index];
-    if (!userSnapshot.exists) {
-      continue;
-    }
-
-    const user = userSnapshot.data() || {};
-    if (!isActiveUser(user) || !publicProfileEnabled(user)) {
-      continue;
-    }
-
-    const stats = statsDocs[index].data() || {};
-    const userId = cleanString(stats.userId, statsDocs[index].id);
-    entries.push(publicEntry(entries.length + 1, userId, stats, user,
-      stats.weeklyXpWeek === weekKey ? numberValue(stats.weeklyXp) : 0));
-
-    if (entries.length >= limit) {
-      break;
-    }
-  }
-
-    if (statsSnapshot.docs.length < STATS_FETCH_LIMIT) break;
-    cursor = statsSnapshot.docs[statsSnapshot.docs.length - 1];
-  }
-  return entries;
+function matchesSearch(user, search) {
+  const username = cleanString(user.username, cleanString(user.name, 'ccs_driver'));
+  return username.toLowerCase().includes(search);
 }
 
-async function loadWeeklyLeaderboard(limit, weekKey) {
+function pageResult(matches, limit, weekKey) {
+  const hasMore = matches.length > limit;
+  return {
+    entries: matches.slice(0, limit).map(match => match.entry),
+    nextCursor: hasMore ? matches[limit - 1].cursor : null,
+    hasMore,
+    weekKey,
+  };
+}
+
+function cursorFor(context, afterId, rank, score) {
+  return { ...context, afterId, rank, score };
+}
+
+function readCursor(body, context) {
+  const cursor = body.cursor;
+  if (cursor == null) return null;
+  if (typeof cursor !== 'object' || Array.isArray(cursor) ||
+      cursor.period !== context.period || cursor.weekKey !== context.weekKey ||
+      cursor.search !== context.search || typeof cursor.afterId !== 'string' ||
+      !cursor.afterId || cursor.afterId.length > 1500 || cursor.afterId.includes('/') ||
+      !Number.isSafeInteger(cursor.rank) || cursor.rank < 0 || cursor.rank > 10000000 ||
+      !Number.isFinite(cursor.score) || cursor.score < 0) {
+    const error = new Error('LEADERBOARD_CURSOR_EXPIRED');
+    error.statusCode = 409;
+    throw error;
+  }
+  return cursor;
+}
+
+async function cursorUserAvailable(userId, stats) {
+  const snapshot = await db.collection('users').doc(userId).get();
+  const user = snapshot.data() || {};
+  return snapshot.exists && isActiveUser(user) && publicProfileEnabled(user) && stats.xpBlocked !== true;
+}
+
+async function loadAllTimeLeaderboard(limit, context, cursor) {
+  const query = db.collection('xp_user_stats').orderBy('xpTotal', 'desc');
+  const matches = [];
+  let rank = cursor?.rank || 0;
+  let after;
+  if (cursor) {
+    after = await db.collection('xp_user_stats').doc(cursor.afterId).get();
+    if (!after.exists || after.data().xpTotal !== cursor.score ||
+        !await cursorUserAvailable(cleanString(after.data().userId, after.id), after.data())) {
+      const error = new Error('LEADERBOARD_CURSOR_EXPIRED');
+      error.statusCode = 409;
+      throw error;
+    }
+  }
+  while (matches.length <= limit) {
+    const batchSize = Math.min(STATS_FETCH_LIMIT, limit + 1 - matches.length);
+    const pageQuery = query.limit(batchSize);
+    const snapshot = await (after ? pageQuery.startAfter(after) : pageQuery).get();
+    const docs = snapshot.docs.filter(doc => {
+      const stats = doc.data() || {};
+      return stats.xpBlocked !== true && numberValue(stats.xpTotal) > 0;
+    });
+    const users = docs.length ? await db.getAll(...docs.map(doc =>
+      db.collection('users').doc(cleanString(doc.data().userId, doc.id)))) : [];
+    for (let index = 0; index < docs.length; index++) {
+      const user = users[index].data() || {};
+      if (!users[index].exists || !isActiveUser(user) || !publicProfileEnabled(user)) continue;
+      rank++;
+      if (!matchesSearch(user, context.search)) continue;
+      const stats = docs[index].data();
+      const userId = cleanString(stats.userId, docs[index].id);
+      matches.push({
+        entry: publicEntry(rank, userId, stats, user,
+          stats.weeklyXpWeek === context.weekKey ? numberValue(stats.weeklyXp) : 0),
+        cursor: cursorFor(context, docs[index].id, rank, stats.xpTotal),
+      });
+      if (matches.length > limit) break;
+    }
+    if (snapshot.docs.length < batchSize) break;
+    after = snapshot.docs[snapshot.docs.length - 1];
+  }
+  return pageResult(matches, limit, context.weekKey);
+}
+
+async function loadWeeklyLeaderboard(limit, context, cursor) {
+  const {weekKey} = context;
   const weeksByUserId = new Map();
   // Traverse both schemas fully before ranking; a page boundary is not an XP cutoff.
   for (const field of ['weekKey', 'weeklyXpWeek']) {
@@ -203,56 +242,55 @@ async function loadWeeklyLeaderboard(limit, weekKey) {
       return first.userId.localeCompare(second.userId);
     });
 
-  const entries = [];
-  for (let offset = 0; offset < weeks.length && entries.length < limit; offset += MAX_LIMIT) {
-    const batch = weeks.slice(offset, offset + MAX_LIMIT);
+  // Keep the legacy/corrected-week reconciliation above. Only hydrate the
+  // public profiles needed for this page, in batches of ten.
+  const matches = [];
+  let rank = cursor?.rank || 0;
+  let start = 0;
+  if (cursor) {
+    const index = weeks.findIndex(week => week.userId === cursor.afterId && week.weeklyXp === cursor.score);
+    const stats = (await db.collection('xp_user_stats').doc(cursor.afterId).get()).data() || {};
+    if (index < 0 || !await cursorUserAvailable(cursor.afterId, stats)) {
+      const error = new Error('LEADERBOARD_CURSOR_EXPIRED');
+      error.statusCode = 409;
+      throw error;
+    }
+    start = index + 1;
+  }
+  for (let offset = start; offset < weeks.length && matches.length <= limit;) {
+    const batchSize = Math.min(STATS_FETCH_LIMIT, limit + 1 - matches.length);
+    const batch = weeks.slice(offset, offset + batchSize).filter(week => week.weeklyXp > 0);
+    offset += batchSize;
+    if (!batch.length) break;
     const [statsSnapshots, userSnapshots] = await Promise.all([
-      db.getAll(...batch.map((week) => db.collection('xp_user_stats').doc(week.userId))),
-      db.getAll(...batch.map((week) => db.collection('users').doc(week.userId))),
+      db.getAll(...batch.map(week => db.collection('xp_user_stats').doc(week.userId))),
+      db.getAll(...batch.map(week => db.collection('users').doc(week.userId))),
     ]);
-
-    for (let index = 0; index < batch.length; index += 1) {
+    for (let index = 0; index < batch.length; index++) {
       const week = batch[index];
-      const userId = week.userId;
-      const weeklyXp = week.weeklyXp;
-      const userSnapshot = userSnapshots[index];
-      const statsSnapshot = statsSnapshots[index];
-
-      if (!userId || weeklyXp <= 0 || !userSnapshot.exists) {
-        continue;
-      }
-
-      const user = userSnapshot.data() || {};
-      const stats = statsSnapshot.exists ? statsSnapshot.data() || {} : {};
-      if (
-        !isActiveUser(user) ||
-        !publicProfileEnabled(user) ||
-        stats.xpBlocked === true
-      ) {
-        continue;
-      }
-
-      entries.push(publicEntry(entries.length + 1, userId, stats, user, weeklyXp));
-
-      if (entries.length >= limit) {
-        break;
-      }
+      const user = userSnapshots[index].data() || {};
+      const stats = statsSnapshots[index].data() || {};
+      if (!userSnapshots[index].exists || !isActiveUser(user) ||
+          !publicProfileEnabled(user) || stats.xpBlocked === true) continue;
+      rank++;
+      if (!matchesSearch(user, context.search)) continue;
+      matches.push({
+        entry: publicEntry(rank, week.userId, stats, user, week.weeklyXp),
+        cursor: cursorFor(context, week.userId, rank, week.weeklyXp),
+      });
+      if (matches.length > limit) break;
     }
   }
-
-  return { entries, weekKey };
+  return pageResult(matches, limit, weekKey);
 }
 
-async function loadLeaderboard(limit, period, config) {
-  const weekKey = currentXpWeekKey(config);
-  if (period === 'weekly') {
-    return loadWeeklyLeaderboard(limit, weekKey);
-  }
-
-  return {
-    entries: await loadAllTimeLeaderboard(limit, weekKey),
-    weekKey,
-  };
+async function loadLeaderboard(limit, period, config, body) {
+  const search = cleanString(body.search).replace(/^@/, '').trim().toLowerCase().slice(0, 30);
+  const context = {period, weekKey: currentXpWeekKey(config), search};
+  const cursor = readCursor(body, context);
+  return period === 'weekly'
+    ? loadWeeklyLeaderboard(limit, context, cursor)
+    : loadAllTimeLeaderboard(limit, context, cursor);
 }
 
 module.exports = async function handler(req, res) {
@@ -280,19 +318,21 @@ module.exports = async function handler(req, res) {
 
     const body = req.body || {};
     const period = periodFromBody(body);
-    const leaderboard = await loadLeaderboard(limitFromBody(body), period, config);
+    const leaderboard = await loadLeaderboard(limitFromBody(body), period, config, body);
 
     return res.status(200).json({
       ok: true,
       result: {
         entries: leaderboard.entries,
+        nextCursor: leaderboard.nextCursor,
+        hasMore: leaderboard.hasMore,
         period,
         weekKey: leaderboard.weekKey,
         generatedAt: new Date().toISOString(),
       },
     });
   } catch (error) {
-    return res.status(500).json({
+    return res.status(error.statusCode || 500).json({
       ok: false,
       error: cleanString(error?.message, 'Could not load XP leaderboard'),
     });

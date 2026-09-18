@@ -99,12 +99,14 @@ const firestoreUsageUrl =
 const moderationActionUrl =
     'https://ccs-telegram-auth-server.vercel.app/api/moderation-action';
 const xpSyncUrls = <String>[
-  '$telegramAuthBaseUrl/api/xp-sync',
+  // Prefer the current achievement catalogue over the legacy login backend.
   'https://ccs-telegram-auth-server.vercel.app/api/xp-sync',
+  '$telegramAuthBaseUrl/api/xp-sync',
 ];
 const xpLeaderboardUrls = <String>[
-  '$telegramAuthBaseUrl/api/xp-leaderboard',
+  // Use the current backend first; the legacy host may not support cursors.
   'https://ccs-telegram-auth-server.vercel.app/api/xp-leaderboard',
+  '$telegramAuthBaseUrl/api/xp-leaderboard',
 ];
 const r2PresignUploadUrl =
     'https://ccs-telegram-auth-server.vercel.app/api/r2-presign-upload';
@@ -9389,8 +9391,24 @@ Future<void> syncXpWithServer(Map<String, Object?> body) async {
   }
 }
 
-Future<List<XpLeaderboardEntry>> loadXpLeaderboardEntries({
+class XpLeaderboardPage {
+  final List<XpLeaderboardEntry> entries;
+  final Map<String, dynamic>? nextCursor;
+  const XpLeaderboardPage({required this.entries, this.nextCursor});
+}
+
+class XpLeaderboardPageExpired implements Exception {}
+
+typedef XpLeaderboardPageLoader = Future<XpLeaderboardPage> Function({
+  required XpLeaderboardPeriod period,
+  required String search,
+  Map<String, dynamic>? cursor,
+});
+
+Future<XpLeaderboardPage> loadXpLeaderboardEntries({
   XpLeaderboardPeriod period = XpLeaderboardPeriod.allTime,
+  String search = '',
+  Map<String, dynamic>? cursor,
 }) async {
   final firebaseUser = FirebaseAuth.instance.currentUser;
 
@@ -9418,28 +9436,46 @@ Future<List<XpLeaderboardEntry>> loadXpLeaderboardEntries({
     try {
       final response = await postJsonToUrl(
         url,
-        {'limit': 100, 'period': xpLeaderboardPeriodValue(period)},
+        {
+          'limit': 10,
+          'period': xpLeaderboardPeriodValue(period),
+          'search': search,
+          'cursor': cursor,
+        },
         headers: {HttpHeaders.authorizationHeader: 'Bearer $idToken'},
       );
       final result = mapFromFirebase(response['result']);
       final rawEntries = result['entries'];
 
-      if (rawEntries is List) {
-        return rawEntries
-            .asMap()
-            .entries
-            .map((entry) {
-              return XpLeaderboardEntry.fromJson(
-                mapFromFirebase(entry.value),
-                fallbackRank: entry.key + 1,
-              );
-            })
-            .where((entry) => entry.userId.trim().isNotEmpty)
-            .toList();
+      // An older deployment cannot paginate. Try the updated fallback route
+      // instead of silently repeating its first page for every cursor/search.
+      if (rawEntries is List &&
+          rawEntries.length <= 10 &&
+          result['hasMore'] is bool &&
+          (result['hasMore'] == false || result['nextCursor'] is Map)) {
+        return XpLeaderboardPage(
+          entries: rawEntries
+              .asMap()
+              .entries
+              .map(
+                (entry) => XpLeaderboardEntry.fromJson(
+                  mapFromFirebase(entry.value),
+                  fallbackRank: entry.key + 1,
+                ),
+              )
+              .where((entry) => entry.userId.trim().isNotEmpty)
+              .toList(),
+          nextCursor: result['hasMore'] == true
+              ? mapFromFirebase(result['nextCursor'])
+              : null,
+        );
       }
 
       throw Exception('Backend returned invalid XP leaderboard data.');
     } catch (error, stack) {
+      if (error.toString().contains('LEADERBOARD_CURSOR_EXPIRED')) {
+        throw XpLeaderboardPageExpired();
+      }
       lastError = error;
       lastStack = stack;
     }
@@ -9462,34 +9498,57 @@ String xpLeaderboardPeriodValue(XpLeaderboardPeriod period) {
   };
 }
 
-String xpLeaderboardPeriodLabel(XpLeaderboardPeriod period) {
-  return switch (period) {
-    XpLeaderboardPeriod.allTime => 'All time',
-    XpLeaderboardPeriod.week => 'This week',
-  };
-}
+String xpLeaderboardPeriodLabel(XpLeaderboardPeriod period) =>
+    period == XpLeaderboardPeriod.week
+    ? achievementText(
+        appUiPreferences.language.name,
+        'This week',
+        'Эта неделя',
+        'Šonedēļ',
+      )
+    : achievementText(
+        appUiPreferences.language.name,
+        'All time',
+        'Всё время',
+        'Visu laiku',
+      );
 
-String xpLeaderboardTitle(XpLeaderboardPeriod period) {
-  return switch (period) {
-    XpLeaderboardPeriod.allTime => 'Top drivers',
-    XpLeaderboardPeriod.week => 'Top this week',
-  };
-}
+String xpLeaderboardTitle(XpLeaderboardPeriod period) =>
+    period == XpLeaderboardPeriod.week
+    ? achievementText(
+        appUiPreferences.language.name,
+        'Top this week',
+        'Лидеры недели',
+        'Nedēļas līderi',
+      )
+    : achievementText(
+        appUiPreferences.language.name,
+        'Top drivers',
+        'Лидеры рейтинга',
+        'Reitinga līderi',
+      );
 
-String xpLeaderboardEmptyTitle(XpLeaderboardPeriod period) {
-  return switch (period) {
-    XpLeaderboardPeriod.allTime => 'No leaderboard yet',
-    XpLeaderboardPeriod.week => 'No weekly leaderboard yet',
-  };
-}
+String xpLeaderboardEmptyTitle(XpLeaderboardPeriod period) =>
+    period == XpLeaderboardPeriod.week
+    ? achievementText(
+        appUiPreferences.language.name,
+        'No weekly leaderboard yet',
+        'Рейтинг недели пока пуст',
+        'Nedēļas reitings vēl ir tukšs',
+      )
+    : achievementText(
+        appUiPreferences.language.name,
+        'No leaderboard yet',
+        'Рейтинг пока пуст',
+        'Reitings vēl ir tukšs',
+      );
 
-String xpLeaderboardEmptyText(XpLeaderboardPeriod period) {
-  return switch (period) {
-    XpLeaderboardPeriod.allTime => 'Earn XP to appear in the Top 100.',
-    XpLeaderboardPeriod.week =>
-      'Earn XP this week to appear in the weekly Top 100.',
-  };
-}
+String xpLeaderboardEmptyText(XpLeaderboardPeriod period) => achievementText(
+  appUiPreferences.language.name,
+  'Earn XP to appear in the ranking.',
+  'Получайте XP, чтобы попасть в рейтинг.',
+  'Iegūstiet XP, lai iekļūtu reitingā.',
+);
 
 Future<bool> currentUserHasCommunityModerationAccess() async {
   if (FirebaseAuth.instance.currentUser == null) return false;
@@ -53730,7 +53789,6 @@ class PublicUserProfileScreen extends StatelessWidget {
                   ],
                 ),
               ),
-              FeaturedAchievement(userId: profile.uid),
             ],
           ),
           if (profile.bio.trim().isNotEmpty) ...[
@@ -55475,7 +55533,6 @@ class _ProfileHeader extends StatelessWidget {
                   ],
                 ),
               ),
-              FeaturedAchievement(userId: currentUser.uid),
             ],
           ),
           const SizedBox(height: 10),
@@ -55533,9 +55590,6 @@ void openAchievements(BuildContext context) {
       builder: (_) => AchievementsScreen(
         language: appUiPreferences.language.name,
         load: () => xpScreenRequest('achievements'),
-        select: (id) async {
-          await xpScreenRequest('select_achievement', {'achievementId': id});
-        },
       ),
     ),
   );
@@ -55556,81 +55610,43 @@ void openPublicAchievements(BuildContext context, String userId) {
   );
 }
 
-class FeaturedAchievement extends StatelessWidget {
-  final String userId;
-  const FeaturedAchievement({super.key, required this.userId});
-  @override
-  Widget build(BuildContext context) =>
-      StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-        stream: FirebaseFirestore.instance
-            .collection('xp_featured_achievements')
-            .doc(userId)
-            .snapshots(),
-        builder: (context, snapshot) {
-          final value = snapshot.data?.data()?['item'];
-          if (snapshot.hasError || value is! Map)
-            return const SizedBox.shrink();
-          final item = Map<String, dynamic>.from(value);
-          return Padding(
-            padding: const EdgeInsets.only(left: 8),
-            child: InkWell(
-              onTap: () {
-                if (userId == currentUser.uid) {
-                  openAchievements(context);
-                  return;
-                }
-                openPublicAchievements(context, userId);
-              },
-              child: SizedBox(
-                width: 86,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    SizedBox(
-                      width: 66,
-                      height: 72,
-                      child: FittedBox(child: AchievementBadge(item: item)),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      achievementCategoryLabel(
-                        item['category'] as String,
-                        appUiPreferences.language.name,
-                      ),
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(
-                        fontSize: 10.5,
-                        fontWeight: FontWeight.w700,
-                        color: Colors.white70,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          );
-        },
-      );
-}
-
-class XpSummaryCard extends StatelessWidget {
+class XpSummaryCard extends StatefulWidget {
   final String userId;
   final VoidCallback? onTap;
 
   const XpSummaryCard({super.key, required this.userId, this.onTap});
 
   @override
+  State<XpSummaryCard> createState() => _XpSummaryCardState();
+}
+
+class _XpSummaryCardState extends State<XpSummaryCard> {
+  Stream<DocumentSnapshot<Map<String, dynamic>>>? _stream;
+  String? _subscribedUserId;
+
+  void _subscribe(String userId) {
+    if (_subscribedUserId == userId) return;
+    _subscribedUserId = userId;
+    _stream = xpUserStatsCollection()
+        .doc(userId)
+        .debugSnapshots('profile: xp user stats listener');
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final cleanUserId = userId.trim();
+    final cleanUserId = widget.userId.trim();
 
     if (cleanUserId != currentUser.uid) {
-      return PublicXpSummaryCard(userId: cleanUserId, onHistory: onTap);
+      _subscribedUserId = null;
+      _stream = null;
+      return PublicXpSummaryCard(userId: cleanUserId, onHistory: widget.onTap);
     }
 
+    // Keep the same listener when unrelated profile fields rebuild this card.
+    _subscribe(cleanUserId);
     return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-      stream: xpUserStatsCollection()
-          .doc(cleanUserId)
-          .debugSnapshots('profile: xp user stats listener'),
+      key: ValueKey(cleanUserId),
+      stream: _stream,
       builder: (context, snapshot) {
         final doc = snapshot.data;
         final loading =
@@ -55644,7 +55660,7 @@ class XpSummaryCard extends StatelessWidget {
           stats: stats,
           loading: loading,
           unavailable: snapshot.hasError,
-          onTap: onTap,
+          onTap: widget.onTap,
         );
       },
     );
@@ -56312,7 +56328,8 @@ class _XpHistoryBadge extends StatelessWidget {
 
 class XpLeaderboardScreen extends StatefulWidget {
   final bool embedded;
-  const XpLeaderboardScreen({super.key, this.embedded = false});
+  final XpLeaderboardPageLoader? loadPage;
+  const XpLeaderboardScreen({super.key, this.embedded = false, this.loadPage});
 
   @override
   State<XpLeaderboardScreen> createState() => _XpLeaderboardScreenState();
@@ -56322,53 +56339,109 @@ class _XpLeaderboardScreenState extends State<XpLeaderboardScreen>
     with AutomaticKeepAliveClientMixin {
   @override
   bool get wantKeepAlive => true;
-  final Map<XpLeaderboardPeriod, Future<List<XpLeaderboardEntry>>>
-  periodEntries = {};
-  final Map<XpLeaderboardPeriod, DateTime> periodLoadedAt = {};
+  final _searchController = TextEditingController();
+  final _scrollController = ScrollController();
+  final _entries = <XpLeaderboardEntry>[];
+  Map<String, dynamic>? _cursor;
+  Timer? _debounce;
+  int _generation = 0;
+  bool _loading = true;
+  bool _failed = false;
+  bool _expired = false;
+  String _search = '';
   XpLeaderboardPeriod selectedPeriod = XpLeaderboardPeriod.allTime;
-  late Future<List<XpLeaderboardEntry>> entriesFuture;
+
+  String t(String en, String ru, String lv) =>
+      achievementText(appUiPreferences.language.name, en, ru, lv);
 
   @override
   void initState() {
     super.initState();
-    entriesFuture = loadEntries();
+    unawaited(_load(reset: true));
   }
 
-  Future<List<XpLeaderboardEntry>> loadEntries() {
-    return loadPeriod(selectedPeriod);
+  @override
+  void dispose() {
+    _debounce?.cancel();
+    _searchController.dispose();
+    _scrollController.dispose();
+    super.dispose();
   }
 
-  Future<List<XpLeaderboardEntry>> loadPeriod(XpLeaderboardPeriod period) {
-    final loadedAt = periodLoadedAt[period];
-    if (loadedAt == null ||
-        DateTime.now().difference(loadedAt) > const Duration(seconds: 60)) {
-      periodEntries.remove(period);
+  Future<void> _load({bool reset = false}) async {
+    if (!reset && (_loading || _cursor == null)) return;
+    if (reset) {
+      _debounce?.cancel();
+      _generation++;
+      if (_scrollController.hasClients) _scrollController.jumpTo(0);
     }
-    return periodEntries.putIfAbsent(period, () {
-      periodLoadedAt[period] = DateTime.now();
-      return loadXpLeaderboardEntries(period: period);
+    final generation = _generation;
+    final period = selectedPeriod;
+    final search = _search;
+    setState(() {
+      _loading = true;
+      _failed = false;
+      _expired = false;
+      if (reset) {
+        _entries.clear();
+        _cursor = null;
+      }
     });
+    try {
+      final page = await (widget.loadPage ?? loadXpLeaderboardEntries)(
+        period: period,
+        search: search,
+        cursor: reset ? null : _cursor,
+      );
+      if (!mounted || generation != _generation) return;
+      setState(() {
+        final ids = _entries.map((entry) => entry.userId).toSet();
+        _entries.addAll(page.entries.where((entry) => ids.add(entry.userId)));
+        _cursor = page.nextCursor;
+      });
+    } catch (error) {
+      if (!mounted || generation != _generation) return;
+      setState(() {
+        _failed = true;
+        _expired = error is XpLeaderboardPageExpired;
+      });
+    } finally {
+      if (mounted && generation == _generation) {
+        setState(() => _loading = false);
+      }
+    }
   }
 
-  Future<void> refresh() async {
-    periodEntries.remove(selectedPeriod);
-    final nextFuture = loadEntries();
+  void _searchChanged(String value) {
+    final search = value
+        .trim()
+        .replaceFirst(RegExp(r'^@'), '')
+        .trim()
+        .toLowerCase();
+    if (search == _search) {
+      setState(() {});
+      return;
+    }
+    _debounce?.cancel();
+    // Invalidate the current request immediately, before the debounce expires.
+    _generation++;
     setState(() {
-      entriesFuture = nextFuture;
+      _search = search;
+      _entries.clear();
+      _cursor = null;
+      _failed = false;
+      _loading = true;
     });
-    await nextFuture;
+    _debounce = Timer(
+      const Duration(milliseconds: 350),
+      () => _load(reset: true),
+    );
   }
 
   void selectPeriod(XpLeaderboardPeriod period) {
-    if (period == selectedPeriod) {
-      return;
-    }
-
-    final nextFuture = loadPeriod(period);
-    setState(() {
-      selectedPeriod = period;
-      entriesFuture = nextFuture;
-    });
+    if (period == selectedPeriod) return;
+    setState(() => selectedPeriod = period);
+    unawaited(_load(reset: true));
   }
 
   @override
@@ -56379,106 +56452,158 @@ class _XpLeaderboardScreenState extends State<XpLeaderboardScreen>
       appBar: widget.embedded
           ? null
           : AppBar(
-              title: Text(
-                achievementText(
-                  appUiPreferences.language.name,
-                  'Ranking',
-                  'Рейтинг',
-                  'Reitings',
-                ),
-              ),
+              title: Text(t('Ranking', 'Рейтинг', 'Reitings')),
               backgroundColor: Colors.transparent,
               foregroundColor: blue,
               actions: ccsAppBarActions(showXpLeaderboard: false),
             ),
-      body: FutureBuilder<List<XpLeaderboardEntry>>(
-        future: entriesFuture,
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting &&
-              !snapshot.hasData) {
-            return const Center(child: CircularProgressIndicator());
-          }
-
-          if (snapshot.hasError) {
-            return RefreshIndicator(
-              color: blue,
-              backgroundColor: panelGlass,
-              onRefresh: refresh,
-              child: ListView(
-                padding: const EdgeInsets.fromLTRB(16, 14, 16, 28),
-                children: const [
-                  EmptyStateCard(
-                    icon: Icons.warning_amber_rounded,
-                    title: 'Could not load XP leaderboard.',
-                    text: 'XP is being calculated',
-                  ),
-                ],
-              ),
-            );
-          }
-
-          final entries = snapshot.data ?? const <XpLeaderboardEntry>[];
-
-          if (entries.isEmpty) {
-            return RefreshIndicator(
-              color: blue,
-              backgroundColor: panelGlass,
-              onRefresh: refresh,
-              child: ListView(
-                padding: const EdgeInsets.fromLTRB(16, 14, 16, 28),
-                children: [
-                  XpLeaderboardPeriodSelector(
-                    selectedPeriod: selectedPeriod,
-                    onChanged: selectPeriod,
-                  ),
-                  const SizedBox(height: 16),
-                  EmptyStateCard(
-                    icon: Icons.emoji_events_outlined,
-                    title: xpLeaderboardEmptyTitle(selectedPeriod),
-                    text: xpLeaderboardEmptyText(selectedPeriod),
-                  ),
-                ],
-              ),
-            );
-          }
-
-          return RefreshIndicator(
-            color: blue,
-            backgroundColor: panelGlass,
-            onRefresh: refresh,
-            child: ListView(
-              padding: const EdgeInsets.fromLTRB(16, 14, 16, 28),
+      body: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
+            child: Column(
               children: [
+                TextField(
+                  key: const ValueKey('ranking-search'),
+                  controller: _searchController,
+                  onChanged: _searchChanged,
+                  maxLength: 31,
+                  textInputAction: TextInputAction.search,
+                  onSubmitted: (_) => _load(reset: true),
+                  decoration: InputDecoration(
+                    counterText: '',
+                    hintText: t(
+                      'Search by nickname',
+                      'Поиск по нику',
+                      'Meklēt pēc lietotājvārda',
+                    ),
+                    prefixIcon: const Icon(Icons.search),
+                    suffixIcon: _searchController.text.isEmpty
+                        ? null
+                        : IconButton(
+                            tooltip: t(
+                              'Clear search',
+                              'Очистить поиск',
+                              'Notīrīt meklēšanu',
+                            ),
+                            icon: const Icon(Icons.clear),
+                            onPressed: () {
+                              _searchController.clear();
+                              _searchChanged('');
+                            },
+                          ),
+                  ),
+                ),
+                const SizedBox(height: 12),
                 XpLeaderboardPeriodSelector(
                   selectedPeriod: selectedPeriod,
                   onChanged: selectPeriod,
                 ),
-                const SizedBox(height: 16),
-                Text(
-                  xpLeaderboardTitle(selectedPeriod),
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 24,
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
-                const SizedBox(height: 5),
-                const Text(
-                  'This leaderboard shows public profiles only.',
-                  style: TextStyle(
-                    color: Colors.white54,
-                    fontSize: 12.5,
-                    height: 1.35,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                const SizedBox(height: 14),
-                for (final entry in entries)
-                  XpLeaderboardTile(entry: entry, period: selectedPeriod),
+                const SizedBox(height: 8),
               ],
             ),
-          );
-        },
+          ),
+          Expanded(
+            child: RefreshIndicator(
+              color: blue,
+              backgroundColor: panelGlass,
+              onRefresh: () => _load(reset: true),
+              child: ListView(
+                key: const ValueKey('ranking-list'),
+                controller: _scrollController,
+                physics: const AlwaysScrollableScrollPhysics(),
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 28),
+                children: [
+                  Text(
+                    _search.isEmpty
+                        ? xpLeaderboardTitle(selectedPeriod)
+                        : t(
+                            'Search results',
+                            'Результаты поиска',
+                            'Meklēšanas rezultāti',
+                          ),
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 24,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  const SizedBox(height: 5),
+                  Text(
+                    t(
+                      'This leaderboard shows public profiles only.',
+                      'В рейтинге показаны только открытые профили.',
+                      'Reitingā redzami tikai publiski profili.',
+                    ),
+                    style: const TextStyle(
+                      color: Colors.white54,
+                      fontSize: 12.5,
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  for (final entry in _entries)
+                    XpLeaderboardTile(
+                      key: ValueKey('ranking-user-${entry.userId}'),
+                      entry: entry,
+                      period: selectedPeriod,
+                    ),
+                  if (_loading)
+                    const Padding(
+                      padding: EdgeInsets.all(24),
+                      child: Center(child: CircularProgressIndicator()),
+                    )
+                  else if (_failed) ...[
+                    Text(
+                      _expired
+                          ? t(
+                              'Ranking changed. Refresh to continue.',
+                              'Рейтинг изменился. Обновите список.',
+                              'Reitings ir mainījies. Atjaunojiet sarakstu.',
+                            )
+                          : t(
+                              'Could not load ranking.',
+                              'Не удалось загрузить рейтинг.',
+                              'Neizdevās ielādēt reitingu.',
+                            ),
+                      textAlign: TextAlign.center,
+                    ),
+                    TextButton(
+                      key: const ValueKey('ranking-retry'),
+                      onPressed: () =>
+                          _load(reset: _expired || _entries.isEmpty),
+                      child: Text(
+                        _expired
+                            ? t('Refresh', 'Обновить', 'Atjaunot')
+                            : t('Retry', 'Повторить', 'Mēģināt vēlreiz'),
+                      ),
+                    ),
+                  ] else if (_entries.isEmpty)
+                    Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: Text(
+                        _search.isEmpty
+                            ? xpLeaderboardEmptyTitle(selectedPeriod)
+                            : t(
+                                'No matching users in this ranking.',
+                                'В этом рейтинге никого не найдено.',
+                                'Šajā reitingā lietotāji nav atrasti.',
+                              ),
+                        textAlign: TextAlign.center,
+                      ),
+                    )
+                  else if (_cursor != null)
+                    TextButton(
+                      key: const ValueKey('ranking-load-more'),
+                      onPressed: () => _load(),
+                      child: Text(
+                        t('Show more', 'Показать ещё', 'Rādīt vairāk'),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -56687,12 +56812,16 @@ class XpLeaderboardTile extends StatelessWidget {
                               size: podium ? 19 : 13,
                               color: accent,
                             ),
-                          Text(
-                            '#${entry.rank}',
-                            style: TextStyle(
-                              color: accent,
-                              fontSize: 13,
-                              fontWeight: FontWeight.w900,
+                          FittedBox(
+                            fit: BoxFit.scaleDown,
+                            child: Text(
+                              '#${entry.rank}',
+                              maxLines: 1,
+                              style: TextStyle(
+                                color: accent,
+                                fontSize: 13,
+                                fontWeight: FontWeight.w900,
+                              ),
                             ),
                           ),
                         ],

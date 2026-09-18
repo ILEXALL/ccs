@@ -9,9 +9,11 @@ const categories = [
   ['topics', ['Active topics', 'Активные темы', 'Aktīvas tēmas'], [[1,25],[5,100],[10,200],[25,400],[50,750]], 'count'],
   ['tenure', ['CCS membership', 'Стаж CCS', 'Dalība CCS'], [[3,50],[6,100],[12,250],[24,500],[36,750]], 'months'],
   ['moderator', ['Moderator service', 'Стаж модератора', 'Moderatora stāžs'], [[3,1000],[6,1500],[12,2000],[24,3000],[36,3000]], 'months'],
-  ['reports', ['Confirmed reports', 'Подтверждённые репорты', 'Apstiprināti ziņojumi'], [[1,25],[5,50],[10,100],[25,200],[50,350]], 'count'],
   ['groups', ['Group owner', 'Владелец группы', 'Grupas īpašnieks'], [[10,100],[25,250],[50,500],[100,1000],[250,1500]], 'members_month'],
 ];
+// Retired badges remain recognized in XP history; balances are never rewritten.
+const retiredAchievementIds = ['reports.1', 'reports.5', 'reports.10', 'reports.25', 'reports.50'];
+
 const countries = [
   ['AT','austria','Austria','Австрия','Austrija'],['BE','belgium','Belgium','Бельгия','Beļģija'],
   ['BG','bulgaria','Bulgaria','Болгария','Bulgārija'],['HR','croatia','Croatia','Хорватия','Horvātija'],
@@ -60,8 +62,12 @@ async function syncAchievements(userId, options = {}) {
   // No client counters or claimed GPS coordinates are accepted as achievement evidence.
   if (enabled) {
     const ids = new Set();
-    for (const field of ['addedByUid', 'ownerUid']) {
-      const snapshot = await db.collection('spots').where(field, '==', userId).get();
+    const [addedSpots, ownedSpots, authUser] = await Promise.all([
+      db.collection('spots').where('addedByUid', '==', userId).get(),
+      db.collection('spots').where('ownerUid', '==', userId).get(),
+      admin.auth().getUser(userId),
+    ]);
+    for (const snapshot of [addedSpots, ownedSpots]) {
       for (const doc of snapshot.docs) {
         const spot = doc.data();
         if ((spot.addedByUid || spot.ownerUid) === userId &&
@@ -69,17 +75,22 @@ async function syncAchievements(userId, options = {}) {
       }
     }
     progress.spots = ids.size;
-    const authUser = await admin.auth().getUser(userId);
     progress.tenure = completedMonths(authUser.metadata.creationTime, options.now || new Date());
     await awardManyXp(catalog().filter(item => item.available && progress[item.category] >= item.threshold)
       .map(item => ({userId, action: 'achievement.unlock', objectType: 'achievement',
         objectId: item.id, stage: 'unlocked', amount: item.xp,
         metadata: {achievementId: item.id}})), options);
   }
-  const transactions = await db.collection('xp_transactions').where('userId', '==', userId).get();
+  // Fetch only achievement awards, after awarding so new unlocks appear in the
+  // same response. Unrelated XP history can grow without slowing this screen.
+  const [transactions, featuredSnapshot] = await Promise.all([
+    db.collection('xp_transactions').where('userId', '==', userId)
+      .where('action', '==', 'achievement.unlock').get(),
+    db.collection('xp_featured_achievements').doc(userId).get(),
+  ]);
   const earned = new Map(transactions.docs.map(doc => doc.data())
     .filter(data => data.action === 'achievement.unlock').map(data => [data.objectId, data]));
-  const featured = (await db.collection('xp_featured_achievements').doc(userId).get()).data();
+  const featured = featuredSnapshot.data();
   return { enabled, selectedId: featured?.item?.id || null, items: catalog().map(item => ({...item, progress: progress[item.category] || 0,
     status: earned.get(item.id)?.status || 'locked'})) };
 }
@@ -127,4 +138,4 @@ async function publicAchievements(actorId, userId) {
   }).map(item => ({...item, status: 'confirmed', progress: item.threshold}))};
 }
 
-module.exports = { catalog, completedMonths, syncAchievements, selectAchievement, publicAchievements, assertPublicXpAccess };
+module.exports = { catalog, retiredAchievementIds, completedMonths, syncAchievements, selectAchievement, publicAchievements, assertPublicXpAccess };

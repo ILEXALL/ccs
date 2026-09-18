@@ -1,5 +1,5 @@
 const {db} = require('../firebase-admin');
-const {assertPublicXpAccess, catalog} = require('./achievements');
+const {assertPublicXpAccess, catalog, retiredAchievementIds} = require('./achievements');
 const {rewardCatalog, rewardProgress} = require('./rewards');
 
 // Public views never return raw ledger documents, moderation reasons or object IDs.
@@ -15,7 +15,7 @@ async function publicXpProfile(actorId, userId, section = 'stats') {
   }
   if (section !== 'history') throw new Error('Unknown public XP section');
   const rewards = new Map(rewardCatalog().map(item => [item.id, item]));
-  const achievements = new Set(catalog().map(item => item.id));
+  const achievements = new Set([...catalog().map(item => item.id), ...retiredAchievementIds]);
   const snapshot = await db.collection('xp_transactions').where('userId', '==', userId).get();
   const items = snapshot.docs.map(doc => doc.data()).filter(row =>
     row.status === 'confirmed' && row.amount > 0 && !row.adjustmentOf &&

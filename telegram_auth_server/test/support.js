@@ -8,6 +8,7 @@ const { createRequire } = require('node:module');
 // This double does not verify Firestore rules or concurrent transaction retries.
 function fixture(extra = {}) {
   let nextId = 0;
+  const reads = [];
   const rows = new Map(Object.entries({
     'app_config/xp': { levels_enabled: true, xp_awards_enabled: true,
       enabledUserIds: ['tester'], weeklyLimit: 3000, timezone: 'Europe/Riga' },
@@ -16,7 +17,10 @@ function fixture(extra = {}) {
   const snapshot = (key) => ({ id: key.split('/')[1], exists: rows.has(key),
     data: () => structuredClone(rows.get(key)) });
   const db = {
-    async getAll(...refs) { return refs.map(ref => snapshot(ref.key)); },
+    async getAll(...refs) {
+      reads.push({kind: 'getAll', keys: refs.map(ref => ref.key)});
+      return refs.map(ref => snapshot(ref.key));
+    },
     collection(name) {
       const filters = [];
       let order;
@@ -92,6 +96,6 @@ function fixture(extra = {}) {
     }, { filename });
     return module.exports;
   }
-  return { rows, load, awards: load('../lib/xp/xp-firestore.js') };
+  return { rows, load, reads, awards: load('../lib/xp/xp-firestore.js') };
 }
 module.exports = { fixture };

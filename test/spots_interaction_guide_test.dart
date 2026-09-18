@@ -91,6 +91,63 @@ class _HarnessState extends State<_Harness> {
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
+  testWidgets('finishes each swipe before inertial scrolling stops', (
+    tester,
+  ) async {
+    await tester.pumpWidget(guide());
+    await tester.pumpAndSettle();
+    final state = tester.state<_HarnessState>(find.byType(_Harness));
+
+    await tester.fling(
+      find.byKey(const ValueKey('categories')),
+      const Offset(-180, 0),
+      2000,
+      warnIfMissed: false,
+    );
+    await tester.pump();
+    await tester.pump();
+    expect(state.categories.position.isScrollingNotifier.value, isTrue);
+    expect(find.textContaining('2/2'), findsOneWidget);
+
+    await tester.fling(
+      find.byKey(const ValueKey('cards')),
+      const Offset(0, -180),
+      2000,
+      warnIfMissed: false,
+    );
+    await tester.pump();
+    await tester.pump();
+    expect(state.cards.position.isScrollingNotifier.value, isTrue);
+    expect(find.textContaining('2/2'), findsNothing);
+    expect(find.byKey(const ValueKey('spots-guide-barrier')), findsNothing);
+    expect(
+      (await SharedPreferences.getInstance()).getInt(
+        SpotsInteractionGuide.progressKey,
+      ),
+      2,
+    );
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('short and cancelled swipes do not complete a step', (
+    tester,
+  ) async {
+    await tester.pumpWidget(guide());
+    await tester.pumpAndSettle();
+    final target = find.byKey(const ValueKey('categories'));
+    await tester.drag(target, const Offset(-25, 0), warnIfMissed: false);
+    await tester.pumpAndSettle();
+    expect(find.textContaining('1/2'), findsOneWidget);
+
+    final gesture = await tester.startGesture(tester.getCenter(target));
+    await gesture.moveBy(const Offset(-150, 0));
+    await gesture.moveBy(const Offset(-80, 0));
+    await gesture.cancel();
+    await tester.pumpAndSettle();
+    expect(find.textContaining('1/2'), findsOneWidget);
+    expect(find.byKey(const ValueKey('spots-guide-barrier')), findsOneWidget);
+  });
+
   testWidgets('blocks header, navigation, taps and the inactive scroll area', (
     tester,
   ) async {

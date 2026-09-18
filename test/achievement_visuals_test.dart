@@ -30,7 +30,7 @@ Future<void> capture(WidgetTester tester, GlobalKey key, String name) => tester.
 });
 
 void main() {
-  testWidgets('all eight emblem categories have five distinct rendered styles', (tester) async {
+  testWidgets('all seven active categories render five earned tiers including purple', (tester) async {
     tester.view.physicalSize = const Size(660, 1040); tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize); addTearDown(tester.view.resetDevicePixelRatio);
     await fonts(tester); final key = GlobalKey();
@@ -38,16 +38,19 @@ void main() {
       home: RepaintBoundary(key: key, child: Scaffold(body: Padding(padding: const EdgeInsets.all(20), child: Column(children: [
         const Text('CCS · Достижения', style: TextStyle(fontSize: 24, fontWeight: FontWeight.w800)),
         const SizedBox(height: 24),
-        for (final category in ['spots', 'visits', 'meets', 'topics', 'tenure', 'moderator', 'reports', 'groups'])
+        for (final category in ['spots', 'visits', 'meets', 'topics', 'tenure', 'moderator', 'groups'])
           Padding(padding: const EdgeInsets.only(bottom: 14), child: Row(children: [
             SizedBox(width: 125, child: Text(achievementCategoryLabel(category, 'ru'))),
             for (var tier = 1; tier <= 5; tier++) Expanded(child: Center(child: AchievementBadge(
-              item: {'category':category, 'tier':tier, 'threshold': tier}))),
+              item: {'category':category, 'tier':tier, 'threshold': tier, 'status': 'confirmed'}))),
           ])),
       ]))))));
     await tester.runAsync(() => precacheImage(const AssetImage('assets/ccs_logo.png'), key.currentContext!));
     await tester.pumpAndSettle(); expect(tester.takeException(), isNull);
-    expect(find.byType(AchievementBadge), findsNWidgets(40));
+    expect(find.byType(AchievementBadge), findsNWidgets(35));
+    expect(tester.widgetList<AchievementBadge>(find.byType(AchievementBadge))
+      .where((badge) => badge.item['tier'] == 5).length, 7);
+    expect(find.byType(ColorFiltered), findsNothing);
     expect(find.byType(Image), findsNWidgets(5));
     expect(find.byIcon(Icons.diamond_outlined), findsNothing);
     expect(find.byIcon(Icons.auto_awesome), findsNothing);

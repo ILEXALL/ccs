@@ -85,10 +85,12 @@ test('public achievements respect privacy, blocks and account status', async () 
 test('achievement catalog has unique identities, approved rewards and three languages', () => {
   const f = setup(); const items = f.catalog();
   assert.equal(new Set(items.map(i => i.id)).size, items.length);
+  assert.equal(items.length, 62);
+  assert.equal(items.some(item => item.category === 'reports'), false);
   assert.equal(items.filter(i => i.category === 'tourist').length, 27);
   assert.equal(items.filter(i => i.category === 'spots').reduce((a,i) => a+i.xp,0), 1500);
   assert.equal(items.filter(i => i.category === 'moderator').reduce((a,i) => a+i.xp,0), 10500);
-  for (const category of ['spots', 'visits', 'meets', 'topics', 'tenure', 'moderator', 'reports', 'groups']) {
+  for (const category of ['spots', 'visits', 'meets', 'topics', 'tenure', 'moderator', 'groups']) {
     const tiers = items.filter(item => item.category === category);
     assert.equal(tiers.length, 5);
     tiers.forEach((item, index) => {
@@ -104,6 +106,36 @@ test('achievement flag defaults off; no balance writes from viewing catalog', as
   const result = await f.syncAchievements('tester', now);
   assert.equal(result.enabled, false);
   assert.equal(f.rows.has('xp_user_stats/tester'), false);
+});
+
+test('achievement loading preserves award statuses and ignores unrelated XP history', async () => {
+  const f = setup();
+  for (let index = 0; index < 1000; index++) {
+    f.rows.set(`xp_transactions/history-${index}`, {
+      userId: 'tester', action: 'spot.approved', objectId: 'spots.1',
+      status: 'confirmed', amount: 50,
+    });
+  }
+  const statuses = ['confirmed', 'pending', 'blocked', 'revoked', 'locked'];
+  const thresholds = [1, 5, 10, 25, 50];
+  thresholds.slice(0, 4).forEach((threshold, index) => {
+    f.rows.set(`xp_transactions/achievement-${index}`, {
+      userId: 'tester', action: 'achievement.unlock', objectId: `spots.${threshold}`,
+      status: statuses[index],
+    });
+  });
+  f.rows.set('xp_transactions/other-user', {
+    userId: 'someone-else', action: 'achievement.unlock', objectId: 'spots.50',
+    status: 'confirmed',
+  });
+  f.rows.set('xp_featured_achievements/tester', {item: {id: 'spots.1'}});
+  const before = JSON.stringify([...f.rows]);
+  const result = await f.syncAchievements('tester', now);
+  thresholds.forEach((threshold, index) => {
+    assert.equal(result.items.find(item => item.id === `spots.${threshold}`).status, statuses[index]);
+  });
+  assert.equal(result.selectedId, 'spots.1');
+  assert.equal(JSON.stringify([...f.rows]), before);
 });
 
 test('fifth tenure milestone awards once and preserves the previous four milestones', async () => {
@@ -145,4 +177,22 @@ test('membership uses Auth registration instead of editable profile timestamps',
   assert.equal((await f.syncAchievements('tester', now)).items.find(i => i.id === 'tenure.3').status, 'locked');
   f.rows.set('auth_test_metadata/tester', {creationTime: '2026-06-08T12:00:00Z'});
   assert.equal((await f.syncAchievements('tester', now)).items.find(i => i.id === 'tenure.3').status, 'confirmed');
+});
+
+
+test('retired reports are absent from personal/public boards and cannot be selected', async () => {
+  const f = setup();
+  f.rows.set('users/viewer', {});
+  f.rows.set('xp_user_stats/tester', {xpTotal: 25});
+  const {buildXpTransactionId} = f.load('../lib/xp/xp-engine.js');
+  const id = buildXpTransactionId({userId: 'tester', action: 'achievement.unlock',
+    objectType: 'achievement', objectId: 'reports.1', stage: 'unlocked', amount: 25});
+  f.rows.set(`xp_transactions/${id}`, {userId: 'tester', action: 'achievement.unlock',
+    objectId: 'reports.1', amount: 25, status: 'confirmed'});
+  const before = JSON.stringify([...f.rows]);
+  for (const result of [await f.syncAchievements('tester', now), await f.publicAchievements('viewer', 'tester')]) {
+    assert.equal(result.items.some(item => item.category === 'reports'), false);
+  }
+  await assert.rejects(f.selectAchievement('tester', 'reports.1'), /Unknown achievement/);
+  assert.equal(JSON.stringify([...f.rows]), before);
 });

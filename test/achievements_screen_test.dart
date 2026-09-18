@@ -9,55 +9,194 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   testWidgets(
-    'only unlocked badges are selectable and failed saves preserve the choice',
+    'legacy report badges are hidden and excluded from unlocked totals',
     (tester) async {
-      String? saved;
-      var fail = false;
-      final items = [
-        for (final id in ['spots.1', 'spots.5', 'spots.10'])
-          {
-            'id': id,
-            'category': 'spots',
-            'title': {'en': 'Spots'},
-            'xp': 50,
-            'threshold': 1,
-            'tier': 1,
-            'unit': 'count',
-            'progress': 1,
-            'available': true,
-            'status': id == 'spots.10' ? 'locked' : 'confirmed',
-          },
-      ];
       await tester.pumpWidget(
         MaterialApp(
-          theme: ThemeData.dark(),
           home: AchievementsScreen(
             language: 'en',
-            load: () async => {'enabled': true, 'items': items},
-            select: (id) async {
-              if (fail) throw StateError('offline');
-              saved = id;
+            load: () async => {
+              'enabled': true,
+              'items': [
+                {
+                  'id': 'reports.1',
+                  'category': 'reports',
+                  'title': {'en': 'Confirmed reports'},
+                  'xp': 25,
+                  'threshold': 1,
+                  'tier': 1,
+                  'available': true,
+                  'status': 'confirmed',
+                },
+                {
+                  'id': 'reports.5',
+                  'category': 'reports',
+                  'title': {'en': 'Confirmed reports'},
+                  'xp': 50,
+                  'threshold': 5,
+                  'tier': 2,
+                  'available': false,
+                  'status': 'locked',
+                },
+                {
+                  'id': 'spots.1',
+                  'category': 'spots',
+                  'title': {'en': 'Spots'},
+                  'xp': 50,
+                  'threshold': 1,
+                  'tier': 1,
+                  'available': true,
+                  'status': 'confirmed',
+                },
+              ],
             },
           ),
         ),
       );
       await tester.pumpAndSettle();
-      expect(find.byKey(const ValueKey('select-spots.10')), findsNothing);
-      await tester.tap(find.byKey(const ValueKey('select-spots.1')));
-      await tester.pumpAndSettle();
-      expect(saved, 'spots.1');
-      expect(find.text('On profile'), findsOneWidget);
-      fail = true;
-      await tester.tap(find.byKey(const ValueKey('select-spots.5')));
-      await tester.pumpAndSettle();
-      expect(saved, 'spots.1');
-      expect(find.text('Could not save achievement'), findsOneWidget);
-      fail = false;
-      await tester.tap(find.text('Remove from profile'));
-      await tester.pumpAndSettle();
-      expect(saved, isNull);
+      expect(find.text('1 / 1 Unlocked'), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('achievement-tile-reports.1')),
+        findsNothing,
+      );
+      expect(
+        find.byKey(const ValueKey('achievement-tile-reports.5')),
+        findsNothing,
+      );
+      expect(find.text('Confirmed reports'), findsNothing);
+      expect(
+        find.byKey(const ValueKey('achievement-tile-spots.1')),
+        findsOneWidget,
+      );
     },
   );
+
+  for (final width in [320.0, 390.0, 430.0]) {
+    testWidgets(
+      'compact board separates countries and opens details at $width',
+      (tester) async {
+        tester.view.physicalSize = Size(width, 900);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+        final items = [
+          for (var i = 1; i <= 6; i++)
+            {
+              'id': 'spots.$i',
+              'category': 'spots',
+              'title': {'en': 'Permanent spots'},
+              'xp': 50,
+              'threshold': i,
+              'tier': 1,
+              'progress': 1,
+              'available': true,
+              'status': i == 1 ? 'confirmed' : 'locked',
+            },
+          {
+            'id': 'tourist.LV',
+            'category': 'tourist',
+            'title': {'en': 'Latvia'},
+            'xp': 75,
+            'threshold': 1,
+            'tier': 1,
+            'progress': 0,
+            'available': false,
+            'status': 'locked',
+            'asset': 'assets/achievements/latvia.png',
+          },
+        ];
+        await tester.pumpWidget(
+          MaterialApp(
+            theme: ThemeData.dark(),
+            home: AchievementsScreen(
+              language: 'en',
+              load: () async => {
+                'enabled': true,
+                'selectedId': 'spots.1',
+                'items': items,
+              },
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        final main = find.byKey(const ValueKey('achievement-board-main'));
+        final countries = find.byKey(
+          const ValueKey('achievement-board-countries'),
+        );
+        final grid = tester.widget<GridView>(main);
+        final columns =
+            (grid.gridDelegate as SliverGridDelegateWithFixedCrossAxisCount)
+                .crossAxisCount;
+        expect(columns, inInclusiveRange(5, 6));
+        expect(grid.childrenDelegate.estimatedChildCount, 6);
+        expect(
+          tester
+              .widget<GridView>(countries)
+              .childrenDelegate
+              .estimatedChildCount,
+          1,
+        );
+        expect(
+          find.descendant(of: main, matching: find.text('Latvia')),
+          findsNothing,
+        );
+        expect(
+          find.descendant(of: countries, matching: find.text('Latvia')),
+          findsOneWidget,
+        );
+        expect(find.text('Main achievements'), findsOneWidget);
+        expect(find.text('Countries'), findsOneWidget);
+        expect(find.text('Show on profile'), findsNothing);
+        expect(find.text('Remove from profile'), findsNothing);
+        for (final id in ['spots.1', 'spots.2', 'tourist.LV']) {
+          await tester.tap(find.byKey(ValueKey('achievement-tile-$id')));
+          await tester.pumpAndSettle();
+          expect(
+            find.text(
+              id == 'tourist.LV'
+                  ? 'Visit a spot within 100 m in this foreign country'
+                  : '${id == 'spots.1' ? 1 : 2} approved permanent spots',
+            ),
+            findsOneWidget,
+          );
+          expect(
+            find.text(
+              id == 'spots.1'
+                  ? 'Unlocked'
+                  : id == 'spots.2'
+                  ? '1 / 2'
+                  : 'Not available yet',
+            ),
+            findsOneWidget,
+          );
+          expect(find.text('Show on profile'), findsNothing);
+          await tester.tap(find.text('Close'));
+          await tester.pumpAndSettle();
+        }
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
+  testWidgets('achievement loading can retry after an error', (tester) async {
+    var fail = true;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: AchievementsScreen(
+          language: 'en',
+          load: () async {
+            if (fail) throw StateError('offline');
+            return {'enabled': true, 'items': []};
+          },
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Could not load achievements'), findsOneWidget);
+    fail = false;
+    await tester.tap(find.text('Retry'));
+    await tester.pumpAndSettle();
+    expect(find.text('No unlocked achievements yet'), findsOneWidget);
+  });
   testWidgets('board keeps locked and earned badges visible at enlarged text', (
     tester,
   ) async {
@@ -92,7 +231,7 @@ void main() {
     );
     await tester.pumpAndSettle();
     final grid = tester.widget<GridView>(
-      find.byKey(const ValueKey('achievement-board')),
+      find.byKey(const ValueKey('achievement-board-main')),
     );
     expect(grid.childrenDelegate.estimatedChildCount, 67);
     final earned = find.byKey(const ValueKey('achievement-tile-spots.0'));
@@ -216,36 +355,37 @@ void main() {
           'moderator',
           'tourist',
         ])
-          {
-            'id': category,
-            'category': category,
-            'title': {
-              'en': category,
-              'ru': {
-                'spots': 'Споты',
-                'groups': 'Владелец группы',
-                'reports': 'Подтверждённые репорты',
-                'moderator': 'Стаж модератора',
-                'tourist': 'Латвия',
-              }[category],
-              'lv': {
-                'spots': 'Vietas',
-                'groups': 'Grupas īpašnieks',
-                'reports': 'Apstiprināti ziņojumi',
-                'moderator': 'Moderatora stāžs',
-                'tourist': 'Latvija',
-              }[category],
+          for (var tier = 1; tier <= (category == 'tourist' ? 1 : 5); tier++)
+            {
+              'id': '$category.$tier',
+              'category': category,
+              'title': {
+                'en': category,
+                'ru': {
+                  'spots': 'Споты',
+                  'groups': 'Владелец группы',
+                  'reports': 'Подтверждённые репорты',
+                  'moderator': 'Стаж модератора',
+                  'tourist': 'Латвия',
+                }[category],
+                'lv': {
+                  'spots': 'Vietas',
+                  'groups': 'Grupas īpašnieks',
+                  'reports': 'Apstiprināti ziņojumi',
+                  'moderator': 'Moderatora stāžs',
+                  'tourist': 'Latvija',
+                }[category],
+              },
+              'xp': 100,
+              'threshold': 10,
+              'tier': tier,
+              'unit': category == 'tourist' ? 'country' : 'count',
+              'progress': 0,
+              'available': category == 'spots',
+              'status': category == 'spots' ? 'confirmed' : 'locked',
+              if (category == 'tourist')
+                'asset': 'assets/achievements/latvia.png',
             },
-            'xp': 100,
-            'threshold': 10,
-            'tier': 1,
-            'unit': category == 'tourist' ? 'country' : 'count',
-            'progress': 0,
-            'available': category == 'spots',
-            'status': category == 'spots' ? 'confirmed' : 'locked',
-            if (category == 'tourist')
-              'asset': 'assets/achievements/latvia.png',
-          },
       ];
       await tester.pumpWidget(
         MaterialApp(
