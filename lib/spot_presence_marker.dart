@@ -1,6 +1,11 @@
 import 'package:flutter/material.dart';
 
-/// Keeps the spot anchored at the centre, with a separate people button.
+/// Anchor the bottom of the centered icon, not the label/presence hit box.
+/// flutter_map uses the opposite alignment for the geographic anchor.
+Alignment spotIconBottomAlignment(double markerHeight, double iconHeight) =>
+    Alignment(0, -(iconHeight / markerHeight).clamp(0.0, 1.0));
+
+/// Keeps the icon horizontally centered, with a separate people button.
 class SpotPresenceMarker extends StatelessWidget {
   static const double sideSpace = 50;
 

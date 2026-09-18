@@ -971,6 +971,7 @@ class _FirestoreDebugScreenState extends State<FirestoreDebugScreen> {
   @override
   void initState() {
     super.initState();
+    if (currentUser.role != UserRole.admin) return;
     unawaited(firestoreCloudUsageController.loadBaseline());
     unawaited(firestoreCloudUsageController.refresh());
     _cloudUsageRefreshTimer = Timer.periodic(const Duration(minutes: 1), (_) {
@@ -999,6 +1000,9 @@ class _FirestoreDebugScreenState extends State<FirestoreDebugScreen> {
 
   @override
   Widget build(BuildContext context) {
+    if (currentUser.role != UserRole.admin) {
+      return Scaffold(appBar: AppBar(), body: Center(child: Text(trText('No permission'))));
+    }
     return AnimatedBuilder(
       animation: Listenable.merge([
         firestoreDebugTracker,
@@ -22868,7 +22872,7 @@ class _MainScreenState extends State<_MainContentScreen>
                 ValueListenableBuilder<bool>(
                   valueListenable: firestoreDebugButtonVisible,
                   builder: (context, visible, _) {
-                    if (!visible || !userRoleIsStaff(currentUser.role)) {
+                    if (!visible || currentUser.role != UserRole.admin) {
                       return const SizedBox.shrink();
                     }
 
@@ -27814,6 +27818,7 @@ class _MapScreenState extends State<MapScreen>
       return Marker(
         key: ValueKey('spot_${spot.id}'),
         point: spot.coordinates,
+        alignment: spotIconBottomAlignment(markerHeight, markerVisualSize),
         width:
             markerWidth + (showPeople ? SpotPresenceMarker.sideSpace * 2 : 0),
         height: markerHeight,
@@ -37758,6 +37763,7 @@ class _LocationPickerScreenState extends State<LocationPickerScreen>
         point: location,
         width: 64,
         height: 64,
+        alignment: spotIconBottomAlignment(64, 56),
         child: Icon(
           Icons.location_on,
           color: checkingRegion
@@ -55590,6 +55596,7 @@ void openAchievements(BuildContext context) {
       builder: (_) => AchievementsScreen(
         language: appUiPreferences.language.name,
         load: () => xpScreenRequest('achievements'),
+        isModerator: currentUser.role == UserRole.moderator,
       ),
     ),
   );
@@ -62445,6 +62452,7 @@ class _AdminReviewScreenState extends State<AdminReviewScreen>
                 ),
               ],
               const SizedBox(height: 16),
+              if (currentUser.role == UserRole.admin)
               ValueListenableBuilder<bool>(
                 valueListenable: firestoreDebugButtonVisible,
                 builder: (context, debugVisible, _) {

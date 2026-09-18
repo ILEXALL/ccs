@@ -5,7 +5,7 @@ String achievementCategoryLabel(String category, String language) {
   const labels = {
     'spots': ['Spots', 'Споты', 'Vietas'],
     'visits': ['Visits', 'Посещения', 'Apmeklējumi'],
-    'meets': ['Meets', 'Миты', 'Tikšanās'],
+    'meets': ['Events', 'События', 'Pasākumi'],
     'topics': ['Topics', 'Темы', 'Tēmas'],
     'tenure': ['CCS veteran', 'Стаж CCS', 'CCS stāžs'],
     'moderator': ['Moderator', 'Модератор', 'Moderators'],

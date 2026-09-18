@@ -13,10 +13,12 @@ String achievementText(String language, String en, String ru, String lv) =>
 class AchievementsScreen extends StatefulWidget {
   final Future<Map<String, dynamic>> Function() load;
   final String language;
+  final bool isModerator;
   const AchievementsScreen({
     super.key,
     required this.load,
     required this.language,
+    this.isModerator = false,
   });
   @override
   State<AchievementsScreen> createState() => _AchievementsScreenState();
@@ -151,10 +153,13 @@ class _AchievementsScreenState extends State<AchievementsScreen> {
           );
         }
         final data = snapshot.data!;
+        final isModerator = data['isModerator'] == true ||
+            (data['isModerator'] == null && widget.isModerator);
         final items = (data['items'] as List)
             .map((e) => Map<String, dynamic>.from(e as Map))
             // Also hide the retired category when an older backend responds.
-            .where((item) => item['category'] != 'reports')
+            .where((item) => item['category'] != 'reports' &&
+                (item['category'] != 'moderator' || isModerator))
             .toList();
         final main = items
             .where((item) => item['category'] != 'tourist')
@@ -165,9 +170,10 @@ class _AchievementsScreenState extends State<AchievementsScreen> {
         final unlocked = items
             .where((item) => item['status'] == 'confirmed')
             .length;
-        return ListView(
-          padding: const EdgeInsets.all(12),
-          children: [
+        return CustomScrollView(
+          slivers: [
+            SliverToBoxAdapter(child: Padding(padding: const EdgeInsets.all(12), child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start, children: [
             Text(
               '$unlocked / ${items.length} ${t('Unlocked', 'Получено', 'Iegūts')}',
               style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
@@ -196,8 +202,9 @@ class _AchievementsScreenState extends State<AchievementsScreen> {
                   ),
                 ),
               ),
+            ]))),
             if (main.isNotEmpty)
-              section(
+              ...section(
                 'main',
                 t(
                   'Main achievements',
@@ -207,7 +214,7 @@ class _AchievementsScreenState extends State<AchievementsScreen> {
                 main,
               ),
             if (countries.isNotEmpty)
-              section(
+              ...section(
                 'countries',
                 t('Countries', 'Страны', 'Valstis'),
                 countries,
@@ -218,42 +225,27 @@ class _AchievementsScreenState extends State<AchievementsScreen> {
     ),
   );
 
-  Widget section(String id, String heading, List<Map<String, dynamic>> items) =>
-      Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Padding(
-            padding: const EdgeInsets.only(top: 8, bottom: 12),
-            child: Text(
-              heading,
-              style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
-            ),
-          ),
-          LayoutBuilder(
-            builder: (context, constraints) {
-              final scale = MediaQuery.textScalerOf(context).scale(12) / 12;
-              final columns =
-                  ((constraints.maxWidth + 6) / (60 * scale.clamp(1, 3)))
-                      .floor()
-                      .clamp(1, 6);
-              return GridView.builder(
-                key: ValueKey('achievement-board-$id'),
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                itemCount: items.length,
-                gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: columns,
-                  crossAxisSpacing: 6,
-                  mainAxisSpacing: 8,
-                  mainAxisExtent: 60 + 48 * scale.clamp(1, 10),
-                ),
-                itemBuilder: (context, index) => achievementTile(items[index]),
-              );
-            },
-          ),
-          const SizedBox(height: 16),
-        ],
-      );
+  List<Widget> section(String id, String heading, List<Map<String, dynamic>> items) => [
+    SliverToBoxAdapter(child: Padding(
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+      child: Text(heading, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
+    )),
+    SliverPadding(padding: const EdgeInsets.symmetric(horizontal: 12),
+      sliver: SliverLayoutBuilder(builder: (context, constraints) {
+        final scale = MediaQuery.textScalerOf(context).scale(12) / 12;
+        final columns = ((constraints.crossAxisExtent + 6) / (60 * scale.clamp(1, 3))).floor().clamp(1, 6);
+        return SliverGrid(
+          key: ValueKey('achievement-board-$id'),
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: columns, crossAxisSpacing: 6, mainAxisSpacing: 8,
+            mainAxisExtent: 60 + 48 * scale.clamp(1, 10)),
+          delegate: SliverChildBuilderDelegate((context, index) => achievementTile(items[index]),
+            childCount: items.length),
+        );
+      }),
+    ),
+    const SliverToBoxAdapter(child: SizedBox(height: 16)),
+  ];
 
   Widget achievementTile(Map<String, dynamic> item) {
     final earned = item['status'] == 'confirmed';
@@ -335,14 +327,14 @@ String achievementRequirement(Map<String, dynamic> item, String language) {
       '$n apstiprinātas pastāvīgas vietas',
     ),
     'visits' => t(
-      '$n verified spot visits',
-      '$n подтверждённых посещений спотов',
-      '$n apstiprināti vietu apmeklējumi',
+      'Visit $n different spots',
+      'Посетить $n разных спотов',
+      'Apmeklēt $n dažādas vietas',
     ),
     'tourist' => t(
-      'Visit a spot within 100 m in this foreign country',
-      'Посетить спот в этой иностранной стране в радиусе 100 м',
-      'Apmeklēt vietu 100 m rādiusā šajā ārvalstī',
+      'Visit this country with location access enabled',
+      'Посетить эту страну с разрешённым доступом к геолокации',
+      'Apmeklēt šo valsti ar ieslēgtu piekļuvi atrašanās vietai',
     ),
     'tenure' => t(
       '$n months since registration',
@@ -365,9 +357,9 @@ String achievementRequirement(Map<String, dynamic> item, String language) {
       '$n moderatoru apstiprināti ziņojumi',
     ),
     'meets' => t(
-      'Organize $n meets',
-      'Организовать $n митов',
-      'Organizēt $n tikšanās',
+      '$n approved temporary spots',
+      '$n одобренных временных спотов',
+      '$n apstiprinātas pagaidu vietas',
     ),
     'topics' => t('$n active topics', '$n активных тем', '$n aktīvas tēmas'),
     _ => '$n',
