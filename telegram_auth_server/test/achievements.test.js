@@ -60,7 +60,7 @@ test('public achievements expose the full board and never expose private ledger 
   f.rows.set('xp_transactions/private', {userId: 'tester', action: 'profile.avatar', status: 'confirmed', amount: 50, secret: 'private'});
   const before = JSON.stringify([...f.rows]);
   const result = await f.publicAchievements('viewer', 'tester');
-  assert.equal(result.items.length, f.catalog().length);
+  assert.equal(result.items.length, f.catalog().filter(i => i.category !== 'moderator').length);
   assert.equal(result.items.find(i=>i.id==='spots.5').status, 'locked');
   assert.equal(result.items.find(i=>i.id==='spots.5').progress, 1);
   assert.equal(result.items[0].id, 'spots.1');
@@ -159,7 +159,8 @@ test('approved owned permanent spots count once and achievement retry cannot dup
   const first = await f.syncAchievements('tester', now);
   assert.equal(first.items.find(i => i.id === 'spots.1').status, 'confirmed');
   await f.syncAchievements('tester', now);
-  assert.equal(f.rows.get('xp_user_stats/tester').xpTotal, 50);
+  assert.equal(f.rows.get('xp_user_stats/tester').xpTotal, 100);
+  assert.equal(first.items.find(i => i.id === 'meets.1').status, 'confirmed');
   assert.equal(first.items.find(i => i.id === 'groups.10').available, false);
 });
 test('achievement awards in full above the weekly cap', async () => {

@@ -50,7 +50,7 @@ function fixture(sourcePath) {
     .replaceAll('export async function ', 'async function ');
   const publications = { drainForumPublications() { throw new Error('Outbox draining is outside this delivery fixture'); } };
   const context={publications,crypto,admin,console,process,Date:class extends Date {static now(){return now;}},exports:{}};
-  vm.runInNewContext(source+'\nexports.publish = notifyUsersAboutNewSpot; exports.reply=handleForumReply; exports.legacy=handleForumReplyAdmin; exports.topic=handleForumTopicCreated;',context);
+  vm.runInNewContext(source+'\nexports.publish = notifyUsersAboutNewSpot; exports.reply=handleForumReply; exports.legacy=handleForumReplyAdmin; exports.topic=handleForumTopicCreated; exports.group=typeof handleGroupMembersAdded === \"function\" ? handleGroupMembersAdded : null;',context);
   async function publish(id,temporary=false,type=temporary?'temporary_event':'new_spot') {
     return context.exports.publish({spotId:id,spot:{name:id,cityCountry:'Riga, Latvia',addedByUid:'owner',isTemporary:temporary},notificationType:type,deliveryKey:'caller-supplied:'+id});
   }
@@ -162,3 +162,13 @@ for(const source of ['../api/push-notification.js','../../api/push-notification.
     assert(![...f.records.entries()].some(([key,value])=>key.startsWith('user_notifications/')&&value.userId==='bob'));
   });
 }
+
+test('new-group pushes validate owner, honor preferences and deduplicate retries', async()=>{
+  const f=fixture(path.resolve(__dirname,'../api/push-notification.js'));
+  f.records.set('chats/g',{isGroup:true,ownerUid:'owner',name:'Drivers',memberIds:['owner','alice','bob'],createdAt:{toMillis:()=>100000000}});
+  await f.group('alice',{chatId:'g'});assert.equal(f.pushes.length,0);
+  f.records.get('users/bob').settings={friendRequestNotifications:false};
+  await f.group('owner',{chatId:'g'});assert.equal(f.pushes.length,1);
+  assert.equal(f.pushes[0].tokens[0],'alice-token');assert.equal(f.pushes[0].data.chatId,'g');
+  await f.group('owner',{chatId:'g'});assert.equal(f.pushes.length,1);
+});

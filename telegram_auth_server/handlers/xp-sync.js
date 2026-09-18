@@ -1,6 +1,6 @@
 const { admin, db } = require('../lib/firebase-admin');
 const { adjustXp } = require('../lib/xp/xp-adjustments');
-const { syncAchievements, selectAchievement, publicAchievements } = require('../lib/xp/achievements');
+const { syncAchievements, selectAchievement, publicAchievements, recordCountryAchievement } = require('../lib/xp/achievements');
 const { rewardProgress } = require('../lib/xp/rewards');
 const { publicXpProfile, creatorSpotCount } = require('../lib/xp/public-profile');
 const {
@@ -113,10 +113,13 @@ async function syncSpot(actor, body) {
     throw new Error('No permission to sync this spot');
   }
 
-  return awardManyXp(evaluatePermanentSpotApprovalXp(spotId, spot));
+  const awards = await awardManyXp(evaluatePermanentSpotApprovalXp(spotId, spot));
+  if (authorUid) await syncAchievements(authorUid);
+  return awards;
 }
 
 const handlers = {
+  visit_country: (actor, body) => recordCountryAchievement(actor.uid, body),
   creator_spots: (actor, body) => creatorSpotCount(actor.uid, body.userId),
   public_xp: (actor, body) => publicXpProfile(actor.uid, body.userId, body.section),
   public_achievements: (actor, body) => publicAchievements(actor.uid, body.userId),

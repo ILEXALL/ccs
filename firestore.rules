@@ -2660,14 +2660,12 @@ service cloud.firestore {
         && request.resource.data.status == get(/databases/$(database)/documents/spots/$(resource.data.spotId)).data.status);
     }
 
-    match /forum_topics/{topicId} {
-      allow read: if isActiveUser() && spotAudienceAllowed(resource.data);
-
-      allow create: if (request.resource.data.get('visibility', 'public') == 'group' && validGroupSpotTopic(topicId))
-        || (request.resource.data.get('visibility', 'public') == 'public'
-          && (request.resource.data.get('source', '') != 'temporary_spot' || getAfter(/databases/$(database)/documents/spots/$(request.resource.data.spotId)).data.get('visibility', 'public') == 'public')
-          && (isActiveUser()
-        && (request.resource.data.get('visibility', 'public') == 'public' || validTemporarySpotAutoForumTopicCreate(topicId))
+    // Evaluate the source-spot validation once. Repeating regional checks and
+    // this validation can exceed Firestore's 1000-expression request limit.
+    function validPublicForumTopicCreate(topicId) {
+      let autoTopic = request.resource.data.get('source', '') == 'temporary_spot'
+        && validTemporarySpotAutoForumTopicCreate(topicId);
+      return isActiveUser()
         && request.resource.data.keys().hasOnly([
           'visibility', 'sharedGroupIds', 'sharedGroups',
           'title',
@@ -2703,13 +2701,13 @@ service cloud.firestore {
         ])
         && (
           request.resource.data.authorId == currentUid()
-          || validTemporarySpotAutoForumTopicCreate(topicId)
+          || autoTopic
         )
         && (
-          validOwnCommunityCountry(request.resource.data)
+          autoTopic
+          || validOwnCommunityCountry(request.resource.data)
           || validPreviousRegionalCommunityData(request.resource.data)
           || validLegacyLatvianCommunityData(request.resource.data)
-          || validTemporarySpotAutoForumTopicCreate(topicId)
         )
         && request.resource.data.title is string
         && request.resource.data.title.size() >= 1
@@ -2763,7 +2761,7 @@ service cloud.firestore {
             && request.resource.data.reviewedAt == null
           )
           || (
-            (canModerateCommunity(request.resource.data) || validTemporarySpotAutoForumTopicCreate(topicId))
+            (autoTopic || canModerateCommunity(request.resource.data))
             && request.resource.data.status == 'approved'
             && request.resource.data.rejectionReason == null
             && request.resource.data.reviewedBy == currentUid()
@@ -2771,7 +2769,16 @@ service cloud.firestore {
           )
         )
         && request.resource.data.createdAt == request.time
-        && request.resource.data.lastReplyAt == request.time));
+        && request.resource.data.lastReplyAt == request.time
+        && (request.resource.data.get('source', '') != 'temporary_spot' || autoTopic);
+    }
+
+    match /forum_topics/{topicId} {
+      allow read: if isActiveUser() && spotAudienceAllowed(resource.data);
+
+      allow create: if (request.resource.data.get('visibility', 'public') == 'group' && validGroupSpotTopic(topicId))
+        || (request.resource.data.get('visibility', 'public') == 'public'
+          && validPublicForumTopicCreate(topicId));
 
       allow update: if forumDecisionWriteAllowed() && spotAudienceAllowed(resource.data)
         && request.resource.data.get('visibility', 'public') == resource.data.get('visibility', 'public')

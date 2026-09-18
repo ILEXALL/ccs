@@ -96,6 +96,6 @@ function fixture(extra = {}) {
     }, { filename });
     return module.exports;
   }
-  return { rows, load, reads, awards: load('../lib/xp/xp-firestore.js') };
+  return { db, rows, load, reads, awards: load('../lib/xp/xp-firestore.js') };
 }
 module.exports = { fixture };

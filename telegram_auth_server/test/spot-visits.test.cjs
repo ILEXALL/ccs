@@ -19,14 +19,13 @@ function fixture() {
   return {db, rows};
 }
 
-test('nearby visit records once per Riga day, without coordinates or XP', async () => {
+test('nearby visit records once per spot lifetime, without storing coordinates', async () => {
   const {db, rows} = fixture();
   assert.equal((await recordSpotVisit(db, 'u', 's', now)).duplicate, false);
   assert.equal((await recordSpotVisit(db, 'u', 's', now + 1000)).duplicate, true);
   const records = [...rows.entries()].filter(([key]) => key.startsWith('spot_visit_records/'));
   assert.equal(records.length, 1);
-  assert.equal(records[0][1].status, 'observed');
-  assert.equal(records[0][1].xpAwarded, false);
+  assert.equal(records[0][1].status, 'verified');
   assert.equal('lat' in records[0][1], false);
   assert.equal('coordinates' in records[0][1], false);
 });
@@ -85,7 +84,7 @@ test('endpoint binds visit to authenticated UID and rejects missing or invalid t
         if (token !== 'valid') throw new Error('Invalid token');
         return {uid: 'authenticated-user'};
       }})},
-    } : {recordSpotVisit: async (_, uid, spotId) => {calls.push({uid, spotId}); return {recorded: true};}},
+    } : name.includes('achievements') ? {syncAchievements: async()=>({})} : {recordSpotVisit: async (_, uid, spotId) => {calls.push({uid, spotId}); return {recorded: true};}},
   });
   const response = () => ({code: 0, setHeader() {}, status(code) {this.code = code; return this;}, json(value) {this.value = value; return this;}});
   for (const header of ['', 'Bearer invalid']) {

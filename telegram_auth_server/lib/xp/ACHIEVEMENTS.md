@@ -1,4 +1,10 @@
-# Achievements integration status
+## September 2026 update
+
+Events retain the internal meets.* identifiers so existing awards remain valid. Event progression counts approved, non-deleted event creations (including group events) once per document, with creator identity preferred over legacy owner identity. Tiers remain 1/5/10/25/50. Event creation and approval invoke sync_spot; opening the achievement board also reconciles progress.
+
+Visits now use lifetime unique server-validated spot visit records, with tiers 1/10/25/50/100. Only users whose current role is moderator receive Moderator rows on either their own or public achievement boards. Admin and regular profiles omit those rows; historical XP is preserved.
+
+# Earlier implementation notes (historical; superseded by the update above)
 
 Local implementation only. No production flag or deployment was changed.
 The profile opens an authenticated catalog through xp-sync action `achievements`.

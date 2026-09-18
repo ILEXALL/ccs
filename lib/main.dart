@@ -1801,6 +1801,10 @@ const _ruText = <String, String>{
   'Spots': 'Споты',
   'Map': 'Карта',
   'Add Spot': 'Добавить спот',
+  'Add Event': 'Добавить событие',
+  'Event details': 'Детали события',
+  'Event name': 'Название события',
+  'Event schedule': 'Расписание события',
   'Chat': 'Чат',
   'Chat, forums and community': 'Чаты, форумы и сообщество',
   'Global': 'Глобальный',
@@ -2092,7 +2096,6 @@ const _ruText = <String, String>{
   'Only verified users and admins can see this spot':
       'Виден только проверенным и админам',
 
-  'Temporary schedule': 'Временное расписание',
   'Categories': 'Категории',
   'Contacts': 'Контакты',
   'Opening hours': 'Часы работы',
@@ -2271,8 +2274,8 @@ const _ruText = <String, String>{
   'By continuing, you agree to our Terms & Privacy Policy':
       'Продолжая, вы принимаете условия и политику конфиденциальности',
   'Car added to your account.': 'Автомобиль добавлен в аккаунт.',
-  'Choose both start and end time for a temporary spot.':
-      'Выберите время начала и окончания временного спота.',
+  'Choose both start and end time for a event.':
+      'Выберите время начала и окончания события.',
   'Closed': 'Закрыто',
   'Comment deleted.': 'Комментарий удалён.',
   'Comment posted.': 'Комментарий опубликован.',
@@ -2449,16 +2452,15 @@ const _ruText = <String, String>{
   'Tap to change avatar': 'Нажмите, чтобы изменить аватар',
   'Tell people about your car, build, setup, and plans':
       'Расскажите об автомобиле, доработках и планах',
-  'Temporary spot': 'Временный спот',
-  'For meets and events. Max active time is 12 hours.':
-      'Для встреч и событий. До 12 часов.',
+  'Event': 'Событие',
+  'Events can last up to 12 hours.': 'Для встреч и событий. До 12 часов.',
 
-  'Temporary spot can be active for 12 hours maximum.':
-      'Временный спот может быть активен не более 12 часов.',
-  'Temporary spot end time must be after start time.':
-      'Временный спот должен закончиться после начала.',
-  'Choose when the temporary spot location should appear on the map.':
-      'Выберите, когда локация временного спота появится на карте.',
+  'Event can be active for 12 hours maximum.':
+      'Событие может быть активен не более 12 часов.',
+  'Event end time must be after start time.':
+      'Событие должен закончиться после начала.',
+  'Choose when the event location should appear on the map.':
+      'Выберите, когда локация события появится на карте.',
   'Show on map time must be before the end time.':
       'Время показа на карте должно быть раньше окончания.',
   'Admin spot added. It is live now.': 'Спот добавлен и уже опубликован.',
@@ -2466,9 +2468,9 @@ const _ruText = <String, String>{
       'Спот отправлен на проверку. Админы получили уведомление.',
   'Firebase did not save the spot/photo':
       'Firebase не сохранил спот или фотографию',
-  'Temporary spots and events': 'Временные споты и события',
-  'Temporary spots can be active for maximum 12 hours.':
-      'Временные споты могут быть активны не более 12 часов.',
+  'Events': 'События',
+  'Events can be active for maximum 12 hours.':
+      'События могут длиться не более 12 часов.',
   'This chat has no one to share location with.':
       'В этом чате не с кем поделиться геопозицией.',
   'This driver has not shared car builds yet.':
@@ -2689,7 +2691,6 @@ const _ruText = <String, String>{
       'Уведомления подключены через Firebase Cloud Messaging.',
   'you': 'вы',
   'Yesterday': 'Вчера',
-  'Temporary event': 'Временный ивент',
   'You can like this spot 2 times per day.':
       'Вы можете поставить лайк этому споту только 2 раза в день.',
   'You can remove your like from this spot 2 times per day.':
@@ -2752,7 +2753,6 @@ const _ruText = <String, String>{
   'Be the first to reply in this topic.':
       'Будьте первым, кто ответит в этой теме.',
   'Reply in topic': 'Ответить в теме',
-  'Temporary events': 'Временные ивенты',
   // Private group discovery and owner review.
   'Private groups': 'Закрытые группы',
   'Private group': 'Закрытая группа',
@@ -2888,6 +2888,10 @@ const _lvText = <String, String>{
   'Spots': 'Vietas',
   'Map': 'Karte',
   'Add Spot': 'Pievienot vietu',
+  'Add Event': 'Pievienot pasākumu',
+  'Event details': 'Pasākuma informācija',
+  'Event name': 'Pasākuma nosaukums',
+  'Event schedule': 'Pasākuma laiks',
   'Chat': 'Čats',
   'Chat, forums and community': 'Čati, forumi un kopiena',
   'Global': 'Globālais',
@@ -3182,7 +3186,6 @@ const _lvText = <String, String>{
   'Only verified users and admins can see this spot':
       'Redz tikai verificētie un administratori',
 
-  'Temporary schedule': 'Pagaidu grafiks',
   'Categories': 'Kategorijas',
   'Contacts': 'Kontakti',
   'Opening hours': 'Darba laiks',
@@ -3360,8 +3363,8 @@ const _lvText = <String, String>{
   'By continuing, you agree to our Terms & Privacy Policy':
       'Turpinot jūs piekrītat noteikumiem un privātuma politikai',
   'Car added to your account.': 'Auto pievienots kontam.',
-  'Choose both start and end time for a temporary spot.':
-      'Izvēlieties pagaidu vietas sākuma un beigu laiku.',
+  'Choose both start and end time for a event.':
+      'Izvēlieties pasākuma sākuma un beigu laiku.',
   'Closed': 'Slēgts',
   'Comment deleted.': 'Komentārs dzēsts.',
   'Comment posted.': 'Komentārs publicēts.',
@@ -3537,16 +3540,15 @@ const _lvText = <String, String>{
   'Tap to change avatar': 'Nospiediet, lai mainītu avatāru',
   'Tell people about your car, build, setup, and plans':
       'Pastāstiet par auto, uzlabojumiem un plāniem',
-  'Temporary spot': 'Pagaidu vieta',
-  'For meets and events. Max active time is 12 hours.':
-      'Tikšanās un pasākumiem. Līdz 12 stundām.',
+  'Event': 'Pasākums',
+  'Events can last up to 12 hours.': 'Tikšanās un pasākumiem. Līdz 12 stundām.',
 
-  'Temporary spot can be active for 12 hours maximum.':
-      'Pagaidu vieta var būt aktīva ne ilgāk par 12 stundām.',
-  'Temporary spot end time must be after start time.':
-      'Pagaidu vietas beigu laikam jābūt pēc sākuma laika.',
-  'Choose when the temporary spot location should appear on the map.':
-      'Izvēlieties, kad pagaidu vietas lokācija parādīsies kartē.',
+  'Event can be active for 12 hours maximum.':
+      'Pasākums var būt aktīva ne ilgāk par 12 stundām.',
+  'Event end time must be after start time.':
+      'Pasākumss beigu laikam jābūt pēc sākuma laika.',
+  'Choose when the event location should appear on the map.':
+      'Izvēlieties, kad pasākuma lokācija parādīsies kartē.',
   'Show on map time must be before the end time.':
       'Rādīšanas laikam kartē jābūt pirms beigu laika.',
   'Admin spot added. It is live now.': 'Vieta pievienota un jau publicēta.',
@@ -3554,9 +3556,9 @@ const _lvText = <String, String>{
       'Vieta iesniegta pārbaudei. Administratori ir paziņoti.',
   'Firebase did not save the spot/photo':
       'Firebase nesaglabāja vietu vai fotoattēlu',
-  'Temporary spots and events': 'Pagaidu vietas un pasākumi',
-  'Temporary spots can be active for maximum 12 hours.':
-      'Pagaidu vietas var būt aktīvas ne ilgāk par 12 stundām.',
+  'Events': 'Pasākumi',
+  'Events can be active for maximum 12 hours.':
+      'Pasākumss var būt aktīvas ne ilgāk par 12 stundām.',
   'This chat has no one to share location with.':
       'Šajā čatā nav neviena, ar ko kopīgot atrašanās vietu.',
   'This driver has not shared car builds yet.':
@@ -3773,7 +3775,6 @@ const _lvText = <String, String>{
       'Paziņojumi ir pieslēgti caur Firebase Cloud Messaging.',
   'you': 'jūs',
   'Yesterday': 'Vakar',
-  'Temporary event': 'Pagaidu pasākums',
   'You can like this spot 2 times per day.':
       'Šai vietai varat nospiest Patīk tikai 2 reizes dienā.',
   'You can remove your like from this spot 2 times per day.':
@@ -3836,7 +3837,6 @@ const _lvText = <String, String>{
   'Be the first to reply in this topic.':
       'Esiet pirmais, kas atbild šajā tēmā.',
   'Reply in topic': 'Atbildēt tēmā',
-  'Temporary events': 'Pagaidu pasākumi',
   // Private group discovery and owner review.
   'Private groups': 'Privātās grupas',
   'Private group': 'Privāta grupa',
@@ -6362,12 +6362,13 @@ Widget spotFilterColumns({
   required VoidCallback onChanged,
 }) {
   Widget panel({required Widget child}) {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.16),
+    return Material(
+      color: Colors.black.withValues(alpha: 0.16),
+      shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: Colors.white12),
+        side: const BorderSide(color: Colors.white12),
       ),
+      clipBehavior: Clip.antiAlias,
       child: child,
     );
   }
@@ -11775,7 +11776,7 @@ Future<void> createNewSpotNotificationForUsers(CarSpot spot) async {
   }
 
   final type = spot.isTemporary ? 'temporary_event' : 'new_spot';
-  final title = spot.isTemporary ? 'Temporary events' : 'New spots';
+  final title = spot.isTemporary ? 'Events' : 'New spots';
   final body = spot.isTemporary
       ? '${spot.name} event was added in ${spot.cityCountry}.'
       : '${spot.name} was added in ${spot.cityCountry}.';
@@ -13894,6 +13895,12 @@ Future<String> createGroupChat({
     'createdAt': FieldValue.serverTimestamp(),
   });
 
+  unawaited(
+    sendPushNotificationEvent({
+      'type': 'group_members_added',
+      'chatId': doc.id,
+    }),
+  );
   return doc.id;
 }
 
@@ -14302,6 +14309,111 @@ Future<Duration?> showLiveLocationDurationDialog(BuildContext context) async {
   );
 }
 
+final _countryAchievementRequests = <String>{};
+final _creditedSpotVisits = <String>{};
+final _spotVisitRequests = <String>{};
+
+Future<void> checkGpsSpotVisits(Position position) async {
+  final user = FirebaseAuth.instance.currentUser;
+  final now = DateTime.now();
+  if (user == null ||
+      position.isMocked ||
+      !position.accuracy.isFinite ||
+      position.accuracy < 0 ||
+      position.accuracy > 100 ||
+      now.difference(position.timestamp).abs() > const Duration(seconds: 90))
+    return;
+  final candidates = approvedPublicSpots()
+      .where(
+        (spot) =>
+            !spot.isGroupSpot &&
+            spot.isVisibleOnMapNow &&
+            (!spot.isTemporary || spot.isTemporaryActiveNow) &&
+            Geolocator.distanceBetween(
+                  position.latitude,
+                  position.longitude,
+                  spot.coordinates.latitude,
+                  spot.coordinates.longitude,
+                ) <=
+                100,
+      )
+      .toList();
+  for (final spot in candidates) {
+    if (FirebaseAuth.instance.currentUser?.uid != user.uid) return;
+    final key = '${user.uid}/${spot.id}';
+    if (_creditedSpotVisits.contains(key) || !_spotVisitRequests.add(key))
+      continue;
+    try {
+      final token = await user.getIdToken();
+      if (FirebaseAuth.instance.currentUser?.uid != user.uid) return;
+      final result = await postJsonToUrl(
+        'https://ccs-telegram-auth-server.vercel.app/api/spot-visit',
+        {
+          'spotId': spot.id,
+          'gpsFix': {
+            'latitude': position.latitude,
+            'longitude': position.longitude,
+            'accuracy': position.accuracy,
+            'isMocked': position.isMocked,
+            'recordedAtMillis': position.timestamp.millisecondsSinceEpoch,
+          },
+        },
+        headers: {HttpHeaders.authorizationHeader: 'Bearer $token'},
+      );
+      if (result['ok'] == true) _creditedSpotVisits.add(key);
+    } catch (error) {
+      debugPrint('Spot visit check failed: $error');
+    } finally {
+      _spotVisitRequests.remove(key);
+    }
+  }
+}
+
+Future<void> checkGpsCountryAchievement(
+  BuildContext context,
+  Position position,
+) async {
+  final uid = FirebaseAuth.instance.currentUser?.uid;
+  if (uid == null ||
+      position.isMocked ||
+      !position.accuracy.isFinite ||
+      position.accuracy > 1000 ||
+      !_countryAchievementRequests.add(uid))
+    return;
+  try {
+    final region = await lookupSpotLocationRegion(
+      LatLng(position.latitude, position.longitude),
+    );
+    if (FirebaseAuth.instance.currentUser?.uid != uid) return;
+    final result = await xpScreenRequest('visit_country', {
+      'countryCode': region.countryCode,
+      'latitude': position.latitude,
+      'longitude': position.longitude,
+      'accuracy': position.accuracy,
+      'recordedAtMillis': position.timestamp.millisecondsSinceEpoch,
+      'isMocked': position.isMocked,
+    });
+    if (result['awarded'] == true &&
+        context.mounted &&
+        FirebaseAuth.instance.currentUser?.uid == uid) {
+      final country = localizedCountryName(result['countryCode'] as String);
+      final message = switch (appUiPreferences.language) {
+        AppLanguage.en => 'Country achievement unlocked: $country (+75 XP)',
+        AppLanguage.ru => 'Достижение страны получено: $country (+75 XP)',
+        AppLanguage.lv => 'Valsts sasniegums atbloķēts: $country (+75 XP)',
+      };
+      ScaffoldMessenger.maybeOf(
+        context,
+      )?.showSnackBar(SnackBar(content: Text(message)));
+    }
+  } catch (error) {
+    // GPS navigation and sharing must still work if the XP service is offline.
+    debugPrint('Country achievement check failed: $error');
+  } finally {
+    _countryAchievementRequests.remove(uid);
+  }
+}
+
 Future<void> shareChatLiveLocation(
   BuildContext context,
   ChatThreadData chat,
@@ -14370,6 +14482,9 @@ Future<void> shareChatLiveLocation(
   if (position == null) {
     return;
   }
+
+  unawaited(checkGpsCountryAchievement(context, position));
+  unawaited(checkGpsSpotVisits(position));
 
   final now = DateTime.now();
   final expiresAt = now.add(shareDuration);
@@ -16817,6 +16932,9 @@ void _applySpotFeedSnapshot(
   if (authoritative) {
     _failedSpotSources.remove(source);
     _spotSourcesWithServerSnapshot.add(source);
+    _spotFeedServerReceivedAt[source] = DateTime.now();
+    final ready = _spotFeedServerReady[source];
+    if (ready != null && !ready.isCompleted) ready.complete();
     final immediate = _firebaseSpotCacheBySource[localImmediateSpotCacheSource];
     if (immediate != null) {
       for (final spot in parsedSpots) {
@@ -16845,6 +16963,9 @@ void _applySpotFeedSnapshot(
     }
   }
   _publishFirebaseSpotCaches();
+  if (authoritative && (source == 'approved' || source == 'my submissions')) {
+    unawaited(syncActiveTemporarySpotForumTopics());
+  }
   if (source == 'approved' && authoritative) {
     unawaited(saveApprovedSpotsToLocalCache());
     if (userRoleIsStaff(currentUser.role)) {
@@ -16863,6 +16984,7 @@ void _listenToSpotQuery({
   required int generation,
   required String scope,
 }) {
+  _spotFeedServerReady.putIfAbsent(source, () => Completer<void>());
   final subscription =
       trackedQuerySnapshots(
         'spots listener: $source',
@@ -17033,6 +17155,15 @@ int _spotSyncRetryAttempt = 0;
 final Set<String> _spotSourcesWithServerSnapshot = {};
 final Set<String> _failedSpotSources = {};
 final Map<String, int> _spotFeedRevisions = {};
+final Map<String, DateTime> _spotFeedServerReceivedAt = {};
+final Map<String, Completer<void>> _spotFeedServerReady = {};
+
+bool spotFeedServerSnapshotIsFresh(DateTime? receivedAt, DateTime now) {
+  if (receivedAt == null) return false;
+  final age = now.difference(receivedAt);
+  return !age.isNegative && age < const Duration(seconds: 30);
+}
+
 Future<void>? _spotRefreshInFlight;
 String? _spotRefreshInFlightScope;
 Future<void>? _spotSyncStartInFlight;
@@ -17060,6 +17191,13 @@ void _invalidateSpotSync() {
   _spotSourcesWithServerSnapshot.clear();
   _failedSpotSources.clear();
   _spotFeedRevisions.clear();
+  _spotFeedServerReceivedAt.clear();
+  // Release waiters on an obsolete scope; their generation check prevents
+  // applying data after a sign-out or access change.
+  for (final ready in _spotFeedServerReady.values) {
+    if (!ready.isCompleted) ready.complete();
+  }
+  _spotFeedServerReady.clear();
   _spotRefreshInFlight = null;
   _spotRefreshInFlightScope = null;
   _spotSyncStartInFlight = null;
@@ -17124,7 +17262,6 @@ void startFirebaseSpotSync({bool forceFullRefresh = false}) {
       }
     }),
   );
-  unawaited(syncActiveTemporarySpotForumTopics());
 }
 
 Future<void> _startCachedSpotSync(
@@ -17185,6 +17322,9 @@ Future<void> refreshFirebaseSpotsFromServer() async {
       _spotSyncRetryTimer != null) {
     startFirebaseSpotSync(forceFullRefresh: true);
   }
+  // A newly attached listener already reads the full query. Wait for that
+  // server result instead of issuing the same query again with get().
+  await _spotSyncStartInFlight;
   final generation = _spotSyncGeneration;
   final scope = currentSpotSyncScope;
   final refresh = _refreshSpotFeedsFromServer(
@@ -17208,6 +17348,19 @@ Future<void> _refreshSpotFeedsFromServer(int generation, String scope) async {
     String source,
     Query<Map<String, dynamic>> query,
   ) async {
+    if (!_spotSyncIsCurrent(generation, scope)) return;
+    final ready = _spotFeedServerReady[source];
+    if (!_spotSourcesWithServerSnapshot.contains(source) && ready != null) {
+      await ready.future;
+      return;
+    }
+    if (!_failedSpotSources.contains(source) &&
+        spotFeedServerSnapshotIsFresh(
+          _spotFeedServerReceivedAt[source],
+          DateTime.now(),
+        )) {
+      return;
+    }
     final revision = _spotFeedRevisions[source] ?? 0;
     final snapshot = await trackedQueryGet(
       'spots manual refresh: $source',
@@ -18837,7 +18990,6 @@ Future<void> updateSpotStatus(
 
   if (statusChanged &&
       status == SpotStatus.approved &&
-      !updatedSpot.isTemporary &&
       updatedSpot.id.isNotEmpty) {
     unawaited(
       syncXpWithServer({'action': 'sync_spot', 'spotId': updatedSpot.id}),
@@ -19752,8 +19904,8 @@ NotificationCenterItem notificationCenterItemFromDocument(
           'spot_review_update' => 'Spot review updates',
           'chat_message' => chatNotificationTitle(actorUsername),
           'new_spot' => 'New spots',
-          'temporary_event' => 'Temporary events',
-          'temporary_spot_today' => 'Temporary spot starts in 5 hours',
+          'temporary_event' => 'Events',
+          'temporary_spot_today' => 'Event starts in 5 hours',
           'global_chat_message' || 'global_chat_admin' => 'Global chat',
           'forum_topic_created' => pickString('title', 'New forum topic'),
           'forum_reply' => pickString('title', 'Forum'),
@@ -19800,11 +19952,11 @@ NotificationCenterItem notificationCenterItemFromDocument(
             : '$spotName was added.',
       'temporary_event' =>
         spotName.trim().isEmpty
-            ? 'New temporary event was added.'
-            : '$spotName temporary event was added.',
+            ? 'New event was added.'
+            : '$spotName event was added.',
       'temporary_spot_today' =>
         spotName.trim().isEmpty
-            ? 'A temporary spot starts in about 5 hours.'
+            ? 'A event starts in about 5 hours.'
             : '$spotName starts in about 5 hours.',
       'global_chat_message' ||
       'global_chat_admin' => 'New message in global chat.',
@@ -21239,7 +21391,8 @@ Future<void> openNotificationCenterItem(
     );
     return;
   }
-  if (item.type == 'group_join_decision') {
+  if (item.type == 'group_join_decision' ||
+      item.type == 'group_members_added') {
     Navigator.push(
       context,
       appPageRoute(builder: (_) => const ChatScreen(initialTabIndex: 1)),
@@ -22506,6 +22659,7 @@ class _MainScreenState extends State<_MainContentScreen>
     with WidgetsBindingObserver {
   late int index;
   final List<int> tabHistory = [];
+  bool creatingEvent = false;
   bool hasOpenedMap = false;
   bool hasOpenedChat = false;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>?
@@ -22521,7 +22675,7 @@ class _MainScreenState extends State<_MainContentScreen>
   List<Widget> get screens => [
     ExploreScreen(isVisible: index == 0),
     hasOpenedMap ? MapScreen(isVisible: index == 1) : const SizedBox.shrink(),
-    const AddSpotScreen(),
+    AddSpotScreen(key: ValueKey(creatingEvent), eventMode: creatingEvent),
     hasOpenedChat ? const ChatScreen(isMainTab: true) : const SizedBox.shrink(),
     const ProfileScreen(),
   ];
@@ -23009,13 +23163,28 @@ class _MainScreenState extends State<_MainContentScreen>
                               ),
                             ),
                             Expanded(
-                              child: _CcsBottomNavItem(
-                                icon: Icons.add_circle_outline,
-                                label: trText('Add Spot Nav'),
-                                selected: index == 2,
-                                onTap: () => selectBottomTab(2),
-                                twoLineCentered:
-                                    appUiPreferences.language != AppLanguage.en,
+                              child: Center(
+                                child: IconButton(
+                                  tooltip: communityText(
+                                    en: 'Create',
+                                    ru: 'Создать',
+                                    lv: 'Izveidot',
+                                  ),
+                                  iconSize: 48,
+                                  padding: EdgeInsets.zero,
+                                  icon: const Icon(
+                                    Icons.add_circle_outline,
+                                    color: blue,
+                                  ),
+                                  onPressed: () async {
+                                    final event = await showCreationMenu(
+                                      context,
+                                    );
+                                    if (!mounted || event == null) return;
+                                    setState(() => creatingEvent = event);
+                                    selectBottomTab(2);
+                                  },
+                                ),
                               ),
                             ),
                             Expanded(
@@ -23069,7 +23238,6 @@ class _CcsBottomNavItem extends StatelessWidget {
   final String label;
   final bool selected;
   final VoidCallback onTap;
-  final bool twoLineCentered;
   final int badgeCount;
 
   const _CcsBottomNavItem({
@@ -23077,20 +23245,14 @@ class _CcsBottomNavItem extends StatelessWidget {
     required this.label,
     required this.selected,
     required this.onTap,
-    this.twoLineCentered = false,
     this.badgeCount = 0,
   });
 
   @override
   Widget build(BuildContext context) {
     final color = selected ? blue : Colors.white54;
-    final parts = label.split('\n');
-    final firstLine = parts.isEmpty ? label : parts.first;
-    final secondLine = parts.length > 1 ? parts.sublist(1).join(' ') : '';
 
     // Keep every bottom-tab icon on the same Y level.
-    // RU/LV Add Spot uses two centered lines: first line aligned with other labels,
-    // second line sits below it. EN stays as the original single-line label.
     return InkWell(
       onTap: onTap,
       child: SizedBox.expand(
@@ -23111,7 +23273,7 @@ class _CcsBottomNavItem extends StatelessWidget {
               left: 0,
               right: 0,
               child: Text(
-                twoLineCentered ? firstLine : label.replaceAll('\n', ' '),
+                label.replaceAll('\n', ' '),
                 textAlign: TextAlign.center,
                 maxLines: 1,
                 overflow: TextOverflow.visible,
@@ -23123,24 +23285,6 @@ class _CcsBottomNavItem extends StatelessWidget {
                 ),
               ),
             ),
-            if (twoLineCentered && secondLine.trim().isNotEmpty)
-              Positioned(
-                top: 43,
-                left: 0,
-                right: 0,
-                child: Text(
-                  secondLine,
-                  textAlign: TextAlign.center,
-                  maxLines: 1,
-                  overflow: TextOverflow.visible,
-                  style: TextStyle(
-                    color: color,
-                    fontSize: 10,
-                    height: 1.0,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ),
           ],
         ),
       ),
@@ -24589,7 +24733,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
     spotCategoryFilters.addListener(refreshSpotCategoryFilters);
     spotCountryFilters.addListener(refreshSpotCategoryFilters);
     appUiPreferences.addListener(refreshLanguageLabels);
-    // Temporary spots can expire or reveal their location without a Firestore
+    // Events can expire or reveal their location without a Firestore
     // update. Refresh the Spots tab so the temporary card removes expired spots
     // and updates availability labels while the user stays on this screen.
     temporarySpotRefreshTimer = Timer.periodic(
@@ -27013,8 +27157,6 @@ class _MapScreenState extends State<MapScreen>
   LatLng? displayedUserLocation;
   LatLng? lastGpsUserLocation;
   LatLng? lastUploadedLiveLocation;
-  String? lastVisitCandidate;
-  DateTime? lastVisitRecordedAt;
   DateTime? lastGpsUserLocationAt;
   double currentUserSpeedMetersPerSecond = 0;
   bool isLocatingUser = false;
@@ -27088,7 +27230,7 @@ class _MapScreenState extends State<MapScreen>
     spotCountryFilters.addListener(refreshMap);
     mapFocusRequest.addListener(handleMapFocusRequest);
 
-    // Temporary spots can become visible or expire just because time passes.
+    // Events can become visible or expire just because time passes.
     // Firestore will not send a new snapshot at the start/end time, so the map
     // needs a small live refresh while this screen is open.
     temporarySpotRefreshTimer = Timer.periodic(
@@ -30481,6 +30623,9 @@ class _MapScreenState extends State<MapScreen>
     if (location == null) {
       return;
     }
+    unawaited(checkGpsCountryAchievement(context, position));
+    unawaited(checkGpsSpotVisits(position));
+
     final speed = position.speed.isFinite ? math.max(0.0, position.speed) : 0.0;
     final heading = headingForNewUserLocation(
       location,
@@ -30622,52 +30767,8 @@ class _MapScreenState extends State<MapScreen>
   }
 
   Future<void> recordNearbySpotVisit(Position position, User user) async {
-    final grouped = groupSpotPresence(
-      {
-        for (final spot in approvedPublicSpots().where(
-          (spot) =>
-              !spot.isGroupSpot &&
-              spot.isVisibleOnMapNow &&
-              (!spot.isTemporary || spot.isTemporaryActiveNow),
-        ))
-          spot.id: spot.coordinates,
-      },
-      [
-        PresencePoint(
-          user.uid,
-          LatLng(position.latitude, position.longitude),
-          position.timestamp.millisecondsSinceEpoch,
-          DateTime.now().add(const Duration(minutes: 2)).millisecondsSinceEpoch,
-        ),
-      ],
-      DateTime.now().millisecondsSinceEpoch,
-    );
-    if (grouped.isEmpty) {
-      lastVisitCandidate = null;
-      return;
-    }
-    final spotId = grouped.keys.first;
-    final candidate = '${user.uid}:$spotId';
-    if (lastVisitCandidate == candidate &&
-        lastVisitRecordedAt != null &&
-        DateTime.now().difference(lastVisitRecordedAt!) <
-            const Duration(minutes: 5))
-      return;
-    try {
-      final token = await user.getIdToken();
-      if (FirebaseAuth.instance.currentUser?.uid != user.uid) return;
-      final response = await postJsonToUrl(
-        'https://ccs-telegram-auth-server.vercel.app/api/spot-visit',
-        {'spotId': spotId},
-        headers: {HttpHeaders.authorizationHeader: 'Bearer $token'},
-      );
-      if (response['ok'] == true) {
-        lastVisitCandidate = candidate;
-        lastVisitRecordedAt = DateTime.now();
-      }
-    } catch (_) {
-      // Recording retries on a later GPS sample; map sharing must stay available.
-    }
+    if (FirebaseAuth.instance.currentUser?.uid == user.uid)
+      await checkGpsSpotVisits(position);
   }
 
   Future<void> writeLiveLocation(
@@ -30840,6 +30941,9 @@ class _MapScreenState extends State<MapScreen>
     if (location == null) {
       return;
     }
+    unawaited(checkGpsCountryAchievement(context, position));
+    unawaited(checkGpsSpotVisits(position));
+
     final speed = position.speed.isFinite ? math.max(0.0, position.speed) : 0.0;
     final heading = headingForNewUserLocation(
       location,
@@ -31390,6 +31494,9 @@ class _MapScreenState extends State<MapScreen>
       setState(() => isLocatingUser = false);
       return;
     }
+    unawaited(checkGpsCountryAchievement(context, position));
+    unawaited(checkGpsSpotVisits(position));
+
     final speed = position.speed.isFinite ? math.max(0.0, position.speed) : 0.0;
     final heading = headingForNewUserLocation(
       location,
@@ -36040,8 +36147,34 @@ class _SpotCategoryDropdown extends StatelessWidget {
   }
 }
 
+Future<bool?> showCreationMenu(BuildContext context) =>
+    showModalBottomSheet<bool>(
+      context: context,
+      showDragHandle: true,
+      backgroundColor: panelGlass,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.add_location_alt_outlined, color: blue),
+              title: Text(trText('Add Spot')),
+              onTap: () => Navigator.pop(context, false),
+            ),
+            ListTile(
+              leading: const Icon(Icons.event_outlined, color: blue),
+              title: Text(trText('Add Event')),
+              onTap: () => Navigator.pop(context, true),
+            ),
+            const SizedBox(height: 12),
+          ],
+        ),
+      ),
+    );
+
 class AddSpotScreen extends StatefulWidget {
-  const AddSpotScreen({super.key});
+  final bool eventMode;
+  const AddSpotScreen({super.key, this.eventMode = false});
 
   @override
   State<AddSpotScreen> createState() => _AddSpotScreenState();
@@ -36084,6 +36217,12 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
   void initState() {
     super.initState();
     addedByController.text = currentUser.username;
+    isTemporarySpot = widget.eventMode;
+    if (widget.eventMode) {
+      selectedCategory = 'Meet';
+      temporaryStartsAt = DateTime.now().add(const Duration(hours: 1));
+      temporaryExpiresAt = temporaryStartsAt!.add(const Duration(hours: 3));
+    }
     memberSpotGroups.addListener(groupMembershipChanged);
   }
 
@@ -36628,13 +36767,15 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
     addedByController.text = currentUser.username;
 
     setState(() {
-      selectedCategory = 'Photo';
+      selectedCategory = widget.eventMode ? 'Meet' : 'Photo';
       selectedLocation = null;
       detectedCityCountry = 'Choose location to detect city/country';
       isDetectingCityCountry = false;
       selectedPhotoPaths.clear();
       verifiedOnlySpot = false;
-      isTemporarySpot = false;
+      isTemporarySpot = widget.eventMode;
+      groupVisibility = false;
+      selectedGroupIds.clear();
       temporaryStartsAt = null;
       temporaryExpiresAt = null;
       temporaryShowOnMapAtEnabled = false;
@@ -36800,7 +36941,7 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
             const SnackBar(
               backgroundColor: Colors.redAccent,
               content: Text(
-                'Choose both start and end time for a temporary spot.',
+                'Choose both start and end time for a event.',
                 style: TextStyle(
                   color: Colors.white,
                   fontWeight: FontWeight.w700,
@@ -36832,7 +36973,7 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
             const SnackBar(
               backgroundColor: Colors.redAccent,
               content: Text(
-                'Temporary spots can be active for maximum 12 hours.',
+                'Events can be active for maximum 12 hours.',
                 style: TextStyle(
                   color: Colors.white,
                   fontWeight: FontWeight.w700,
@@ -36867,7 +37008,7 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
                 backgroundColor: Colors.redAccent,
                 content: Text(
                   trText(
-                    'Choose when the temporary spot location should appear on the map.',
+                    'Choose when the event location should appear on the map.',
                   ),
                   style: const TextStyle(
                     color: Colors.white,
@@ -36951,7 +37092,7 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
             SnackBar(
               backgroundColor: Colors.redAccent,
               content: Text(
-                'Permanent spots must be at least ${minimumPermanentSpotDistanceMeters.round()} m apart. "${nearbySpot.name}" is $distanceLabel away. Temporary spots are allowed to overlap existing spots.',
+                'Permanent spots must be at least ${minimumPermanentSpotDistanceMeters.round()} m apart. "${nearbySpot.name}" is $distanceLabel away. Events are allowed to overlap existing spots.',
                 style: const TextStyle(
                   color: Colors.white,
                   fontWeight: FontWeight.w700,
@@ -37140,7 +37281,7 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
         await createMeetSpotNotificationsForNearbyUsers(savedNewSpot);
       }
 
-      if (canCreateApprovedSpot && !savedNewSpot.isTemporary) {
+      if (canCreateApprovedSpot) {
         unawaited(
           syncXpWithServer({'action': 'sync_spot', 'spotId': savedNewSpot.id}),
         );
@@ -37161,7 +37302,19 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
 
       resetSpotFormAfterSubmit();
 
-      final message = canCreateApprovedSpot
+      final message = widget.eventMode
+          ? communityText(
+              en: canCreateApprovedSpot
+                  ? 'Event added. It is live now.'
+                  : 'Event submitted for review.',
+              ru: canCreateApprovedSpot
+                  ? 'Событие опубликовано.'
+                  : 'Событие отправлено на проверку.',
+              lv: canCreateApprovedSpot
+                  ? 'Pasākums publicēts.'
+                  : 'Pasākums iesniegts pārskatīšanai.',
+            )
+          : canCreateApprovedSpot
           ? 'Admin spot added. It is live now.'
           : 'Spot submitted for review. Admins have been notified.';
 
@@ -37245,7 +37398,7 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          trText('Add Spot'),
+                          trText(widget.eventMode ? 'Add Event' : 'Add Spot'),
                           style: const TextStyle(
                             color: Colors.white,
                             fontSize: 22,
@@ -37278,11 +37431,11 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
               ),
               const SizedBox(height: 12),
               _AddSpotSection(
-                title: 'Spot details',
+                title: widget.eventMode ? 'Event details' : 'Spot details',
                 children: [
                   _CcsTextField(
                     controller: nameController,
-                    label: 'Spot name',
+                    label: widget.eventMode ? 'Event name' : 'Spot name',
                     hint: 'Andrejsala Harbor',
                     icon: Icons.place,
                   ),
@@ -37331,61 +37484,63 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
                 ],
               ),
               const SizedBox(height: 10),
-              _AddSpotSection(
-                title: 'Temporary schedule',
-                children: [
-                  if (isTemporarySpot &&
-                      (groupVisibility || memberSpotGroups.value.isNotEmpty))
-                    temporaryAudiencePicker(),
-                  _TemporarySpotScheduleCard(
-                    enabled: isTemporarySpot,
-                    startsAt: temporaryStartsAt,
-                    expiresAt: temporaryExpiresAt,
-                    showOnMapAtEnabled: temporaryShowOnMapAtEnabled,
-                    showOnMapAt: temporaryShowOnMapAt,
-                    onEnabledChanged: (value) {
-                      setState(() {
-                        isTemporarySpot = value;
-                        if (value && temporaryStartsAt == null) {
-                          final start = DateTime.now().add(
-                            const Duration(hours: 1),
-                          );
-                          temporaryStartsAt = start;
-                          temporaryExpiresAt = start.add(
-                            const Duration(hours: 3),
-                          );
-                        }
-                        if (!value) {
-                          groupVisibility = false;
-                          selectedGroupIds.clear();
-                          temporaryShowOnMapAtEnabled = false;
-                          temporaryShowOnMapAt = null;
-                        }
-                      });
-                    },
-                    onShowOnMapAtEnabledChanged: (value) {
-                      setState(() {
-                        temporaryShowOnMapAtEnabled = value;
-                        if (value &&
-                            temporaryShowOnMapAt == null &&
-                            temporaryStartsAt != null) {
-                          temporaryShowOnMapAt = DateTime(
-                            temporaryStartsAt!.year,
-                            temporaryStartsAt!.month,
-                            temporaryStartsAt!.day,
-                          );
-                        }
-                        if (!value) {
-                          temporaryShowOnMapAt = null;
-                        }
-                      });
-                    },
-                    onPickStart: chooseTemporaryStart,
-                    onPickEnd: chooseTemporaryEnd,
-                    onPickShowOnMapAt: chooseTemporaryShowOnMapAt,
-                  ),
-                ],
-              ),
+              if (widget.eventMode)
+                _AddSpotSection(
+                  title: 'Event schedule',
+                  children: [
+                    if (isTemporarySpot &&
+                        (groupVisibility || memberSpotGroups.value.isNotEmpty))
+                      temporaryAudiencePicker(),
+                    _TemporarySpotScheduleCard(
+                      showTypeSwitch: false,
+                      enabled: isTemporarySpot,
+                      startsAt: temporaryStartsAt,
+                      expiresAt: temporaryExpiresAt,
+                      showOnMapAtEnabled: temporaryShowOnMapAtEnabled,
+                      showOnMapAt: temporaryShowOnMapAt,
+                      onEnabledChanged: (value) {
+                        setState(() {
+                          isTemporarySpot = value;
+                          if (value && temporaryStartsAt == null) {
+                            final start = DateTime.now().add(
+                              const Duration(hours: 1),
+                            );
+                            temporaryStartsAt = start;
+                            temporaryExpiresAt = start.add(
+                              const Duration(hours: 3),
+                            );
+                          }
+                          if (!value) {
+                            groupVisibility = false;
+                            selectedGroupIds.clear();
+                            temporaryShowOnMapAtEnabled = false;
+                            temporaryShowOnMapAt = null;
+                          }
+                        });
+                      },
+                      onShowOnMapAtEnabledChanged: (value) {
+                        setState(() {
+                          temporaryShowOnMapAtEnabled = value;
+                          if (value &&
+                              temporaryShowOnMapAt == null &&
+                              temporaryStartsAt != null) {
+                            temporaryShowOnMapAt = DateTime(
+                              temporaryStartsAt!.year,
+                              temporaryStartsAt!.month,
+                              temporaryStartsAt!.day,
+                            );
+                          }
+                          if (!value) {
+                            temporaryShowOnMapAt = null;
+                          }
+                        });
+                      },
+                      onPickStart: chooseTemporaryStart,
+                      onPickEnd: chooseTemporaryEnd,
+                      onPickShowOnMapAt: chooseTemporaryShowOnMapAt,
+                    ),
+                  ],
+                ),
               const SizedBox(height: 10),
               if (spotCategorySupportsContacts(selectedCategory)) ...[
                 _AddSpotSection(
@@ -37554,6 +37709,7 @@ class _PendingBadge extends StatelessWidget {
 }
 
 class _TemporarySpotScheduleCard extends StatelessWidget {
+  final bool showTypeSwitch;
   final bool enabled;
   final DateTime? startsAt;
   final DateTime? expiresAt;
@@ -37566,6 +37722,7 @@ class _TemporarySpotScheduleCard extends StatelessWidget {
   final VoidCallback onPickShowOnMapAt;
 
   const _TemporarySpotScheduleCard({
+    this.showTypeSwitch = true,
     required this.enabled,
     required this.startsAt,
     required this.expiresAt,
@@ -37644,26 +37801,14 @@ class _TemporarySpotScheduleCard extends StatelessWidget {
         type: MaterialType.transparency,
         child: Column(
           children: [
-            SwitchListTile(
-              value: enabled,
-              onChanged: onEnabledChanged,
-              activeThumbColor: blue,
-              dense: true,
-              visualDensity: VisualDensity.compact,
-              contentPadding: EdgeInsets.zero,
-              secondary: const Icon(Icons.timer, color: blue),
-              title: Text(
-                trText('Temporary spot'),
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w900,
-                ),
+            if (showTypeSwitch)
+              SwitchListTile(
+                value: enabled,
+                onChanged: onEnabledChanged,
+                title: Text(trText('Event')),
+                secondary: const Icon(Icons.event, color: blue),
+                contentPadding: EdgeInsets.zero,
               ),
-              subtitle: Text(
-                trText('For meets and events. Max active time is 12 hours.'),
-                style: const TextStyle(color: Colors.white54, fontSize: 12),
-              ),
-            ),
             if (enabled) ...[
               const SizedBox(height: 8),
               timeButton(
@@ -42831,7 +42976,7 @@ String temporarySpotForumDescription(CarSpot spot) {
   }
 
   final text = parts.join('\n\n').trim();
-  return text.isEmpty ? 'Temporary meet/event spot.' : text;
+  return text.isEmpty ? 'Event.' : text;
 }
 
 Map<String, Object?> temporarySpotForumTopicData({
@@ -42859,7 +43004,7 @@ Map<String, Object?> temporarySpotForumTopicData({
     'visibility': spot.visibility,
     'sharedGroupIds': spot.sharedGroupIds,
     'sharedGroups': spot.sharedGroups,
-    'title': spot.name.trim().isEmpty ? 'Temporary meet' : spot.name,
+    'title': spot.name.trim().isEmpty ? 'Event' : spot.name,
     'countryCode': spot.effectiveCountryCode,
     'authorCountryCode': authorCountryCode,
     'country': authorCountry,
@@ -42895,24 +43040,24 @@ Future<void> createTemporarySpotForumTopic(CarSpot spot) async {
   await ensureTemporarySpotForumTopic(spot, backfillFromExistingSpot: false);
 }
 
-Future<void> ensureTemporarySpotForumTopic(
+Future<bool> ensureTemporarySpotForumTopic(
   CarSpot spot, {
   required bool backfillFromExistingSpot,
 }) async {
   if (!spot.isTemporary || spot.id.trim().isEmpty) {
-    return;
+    return false;
   }
 
   final firebaseUser = FirebaseAuth.instance.currentUser;
   if (firebaseUser == null) {
-    return;
+    return false;
   }
 
   final expiresAtMillis = spot.expiresAtMillis;
   if (backfillFromExistingSpot &&
       expiresAtMillis != null &&
       expiresAtMillis <= DateTime.now().millisecondsSinceEpoch) {
-    return;
+    return false;
   }
 
   try {
@@ -42926,7 +43071,7 @@ Future<void> ensureTemporarySpotForumTopic(
           : 'forum: temporary spot topic create existing check',
     );
     if (existingTopic.exists) {
-      return;
+      return true;
     }
 
     final authorUid =
@@ -42966,17 +43111,7 @@ Future<void> ensureTemporarySpotForumTopic(
                 ? 'ccs_driver'
                 : currentUser.username,
           );
-    final approvedNow = spot.status == SpotStatus.approved;
-    final canApproveOwnAutoTopic =
-        approvedNow &&
-        (userRoleIsStaff(creatorRole) ||
-            (authorUid == firebaseUser.uid &&
-                userRoleIsStaff(currentUser.role)) ||
-            backfillFromExistingSpot);
-    final topicStatus =
-        canApproveOwnAutoTopic &&
-            (currentUser.role != UserRole.moderator ||
-                currentUserCanModerateSpot(spot))
+    final topicStatus = spot.status == SpotStatus.approved
         ? 'approved'
         : 'pending';
 
@@ -43028,9 +43163,11 @@ Future<void> ensureTemporarySpotForumTopic(
         resolveRecipientsOnServer: true,
       );
     }
+    return true;
   } catch (error, stack) {
     debugPrint('Could not create temporary spot forum topic: $error');
     debugPrint('$stack');
+    return false;
   }
 }
 
@@ -43049,14 +43186,18 @@ bool temporarySpotNeedsForumTopicBackfill(CarSpot spot) {
 }
 
 Future<void>? _activeTemporarySpotForumTopicSync;
-bool _activeTemporarySpotForumTopicBackfillCompleted = false;
+final Set<String> _checkedTemporarySpotForumTopics = {};
+final Map<String, DateTime> _temporarySpotForumTopicAttempts = {};
 
 Future<void> syncActiveTemporarySpotForumTopics() {
   if (!firebaseReady || FirebaseAuth.instance.currentUser == null) {
     return Future<void>.value();
   }
 
-  if (_activeTemporarySpotForumTopicBackfillCompleted) {
+  if (!_spotSourcesWithServerSnapshot.containsAll([
+    'approved',
+    'my submissions',
+  ])) {
     return Future<void>.value();
   }
   final existing = _activeTemporarySpotForumTopicSync;
@@ -43074,39 +43215,42 @@ Future<void> syncActiveTemporarySpotForumTopics() {
 }
 
 Future<void> _syncActiveTemporarySpotForumTopicsOnce() async {
-  try {
-    // Do not combine isTemporary + expiresAt in the Firestore query here.
-    // Some projects do not have the composite index yet, and if that query
-    // fails the forum will stay empty. Read recent temporary spots and filter
-    // the active window locally instead.
-    final snapshot = await trackedQueryGet(
-      'forum: active temporary spot topic startup backfill',
-      spotsCollection()
-          .where('visibility', isEqualTo: 'public')
-          .where('isTemporary', isEqualTo: true)
-          .limit(120),
-      const GetOptions(source: Source.server),
-    );
-
-    var createdOrChecked = false;
-    for (final doc in snapshot.docs) {
-      final spot = CarSpot.fromFirestore(doc);
-      if (temporarySpotNeedsForumTopicBackfill(spot)) {
-        createdOrChecked = true;
-        await ensureTemporarySpotForumTopic(
-          spot,
-          backfillFromExistingSpot: true,
-        );
+  final uid = FirebaseAuth.instance.currentUser?.uid;
+  final generation = _spotSyncGeneration;
+  final scope = currentSpotSyncScope;
+  // Recheck the cache after each await so spots arriving during the backfill
+  // are included, without repeatedly checking successful or failed topics.
+  while (uid != null &&
+      FirebaseAuth.instance.currentUser?.uid == uid &&
+      _spotSyncIsCurrent(generation, scope)) {
+    final candidates = <String, CarSpot>{
+      for (final source in ['approved', 'my submissions'])
+        for (final spot
+            in _firebaseSpotCacheBySource[source]?.values ?? <CarSpot>[])
+          if (!spot.isGroupSpot && temporarySpotNeedsForumTopicBackfill(spot))
+            spot.id: spot,
+    };
+    CarSpot? next;
+    final now = DateTime.now();
+    for (final spot in candidates.values) {
+      final key = '$uid/${spot.id}';
+      final lastAttempt = _temporarySpotForumTopicAttempts[key];
+      if (!_checkedTemporarySpotForumTopics.contains(key) &&
+          (lastAttempt == null ||
+              now.difference(lastAttempt) >= const Duration(minutes: 5))) {
+        next = spot;
+        break;
       }
     }
-
-    if (createdOrChecked) {
-      forumTopicsRefreshTick.value++;
+    if (next == null) return;
+    final key = '$uid/${next.id}';
+    _temporarySpotForumTopicAttempts[key] = now;
+    if (await ensureTemporarySpotForumTopic(
+      next,
+      backfillFromExistingSpot: true,
+    )) {
+      _checkedTemporarySpotForumTopics.add(key);
     }
-    _activeTemporarySpotForumTopicBackfillCompleted = true;
-  } catch (error, stack) {
-    debugPrint('Temporary spot forum topic sync failed: $error');
-    debugPrint('$stack');
   }
 }
 
@@ -56977,17 +57121,26 @@ class XpLeaderboardTile extends StatelessWidget {
   }
 }
 
-Query<Map<String, dynamic>> creatorSpotsQuery(String uid) {
+bool qualifiesPermanentCreatedSpot(Map<String, dynamic> data, String uid) {
+  final creator = stringFromFirebase(data['addedByUid'], '');
+  final owner = stringFromFirebase(data['ownerUid'], '');
+  return (creator.isNotEmpty ? creator : owner) == uid &&
+      data['status'] == 'approved' &&
+      data['isTemporary'] != true &&
+      data['deleted'] != true;
+}
+
+Query<Map<String, dynamic>> creatorSpotsQuery(
+  String uid, {
+  bool legacyOwner = false,
+}) {
   var query = spotsCollection()
       .where('visibility', isEqualTo: 'public')
-      .where('addedByUid', isEqualTo: uid);
-  if (uid != FirebaseAuth.instance.currentUser?.uid) {
-    query = query
-        .where('visibility', isEqualTo: 'public')
-        .where('status', isEqualTo: 'approved');
-    if (!currentUserCanUseVerifiedOnlySpots) {
-      query = query.where('verifiedOnly', isEqualTo: false);
-    }
+      .where(legacyOwner ? 'ownerUid' : 'addedByUid', isEqualTo: uid)
+      .where('status', isEqualTo: 'approved');
+  if ((legacyOwner || uid != FirebaseAuth.instance.currentUser?.uid) &&
+      !currentUserCanUseVerifiedOnlySpots) {
+    query = query.where('verifiedOnly', isEqualTo: false);
   }
   return query;
 }
@@ -57092,9 +57245,7 @@ class CreatorSpotsScreen extends StatefulWidget {
 class _CreatorSpotsScreenState extends State<CreatorSpotsScreen>
     with LanguageReactiveState {
   final List<CarSpot> spots = [];
-  DocumentSnapshot<Map<String, dynamic>>? cursor;
   bool loading = false;
-  bool hasMore = true;
   bool failed = false;
 
   @override
@@ -57110,22 +57261,39 @@ class _CreatorSpotsScreenState extends State<CreatorSpotsScreen>
       failed = false;
       if (refresh) {
         spots.clear();
-        cursor = null;
-        hasMore = true;
       }
     });
     try {
-      // Document-ID ordering also includes legacy spots without createdAt.
-      var query = creatorSpotsQuery(
-        widget.uid,
-      ).orderBy(FieldPath.documentId).limit(20);
-      if (cursor != null) query = query.startAfterDocument(cursor!);
-      final page = await query.debugGet(null, 'profile: creator spots page');
-      if (!mounted) return;
+      // Match the counter's legacy-owner fallback and permanent-spot policy.
+      // Filter optional flags locally so old documents without isTemporary or
+      // deleted are included. Exhaust pages even if a page has no eligible spots.
+      final byId = <String, CarSpot>{};
+      for (final legacyOwner in [false, true]) {
+        DocumentSnapshot<Map<String, dynamic>>? cursor;
+        while (true) {
+          var query = creatorSpotsQuery(
+            widget.uid,
+            legacyOwner: legacyOwner,
+          ).orderBy(FieldPath.documentId).limit(100);
+          if (cursor != null) query = query.startAfterDocument(cursor);
+          final page = await query.debugGet(
+            null,
+            'profile: creator permanent spots page',
+          );
+          if (!mounted) return;
+          for (final doc in page.docs) {
+            if (qualifiesPermanentCreatedSpot(doc.data(), widget.uid)) {
+              byId[doc.id] = CarSpot.fromFirestore(doc);
+            }
+          }
+          if (page.docs.length < 100) break;
+          cursor = page.docs.last;
+        }
+      }
       setState(() {
-        spots.addAll(page.docs.map(CarSpot.fromFirestore));
-        if (page.docs.isNotEmpty) cursor = page.docs.last;
-        hasMore = page.docs.length == 20;
+        spots
+          ..clear()
+          ..addAll(byId.values);
       });
     } catch (error) {
       debugPrint('Creator spots could not load: $error');
@@ -57185,13 +57353,6 @@ class _CreatorSpotsScreenState extends State<CreatorSpotsScreen>
                   'Pagaidām nav pieejamu vietu.',
                 ),
                 textAlign: TextAlign.center,
-              ),
-            )
-          else if (hasMore)
-            TextButton(
-              onPressed: () => load(),
-              child: Text(
-                creatorSpotsText('Load more', 'Загрузить ещё', 'Ielādēt vēl'),
               ),
             ),
         ],
@@ -63418,7 +63579,7 @@ class _AdminEditSpotScreenState extends State<AdminEditSpotScreen>
           const SnackBar(
             backgroundColor: Colors.redAccent,
             content: Text(
-              'Choose both start and end time for a temporary spot.',
+              'Choose both start and end time for a event.',
               style: TextStyle(
                 color: Colors.white,
                 fontWeight: FontWeight.w700,
@@ -63434,7 +63595,7 @@ class _AdminEditSpotScreenState extends State<AdminEditSpotScreen>
           const SnackBar(
             backgroundColor: Colors.redAccent,
             content: Text(
-              'Temporary spot end time must be after start time.',
+              'Event end time must be after start time.',
               style: TextStyle(
                 color: Colors.white,
                 fontWeight: FontWeight.w700,
@@ -63450,7 +63611,7 @@ class _AdminEditSpotScreenState extends State<AdminEditSpotScreen>
           const SnackBar(
             backgroundColor: Colors.redAccent,
             content: Text(
-              'Temporary spot can be active for 12 hours maximum.',
+              'Event can be active for 12 hours maximum.',
               style: TextStyle(
                 color: Colors.white,
                 fontWeight: FontWeight.w700,
@@ -63468,7 +63629,7 @@ class _AdminEditSpotScreenState extends State<AdminEditSpotScreen>
             const SnackBar(
               backgroundColor: Colors.redAccent,
               content: Text(
-                'Choose when the temporary spot location should appear on the map.',
+                'Choose when the event location should appear on the map.',
                 style: TextStyle(
                   color: Colors.white,
                   fontWeight: FontWeight.w700,
@@ -63945,7 +64106,7 @@ class _AdminEditSpotScreenState extends State<AdminEditSpotScreen>
           ],
           const SizedBox(height: 16),
           _AddSpotSection(
-            title: 'Temporary schedule',
+            title: 'Event schedule',
             children: [
               _TemporarySpotScheduleCard(
                 enabled: isTemporarySpot,

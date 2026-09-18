@@ -1,3 +1,4 @@
+const {notifyGroupMembers} = require('../lib/group-notifications');
 const { admin, db } = require('../lib/firebase-admin');
 const { canModerateCountry } = require('../lib/regional-moderation');
 const { ownerUid, directoryEntry, acceptedMemberFields, countryCode, profileCountry, directoryCountry } = require('../lib/private-groups');
@@ -102,6 +103,10 @@ module.exports = async function handler(req, res) {
       });
       return { status: decision };
     });
+    if (action === 'decide' && result.status === 'accepted') {
+      try { await notifyGroupMembers(chatId, uid, [targetUid], true); }
+      catch (error) { console.error('Group approval push failed:', error.message); }
+    }
     return res.status(200).json(result);
   } catch (error) {
     if (!error.status) console.error('Private groups:', error);

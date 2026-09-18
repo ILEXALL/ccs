@@ -1,3 +1,4 @@
+const {notifyGroupMembers} = require('../lib/group-notifications');
 const {deleteSpotAction} = require('../lib/spot-delete');
 const {drainForumPublications} = require('../lib/forum-publications');
 const { admin, db } = require('../lib/firebase-admin');
@@ -238,7 +239,7 @@ async function addChatMembers({ actor, body }) {
   );
   const chatRef = db.collection('chats').doc(chatId);
 
-  await db.runTransaction(async (transaction) => {
+  const added = await db.runTransaction(async (transaction) => {
     const chatSnapshot = await transaction.get(chatRef);
 
     if (!chatSnapshot.exists) {
@@ -294,7 +295,10 @@ async function addChatMembers({ actor, body }) {
       targetUserIds: addedUserIds,
       chatId,
     });
+    return addedUserIds;
   });
+  try { await notifyGroupMembers(chatId, actor.uid, added || []); }
+  catch (error) { console.error('Group membership push failed:', error.message); }
 }
 
 async function deleteChatMessage({ actor, body }) {

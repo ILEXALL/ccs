@@ -1,4 +1,5 @@
-const {createdSpotCount} = require('./spot-counts');
+const {validateCountryFix} = require('./country-location');
+const {createdSpotProgress} = require('./spot-counts');
 const { db, admin } = require('../firebase-admin');
 const { awardManyXp } = require('./xp-firestore');
 const { buildXpTransactionId } = require('./xp-engine');
@@ -6,7 +7,7 @@ const { buildXpTransactionId } = require('./xp-engine');
 const categories = [
   ['spots', ['Spots', 'Споты', 'Vietas'], [[1,50],[5,100],[10,200],[25,400],[50,750]], 'count'],
   ['visits', ['Visits', 'Посещения', 'Apmeklējumi'], [[1,25],[10,100],[25,200],[50,350],[100,600]], 'count'],
-  ['meets', ['Organized meets', 'Организованные миты', 'Organizētas tikšanās'], [[1,50],[5,150],[10,300],[25,600],[50,1000]], 'count'],
+  ['meets', ['Events', 'События', 'Pasākumi'], [[1,50],[5,150],[10,300],[25,600],[50,1000]], 'count'],
   ['topics', ['Active topics', 'Активные темы', 'Aktīvas tēmas'], [[1,25],[5,100],[10,200],[25,400],[50,750]], 'count'],
   ['tenure', ['CCS membership', 'Стаж CCS', 'Dalība CCS'], [[3,50],[6,100],[12,250],[24,500],[36,750]], 'months'],
   ['moderator', ['Moderator service', 'Стаж модератора', 'Moderatora stāžs'], [[3,1000],[6,1500],[12,2000],[24,3000],[36,3000]], 'months'],
@@ -36,11 +37,11 @@ function catalog() {
   return [
     ...categories.flatMap(([category, names, tiers, unit]) => tiers.map(([threshold, xp], index) => ({
       id: `${category}.${threshold}`, category, title: title(names), threshold, xp, unit, tier: index + 1,
-      available: ['spots', 'tenure'].includes(category),
+      available: ['spots', 'tenure', 'visits', 'meets'].includes(category),
     }))),
     ...countries.map(([code, asset, ...names]) => ({id: `tourist.${code}`, category: 'tourist',
       title: title(names), threshold: 1, xp: 75, unit: 'country', tier: 1,
-      asset: `assets/achievements/${asset}.png`, available: false})),
+      asset: `assets/achievements/${asset}.png`, available: true})),
   ];
 }
 
@@ -57,10 +58,15 @@ function completedMonths(created, now) {
 }
 
 async function achievementProgress(userId, now = new Date()) {
-  const [spots, authUser] = await Promise.all([
-    createdSpotCount(userId), admin.auth().getUser(userId),
+  const [created, authUser, userDoc, visits] = await Promise.all([
+    createdSpotProgress(userId), admin.auth().getUser(userId),
+    db.collection('users').doc(userId).get(),
+    db.collection('spot_visit_records').where('userId', '==', userId).get(),
   ]);
-  return {spots, tenure: completedMonths(authUser.metadata.creationTime, now)};
+  const uniqueVisits = new Set(visits.docs.map(doc => doc.data())
+    .filter(row => row.status === 'verified' && row.spotId).map(row => row.spotId));
+  return {...created, visits: uniqueVisits.size, isModerator: userDoc.data()?.role === 'moderator',
+    tenure: completedMonths(authUser.metadata.creationTime, now)};
 }
 
 function boardItems(earned, progress) {
@@ -70,7 +76,7 @@ function boardItems(earned, progress) {
       totals[item.category] = Math.max(totals[item.category] || 0, item.threshold);
     }
   }
-  return catalog().map(item => ({...item, progress: totals[item.category] || 0,
+  return catalog().filter(item => item.category !== 'moderator' || progress.isModerator).map(item => ({...item, progress: item.category === 'tourist' ? (earned.get(item.id)?.status === 'confirmed' ? 1 : 0) : totals[item.category] || 0,
     status: earned.get(item.id)?.status === 'confirmed' ? 'confirmed' : earned.get(item.id)?.status || 'locked'}));
 }
 
@@ -103,6 +109,7 @@ async function selectAchievement(userId, achievementId) {
   return db.runTransaction(async tx => {
     const user = (await tx.get(db.collection('users').doc(userId))).data();
     if (!user || user.deleted === true || user.banned === true) throw new Error('User unavailable');
+    if (item?.category === 'moderator' && user.role !== 'moderator') throw new Error('Moderator achievement unavailable');
     if (item) {
       const id = buildXpTransactionId({userId, action: 'achievement.unlock', objectType: 'achievement',
         objectId: item.id, stage: 'unlocked', amount: item.xp});
@@ -146,3 +153,15 @@ async function publicAchievements(actorId, userId) {
 }
 
 module.exports = { catalog, retiredAchievementIds, completedMonths, syncAchievements, selectAchievement, publicAchievements, assertPublicXpAccess };
+
+// Country only is retained in the ledger; raw coordinates are never stored here.
+async function recordCountryAchievement(userId, input, options = {}) {
+  const code = validateCountryFix(input, options.now?.getTime() ?? Date.now());
+  if (!code) return {status: 'unsupported', countryCode: null, awarded: false};
+  const config = (await db.collection('app_config').doc('xp').get()).data() || {};
+  if (config.achievements_enabled !== true) return {status: 'disabled', countryCode: code, awarded: false};
+  const item = catalog().find(i=>i.id==='tourist.'+code);
+  const [result] = await awardManyXp([{userId,action:'achievement.unlock',objectType:'achievement',objectId:item.id,stage:'unlocked',amount:item.xp,metadata:{achievementId:item.id,countryCode:code}}],options);
+  return {status:result.status,awarded:result.awarded,countryCode:code,achievementId:item.id,amount:result.awarded?result.amount:0};
+}
+module.exports.recordCountryAchievement = recordCountryAchievement;

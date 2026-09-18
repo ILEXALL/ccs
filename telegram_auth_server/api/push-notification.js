@@ -277,7 +277,7 @@ async function claimDelivery(deliveryKey, userId) {
   }
 }
 
-async function sendPushToUser({
+export async function sendPushToUser({
   userId,
   settingName,
   spotCountry = '',
@@ -806,6 +806,25 @@ async function handleChatMessage(userId, payload) {
   );
 }
 
+// Initial group creation is still a client write; validate the stored owner
+// and membership instead of trusting recipient IDs from the request.
+async function handleGroupMembersAdded(userId, payload) {
+  const chatId = cleanText(payload.chatId);
+  if (!chatId || chatId.includes('/')) return [];
+  const doc = await db.collection('chats').doc(chatId).get();
+  const chat = doc.data();
+  if (!chat || chat.isGroup !== true || (chat.ownerUid || chat.memberIds?.[0]) !== userId) return [];
+  const createdAt = chat.createdAt?.toMillis?.() || 0;
+  // This path announces newly created groups, not subsequent membership edits.
+  if (!createdAt || Date.now() - createdAt > 5 * 60 * 1000) return [];
+  return Promise.all([...new Set(chat.memberIds || [])].filter(uid => uid !== userId).map(uid => sendPushToUser({
+    userId: uid, settingName: 'friendRequestNotifications',
+    deliveryKey: `group_created:${chatId}:${uid}`,
+    title: 'Added to a group', body: `You have been added to ${cleanText(chat.name, 'a group')}.`,
+    data: {type: 'group_members_added', chatId},
+  })));
+}
+
 async function handleGroupJoinRequest(userId, payload) {
   const chatId = cleanText(payload.chatId);
   if (!chatId || chatId.includes('/')) return [];
@@ -1035,11 +1054,11 @@ async function handleTemporarySpotReminder(userId, payload) {
           .filter((recipientUserId) => recipientUserId !== userId);
       }
 
-      const spotName = cleanText(spot.name, 'Temporary spot');
+      const spotName = cleanText(spot.name, 'Event');
       const cityCountry = cleanText(spot.cityCountry);
       const spotCountry = countryFromCityCountry(cityCountry);
       const locationSuffix = cityCountry ? ` in ${cityCountry}` : '';
-      const title = 'Temporary spot starts in 5 hours';
+      const title = 'Event starts in 5 hours';
       const body = `${spotName} starts in about 5 hours${locationSuffix}.`;
       const notificationBaseId = `temporary_spot_reminder_${spotId}_${startsAtMillis}`;
 
@@ -1894,6 +1913,7 @@ export default async function handler(request, response) {
       chat_message: handleChatMessage,
       friend_request: handleFriendRequest,
       group_join_request: handleGroupJoinRequest,
+      group_members_added: handleGroupMembersAdded,
       spot_decision: handleSpotDecision,
       spot_pending_review: handleSpotPendingReview,
       new_spot: handleNewSpot,

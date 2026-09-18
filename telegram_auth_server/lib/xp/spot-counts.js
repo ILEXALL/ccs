@@ -7,16 +7,21 @@ function qualifiesCreatedSpot(spot, userId) {
     spot.status === 'approved' && spot.isTemporary !== true && spot.deleted !== true;
 }
 
-async function createdSpotCount(userId) {
+async function createdSpotProgress(userId) {
   if (typeof userId !== 'string' || !userId || userId.includes('/')) throw new Error('Invalid user');
   const snapshots = await Promise.all([
     db.collection('spots').where('addedByUid', '==', userId).get(),
     db.collection('spots').where('ownerUid', '==', userId).get(),
   ]);
   const ids = new Set();
+  const events = new Set();
   for (const snapshot of snapshots) for (const doc of snapshot.docs) {
-    if (qualifiesCreatedSpot(doc.data(), userId)) ids.add(doc.id);
+    const spot = doc.data();
+    if (qualifiesCreatedSpot(spot, userId)) ids.add(doc.id);
+    if ((spot.addedByUid || spot.ownerUid) === userId && spot.status === 'approved' &&
+        spot.isTemporary === true && spot.deleted !== true) events.add(doc.id);
   }
-  return ids.size;
+  return {spots: ids.size, meets: events.size};
 }
-module.exports = {createdSpotCount, qualifiesCreatedSpot};
+async function createdSpotCount(userId) { return (await createdSpotProgress(userId)).spots; }
+module.exports = {createdSpotCount, createdSpotProgress, qualifiesCreatedSpot};

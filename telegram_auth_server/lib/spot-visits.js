@@ -21,19 +21,25 @@ function rigaDay(now) {
   return `${parts.year}-${parts.month}-${parts.day}`;
 }
 
-// A proximity observation is not anti-spoofing proof and does not award XP.
+// Proximity is validated server-side; device GPS is not tamper-proof.
 // No raw coordinates or a public attendance list are persisted here.
-async function recordSpotVisit(db, userId, spotId, now = Date.now()) {
+async function recordSpotVisit(db, userId, spotId, now = Date.now(), gpsFix = null) {
   if (typeof spotId !== 'string' || !spotId || spotId.includes('/') || spotId.length > 128) throw new Error('Invalid spot');
   const dayKey = rigaDay(now);
-  const id = crypto.createHash('sha256').update(JSON.stringify([userId, spotId, dayKey])).digest('hex');
+  const id = crypto.createHash('sha256').update(JSON.stringify([userId, spotId])).digest('hex');
   return db.runTransaction(async tx => {
     const userDoc = await tx.get(db.collection('users').doc(userId));
     const spotDoc = await tx.get(db.collection('spots').doc(spotId));
-    const liveDoc = await tx.get(db.collection('live_locations').doc(userId));
+    const liveDoc = gpsFix == null ? await tx.get(db.collection('live_locations').doc(userId)) : null;
     const recordRef = db.collection('spot_visit_records').doc(id);
     const existing = await tx.get(recordRef);
-    const user = userDoc.data(); const spot = spotDoc.data(); const live = liveDoc.data();
+    const user = userDoc.data(); const spot = spotDoc.data(); const live = gpsFix == null ? liveDoc.data() : {
+      lat: gpsFix.latitude, lng: gpsFix.longitude, updatedAt: gpsFix.recordedAtMillis,
+      expiresAt: Number(gpsFix.recordedAtMillis) + MAX_SAMPLE_AGE_MS,
+      accuracy: gpsFix.accuracy, isMocked: gpsFix.isMocked,
+    };
+    if (gpsFix != null && (gpsFix.isMocked !== false || typeof gpsFix.accuracy !== 'number' ||
+        typeof gpsFix.recordedAtMillis !== 'number')) throw new Error('Valid GPS location required');
     if (!user || user.deleted === true || user.banned === true) throw new Error('User unavailable');
     if (!spot || spot.deleted === true || spot.status !== 'approved' || spot.visibility === 'group' ||
         (spot.verifiedOnly === true && user.verified !== true && !['admin', 'moderator'].includes(user.role)) ||
@@ -48,7 +54,7 @@ async function recordSpotVisit(db, userId, spotId, now = Date.now()) {
         distanceMeters(position, target) > VISIT_RADIUS_METERS) throw new Error('Fresh nearby location required');
     if (existing.exists) return {recorded: true, duplicate: true, dayKey};
     tx.create(recordRef, {userId, spotId, dayKey, recordedAtMillis: now,
-      source: 'shared_live_location', status: 'observed', xpAwarded: false});
+      source: gpsFix == null ? 'shared_live_location' : 'gps_button', status: 'verified'});
     return {recorded: true, duplicate: false, dayKey};
   });
 }

@@ -9,6 +9,52 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   testWidgets(
+    'country grid builds lazily and decodes small images while scrolling',
+    (tester) async {
+      tester.view.physicalSize = const Size(320, 600);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      var loads = 0;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: AchievementsScreen(
+            language: 'en',
+            load: () async {
+              loads++;
+              return {
+                'enabled': true,
+                'items': List.generate(
+                  200,
+                  (i) => {
+                    'id': 'tourist.$i',
+                    'category': 'tourist',
+                    'title': {'en': 'Country $i'},
+                    'xp': 75,
+                    'threshold': 1,
+                    'tier': 1,
+                    'available': true,
+                    'status': 'locked',
+                    'asset': 'assets/achievements/latvia.png',
+                  },
+                ),
+              };
+            },
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.byType(AchievementBadge).evaluate().length, lessThan(40));
+      final image = tester.widget<Image>(find.byType(Image).first);
+      expect(image.image, isA<ResizeImage>());
+      expect((image.image as ResizeImage).height, 48);
+      await tester.drag(find.byType(CustomScrollView), const Offset(0, -900));
+      await tester.pumpAndSettle();
+      expect(loads, 1);
+      expect(tester.takeException(), isNull);
+    },
+  );
+  testWidgets(
     'legacy report badges are hidden and excluded from unlocked totals',
     (tester) async {
       await tester.pumpWidget(
@@ -128,10 +174,7 @@ void main() {
           findsNWidgets(6),
         );
         expect(
-          tester
-              .widget<GridView>(countries)
-              .childrenDelegate
-              .estimatedChildCount,
+          tester.widget<SliverGrid>(countries).delegate.estimatedChildCount,
           1,
         );
         expect(

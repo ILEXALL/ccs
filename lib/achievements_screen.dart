@@ -179,39 +179,48 @@ class _AchievementsScreenState extends State<AchievementsScreen> {
         final unlocked = items
             .where((item) => item['status'] == 'confirmed')
             .length;
-        return ListView(
-          padding: const EdgeInsets.all(12),
-          children: [
-            Text(
-              '$unlocked / ${items.length} ${t('Unlocked', 'Получено', 'Iegūts')}',
-              style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
+        return CustomScrollView(
+          slivers: [
+            SliverPadding(
+              padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
+              sliver: SliverList.list(
+                children: [
+                  Text(
+                    '$unlocked / ${items.length} ${t('Unlocked', 'Получено', 'Iegūts')}',
+                    style: const TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  if (items.isEmpty)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 24),
+                      child: Text(
+                        t(
+                          'No unlocked achievements yet',
+                          'Пока нет полученных достижений',
+                          'Vēl nav iegūtu sasniegumu',
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                  if (data['enabled'] != true)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: Text(
+                        t(
+                          'Achievement awards are not enabled yet',
+                          'Начисление за достижения пока не включено',
+                          'Sasniegumu atlīdzības vēl nav ieslēgtas',
+                        ),
+                      ),
+                    ),
+                  for (final entry in categories.entries)
+                    categoryRow(entry.key, entry.value),
+                ],
+              ),
             ),
-            const SizedBox(height: 12),
-            if (items.isEmpty)
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 24),
-                child: Text(
-                  t(
-                    'No unlocked achievements yet',
-                    'Пока нет полученных достижений',
-                    'Vēl nav iegūtu sasniegumu',
-                  ),
-                  textAlign: TextAlign.center,
-                ),
-              ),
-            if (data['enabled'] != true)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 12),
-                child: Text(
-                  t(
-                    'Achievement awards are not enabled yet',
-                    'Начисление за достижения пока не включено',
-                    'Sasniegumu atlīdzības vēl nav ieslēgtas',
-                  ),
-                ),
-              ),
-            for (final entry in categories.entries)
-              categoryRow(entry.key, entry.value),
             if (countries.isNotEmpty)
               section(
                 'countries',
@@ -275,42 +284,48 @@ class _AchievementsScreenState extends State<AchievementsScreen> {
         ],
       );
 
-  Widget section(String id, String heading, List<Map<String, dynamic>> items) =>
-      Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Padding(
+  Widget section(
+    String id,
+    String heading,
+    List<Map<String, dynamic>> items,
+  ) => SliverPadding(
+    padding: const EdgeInsets.fromLTRB(12, 0, 12, 28),
+    sliver: SliverMainAxisGroup(
+      slivers: [
+        SliverToBoxAdapter(
+          child: Padding(
             padding: const EdgeInsets.only(top: 8, bottom: 12),
             child: Text(
               heading,
               style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
             ),
           ),
-          LayoutBuilder(
-            builder: (context, constraints) {
-              final scale = MediaQuery.textScalerOf(context).scale(12) / 12;
-              final columns =
-                  ((constraints.maxWidth + 6) / (60 * scale.clamp(1, 3)))
-                      .floor()
-                      .clamp(1, 6);
-              return GridView.builder(
-                key: ValueKey('achievement-board-$id'),
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                itemCount: items.length,
-                gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: columns,
-                  crossAxisSpacing: 6,
-                  mainAxisSpacing: 8,
-                  mainAxisExtent: 60 + 48 * scale.clamp(1, 10),
-                ),
-                itemBuilder: (context, index) => achievementTile(items[index]),
-              );
-            },
-          ),
-          const SizedBox(height: 16),
-        ],
-      );
+        ),
+        SliverLayoutBuilder(
+          builder: (context, constraints) {
+            final scale = MediaQuery.textScalerOf(context).scale(12) / 12;
+            final columns =
+                ((constraints.crossAxisExtent + 6) / (60 * scale.clamp(1, 3)))
+                    .floor()
+                    .clamp(1, 6);
+            return SliverGrid(
+              key: ValueKey('achievement-board-$id'),
+              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: columns,
+                crossAxisSpacing: 6,
+                mainAxisSpacing: 8,
+                mainAxisExtent: 60 + 48 * scale.clamp(1, 10),
+              ),
+              delegate: SliverChildBuilderDelegate(
+                (context, index) => achievementTile(items[index]),
+                childCount: items.length,
+              ),
+            );
+          },
+        ),
+      ],
+    ),
+  );
 
   Widget achievementTile(Map<String, dynamic> item) {
     final earned = item['status'] == 'confirmed';
@@ -341,7 +356,11 @@ class _AchievementsScreenState extends State<AchievementsScreen> {
                 SizedBox(
                   height: 48,
                   width: double.infinity,
-                  child: FittedBox(child: AchievementBadge(item: item)),
+                  child: RepaintBoundary(
+                    child: FittedBox(
+                      child: AchievementBadge(item: item, displayHeight: 48),
+                    ),
+                  ),
                 ),
                 const SizedBox(height: 4),
                 Expanded(
@@ -390,9 +409,9 @@ String achievementRequirement(Map<String, dynamic> item, String language) {
       '$n apstiprinātas pastāvīgas vietas',
     ),
     'visits' => t(
-      '$n verified spot visits',
-      '$n подтверждённых посещений спотов',
-      '$n apstiprināti vietu apmeklējumi',
+      'Visit $n different spots (once per spot)',
+      'Посетить $n разных спотов (один раз каждый)',
+      'Apmeklēt $n dažādas vietas (katru vienreiz)',
     ),
     'tourist' => t(
       'Visit a spot within 100 m in this foreign country',
@@ -420,9 +439,9 @@ String achievementRequirement(Map<String, dynamic> item, String language) {
       '$n moderatoru apstiprināti ziņojumi',
     ),
     'meets' => t(
-      'Organize $n meets',
-      'Организовать $n митов',
-      'Organizēt $n tikšanās',
+      'Create $n approved events',
+      'Создать $n одобренных событий',
+      'Izveidot $n apstiprinātus pasākumus',
     ),
     'topics' => t('$n active topics', '$n активных тем', '$n aktīvas tēmas'),
     _ => '$n',
@@ -628,10 +647,15 @@ class _XpRewardsScreenState extends State<XpRewardsScreen> {
 
 class AchievementBadge extends StatelessWidget {
   final Map<String, dynamic> item;
-  const AchievementBadge({super.key, required this.item});
+  final double displayHeight;
+  const AchievementBadge({
+    super.key,
+    required this.item,
+    this.displayHeight = 96,
+  });
   @override
   Widget build(BuildContext context) {
-    final badge = buildBadge();
+    final badge = buildBadge(context);
     if (item['status'] == 'confirmed') return badge;
     return Opacity(
       opacity: .45,
@@ -663,14 +687,19 @@ class AchievementBadge extends StatelessWidget {
     );
   }
 
-  Widget buildBadge() {
+  Widget buildBadge(BuildContext context) {
     if (item['category'] != 'tourist') return AchievementEmblem(item: item);
     return SizedBox(
       width: 88,
       height: 96,
       child: ClipPath(
         clipper: _CountryShieldClipper(),
-        child: Image.asset(item['asset'] as String, fit: BoxFit.contain),
+        child: Image.asset(
+          item['asset'] as String,
+          fit: BoxFit.contain,
+          cacheHeight: (displayHeight * MediaQuery.devicePixelRatioOf(context))
+              .ceil(),
+        ),
       ),
     );
   }
