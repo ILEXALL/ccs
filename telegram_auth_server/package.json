@@ -3,6 +3,8 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
+    "test": "node test/run.cjs all",
+    "test:select": "node test/run.cjs",
     "dev": "vercel dev",
     "start": "vercel dev"
   },
