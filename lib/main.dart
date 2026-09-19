@@ -9360,6 +9360,7 @@ Future<Map<String, dynamic>> postJsonToUrl(
   String url,
   Map<String, Object?> body, {
   Map<String, String> headers = const {},
+  bool logResponse = true,
 }) async {
   final client = HttpClient();
 
@@ -9374,7 +9375,9 @@ Future<Map<String, dynamic>> postJsonToUrl(
 
     final response = await request.close();
     final responseBody = await utf8.decodeStream(response);
-    debugPrint('POST $url -> ${response.statusCode}: $responseBody');
+    if (logResponse) {
+      debugPrint('POST $url -> ${response.statusCode}: $responseBody');
+    }
 
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw Exception('Request failed ${response.statusCode}: $responseBody');
@@ -9498,61 +9501,74 @@ Future<XpLeaderboardPage> loadXpLeaderboardEntries({
   Object? lastError;
   StackTrace? lastStack;
 
-  for (final url in xpLeaderboardUrls) {
-    try {
-      final response = await postJsonToUrl(
-        url,
-        {
-          'limit': 10,
-          'period': xpLeaderboardPeriodValue(period),
-          'search': search,
-          'cursor': cursor,
-        },
-        headers: {HttpHeaders.authorizationHeader: 'Bearer $idToken'},
-      );
-      final result = mapFromFirebase(response['result']);
-      final rawEntries = result['entries'];
+  Future<XpLeaderboardPage> loadBackendPage(
+    String backendSearch,
+    Map<String, dynamic>? pageCursor,
+  ) async {
+    for (final url in xpLeaderboardUrls) {
+      try {
+        final response = await postJsonToUrl(
+          url,
+          {
+            'limit': 10,
+            'period': xpLeaderboardPeriodValue(period),
+            'search': backendSearch,
+            'cursor': pageCursor,
+          },
+          headers: {HttpHeaders.authorizationHeader: 'Bearer $idToken'},
+          logResponse: false,
+        ).timeout(const Duration(seconds: 8));
+        final result = mapFromFirebase(response['result']);
+        final rawEntries = result['entries'];
+        final isSearchResponse = backendSearch.isNotEmpty;
+        final hasValidPagination =
+            result['hasMore'] is bool &&
+            (result['hasMore'] == false || result['nextCursor'] is Map);
 
-      // An older deployment cannot paginate. Try the updated fallback route
-      // instead of silently repeating its first page for every cursor/search.
-      if (rawEntries is List &&
-          rawEntries.length <= 10 &&
-          result['hasMore'] is bool &&
-          (result['hasMore'] == false || result['nextCursor'] is Map)) {
-        return XpLeaderboardPage(
-          entries: rawEntries
-              .asMap()
-              .entries
-              .map(
-                (entry) => XpLeaderboardEntry.fromJson(
-                  mapFromFirebase(entry.value),
-                  fallbackRank: entry.key + 1,
-                ),
-              )
-              .where((entry) => entry.userId.trim().isNotEmpty)
-              .toList(),
-          nextCursor: result['hasMore'] == true
-              ? mapFromFirebase(result['nextCursor'])
-              : null,
-        );
-      }
+        // Search responses may intentionally omit pagination metadata. Normal
+        // ranking pages still require it so an older deployment cannot repeat
+        // the first page for every cursor.
+        if (rawEntries is List &&
+            (isSearchResponse || rawEntries.length <= 10) &&
+            (isSearchResponse || hasValidPagination)) {
+          return XpLeaderboardPage(
+            entries: rawEntries
+                .asMap()
+                .entries
+                .map(
+                  (entry) => XpLeaderboardEntry.fromJson(
+                    mapFromFirebase(entry.value),
+                    fallbackRank: entry.key + 1,
+                  ),
+                )
+                .where((entry) => entry.userId.trim().isNotEmpty)
+                .toList(),
+            nextCursor: result['hasMore'] == true && result['nextCursor'] is Map
+                ? mapFromFirebase(result['nextCursor'])
+                : null,
+          );
+        }
 
-      throw Exception('Backend returned invalid XP leaderboard data.');
-    } catch (error, stack) {
-      if (error.toString().contains('LEADERBOARD_CURSOR_EXPIRED')) {
-        throw XpLeaderboardPageExpired();
+        throw Exception('Backend returned invalid XP leaderboard data.');
+      } catch (error, stack) {
+        if (error.toString().contains('LEADERBOARD_CURSOR_EXPIRED')) {
+          throw XpLeaderboardPageExpired();
+        }
+        lastError = error;
+        lastStack = stack;
       }
-      lastError = error;
-      lastStack = stack;
     }
+
+    debugPrint('XP leaderboard failed: $lastError');
+    if (lastStack != null) {
+      debugPrint('$lastStack');
+    }
+
+    throw Exception('Could not load XP leaderboard.');
   }
 
-  debugPrint('XP leaderboard failed: $lastError');
-  if (lastStack != null) {
-    debugPrint('$lastStack');
-  }
-
-  throw Exception('Could not load XP leaderboard.');
+  final searchKey = normalizeFriendSearch(search);
+  return loadBackendPage(searchKey.runes.length >= 2 ? searchKey : '', cursor);
 }
 
 enum XpLeaderboardPeriod { allTime, week }
@@ -23163,28 +23179,18 @@ class _MainScreenState extends State<_MainContentScreen>
                               ),
                             ),
                             Expanded(
-                              child: Center(
-                                child: IconButton(
-                                  tooltip: communityText(
-                                    en: 'Create',
-                                    ru: 'Создать',
-                                    lv: 'Izveidot',
-                                  ),
-                                  iconSize: 48,
-                                  padding: EdgeInsets.zero,
-                                  icon: const Icon(
-                                    Icons.add_circle_outline,
-                                    color: blue,
-                                  ),
-                                  onPressed: () async {
-                                    final event = await showCreationMenu(
-                                      context,
-                                    );
-                                    if (!mounted || event == null) return;
-                                    setState(() => creatingEvent = event);
-                                    selectBottomTab(2);
-                                  },
-                                ),
+                              child: _CcsBottomNavItem(
+                                icon: Icons.add_rounded,
+                                label: '',
+                                iconSize: 36,
+                                prominentAction: true,
+                                selected: index == 2,
+                                onTap: () async {
+                                  final event = await showCreationMenu(context);
+                                  if (!mounted || event == null) return;
+                                  setState(() => creatingEvent = event);
+                                  selectBottomTab(2);
+                                },
                               ),
                             ),
                             Expanded(
@@ -23239,6 +23245,8 @@ class _CcsBottomNavItem extends StatelessWidget {
   final bool selected;
   final VoidCallback onTap;
   final int badgeCount;
+  final double iconSize;
+  final bool prominentAction;
 
   const _CcsBottomNavItem({
     required this.icon,
@@ -23246,11 +23254,50 @@ class _CcsBottomNavItem extends StatelessWidget {
     required this.selected,
     required this.onTap,
     this.badgeCount = 0,
+    this.iconSize = 22,
+    this.prominentAction = false,
   });
 
   @override
   Widget build(BuildContext context) {
     final color = selected ? blue : Colors.white54;
+    final iconWidget = prominentAction
+        ? AnimatedContainer(
+            duration: const Duration(milliseconds: 180),
+            curve: Curves.easeOutCubic,
+            width: iconSize,
+            height: iconSize,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: selected
+                    ? [
+                        blue.withValues(alpha: 0.34),
+                        blue.withValues(alpha: 0.12),
+                      ]
+                    : [
+                        Colors.white.withValues(alpha: 0.15),
+                        Colors.white.withValues(alpha: 0.06),
+                      ],
+              ),
+              border: Border.all(
+                color: selected ? blue.withValues(alpha: 0.85) : Colors.white24,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: selected
+                      ? blue.withValues(alpha: 0.24)
+                      : Colors.black.withValues(alpha: 0.18),
+                  blurRadius: 10,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+            ),
+            child: Icon(icon, color: color, size: iconSize * 0.72),
+          )
+        : Icon(icon, color: color, size: iconSize);
 
     // Keep every bottom-tab icon on the same Y level.
     return InkWell(
@@ -23265,26 +23312,27 @@ class _CcsBottomNavItem extends StatelessWidget {
                 isLabelVisible: badgeCount > 0,
                 backgroundColor: Colors.redAccent,
                 label: Text(compactBadgeLabel(badgeCount)),
-                child: Icon(icon, color: color, size: 22),
+                child: iconWidget,
               ),
             ),
-            Positioned(
-              top: 33,
-              left: 0,
-              right: 0,
-              child: Text(
-                label.replaceAll('\n', ' '),
-                textAlign: TextAlign.center,
-                maxLines: 1,
-                overflow: TextOverflow.visible,
-                style: TextStyle(
-                  color: color,
-                  fontSize: 10,
-                  height: 1.0,
-                  fontWeight: FontWeight.w700,
+            if (label.isNotEmpty)
+              Positioned(
+                top: 33,
+                left: 0,
+                right: 0,
+                child: Text(
+                  label.replaceAll('\n', ' '),
+                  textAlign: TextAlign.center,
+                  maxLines: 1,
+                  overflow: TextOverflow.visible,
+                  style: TextStyle(
+                    color: color,
+                    fontSize: 10,
+                    height: 1.0,
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
               ),
-            ),
           ],
         ),
       ),
@@ -56605,7 +56653,7 @@ class _XpLeaderboardScreenState extends State<XpLeaderboardScreen>
         period: period,
         search: search,
         cursor: reset ? null : _cursor,
-      );
+      ).timeout(const Duration(seconds: 15));
       if (!mounted || generation != _generation) return;
       setState(() {
         final ids = _entries.map((entry) => entry.userId).toSet();
@@ -56638,13 +56686,15 @@ class _XpLeaderboardScreenState extends State<XpLeaderboardScreen>
     _debounce?.cancel();
     // Invalidate the current request immediately, before the debounce expires.
     _generation++;
+    final canLoad = search.isEmpty || search.runes.length >= 2;
     setState(() {
       _search = search;
       _entries.clear();
       _cursor = null;
       _failed = false;
-      _loading = true;
+      _loading = canLoad;
     });
+    if (!canLoad) return;
     _debounce = Timer(
       const Duration(milliseconds: 350),
       () => _load(reset: true),
@@ -56682,7 +56732,11 @@ class _XpLeaderboardScreenState extends State<XpLeaderboardScreen>
                   onChanged: _searchChanged,
                   maxLength: 31,
                   textInputAction: TextInputAction.search,
-                  onSubmitted: (_) => _load(reset: true),
+                  onSubmitted: (_) {
+                    if (_search.isEmpty || _search.runes.length >= 2) {
+                      unawaited(_load(reset: true));
+                    }
+                  },
                   decoration: InputDecoration(
                     counterText: '',
                     hintText: t(
@@ -56754,64 +56808,78 @@ class _XpLeaderboardScreenState extends State<XpLeaderboardScreen>
                     ),
                   ),
                   const SizedBox(height: 14),
-                  for (final entry in _entries)
-                    XpLeaderboardTile(
-                      key: ValueKey('ranking-user-${entry.userId}'),
-                      entry: entry,
-                      period: selectedPeriod,
-                    ),
-                  if (_loading)
-                    const Padding(
-                      padding: EdgeInsets.all(24),
-                      child: Center(child: CircularProgressIndicator()),
-                    )
-                  else if (_failed) ...[
-                    Text(
-                      _expired
-                          ? t(
-                              'Ranking changed. Refresh to continue.',
-                              'Рейтинг изменился. Обновите список.',
-                              'Reitings ir mainījies. Atjaunojiet sarakstu.',
-                            )
-                          : t(
-                              'Could not load ranking.',
-                              'Не удалось загрузить рейтинг.',
-                              'Neizdevās ielādēt reitingu.',
-                            ),
-                      textAlign: TextAlign.center,
-                    ),
-                    TextButton(
-                      key: const ValueKey('ranking-retry'),
-                      onPressed: () =>
-                          _load(reset: _expired || _entries.isEmpty),
-                      child: Text(
-                        _expired
-                            ? t('Refresh', 'Обновить', 'Atjaunot')
-                            : t('Retry', 'Повторить', 'Mēģināt vēlreiz'),
-                      ),
-                    ),
-                  ] else if (_entries.isEmpty)
+                  if (_search.isNotEmpty && _search.runes.length < 2)
                     Padding(
                       padding: const EdgeInsets.all(24),
                       child: Text(
-                        _search.isEmpty
-                            ? xpLeaderboardEmptyTitle(selectedPeriod)
-                            : t(
-                                'No matching users in this ranking.',
-                                'В этом рейтинге никого не найдено.',
-                                'Šajā reitingā lietotāji nav atrasti.',
-                              ),
+                        t(
+                          'Type at least 2 characters to search.',
+                          'Введите минимум 2 символа для поиска.',
+                          'Ievadiet vismaz 2 rakstzīmes, lai meklētu.',
+                        ),
                         textAlign: TextAlign.center,
                       ),
                     )
-                  else if (_cursor != null)
-                    TextButton(
-                      key: const ValueKey('ranking-load-more'),
-                      onPressed: () => _load(),
-                      child: Text(
-                        t('Show more', 'Показать ещё', 'Rādīt vairāk'),
+                  else ...[
+                    for (final entry in _entries)
+                      XpLeaderboardTile(
+                        key: ValueKey('ranking-user-${entry.userId}'),
+                        entry: entry,
+                        period: selectedPeriod,
                       ),
-                    ),
+                    if (_loading)
+                      const Padding(
+                        padding: EdgeInsets.all(24),
+                        child: Center(child: CircularProgressIndicator()),
+                      )
+                    else if (_failed) ...[
+                      Text(
+                        _expired
+                            ? t(
+                                'Ranking changed. Refresh to continue.',
+                                'Рейтинг изменился. Обновите список.',
+                                'Reitings ir mainījies. Atjaunojiet sarakstu.',
+                              )
+                            : t(
+                                'Could not load ranking.',
+                                'Не удалось загрузить рейтинг.',
+                                'Neizdevās ielādēt reitingu.',
+                              ),
+                        textAlign: TextAlign.center,
+                      ),
+                      TextButton(
+                        key: const ValueKey('ranking-retry'),
+                        onPressed: () =>
+                            _load(reset: _expired || _entries.isEmpty),
+                        child: Text(
+                          _expired
+                              ? t('Refresh', 'Обновить', 'Atjaunot')
+                              : t('Retry', 'Повторить', 'Mēģināt vēlreiz'),
+                        ),
+                      ),
+                    ] else if (_entries.isEmpty)
+                      Padding(
+                        padding: const EdgeInsets.all(24),
+                        child: Text(
+                          _search.isEmpty
+                              ? xpLeaderboardEmptyTitle(selectedPeriod)
+                              : t(
+                                  'No matching users in this ranking.',
+                                  'В этом рейтинге никого не найдено.',
+                                  'Šajā reitingā lietotāji nav atrasti.',
+                                ),
+                          textAlign: TextAlign.center,
+                        ),
+                      )
+                    else if (_cursor != null)
+                      TextButton(
+                        key: const ValueKey('ranking-load-more'),
+                        onPressed: () => _load(),
+                        child: Text(
+                          t('Show more', 'Показать ещё', 'Rādīt vairāk'),
+                        ),
+                      ),
+                  ],
                 ],
               ),
             ),
