@@ -6,7 +6,7 @@ void main() {
   testWidgets('creation menu separates permanent spots from events', (
     tester,
   ) async {
-    bool? selection;
+    app.CreationKind? selection;
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
@@ -27,12 +27,17 @@ void main() {
     expect(find.text('Add Event'), findsOneWidget);
     await tester.tap(find.text('Add Event'));
     await tester.pumpAndSettle();
-    expect(selection, isTrue);
+    expect(selection, app.CreationKind.event);
     await tester.tap(find.text('Open'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Add Spot'));
     await tester.pumpAndSettle();
-    expect(selection, isFalse);
+    expect(selection, app.CreationKind.spot);
+    await tester.tap(find.text('Open'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Add Private Event'));
+    await tester.pumpAndSettle();
+    expect(selection, app.CreationKind.privateEvent);
   });
   testWidgets(
     'only the Event creation page has a schedule, without a type toggle',

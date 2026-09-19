@@ -84,7 +84,7 @@ test('endpoint binds visit to authenticated UID and rejects missing or invalid t
         if (token !== 'valid') throw new Error('Invalid token');
         return {uid: 'authenticated-user'};
       }})},
-    } : name.includes('achievements') ? {syncAchievements: async()=>({})} : {recordSpotVisit: async (_, uid, spotId) => {calls.push({uid, spotId}); return {recorded: true};}},
+    } : name.includes('location-integrity') ? {assessLocation: async()=>true} : name.includes('xp-firestore') ? {awardXp: async()=>({})} : name.includes('achievements') ? {syncAchievements: async()=>({})} : {recordSpotVisit: async (_, uid, spotId) => {calls.push({uid, spotId}); return {recorded: true};}},
   });
   const response = () => ({code: 0, setHeader() {}, status(code) {this.code = code; return this;}, json(value) {this.value = value; return this;}});
   for (const header of ['', 'Bearer invalid']) {
@@ -93,7 +93,7 @@ test('endpoint binds visit to authenticated UID and rejects missing or invalid t
   }
   const res = response();
   await module.exports({method: 'POST', headers: {authorization: 'Bearer valid'},
-    body: {userId: 'victim', spotId: 's', lat: 80, lng: 80}}, res);
+    body: {userId: 'victim', spotId: 's', gpsFix: {latitude:0,longitude:0,accuracy:5,isMocked:false,recordedAtMillis:Date.now()}} }, res);
   assert.equal(res.code, 200);
   assert.equal(calls.length, 1);
   assert.equal(calls[0].uid, 'authenticated-user');

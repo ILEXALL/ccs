@@ -41,21 +41,30 @@ async function recordSpotVisit(db, userId, spotId, now = Date.now(), gpsFix = nu
     if (gpsFix != null && (gpsFix.isMocked !== false || typeof gpsFix.accuracy !== 'number' ||
         typeof gpsFix.recordedAtMillis !== 'number')) throw new Error('Valid GPS location required');
     if (!user || user.deleted === true || user.banned === true) throw new Error('User unavailable');
-    if (!spot || spot.deleted === true || spot.status !== 'approved' || spot.visibility === 'group' ||
+    let groupAccess = spot?.visibility !== 'group';
+    if (spot?.visibility === 'group' && spot.isTemporary === true) {
+      for (const groupId of (spot.sharedGroupIds || []).slice(0, 8)) {
+        if (typeof groupId !== 'string' || groupId.includes('/')) continue;
+        const group = (await tx.get(db.collection('chats').doc(groupId))).data();
+        if (group?.isGroup === true && group?.memberIds?.includes(userId)) groupAccess = true;
+      }
+    }
+    if (!spot || spot.deleted === true || spot.status !== 'approved' || !groupAccess ||
         (spot.verifiedOnly === true && user.verified !== true && !['admin', 'moderator'].includes(user.role)) ||
         (spot.isTemporary === true && (millis(spot.expiresAt) <= now || millis(spot.startsAt) > now))) {
       throw new Error('Spot unavailable');
     }
     const position = coordinates(live || {}); const target = coordinates(spot);
-    const sample = millis(live?.updatedAt);
+    const sample = live?.recordedAtMillis ?? millis(live?.updatedAt);
     if (!position || !target || millis(live?.expiresAt) <= now || sample <= 0 || sample > now ||
         now - sample > MAX_SAMPLE_AGE_MS || live?.isMocked === true ||
         (typeof live?.accuracy === 'number' && (!Number.isFinite(live.accuracy) || live.accuracy < 0 || live.accuracy > 100)) ||
         distanceMeters(position, target) > VISIT_RADIUS_METERS) throw new Error('Fresh nearby location required');
-    if (existing.exists) return {recorded: true, duplicate: true, dayKey};
+    if (existing.exists) return {recorded: true, duplicate: true, dayKey, event: existing.data().event === true};
     tx.create(recordRef, {userId, spotId, dayKey, recordedAtMillis: now,
+      event: spot.isTemporary === true,
       source: gpsFix == null ? 'shared_live_location' : 'gps_button', status: 'verified'});
-    return {recorded: true, duplicate: false, dayKey};
+    return {recorded: true, duplicate: false, dayKey, event: spot.isTemporary === true};
   });
 }
 module.exports = {recordSpotVisit, coordinates, distanceMeters, rigaDay};

@@ -358,7 +358,12 @@ export async function sendPushToUser({
 
   // Notification history can contain legacy duplicates and items hidden only
   // on a particular device. It is not a reliable source for the OS badge.
-  const badgeCount = 1;
+  let badgeCount = 1;
+  try {
+    const counts = await Promise.all(['user_notifications', 'admin_notifications', 'friend_location_notifications']
+      .map(name => db.collection(name).where('userId', '==', userId).where('read', '==', false).count().get()));
+    badgeCount = Math.max(1, counts.reduce((total, count) => total + count.data().count, 0));
+  } catch (error) { console.warn('Unread badge count unavailable', error.message); }
 
   const tokens = userTokens(user);
   if (!tokens.length) {
@@ -374,8 +379,8 @@ export async function sendPushToUser({
       android: {
         priority: 'high',
         notification: {
-          channelId: 'ccs_updates',
-          sound: 'default',
+          channelId: 'ccs_updates_bell_v2',
+          sound: 'bell',
           notificationCount: badgeCount,
         },
       },
@@ -390,7 +395,7 @@ export async function sendPushToUser({
               title,
               body,
             },
-            sound: 'default',
+            sound: 'bell.wav',
             badge: badgeCount,
           },
         },
@@ -1217,13 +1222,13 @@ function advanceSpotPresence(previous, live, spots, now) {
 // on the next refresh, and each ready notification re-reads its spot below.
 let presenceSpotsCache = null;
 let presenceSpotsCacheUntil = 0;
-async function presenceSpots() {
-  if (presenceSpotsCache && Date.now() < presenceSpotsCacheUntil) return presenceSpotsCache;
+async function presenceSpots(includePrivate = false) {
+  if (presenceSpotsCache && Date.now() < presenceSpotsCacheUntil) return includePrivate ? presenceSpotsCache : presenceSpotsCache.filter(spot => spot.visibility !== 'group');
   const snapshot = await db.collection('spots').where('status', '==', 'approved')
     .select('name', 'coordinates', 'lat', 'lng', 'status', 'isTemporary', 'expiresAt', 'visibility').get();
-  presenceSpotsCache = snapshot.docs.filter(doc => doc.data().visibility !== 'group').map(doc => ({...doc.data(), id: doc.id}));
+  presenceSpotsCache = snapshot.docs.map(doc => ({...doc.data(), id: doc.id}));
   presenceSpotsCacheUntil = Date.now() + 60 * 1000;
-  return presenceSpotsCache;
+  return includePrivate ? presenceSpotsCache : presenceSpotsCache.filter(spot => spot.visibility !== 'group');
 }
 
 async function handleFriendAtSpot(userId, payload) {
@@ -1231,7 +1236,32 @@ async function handleFriendAtSpot(userId, payload) {
   const senderDoc = await db.collection('users').doc(userId).get();
   const sender = senderDoc.data() || {};
   if (!senderDoc.exists || sender.deleted === true || userHasActiveBan(sender)) return [];
-  const spots = await presenceSpots();
+  const attendanceSpots = await presenceSpots(true);
+  const spots = attendanceSpots.filter(spot => spot.visibility !== 'group');
+  const latest = (await db.collection('live_locations').doc(userId).get()).data();
+  const sample = payload.gpsFix || (latest && {latitude: latest.lat, longitude: latest.lng,
+    accuracy: latest.accuracy, isMocked: latest.isMocked,
+    recordedAtMillis: latest.recordedAtMillis ?? timestampToMillis(latest.updatedAt)});
+  if (sample) {
+    const {assessLocation} = await import('../lib/location-integrity.js');
+    if (!await assessLocation(userId, sample)) return [];
+  }
+  if (latest && sample) {
+    const {recordSpotVisit, distanceMeters, coordinates} = await import('../lib/spot-visits.js');
+    const {awardXp} = await import('../lib/xp/xp-firestore.js');
+    const {syncAchievements} = await import('../lib/xp/achievements.js');
+    let changed = false;
+    for (const spot of attendanceSpots.filter(spot => coordinates(spot) &&
+      distanceMeters({lat: sample.latitude, lng: sample.longitude}, coordinates(spot)) <= 100).slice(0, 10)) {
+      try {
+        const visit = await recordSpotVisit(db, userId, spot.id, Date.now(), sample);
+        if (visit.event) await awardXp({userId, action: 'event.attended', objectType: 'event',
+          objectId: spot.id, stage: 'attended', amount: 200, metadata: {reason: 'Event attended'}});
+        changed ||= !visit.duplicate;
+      } catch (error) { console.warn('Nearby visit not eligible', error.message); }
+    }
+    if (changed) await syncAchievements(userId);
+  }
   const stateRef = db.collection('spot_presence').doc(userId);
   const liveRef = db.collection('live_locations').doc(userId);
   const observation = await db.runTransaction(async tx => {

@@ -5,6 +5,11 @@ String achievementCategoryLabel(String category, String language) {
   const labels = {
     'spots': ['Spots', 'Споты', 'Vietas'],
     'visits': ['Visits', 'Посещения', 'Apmeklējumi'],
+    'attendance': [
+      'Event attendance',
+      'Посещение событий',
+      'Pasākumu apmeklējumi',
+    ],
     'meets': ['Events', 'События', 'Pasākumi'],
     'topics': ['Topics', 'Темы', 'Tēmas'],
     'tenure': ['CCS veteran', 'Стаж CCS', 'CCS stāžs'],
@@ -39,6 +44,7 @@ class AchievementEmblem extends StatelessWidget {
     final icon = switch (category) {
       'spots' => Icons.location_on_rounded,
       'visits' => Icons.route_rounded,
+      'attendance' => Icons.event_available_rounded,
       'meets' => Icons.directions_car_rounded,
       'topics' => Icons.forum_rounded,
       'tenure' => Icons.timelapse_rounded,

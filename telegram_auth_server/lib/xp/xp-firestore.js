@@ -1,3 +1,4 @@
+const {deliverRewardPush, rewardReason} = require('../reward-notifications');
 const { admin, db } = require('../firebase-admin');
 const {
   XP_RULES_VERSION,
@@ -19,7 +20,7 @@ async function awardXp(input, options = {}) {
   const statsRef = db.collection('xp_user_stats').doc(normalized.userId);
   const configRef = db.collection('app_config').doc('xp');
 
-  return db.runTransaction(async (transaction) => {
+  const result = await db.runTransaction(async (transaction) => {
     let normalized = normalizedInput;
     const configSnapshot = await transaction.get(configRef);
     const config = xpConfigFromDocument(configSnapshot.data());
@@ -204,7 +205,7 @@ async function awardXp(input, options = {}) {
 
       transaction.set(
         notificationRef,
-        xpNotificationData(normalized, transactionId, appliedAmount, weekKey),
+        xpNotificationData(normalized, transactionId, appliedAmount, weekKey, nextLevel > calculateLevel(currentTotalXp) ? nextLevel : null),
         { merge: true },
       );
     }
@@ -257,6 +258,11 @@ async function awardXp(input, options = {}) {
       level: nextLevel,
     };
   });
+  if (result.awarded && admin.messaging) {
+    try { await deliverRewardPush(normalizedInput, result); }
+    catch (error) { console.error('Reward push failed; bell notification preserved', error.message); }
+  }
+  return result;
 }
 
 async function awardManyXp(awards, options = {}) {
@@ -326,7 +332,7 @@ function isOneTimeAward(input) {
     'profile.avatar', 'profile.bio', 'profile.city', 'profile.social', 'profile.full',
     'garage.first_car', 'garage.first_car_photo', 'garage.first_car_description',
     'garage.first_car_gallery', 'garage.first_car_full',
-    'spot.approved', 'spot.description', 'spot.photo', 'spot.media_bundle',
+    'event.attended', 'spot.approved', 'spot.description', 'spot.photo', 'spot.media_bundle',
   ].includes(input.action);
 }
 
@@ -374,12 +380,13 @@ function notificationPreferenceEnabled(user, preferenceKey) {
   return true;
 }
 
-function xpNotificationData(input, transactionId, amount, weekKey) {
+function xpNotificationData(input, transactionId, amount, weekKey, levelUp) {
   return {
     userId: input.userId,
     type: 'xp_reward',
-    title: 'XP reward',
-    body: `+${amount} XP`,
+    title: input.action === 'achievement.unlock' ? 'Achievement unlocked' : 'XP reward',
+    body: `+${amount} XP — ${rewardReason(input)}`,
+    levelUp: levelUp || null,
     xpTransactionId: transactionId,
     xpAction: input.action,
     xpObjectType: input.objectType,

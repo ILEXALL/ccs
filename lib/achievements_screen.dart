@@ -438,6 +438,11 @@ String achievementRequirement(Map<String, dynamic> item, String language) {
       '$n репортов, подтверждённых модерацией',
       '$n moderatoru apstiprināti ziņojumi',
     ),
+    'attendance' => t(
+      'Attend $n different events',
+      'Посетите $n разных событий',
+      'Apmeklējiet $n dažādus pasākumus',
+    ),
     'meets' => t(
       'Create $n approved events',
       'Создать $n одобренных событий',

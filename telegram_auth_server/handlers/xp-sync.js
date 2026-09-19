@@ -1,3 +1,4 @@
+const {assessLocation} = require('../lib/location-integrity');
 const { admin, db } = require('../lib/firebase-admin');
 const { adjustXp } = require('../lib/xp/xp-adjustments');
 const { syncAchievements, selectAchievement, publicAchievements, recordCountryAchievement } = require('../lib/xp/achievements');
@@ -48,7 +49,7 @@ async function actorContext(req) {
   const userSnapshot = await db.collection('users').doc(token.uid).get();
   const user = userSnapshot.data() || {};
 
-  if (!isActiveUser(user)) {
+  if (!userSnapshot.exists || !isActiveUser(user)) {
     return null;
   }
 
@@ -119,7 +120,11 @@ async function syncSpot(actor, body) {
 }
 
 const handlers = {
-  visit_country: (actor, body) => recordCountryAchievement(actor.uid, body),
+  location_check: async (actor, body) => ({accepted: await assessLocation(actor.uid, body)}),
+  visit_country: async (actor, body) => {
+    if (!await assessLocation(actor.uid, body)) throw new Error('Location could not be verified');
+    return recordCountryAchievement(actor.uid, body);
+  },
   creator_spots: (actor, body) => creatorSpotCount(actor.uid, body.userId),
   public_xp: (actor, body) => publicXpProfile(actor.uid, body.userId, body.section),
   public_achievements: (actor, body) => publicAchievements(actor.uid, body.userId),

@@ -179,9 +179,16 @@ class LiveLocationService : Service(), LocationListener {
         isListening = false
     }
 
+    private var lastAcceptedSampleMillis = 0L
     private fun uploadLocation(location: Location) {
         // Last-known provider fixes must not count as fresh dwell observations.
-        if (System.currentTimeMillis() - location.time > 90_000L) return
+        if (kotlin.math.abs(System.currentTimeMillis() - location.time) > 30_000L ||
+            location.time <= lastAcceptedSampleMillis || !location.hasAccuracy() ||
+            !location.accuracy.isFinite() || location.accuracy > 50f || location.accuracy < 0f) return
+        @Suppress("DEPRECATION")
+        val mocked = location.isFromMockProvider
+        if (mocked) { checkSpotPresence(location); return }
+        lastAcceptedSampleMillis = location.time
         val currentUid = auth.currentUser?.uid
         if (currentUid == null || currentUid != uid) {
             return
@@ -195,6 +202,9 @@ class LiveLocationService : Service(), LocationListener {
         val audience = normalizedAudience()
         val liveLocationData = mutableMapOf<String, Any>(
             "uid" to uid,
+            "accuracy" to location.accuracy.toDouble(),
+            "isMocked" to false,
+            "recordedAtMillis" to location.time,
             "lat" to location.latitude,
             "lng" to location.longitude,
             "coordinates" to GeoPoint(location.latitude, location.longitude),
@@ -239,7 +249,7 @@ class LiveLocationService : Service(), LocationListener {
     private var presenceRequestInFlight = false
     private var lastPresenceRequestMillis = 0L
 
-    private fun checkSpotPresence() {
+    private fun checkSpotPresence(suspiciousFix: Location? = null) {
         val user = auth.currentUser ?: return
         val now = System.currentTimeMillis()
         if (user.uid != uid || presenceRequestInFlight || now - lastPresenceRequestMillis < 15_000L) return
@@ -262,7 +272,11 @@ class LiveLocationService : Service(), LocationListener {
                     connection.doOutput = true
                     connection.setRequestProperty("Authorization", "Bearer $token")
                     connection.setRequestProperty("Content-Type", "application/json")
-                    connection.outputStream.use { it.write("{\"type\":\"friend_at_spot\"}".toByteArray(Charsets.UTF_8)) }
+                    val body = org.json.JSONObject().put("type", "friend_at_spot")
+                    suspiciousFix?.let { fix -> body.put("gpsFix", org.json.JSONObject()
+                        .put("latitude", fix.latitude).put("longitude", fix.longitude)
+                        .put("accuracy", fix.accuracy.toDouble()).put("recordedAtMillis", fix.time).put("isMocked", true)) }
+                    connection.outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
                     connection.responseCode
                 } catch (_: Exception) {
                     // The next GPS upload retries; the backend deduplicates visits.

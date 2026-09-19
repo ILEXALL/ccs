@@ -87,7 +87,7 @@ test('public achievements respect privacy, blocks and account status', async () 
 test('achievement catalog has unique identities, approved rewards and three languages', () => {
   const f = setup(); const items = f.catalog();
   assert.equal(new Set(items.map(i => i.id)).size, items.length);
-  assert.equal(items.length, 62);
+  assert.equal(items.length, 67);
   assert.equal(items.some(item => item.category === 'reports'), false);
   assert.equal(items.filter(i => i.category === 'tourist').length, 27);
   assert.equal(items.filter(i => i.category === 'spots').reduce((a,i) => a+i.xp,0), 1500);

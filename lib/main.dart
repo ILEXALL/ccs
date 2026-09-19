@@ -26,6 +26,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'firebase_options.dart';
+import 'reward_feedback.dart';
 import 'spot_presence_marker.dart';
 import 'achievements_screen.dart';
 import 'in_app_badges.dart';
@@ -1802,6 +1803,7 @@ const _ruText = <String, String>{
   'Map': 'Карта',
   'Add Spot': 'Добавить спот',
   'Add Event': 'Добавить событие',
+  'Add Private Event': 'Добавить частное событие',
   'Event details': 'Детали события',
   'Event name': 'Название события',
   'Event schedule': 'Расписание события',
@@ -2889,6 +2891,7 @@ const _lvText = <String, String>{
   'Map': 'Karte',
   'Add Spot': 'Pievienot vietu',
   'Add Event': 'Pievienot pasākumu',
+  'Add Private Event': 'Pievienot privātu pasākumu',
   'Event details': 'Pasākuma informācija',
   'Event name': 'Pasākuma nosaukums',
   'Event schedule': 'Pasākuma laiks',
@@ -4561,6 +4564,8 @@ class CCSApp extends StatelessWidget {
         final baseTheme = ThemeData.dark();
 
         return MaterialApp(
+          navigatorKey: rewardNavigatorKey,
+          scaffoldMessengerKey: rewardMessengerKey,
           debugShowCheckedModeBanner: false,
           title: 'CCS',
           locale: Locale(appUiPreferences.language.name),
@@ -5624,7 +5629,7 @@ Future<void> _initializePushNotifications(String expectedUid) async {
       await messaging.setForegroundNotificationPresentationOptions(
         alert: true,
         badge: true,
-        sound: true,
+        sound: false,
       );
       final apnsToken = await messaging.getAPNSToken();
       debugPrint(
@@ -11232,6 +11237,7 @@ CollectionReference<Map<String, dynamic>> liveLocationsCollection() {
 }
 
 class LiveLocationData {
+  final bool qualityValid;
   final String uid;
   final String username;
   final String name;
@@ -11249,6 +11255,7 @@ class LiveLocationData {
   final int updatedAtMillis;
 
   const LiveLocationData({
+    this.qualityValid = true,
     required this.uid,
     required this.username,
     required this.name,
@@ -11278,7 +11285,7 @@ class LiveLocationData {
     return now - updatedAtMillis >= liveLocationStaleAfter.inMilliseconds;
   }
 
-  bool get isActive => !isExpired && !isStale;
+  bool get isActive => qualityValid && !isExpired && !isStale;
 
   factory LiveLocationData.fromFirestore(
     DocumentSnapshot<Map<String, dynamic>> doc,
@@ -11297,6 +11304,13 @@ class LiveLocationData {
         : roleFromFirebase(data['role']);
 
     return LiveLocationData(
+      qualityValid:
+          data['isMocked'] != true &&
+          (data['accuracy'] == null ||
+              (data['accuracy'] is num &&
+                  (data['accuracy'] as num).isFinite &&
+                  (data['accuracy'] as num) >= 0 &&
+                  (data['accuracy'] as num) <= 50)),
       uid: stringFromFirebase(data['uid'], doc.id),
       username: stringFromFirebase(data['username'], 'ccs_driver'),
       name: stringFromFirebase(data['name'], 'CCS Driver'),
@@ -11318,7 +11332,9 @@ class LiveLocationData {
           : 60,
       promptAtMillis: timestampMillisFromFirebase(data['promptAt']),
       expiresAtMillis: timestampMillisFromFirebase(data['expiresAt']),
-      updatedAtMillis: timestampMillisFromFirebase(data['updatedAt']),
+      updatedAtMillis: data['recordedAtMillis'] is num
+          ? (data['recordedAtMillis'] as num).toInt()
+          : timestampMillisFromFirebase(data['updatedAt']),
     );
   }
 }
@@ -12099,11 +12115,27 @@ void startNotificationCenterUnreadWatcher() {
     String source,
     Query<Map<String, dynamic>> query,
   ) {
+    bool initialized = false;
     return trackedQuerySnapshots(
       'notification center unread watcher: $source',
-      query.where('read', isEqualTo: false).limit(50),
+      query
+          .where('read', isEqualTo: false)
+          .orderBy('createdAt', descending: true)
+          .limit(50),
     ).listen(
       (snapshot) {
+        if (initialized && !snapshot.metadata.isFromCache) {
+          for (final change in snapshot.docChanges) {
+            if (change.type == DocumentChangeType.added) {
+              handleRewardNotification(
+                firebaseUser.uid,
+                change.doc.id,
+                change.doc.data() ?? {},
+              );
+            }
+          }
+        }
+        if (!snapshot.metadata.isFromCache) initialized = true;
         // Do not trust raw unread counts for the bell. Older/hidden/invalid
         // notifications can still be unread in Firestore, while the
         // notification center filters them out. Recompute the visible unread
@@ -14325,13 +14357,37 @@ Future<Duration?> showLiveLocationDurationDialog(BuildContext context) async {
   );
 }
 
+bool usableLiveFix(Position position) =>
+    !position.isMocked &&
+    position.accuracy.isFinite &&
+    position.accuracy >= 0 &&
+    position.accuracy <= 50 &&
+    DateTime.now().difference(position.timestamp).abs() <=
+        const Duration(seconds: 30);
+
 final _countryAchievementRequests = <String>{};
 final _creditedSpotVisits = <String>{};
 final _spotVisitRequests = <String>{};
+final _lastMockLocationReport = <String, DateTime>{};
 
 Future<void> checkGpsSpotVisits(Position position) async {
   final user = FirebaseAuth.instance.currentUser;
   final now = DateTime.now();
+  if (user != null &&
+      position.isMocked &&
+      now.difference(_lastMockLocationReport[user.uid] ?? DateTime(1970)) >
+          const Duration(minutes: 5)) {
+    _lastMockLocationReport[user.uid] = now;
+    unawaited(
+      xpScreenRequest('location_check', {
+        'latitude': position.latitude,
+        'longitude': position.longitude,
+        'accuracy': position.accuracy,
+        'recordedAtMillis': position.timestamp.millisecondsSinceEpoch,
+        'isMocked': true,
+      }).catchError((_) => <String, dynamic>{}),
+    );
+  }
   if (user == null ||
       position.isMocked ||
       !position.accuracy.isFinite ||
@@ -14342,7 +14398,7 @@ Future<void> checkGpsSpotVisits(Position position) async {
   final candidates = approvedPublicSpots()
       .where(
         (spot) =>
-            !spot.isGroupSpot &&
+            canViewGroupSpot(spot) &&
             spot.isVisibleOnMapNow &&
             (!spot.isTemporary || spot.isTemporaryActiveNow) &&
             Geolocator.distanceBetween(
@@ -14495,7 +14551,9 @@ Future<void> shareChatLiveLocation(
 
   final position = await getChatSharePosition(context);
 
-  if (position == null) {
+  if (position != null && position.isMocked)
+    unawaited(checkGpsSpotVisits(position));
+  if (position == null || !usableLiveFix(position)) {
     return;
   }
 
@@ -14515,6 +14573,9 @@ Future<void> shareChatLiveLocation(
     'role': roleName(currentUser.role),
     'verified': currentUser.verified,
     'heading': normalizedHeadingDegrees(position.heading),
+    'accuracy': position.accuracy,
+    'isMocked': position.isMocked,
+    'recordedAtMillis': position.timestamp.millisecondsSinceEpoch,
     'lat': position.latitude,
     'lng': position.longitude,
     'coordinates': GeoPoint(position.latitude, position.longitude),
@@ -19625,6 +19686,7 @@ String notificationCenterDisplayTitle(NotificationCenterItem item) {
 String notificationCenterDisplayBody(NotificationCenterItem item) {
   final body = item.body.trim();
   if (item.type == 'xp_reward') {
+    if (body.contains(' — ')) return body;
     final amount = item.xpAmount > 0 ? item.xpAmount : 0;
     final amountLabel = amount > 0 ? '+${formatXpValue(amount)} XP' : 'XP';
     final actionLabel = trText(xpTransactionActionLabel(item.xpAction)).trim();
@@ -22676,6 +22738,7 @@ class _MainScreenState extends State<_MainContentScreen>
   late int index;
   final List<int> tabHistory = [];
   bool creatingEvent = false;
+  bool creatingPrivateEvent = false;
   bool hasOpenedMap = false;
   bool hasOpenedChat = false;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>?
@@ -22691,7 +22754,11 @@ class _MainScreenState extends State<_MainContentScreen>
   List<Widget> get screens => [
     ExploreScreen(isVisible: index == 0),
     hasOpenedMap ? MapScreen(isVisible: index == 1) : const SizedBox.shrink(),
-    AddSpotScreen(key: ValueKey(creatingEvent), eventMode: creatingEvent),
+    AddSpotScreen(
+      key: ValueKey('$creatingEvent/$creatingPrivateEvent'),
+      eventMode: creatingEvent,
+      privateEvent: creatingPrivateEvent,
+    ),
     hasOpenedChat ? const ChatScreen(isMainTab: true) : const SizedBox.shrink(),
     const ProfileScreen(),
   ];
@@ -23188,7 +23255,11 @@ class _MainScreenState extends State<_MainContentScreen>
                                 onTap: () async {
                                   final event = await showCreationMenu(context);
                                   if (!mounted || event == null) return;
-                                  setState(() => creatingEvent = event);
+                                  setState(() {
+                                    creatingEvent = event != CreationKind.spot;
+                                    creatingPrivateEvent =
+                                        event == CreationKind.privateEvent;
+                                  });
                                   selectBottomTab(2);
                                 },
                               ),
@@ -30829,9 +30900,11 @@ class _MapScreenState extends State<MapScreen>
     String? visibleToChatName,
     String? shareScope,
   }) async {
-    if (DateTime.now().difference(position.timestamp) >
-        const Duration(seconds: 90)) {
-      return;
+    if (!usableLiveFix(position)) {
+      if (position.isMocked) unawaited(checkGpsSpotVisits(position));
+      throw StateError(
+        'Waiting for an accurate GPS fix. Move outdoors and try again.',
+      );
     }
     final firebaseUser = FirebaseAuth.instance.currentUser;
 
@@ -30891,6 +30964,7 @@ class _MapScreenState extends State<MapScreen>
       'lng': position.longitude,
       'coordinates': GeoPoint(position.latitude, position.longitude),
       'accuracy': position.accuracy,
+      'recordedAtMillis': position.timestamp.millisecondsSinceEpoch,
       'isMocked': position.isMocked,
       'visibleToUserIds': nextVisibleToUserIds.isEmpty
           ? [firebaseUser.uid]
@@ -31229,7 +31303,8 @@ class _MapScreenState extends State<MapScreen>
   }
 
   void handleNavigationPosition(Position position) {
-    if (!mounted) {
+    if (position.isMocked) unawaited(checkGpsSpotVisits(position));
+    if (!mounted || !usableLiveFix(position)) {
       return;
     }
 
@@ -31373,12 +31448,18 @@ class _MapScreenState extends State<MapScreen>
         return null;
       }
 
-      return Geolocator.getCurrentPosition(
+      final position = await Geolocator.getCurrentPosition(
         locationSettings: const LocationSettings(
-          accuracy: LocationAccuracy.high,
+          accuracy: LocationAccuracy.bestForNavigation,
           timeLimit: userLocationLookupTimeout,
         ),
       );
+      if (position.isMocked) unawaited(checkGpsSpotVisits(position));
+      if (!usableLiveFix(position))
+        throw StateError(
+          'Waiting for an accurate GPS fix. Enable precise location and try outdoors.',
+        );
+      return position;
     } on TimeoutException {
       if (showErrors && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -36195,8 +36276,10 @@ class _SpotCategoryDropdown extends StatelessWidget {
   }
 }
 
-Future<bool?> showCreationMenu(BuildContext context) =>
-    showModalBottomSheet<bool>(
+enum CreationKind { spot, event, privateEvent }
+
+Future<CreationKind?> showCreationMenu(BuildContext context) =>
+    showModalBottomSheet<CreationKind>(
       context: context,
       showDragHandle: true,
       backgroundColor: panelGlass,
@@ -36207,12 +36290,17 @@ Future<bool?> showCreationMenu(BuildContext context) =>
             ListTile(
               leading: const Icon(Icons.add_location_alt_outlined, color: blue),
               title: Text(trText('Add Spot')),
-              onTap: () => Navigator.pop(context, false),
+              onTap: () => Navigator.pop(context, CreationKind.spot),
             ),
             ListTile(
               leading: const Icon(Icons.event_outlined, color: blue),
               title: Text(trText('Add Event')),
-              onTap: () => Navigator.pop(context, true),
+              onTap: () => Navigator.pop(context, CreationKind.event),
+            ),
+            ListTile(
+              leading: const Icon(Icons.lock_outline, color: blue),
+              title: Text(trText('Add Private Event')),
+              onTap: () => Navigator.pop(context, CreationKind.privateEvent),
             ),
             const SizedBox(height: 12),
           ],
@@ -36222,7 +36310,12 @@ Future<bool?> showCreationMenu(BuildContext context) =>
 
 class AddSpotScreen extends StatefulWidget {
   final bool eventMode;
-  const AddSpotScreen({super.key, this.eventMode = false});
+  final bool privateEvent;
+  const AddSpotScreen({
+    super.key,
+    this.eventMode = false,
+    this.privateEvent = false,
+  });
 
   @override
   State<AddSpotScreen> createState() => _AddSpotScreenState();
@@ -36239,7 +36332,22 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
   final emailController = TextEditingController();
   final addedByController = TextEditingController();
 
-  final categoryOptions = spotCategoryOptions;
+  List<String> get categoryOptions => widget.eventMode
+      ? spotCategoryOptions
+            .where(
+              (category) => !const {
+                'Store',
+                'Photo',
+                'Service',
+                'Detailing',
+                'Wash',
+                'Activity',
+                'Food',
+                'Scrap',
+              }.contains(category),
+            )
+            .toList()
+      : spotCategoryOptions;
 
   String selectedCategory = 'Photo';
   LatLng? selectedLocation;
@@ -36266,6 +36374,7 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
     super.initState();
     addedByController.text = currentUser.username;
     isTemporarySpot = widget.eventMode;
+    groupVisibility = widget.privateEvent;
     if (widget.eventMode) {
       selectedCategory = 'Meet';
       temporaryStartsAt = DateTime.now().add(const Duration(hours: 1));
@@ -36285,30 +36394,13 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
     type: MaterialType.transparency,
     child: Column(
       children: [
-        SegmentedButton<bool>(
-          segments: [
-            ButtonSegment(
-              value: false,
-              label: Text(trText('Public')),
-              icon: const Icon(Icons.public),
-            ),
-            ButtonSegment(
-              value: true,
-              label: Text(trText('Group')),
-              icon: const Icon(Icons.groups),
-            ),
-          ],
-          selected: {groupVisibility},
-          onSelectionChanged: isSubmitting
-              ? null
-              : (values) => setState(() {
-                  groupVisibility = values.first;
-                  if (groupVisibility) verifiedOnlySpot = false;
-                }),
-        ),
         if (groupVisibility) ...[
           Text(
-            trText('Select groups (up to 8)'),
+            trText(
+              memberSpotGroups.value.isEmpty
+                  ? 'Join a group before creating a private event.'
+                  : 'Select groups (up to 8)',
+            ),
             style: const TextStyle(color: Colors.white70),
           ),
           for (final group in memberSpotGroups.value)
@@ -36822,7 +36914,7 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
       selectedPhotoPaths.clear();
       verifiedOnlySpot = false;
       isTemporarySpot = widget.eventMode;
-      groupVisibility = false;
+      groupVisibility = widget.privateEvent;
       selectedGroupIds.clear();
       temporaryStartsAt = null;
       temporaryExpiresAt = null;
@@ -37446,7 +37538,13 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          trText(widget.eventMode ? 'Add Event' : 'Add Spot'),
+                          trText(
+                            widget.privateEvent
+                                ? 'Add Private Event'
+                                : widget.eventMode
+                                ? 'Add Event'
+                                : 'Add Spot',
+                          ),
                           style: const TextStyle(
                             color: Colors.white,
                             fontSize: 22,
@@ -37536,9 +37634,7 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
                 _AddSpotSection(
                   title: 'Event schedule',
                   children: [
-                    if (isTemporarySpot &&
-                        (groupVisibility || memberSpotGroups.value.isNotEmpty))
-                      temporaryAudiencePicker(),
+                    if (widget.privateEvent) temporaryAudiencePicker(),
                     _TemporarySpotScheduleCard(
                       showTypeSwitch: false,
                       enabled: isTemporarySpot,
@@ -40669,7 +40765,7 @@ class _PrivateGroupDirectoryState extends State<PrivateGroupDirectory>
             width: 180,
             child: DropdownButton<String>(
               isExpanded: true,
-              value: _countryNamesByIso.containsKey(selectedCountry)
+              value: availableCommunityCountryCodes().contains(selectedCountry)
                   ? selectedCountry
                   : null,
               hint: Text(trText('Select country')),
@@ -40677,7 +40773,7 @@ class _PrivateGroupDirectoryState extends State<PrivateGroupDirectory>
               underline: const SizedBox.shrink(),
               icon: const Icon(Icons.keyboard_arrow_down, color: blue),
               items: [
-                for (final code in _countryNamesByIso.keys)
+                for (final code in availableCommunityCountryCodes())
                   DropdownMenuItem(
                     value: code,
                     child: Text(
@@ -52015,6 +52111,8 @@ String xpTransactionActionLabel(String action) {
         'Достижение получено',
         'Sasniegums iegūts',
       );
+    case 'event.attended':
+      return 'Event attended';
     case 'profile.avatar':
       return 'Profile avatar';
     case 'profile.bio':

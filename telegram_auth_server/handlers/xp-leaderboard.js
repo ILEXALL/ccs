@@ -119,7 +119,7 @@ function xpFromWeekDoc(data = {}) {
 
 function matchesSearch(user, search) {
   const username = cleanString(user.username, cleanString(user.name, 'ccs_driver'));
-  return username.toLowerCase().includes(search);
+  return [username, cleanString(user.name)].some(value => value.normalize('NFKC').toLowerCase().includes(search));
 }
 
 function pageResult(matches, limit, weekKey) {
@@ -173,7 +173,7 @@ async function loadAllTimeLeaderboard(limit, context, cursor) {
     }
   }
   while (matches.length <= limit) {
-    const batchSize = Math.min(STATS_FETCH_LIMIT, limit + 1 - matches.length);
+    const batchSize = context.search ? 100 : Math.min(STATS_FETCH_LIMIT, limit + 1 - matches.length);
     const pageQuery = query.limit(batchSize);
     const snapshot = await (after ? pageQuery.startAfter(after) : pageQuery).get();
     const docs = snapshot.docs.filter(doc => {
@@ -258,7 +258,7 @@ async function loadWeeklyLeaderboard(limit, context, cursor) {
     start = index + 1;
   }
   for (let offset = start; offset < weeks.length && matches.length <= limit;) {
-    const batchSize = Math.min(STATS_FETCH_LIMIT, limit + 1 - matches.length);
+    const batchSize = context.search ? 100 : Math.min(STATS_FETCH_LIMIT, limit + 1 - matches.length);
     const batch = weeks.slice(offset, offset + batchSize).filter(week => week.weeklyXp > 0);
     offset += batchSize;
     if (!batch.length) break;

@@ -7,6 +7,7 @@ const { buildXpTransactionId } = require('./xp-engine');
 const categories = [
   ['spots', ['Spots', 'Споты', 'Vietas'], [[1,50],[5,100],[10,200],[25,400],[50,750]], 'count'],
   ['visits', ['Visits', 'Посещения', 'Apmeklējumi'], [[1,25],[10,100],[25,200],[50,350],[100,600]], 'count'],
+  ['attendance', ['Event attendance', 'Посещение событий', 'Pasākumu apmeklējumi'], [[1,25],[5,100],[25,200],[50,350],[100,600]], 'count'],
   ['meets', ['Events', 'События', 'Pasākumi'], [[1,50],[5,150],[10,300],[25,600],[50,1000]], 'count'],
   ['topics', ['Active topics', 'Активные темы', 'Aktīvas tēmas'], [[1,25],[5,100],[10,200],[25,400],[50,750]], 'count'],
   ['tenure', ['CCS membership', 'Стаж CCS', 'Dalība CCS'], [[3,50],[6,100],[12,250],[24,500],[36,750]], 'months'],
@@ -37,7 +38,7 @@ function catalog() {
   return [
     ...categories.flatMap(([category, names, tiers, unit]) => tiers.map(([threshold, xp], index) => ({
       id: `${category}.${threshold}`, category, title: title(names), threshold, xp, unit, tier: index + 1,
-      available: ['spots', 'tenure', 'visits', 'meets'].includes(category),
+      available: ['spots', 'tenure', 'visits', 'meets', 'attendance'].includes(category),
     }))),
     ...countries.map(([code, asset, ...names]) => ({id: `tourist.${code}`, category: 'tourist',
       title: title(names), threshold: 1, xp: 75, unit: 'country', tier: 1,
@@ -65,7 +66,8 @@ async function achievementProgress(userId, now = new Date()) {
   ]);
   const uniqueVisits = new Set(visits.docs.map(doc => doc.data())
     .filter(row => row.status === 'verified' && row.spotId).map(row => row.spotId));
-  return {...created, visits: uniqueVisits.size, isModerator: userDoc.data()?.role === 'moderator',
+  const attendance = new Set(visits.docs.map(doc => doc.data()).filter(row => row.status === 'verified' && row.event === true).map(row => row.spotId));
+  return {...created, attendance: attendance.size, visits: uniqueVisits.size, isModerator: userDoc.data()?.role === 'moderator',
     tenure: completedMonths(authUser.metadata.creationTime, now)};
 }
 
@@ -88,7 +90,7 @@ async function syncAchievements(userId, options = {}) {
     await awardManyXp(catalog().filter(item => item.available && progress[item.category] >= item.threshold)
       .map(item => ({userId, action: 'achievement.unlock', objectType: 'achievement',
         objectId: item.id, stage: 'unlocked', amount: item.xp,
-        metadata: {achievementId: item.id}})), options);
+        metadata: {achievementId: item.id, reason: `${item.title.en}: ${item.threshold}`, title: item.title.en}})), options);
   }
   // Fetch only achievement awards, after awarding so new unlocks appear in the
   // same response. Unrelated XP history can grow without slowing this screen.
@@ -161,7 +163,7 @@ async function recordCountryAchievement(userId, input, options = {}) {
   const config = (await db.collection('app_config').doc('xp').get()).data() || {};
   if (config.achievements_enabled !== true) return {status: 'disabled', countryCode: code, awarded: false};
   const item = catalog().find(i=>i.id==='tourist.'+code);
-  const [result] = await awardManyXp([{userId,action:'achievement.unlock',objectType:'achievement',objectId:item.id,stage:'unlocked',amount:item.xp,metadata:{achievementId:item.id,countryCode:code}}],options);
+  const [result] = await awardManyXp([{userId,action:'achievement.unlock',objectType:'achievement',objectId:item.id,stage:'unlocked',amount:item.xp,metadata:{achievementId:item.id,countryCode:code,reason:`Country visited: ${item.title.en}`}}],options);
   return {status:result.status,awarded:result.awarded,countryCode:code,achievementId:item.id,amount:result.awarded?result.amount:0};
 }
 module.exports.recordCountryAchievement = recordCountryAchievement;
