@@ -1,3 +1,4 @@
+import 'firestore_usage_estimate.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -313,27 +314,25 @@ class InAppBadgeController extends ChangeNotifier {
     bool includeCache = false,
   }) {
     final generation = _generation;
-    var firstServerSnapshot = true;
+    final readEstimate = ServerReadEstimate();
     _subscriptions.add(
       query.snapshots(includeMetadataChanges: true).listen(
         (snapshot) {
+          if (generation == _generation) {
+            onRead?.call(
+              'in-app badges: activity summaries',
+              readEstimate.observe(
+                {for (final doc in snapshot.docs) doc.id: doc.data()},
+                fromCache: snapshot.metadata.isFromCache,
+                pendingWrites: snapshot.metadata.hasPendingWrites,
+              ),
+            );
+          }
           if (generation != _generation ||
               (!includeCache &&
                   (snapshot.metadata.isFromCache ||
                       snapshot.metadata.hasPendingWrites))) {
             return;
-          }
-          if (!snapshot.metadata.isFromCache &&
-              !snapshot.metadata.hasPendingWrites) {
-            if (onRead != null) {
-              onRead!(
-                'in-app badges: activity summaries',
-                firstServerSnapshot
-                    ? (snapshot.docs.isEmpty ? 1 : snapshot.docs.length)
-                    : snapshot.docChanges.length,
-              );
-            }
-            firstServerSnapshot = false;
           }
           receive(snapshot);
         },

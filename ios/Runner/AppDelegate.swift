@@ -1,3 +1,4 @@
+import AVFoundation
 import Flutter
 import PhotosUI
 import UserNotifications
@@ -5,6 +6,7 @@ import UIKit
 
 @main
 @objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate, PHPickerViewControllerDelegate, UIAdaptivePresentationControllerDelegate {
+  private var feedbackPlayer: AVAudioPlayer?
   private var photoPickerChannel: FlutterMethodChannel?
   private var deviceIdentityChannel: FlutterMethodChannel?
   private var appBadgeChannel: FlutterMethodChannel?
@@ -97,6 +99,17 @@ import UIKit
 
     systemNotificationsChannel?.setMethodCallHandler { call, result in
       switch call.method {
+      case "playSound":
+        let arguments = call.arguments as? [String: Any]
+        let name = arguments?["sound"] as? String == "level" ? "level" : "bell"
+        if let url = Bundle.main.url(forResource: name, withExtension: "mp3") {
+          do {
+            try AVAudioSession.sharedInstance().setCategory(.ambient, options: [.mixWithOthers])
+            self.feedbackPlayer = try AVAudioPlayer(contentsOf: url)
+            self.feedbackPlayer?.play()
+          } catch { /* Audio must not interrupt the app. */ }
+        }
+        result(nil)
       case "showNotification":
         let arguments = call.arguments as? [String: Any]
         let id = arguments?["id"] as? Int ?? Int(Date().timeIntervalSince1970)
@@ -132,7 +145,7 @@ import UIKit
     let content = UNMutableNotificationContent()
     content.title = title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "CCS" : title
     content.body = cleanBody
-    content.sound = .default
+    content.sound = nil // Foreground bell watcher owns sound playback.
     content.badge = NSNumber(value: badgeCount)
 
     let request = UNNotificationRequest(
@@ -166,9 +179,9 @@ import UIKit
   ) {
     super.userNotificationCenter(center, willPresent: notification) { _ in
       if #available(iOS 14.0, *) {
-        completionHandler([.banner, .list, .sound, .badge])
+        completionHandler([.banner, .list, .badge])
       } else {
-        completionHandler([.alert, .sound, .badge])
+        completionHandler([.alert, .badge])
       }
     }
   }

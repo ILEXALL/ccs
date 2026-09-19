@@ -22,6 +22,12 @@ function fixture(file) {
   }}),runTransaction:async fn=>fn({get:r=>r.get(),set:(r,v)=>records.set(r.path,v)})};
   let source=fs.readFileSync(file,'utf8');
   source=source.slice(source.indexOf('const SPOT_PRESENCE_RADIUS_METERS'),source.indexOf('async function handleFriendLiveSharing'));
+  // These tests isolate friend dwell behavior. Attendance/integrity are covered
+  // through the real modules in sept20.test.cjs.
+  source=source.replace("await import('../lib/location-integrity.js')", "({assessLocation: async()=>true})")
+    .replace("await import('../lib/spot-visits.js')", "({recordSpotVisit: async()=>({duplicate:true}), distanceMeters:()=>999999, coordinates:()=>null})")
+    .replace("await import('../lib/xp/xp-firestore.js')", "({awardXp: async()=>({})})")
+    .replace("await import('../lib/xp/achievements.js')", "({syncAchievements:async()=>({})})");
   const context={db,Date:{now:()=>now},admin:{firestore:{FieldValue:{serverTimestamp:()=>now}}},
     timestampToMillis:v=>typeof v==='number'?v:0,cleanText:(v,f='')=>typeof v==='string'&&v.trim()?v.trim():f,
     cleanStringArray:v=>Array.isArray(v)?v.filter(x=>typeof x==='string'):[],userHasActiveBan:u=>u.banned===true,

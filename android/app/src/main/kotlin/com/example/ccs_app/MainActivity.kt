@@ -1,5 +1,7 @@
 package com.example.ccs_app
 
+import android.media.MediaPlayer
+import android.media.AudioAttributes
 import android.app.Activity
 import android.app.Notification
 import android.app.NotificationChannel
@@ -24,7 +26,8 @@ class MainActivity : FlutterActivity() {
     private val notificationsChannelName = "ccs/system_notifications"
     private val liveLocationChannelName = "ccs/live_location_background"
     private val appBadgeChannelName = "ccs/app_badge"
-    private val notificationChannelId = "ccs_updates"
+    private val notificationChannelId = "ccs_updates_bell_v2"
+    private var feedbackPlayer: MediaPlayer? = null
     private val pickPhotoRequestCode = 7001
     private var pendingPhotoResult: MethodChannel.Result? = null
 
@@ -70,6 +73,15 @@ class MainActivity : FlutterActivity() {
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, notificationsChannelName)
             .setMethodCallHandler { call, result ->
                 when (call.method) {
+                    "playSound" -> {
+                        feedbackPlayer?.release()
+                        val resource = if (call.argument<String>("sound") == "level") R.raw.level else R.raw.bell
+                        feedbackPlayer = MediaPlayer.create(this, resource, AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_NOTIFICATION_EVENT).setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION).build(), 0)?.apply {
+                            setOnCompletionListener { player -> player.release(); if (feedbackPlayer === player) feedbackPlayer = null }
+                            start()
+                        }
+                        result.success(null)
+                    }
                     "showNotification" -> {
                         val title = call.argument<String>("title") ?: "CCS"
                         val body = call.argument<String>("body") ?: ""
@@ -152,9 +164,17 @@ class MainActivity : FlutterActivity() {
         ).apply {
             description = "Spot, comment, like and chat notifications"
             setShowBadge(true)
+            setSound(Uri.parse("android.resource://$packageName/raw/bell"),
+                AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_NOTIFICATION).build())
         }
 
         manager.createNotificationChannel(channel)
+        manager.createNotificationChannel(NotificationChannel("ccs_foreground_silent", "Foreground notifications", NotificationManager.IMPORTANCE_HIGH).apply {
+            setShowBadge(true); setSound(null, null)
+        })
+        manager.createNotificationChannel(NotificationChannel("ccs_badge_summary", "Unread count", NotificationManager.IMPORTANCE_LOW).apply {
+            setShowBadge(true); setSound(null, null)
+        })
     }
 
     private fun showNotification(id: Int, title: String, body: String, badgeCount: Int = 1) {
@@ -169,7 +189,7 @@ class MainActivity : FlutterActivity() {
         }
 
         val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            Notification.Builder(this, notificationChannelId)
+            Notification.Builder(this, "ccs_foreground_silent")
         } else {
             Notification.Builder(this)
         }
@@ -192,10 +212,19 @@ class MainActivity : FlutterActivity() {
     }
 
     private fun setAppBadgeCount(count: Int) {
+        val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         if (count <= 0) {
-            val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            manager.cancelAll()
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                manager.activeNotifications.filter { it.id != 1001 }.forEach { manager.cancel(it.tag, it.id) }
+            } else { manager.cancel(9108) }
+            return
         }
+        val launch = packageManager.getLaunchIntentForPackage(packageName)
+        val pending = launch?.let { PendingIntent.getActivity(this, 0, it, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE) }
+        val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) Notification.Builder(this, "ccs_badge_summary") else Notification.Builder(this)
+        manager.notify(9108, builder.setSmallIcon(R.mipmap.ic_launcher).setContentTitle("CCS")
+            .setContentText("$count unread notifications").setNumber(count).setOnlyAlertOnce(true)
+            .setContentIntent(pending).setAutoCancel(true).build())
     }
 
     private fun openPhotoPicker(result: MethodChannel.Result) {

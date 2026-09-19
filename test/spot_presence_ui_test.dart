@@ -1,3 +1,7 @@
+<<<<<<< HEAD
+=======
+import 'support/preview_font.dart';
+>>>>>>> zhena-ui
 import 'dart:io';
 import 'dart:ui' as ui;
 import 'package:ccs_app/main.dart' as app;
@@ -15,7 +19,11 @@ void main() {
       app.appUiPreferences.language = language;
       await tester.runAsync(() async {
         final font = FontLoader('PreviewFont');
+<<<<<<< HEAD
         font.addFont(File('C:/Windows/Fonts/arial.ttf').readAsBytes().then(ByteData.sublistView));
+=======
+        font.addFont(File(previewFontPath).readAsBytes().then(ByteData.sublistView));
+>>>>>>> zhena-ui
         await font.load();
         final icons = FontLoader('MaterialIcons');
         icons.addFont(rootBundle.load('fonts/MaterialIcons-Regular.otf'));

@@ -21,6 +21,7 @@ function rigaDay(now) {
   return `${parts.year}-${parts.month}-${parts.day}`;
 }
 
+<<<<<<< HEAD
 // A proximity observation is not anti-spoofing proof and does not award XP.
 // No raw coordinates or a public attendance list are persisted here.
 async function recordSpotVisit(db, userId, spotId, now = Date.now()) {
@@ -36,20 +37,63 @@ async function recordSpotVisit(db, userId, spotId, now = Date.now()) {
     const user = userDoc.data(); const spot = spotDoc.data(); const live = liveDoc.data();
     if (!user || user.deleted === true || user.banned === true) throw new Error('User unavailable');
     if (!spot || spot.deleted === true || spot.status !== 'approved' || spot.visibility === 'group' ||
+=======
+// Proximity is validated server-side; device GPS is not tamper-proof.
+// No raw coordinates or a public attendance list are persisted here.
+async function recordSpotVisit(db, userId, spotId, now = Date.now(), gpsFix = null) {
+  if (typeof spotId !== 'string' || !spotId || spotId.includes('/') || spotId.length > 128) throw new Error('Invalid spot');
+  const dayKey = rigaDay(now);
+  const id = crypto.createHash('sha256').update(JSON.stringify([userId, spotId])).digest('hex');
+  return db.runTransaction(async tx => {
+    const userDoc = await tx.get(db.collection('users').doc(userId));
+    const spotDoc = await tx.get(db.collection('spots').doc(spotId));
+    const liveDoc = gpsFix == null ? await tx.get(db.collection('live_locations').doc(userId)) : null;
+    const recordRef = db.collection('spot_visit_records').doc(id);
+    const existing = await tx.get(recordRef);
+    const user = userDoc.data(); const spot = spotDoc.data(); const live = gpsFix == null ? liveDoc.data() : {
+      lat: gpsFix.latitude, lng: gpsFix.longitude, updatedAt: gpsFix.recordedAtMillis,
+      expiresAt: Number(gpsFix.recordedAtMillis) + MAX_SAMPLE_AGE_MS,
+      accuracy: gpsFix.accuracy, isMocked: gpsFix.isMocked,
+    };
+    if (gpsFix != null && (gpsFix.isMocked !== false || typeof gpsFix.accuracy !== 'number' ||
+        typeof gpsFix.recordedAtMillis !== 'number')) throw new Error('Valid GPS location required');
+    if (!user || user.deleted === true || user.banned === true) throw new Error('User unavailable');
+    let groupAccess = spot?.visibility !== 'group';
+    if (spot?.visibility === 'group' && spot.isTemporary === true) {
+      for (const groupId of (spot.sharedGroupIds || []).slice(0, 8)) {
+        if (typeof groupId !== 'string' || groupId.includes('/')) continue;
+        const group = (await tx.get(db.collection('chats').doc(groupId))).data();
+        if (group?.isGroup === true && group?.memberIds?.includes(userId)) groupAccess = true;
+      }
+    }
+    if (!spot || spot.deleted === true || spot.status !== 'approved' || !groupAccess ||
+>>>>>>> zhena-ui
         (spot.verifiedOnly === true && user.verified !== true && !['admin', 'moderator'].includes(user.role)) ||
         (spot.isTemporary === true && (millis(spot.expiresAt) <= now || millis(spot.startsAt) > now))) {
       throw new Error('Spot unavailable');
     }
     const position = coordinates(live || {}); const target = coordinates(spot);
+<<<<<<< HEAD
     const sample = millis(live?.updatedAt);
+=======
+    const sample = live?.recordedAtMillis ?? millis(live?.updatedAt);
+>>>>>>> zhena-ui
     if (!position || !target || millis(live?.expiresAt) <= now || sample <= 0 || sample > now ||
         now - sample > MAX_SAMPLE_AGE_MS || live?.isMocked === true ||
         (typeof live?.accuracy === 'number' && (!Number.isFinite(live.accuracy) || live.accuracy < 0 || live.accuracy > 100)) ||
         distanceMeters(position, target) > VISIT_RADIUS_METERS) throw new Error('Fresh nearby location required');
+<<<<<<< HEAD
     if (existing.exists) return {recorded: true, duplicate: true, dayKey};
     tx.create(recordRef, {userId, spotId, dayKey, recordedAtMillis: now,
       source: 'shared_live_location', status: 'observed', xpAwarded: false});
     return {recorded: true, duplicate: false, dayKey};
+=======
+    if (existing.exists) return {recorded: true, duplicate: true, dayKey, event: existing.data().event === true};
+    tx.create(recordRef, {userId, spotId, dayKey, recordedAtMillis: now,
+      event: spot.isTemporary === true,
+      source: gpsFix == null ? 'shared_live_location' : 'gps_button', status: 'verified'});
+    return {recorded: true, duplicate: false, dayKey, event: spot.isTemporary === true};
+>>>>>>> zhena-ui
   });
 }
 module.exports = {recordSpotVisit, coordinates, distanceMeters, rigaDay};

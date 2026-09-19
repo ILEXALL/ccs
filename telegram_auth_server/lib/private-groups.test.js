@@ -36,14 +36,15 @@ function fixture() {
     return result;
   } };
   const admin = { auth: () => ({ verifyIdToken: async uid => ({ uid }) }), firestore: { FieldValue: { serverTimestamp: () => 123 } } };
-  const context = { module: { exports: {} }, console, require: name => name === '../lib/firebase-admin' ? {admin, db} : name === '../lib/regional-moderation' ? regional : helpers };
+  const notifications = [];
+  const context = { module: { exports: {} }, console, require: name => name === '../lib/group-notifications' ? {notifyGroupMembers: async (...args) => notifications.push(args)} : name === '../lib/firebase-admin' ? {admin, db} : name === '../lib/regional-moderation' ? regional : helpers };
   vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../api/private-groups.js'),'utf8'),context);
   async function call(uid, body) {
     const res = { setHeader() {}, status(code) { this.code=code; return this; }, json(body) { this.body=body; } };
     await context.module.exports({ method: 'POST', headers: {authorization: 'Bearer '+uid}, body },res);
     return JSON.parse(JSON.stringify({code:res.code,body:res.body}));
   }
-  return { data, call };
+  return { data, call, notifications };
 }
 
 test('directory exposes existing private groups without messages or membership identities', async () => {
@@ -165,4 +166,14 @@ test('staff monitoring requires assignment even when profile country matches', a
   const result=await call('staff',{action:'directory'});
   assert.equal(result.code,200);
   assert.equal(result.body.groups[0].canMonitor,false);
+});
+
+test('accepted requests dispatch a membership push; rejected requests do not', async () => {
+  const f=fixture();await f.call('alice',{action:'request',chatId:'group'});
+  await f.call('owner',{action:'decide',chatId:'group',requesterUid:'alice',decision:'accepted'});
+  assert.equal(f.notifications.length,1);assert.equal(f.notifications[0][0],'group');
+  assert.equal(f.notifications[0][2][0],'alice');assert.equal(f.notifications[0][3],true);
+  await f.call('bob',{action:'request',chatId:'group'});
+  await f.call('owner',{action:'decide',chatId:'group',requesterUid:'bob',decision:'rejected'});
+  assert.equal(f.notifications.length,1);
 });

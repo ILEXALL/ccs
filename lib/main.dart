@@ -26,9 +26,13 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'firebase_options.dart';
+import 'reward_feedback.dart';
+import 'spot_presence_marker.dart';
+import 'achievements_screen.dart';
 import 'in_app_badges.dart';
 import 'query_pages.dart';
 import 'session_count_stream.dart';
+import 'firestore_usage_estimate.dart';
 import 'spots_interaction_guide.dart';
 import 'spot_presence_grouping.dart';
 
@@ -40,10 +44,12 @@ final inAppBadges = InAppBadgeController(
       firestoreDebugTracker.recordRead(label, readCount),
 );
 int activityChatTabIndex = 0;
+ActivitySection? chatActivitySection(int index) =>
+    index >= 0 && index < 4 ? ActivitySection.values[index] : null;
 ActivitySection? activitySectionForNavigation(int index) => switch (index) {
   0 => ActivitySection.spots,
   1 => ActivitySection.map,
-  3 => ActivitySection.values[activityChatTabIndex],
+  3 => chatActivitySection(activityChatTabIndex),
   _ => null,
 };
 void observeLoadedSpotsForBadges() {
@@ -94,6 +100,16 @@ const firestoreUsageUrl =
 // legacy Telegram-login host (which can run an older moderation endpoint).
 const moderationActionUrl =
     'https://ccs-telegram-auth-server.vercel.app/api/moderation-action';
+const xpSyncUrls = <String>[
+  // Prefer the current achievement catalogue over the legacy login backend.
+  'https://ccs-telegram-auth-server.vercel.app/api/xp-sync',
+  '$telegramAuthBaseUrl/api/xp-sync',
+];
+const xpLeaderboardUrls = <String>[
+  // Use the current backend first; the legacy host may not support cursors.
+  'https://ccs-telegram-auth-server.vercel.app/api/xp-leaderboard',
+  '$telegramAuthBaseUrl/api/xp-leaderboard',
+];
 const r2PresignUploadUrl =
     'https://ccs-telegram-auth-server.vercel.app/api/r2-presign-upload';
 const int maxSpotGalleryPhotos = 4;
@@ -252,7 +268,7 @@ class FirestoreDebugTracker extends ChangeNotifier {
   final Map<String, FirestoreDebugStats> statsByLabel = {};
   final Map<String, FirestoreDebugStats> sessionStatsByLabel = {};
   final List<FirestoreDebugEvent> recentEvents = [];
-  final DateTime sessionStartedAt = DateTime.now();
+  DateTime sessionStartedAt = DateTime.now();
   Timer? _persistTimer;
   bool _loadedFromStorage = false;
 
@@ -371,6 +387,7 @@ class FirestoreDebugTracker extends ChangeNotifier {
   }
 
   void reset() {
+    sessionStartedAt = DateTime.now();
     statsByLabel.clear();
     sessionStatsByLabel.clear();
     recentEvents.clear();
@@ -551,6 +568,7 @@ class FirestoreCloudUsageController extends ChangeNotifier {
   }
 
   Future<void> refresh() async {
+    if (currentUser.role != UserRole.admin) return;
     if (isLoading) {
       return;
     }
@@ -563,14 +581,20 @@ class FirestoreCloudUsageController extends ChangeNotifier {
       final uri = Uri.parse(firestoreUsageUrl);
       final client = HttpClient();
       try {
+        final token = await FirebaseAuth.instance.currentUser?.getIdToken();
+        if (token == null) throw StateError('Admin sign-in required');
         final request = await client.getUrl(uri);
+        request.headers.set(HttpHeaders.authorizationHeader, 'Bearer $token');
         request.headers.set(HttpHeaders.acceptHeader, 'application/json');
         final response = await request.close();
         final body = await utf8.decoder.bind(response).join();
 
         if (response.statusCode < 200 || response.statusCode >= 300) {
+          final failure = jsonDecode(body);
           throw StateError(
-            'Usage endpoint returned ${response.statusCode}: ${body.trim()}',
+            failure is Map
+                ? '${failure['error'] ?? 'Cloud usage unavailable'}'
+                : 'Cloud usage unavailable',
           );
         }
 
@@ -639,9 +663,9 @@ final firestoreDebugTracker = FirestoreDebugTracker();
 final firestoreCloudUsageController = FirestoreCloudUsageController();
 final firestoreDebugButtonVisible = ValueNotifier<bool>(true);
 const firestoreDebugButtonVisibleKey = 'firestore_debug_button_visible';
-const firestoreDebugTrackerStorageKey = 'firestore_debug_tracker_storage_v1';
+const firestoreDebugTrackerStorageKey = 'firestore_debug_tracker_server_v2';
 const firestoreCloudUsageBaselineStorageKey =
-    'firestore_cloud_usage_baseline_v1';
+    'firestore_cloud_usage_baseline_ops_v2';
 const appDeviceIdStorageKey = 'ccs_app_device_id_v1';
 
 Future<void> loadFirestoreDebugButtonPreference() async {
@@ -653,6 +677,7 @@ Future<void> loadFirestoreDebugButtonPreference() async {
 }
 
 Future<void> saveFirestoreDebugButtonPreference(bool value) async {
+  if (currentUser.role != UserRole.admin) return;
   firestoreDebugButtonVisible.value = value;
 
   try {
@@ -665,60 +690,114 @@ Future<QuerySnapshot<Map<String, dynamic>>> trackedQueryGet(
   String label,
   Query<Map<String, dynamic>> query, [
   GetOptions? options,
-]) async {
-  final snapshot = await query.get(options);
-  firestoreDebugTracker.recordRead(
-    label,
-    firestoreDebugBillableQueryReadCount(snapshot.docs.length),
-  );
-  return snapshot;
-}
-
+]) => query.debugGet(options, label);
 Future<DocumentSnapshot<Map<String, dynamic>>> trackedDocGet(
   String label,
   DocumentReference<Map<String, dynamic>> ref, [
   GetOptions? options,
-]) async {
-  final snapshot = await ref.get(options);
-  firestoreDebugTracker.recordRead(label, 1);
-  return snapshot;
-}
-
+]) => ref.debugGet(options, label);
 Stream<QuerySnapshot<Map<String, dynamic>>> trackedQuerySnapshots(
   String label,
   Query<Map<String, dynamic>> query, {
   bool includeMetadataChanges = false,
-}) {
-  var firstSnapshot = true;
-
-  return query.snapshots(includeMetadataChanges: includeMetadataChanges).map((
-    snapshot,
-  ) {
-    final readCount = firstSnapshot
-        ? firestoreDebugBillableQueryReadCount(snapshot.docs.length)
-        : snapshot.docChanges.length;
-    firstSnapshot = false;
-    firestoreDebugTracker.recordRead(label, readCount);
-    return snapshot;
-  });
-}
-
+}) => observedQuerySnapshots(
+  query,
+  label,
+  includeMetadataChanges: includeMetadataChanges,
+);
 Stream<DocumentSnapshot<Map<String, dynamic>>> trackedDocSnapshots(
   String label,
   DocumentReference<Map<String, dynamic>> ref,
-) {
-  var firstSnapshot = true;
+) => observedDocSnapshots(ref, label);
+int firestoreDebugBillableQueryReadCount(int documentCount) =>
+    math.max(1, documentCount);
 
-  return ref.snapshots().map((snapshot) {
-    firestoreDebugTracker.recordRead(label, firstSnapshot ? 1 : 1);
-    firstSnapshot = false;
-    return snapshot;
-  });
+Stream<QuerySnapshot<T>> observedQuerySnapshots<T extends Object?>(
+  Query<T> query,
+  String label, {
+  bool includeMetadataChanges = false,
+}) async* {
+  final estimate = ServerReadEstimate();
+  Map<String, Object?>? delivered;
+  await for (final snapshot in query.snapshots(includeMetadataChanges: true)) {
+    final data = {for (final doc in snapshot.docs) doc.id: doc.data()};
+    firestoreDebugTracker.recordRead(
+      label,
+      estimate.observe(
+        data,
+        fromCache: snapshot.metadata.isFromCache,
+        pendingWrites: snapshot.metadata.hasPendingWrites,
+      ),
+    );
+    // Observe server acknowledgements internally without adding metadata-only
+    // callbacks to application listeners that did not request them.
+    if (includeMetadataChanges ||
+        delivered == null ||
+        !sameFirestoreValue(delivered, data) ||
+        delivered.keys.join('|') != data.keys.join('|')) {
+      delivered = data;
+      yield snapshot;
+    }
+  }
 }
 
-int firestoreDebugBillableQueryReadCount(int documentCount) {
-  // Firestore bills at least one read for a query, even when it returns no documents.
-  return math.max(1, documentCount);
+Stream<DocumentSnapshot<T>> observedDocSnapshots<T extends Object?>(
+  DocumentReference<T> ref,
+  String label,
+) async* {
+  final estimate = ServerReadEstimate();
+  Object? delivered;
+  var first = true;
+  await for (final snapshot in ref.snapshots(includeMetadataChanges: true)) {
+    final data = snapshot.data();
+    firestoreDebugTracker.recordRead(
+      label,
+      estimate.observe(
+        {ref.id: data},
+        fromCache: snapshot.metadata.isFromCache,
+        pendingWrites: snapshot.metadata.hasPendingWrites,
+      ),
+    );
+    if (first || !sameFirestoreValue(delivered, data)) {
+      first = false;
+      delivered = data;
+      yield snapshot;
+    }
+  }
+}
+
+final _queuedDebugOperations = Expando<List<void Function()>>();
+void queueDebugOperation(Object owner, void Function() operation) {
+  (_queuedDebugOperations[owner] ??= []).add(operation);
+}
+
+void confirmDebugOperations(Object owner) {
+  final operations = _queuedDebugOperations[owner] ?? [];
+  _queuedDebugOperations[owner] = null;
+  for (final operation in operations) {
+    operation();
+  }
+}
+
+extension ConfirmedFirestoreTransaction on FirebaseFirestore {
+  Future<T> debugRunTransaction<T>(
+    Future<T> Function(Transaction) handler, {
+    Duration timeout = const Duration(seconds: 30),
+    int maxAttempts = 5,
+  }) async {
+    Transaction? last;
+    final result = await runTransaction<T>(
+      (transaction) {
+        last = transaction;
+        _queuedDebugOperations[transaction] = [];
+        return handler(transaction);
+      },
+      timeout: timeout,
+      maxAttempts: maxAttempts,
+    );
+    if (last != null) confirmDebugOperations(last!);
+    return result;
+  }
 }
 
 String firestoreDebugTargetLabel(Object target) {
@@ -784,10 +863,12 @@ extension FirestoreDebugQueryExtension<T extends Object?> on Query<T> {
   ]) async {
     final debugLabel = firestoreDebugCallerLabel('query.get', this, label);
     final snapshot = await get(options);
-    firestoreDebugTracker.recordRead(
-      debugLabel,
-      firestoreDebugBillableQueryReadCount(snapshot.docs.length),
-    );
+    if (!snapshot.metadata.isFromCache && !snapshot.metadata.hasPendingWrites) {
+      firestoreDebugTracker.recordRead(
+        debugLabel,
+        firestoreDebugBillableQueryReadCount(snapshot.docs.length),
+      );
+    }
     return snapshot;
   }
 
@@ -797,16 +878,7 @@ extension FirestoreDebugQueryExtension<T extends Object?> on Query<T> {
       this,
       label,
     );
-    var firstSnapshot = true;
-
-    return snapshots().map((snapshot) {
-      final count = firstSnapshot
-          ? firestoreDebugBillableQueryReadCount(snapshot.docs.length)
-          : snapshot.docChanges.length;
-      firstSnapshot = false;
-      firestoreDebugTracker.recordRead(debugLabel, count);
-      return snapshot;
-    });
+    return observedQuerySnapshots(this, debugLabel);
   }
 }
 
@@ -818,35 +890,33 @@ extension FirestoreDebugDocumentReferenceExtension<T extends Object?>
   ]) async {
     final debugLabel = firestoreDebugCallerLabel('doc.get', this, label);
     final snapshot = await get(options);
-    firestoreDebugTracker.recordRead(debugLabel, 1);
+    if (!snapshot.metadata.isFromCache && !snapshot.metadata.hasPendingWrites)
+      firestoreDebugTracker.recordRead(debugLabel, 1);
     return snapshot;
   }
 
   Stream<DocumentSnapshot<T>> debugSnapshots([String? label]) {
     final debugLabel = firestoreDebugCallerLabel('doc.snapshots', this, label);
 
-    return snapshots().map((snapshot) {
-      firestoreDebugTracker.recordRead(debugLabel, 1);
-      return snapshot;
-    });
+    return observedDocSnapshots(this, debugLabel);
   }
 
   Future<void> debugSet(T data, [SetOptions? options, String? label]) async {
     final debugLabel = firestoreDebugCallerLabel('doc.set', this, label);
+    await set(data, options);
     firestoreDebugTracker.recordWrite(debugLabel, 1);
-    return set(data, options);
   }
 
   Future<void> debugUpdate(Map<Object, Object?> data, [String? label]) async {
     final debugLabel = firestoreDebugCallerLabel('doc.update', this, label);
+    await update(data);
     firestoreDebugTracker.recordWrite(debugLabel, 1);
-    return update(data);
   }
 
   Future<void> debugDelete([String? label]) async {
     final debugLabel = firestoreDebugCallerLabel('doc.delete', this, label);
+    await delete();
     firestoreDebugTracker.recordDelete(debugLabel, 1);
-    return delete();
   }
 }
 
@@ -857,7 +927,8 @@ extension FirestoreDebugTransactionExtension on Transaction {
   ]) async {
     final debugLabel = firestoreDebugCallerLabel('transaction.get', ref, label);
     final snapshot = await get(ref);
-    firestoreDebugTracker.recordRead(debugLabel, 1);
+    if (!snapshot.metadata.isFromCache && !snapshot.metadata.hasPendingWrites)
+      firestoreDebugTracker.recordRead(debugLabel, 1);
     return snapshot;
   }
 
@@ -868,7 +939,10 @@ extension FirestoreDebugTransactionExtension on Transaction {
     String? label,
   ]) {
     final debugLabel = firestoreDebugCallerLabel('transaction.set', ref, label);
-    firestoreDebugTracker.recordWrite(debugLabel, 1);
+    queueDebugOperation(
+      this,
+      () => firestoreDebugTracker.recordWrite(debugLabel, 1),
+    );
     set(ref, data, options);
     return this;
   }
@@ -883,7 +957,10 @@ extension FirestoreDebugTransactionExtension on Transaction {
       ref,
       label,
     );
-    firestoreDebugTracker.recordWrite(debugLabel, 1);
+    queueDebugOperation(
+      this,
+      () => firestoreDebugTracker.recordWrite(debugLabel, 1),
+    );
     update(ref, data);
     return this;
   }
@@ -897,7 +974,10 @@ extension FirestoreDebugTransactionExtension on Transaction {
       ref,
       label,
     );
-    firestoreDebugTracker.recordDelete(debugLabel, 1);
+    queueDebugOperation(
+      this,
+      () => firestoreDebugTracker.recordDelete(debugLabel, 1),
+    );
     delete(ref);
     return this;
   }
@@ -907,12 +987,18 @@ extension FirestoreDebugCollectionReferenceExtension<T extends Object?>
     on CollectionReference<T> {
   Future<DocumentReference<T>> debugAdd(T data, [String? label]) async {
     final debugLabel = firestoreDebugCallerLabel('collection.add', this, label);
+    final ref = await add(data);
     firestoreDebugTracker.recordWrite(debugLabel, 1);
-    return add(data);
+    return ref;
   }
 }
 
 extension FirestoreDebugWriteBatchExtension on WriteBatch {
+  Future<void> debugCommit() async {
+    await commit();
+    confirmDebugOperations(this);
+  }
+
   void debugSet<T extends Object?>(
     DocumentReference<T> ref,
     T data, [
@@ -920,7 +1006,10 @@ extension FirestoreDebugWriteBatchExtension on WriteBatch {
     String? label,
   ]) {
     final debugLabel = firestoreDebugCallerLabel('batch.set', ref, label);
-    firestoreDebugTracker.recordWrite(debugLabel, 1);
+    queueDebugOperation(
+      this,
+      () => firestoreDebugTracker.recordWrite(debugLabel, 1),
+    );
     set(ref, data, options);
   }
 
@@ -930,7 +1019,10 @@ extension FirestoreDebugWriteBatchExtension on WriteBatch {
     String? label,
   ]) {
     final debugLabel = firestoreDebugCallerLabel('batch.update', ref, label);
-    firestoreDebugTracker.recordWrite(debugLabel, 1);
+    queueDebugOperation(
+      this,
+      () => firestoreDebugTracker.recordWrite(debugLabel, 1),
+    );
     update(ref, data);
   }
 
@@ -939,7 +1031,10 @@ extension FirestoreDebugWriteBatchExtension on WriteBatch {
     String? label,
   ]) {
     final debugLabel = firestoreDebugCallerLabel('batch.delete', ref, label);
-    firestoreDebugTracker.recordDelete(debugLabel, 1);
+    queueDebugOperation(
+      this,
+      () => firestoreDebugTracker.recordDelete(debugLabel, 1),
+    );
     delete(ref);
   }
 }
@@ -953,10 +1048,12 @@ class FirestoreDebugScreen extends StatefulWidget {
 
 class _FirestoreDebugScreenState extends State<FirestoreDebugScreen> {
   Timer? _cloudUsageRefreshTimer;
+  String _sortBy = 'Reads';
 
   @override
   void initState() {
     super.initState();
+    if (currentUser.role != UserRole.admin) return;
     unawaited(firestoreCloudUsageController.loadBaseline());
     unawaited(firestoreCloudUsageController.refresh());
     _cloudUsageRefreshTimer = Timer.periodic(const Duration(minutes: 1), (_) {
@@ -979,26 +1076,38 @@ class _FirestoreDebugScreenState extends State<FirestoreDebugScreen> {
   }
 
   Future<void> _resetCounters() async {
+    if (currentUser.role != UserRole.admin) return;
     firestoreDebugTracker.reset();
-    await firestoreCloudUsageController.resetBaselineToCurrent();
+    // Reset only this device's diagnostic window; cloud totals stay unchanged.
   }
 
   @override
   Widget build(BuildContext context) {
+    if (currentUser.role != UserRole.admin) {
+      return const Scaffold(body: Center(child: Text('No access')));
+    }
     return AnimatedBuilder(
       animation: Listenable.merge([
         firestoreDebugTracker,
         firestoreCloudUsageController,
       ]),
       builder: (context, _) {
-        final entries = firestoreDebugTracker.statsByLabel.entries.toList()
-          ..sort((first, second) {
-            final readCompare = second.value.reads.compareTo(first.value.reads);
-            if (readCompare != 0) {
-              return readCompare;
-            }
-            return second.value.total.compareTo(first.value.total);
-          });
+        final entries =
+            firestoreDebugTracker.sessionStatsByLabel.entries.toList()
+              ..sort((first, second) {
+                int value(FirestoreDebugStats stats) => _sortBy == 'Writes'
+                    ? stats.writes
+                    : _sortBy == 'Deletes'
+                    ? stats.deletes
+                    : stats.reads;
+                final readCompare = value(
+                  second.value,
+                ).compareTo(value(first.value));
+                if (readCompare != 0) {
+                  return readCompare;
+                }
+                return second.value.total.compareTo(first.value.total);
+              });
         final logs = firestoreDebugTracker.recentEvents;
         final unlabeledEvents = firestoreDebugTracker.unlabeledEvents;
         final hasUnlabeledCalls = unlabeledEvents > 0;
@@ -1009,7 +1118,7 @@ class _FirestoreDebugScreenState extends State<FirestoreDebugScreen> {
         return Scaffold(
           backgroundColor: Colors.transparent,
           appBar: AppBar(
-            title: const Text('Firestore debug'),
+            title: const Text('Firestore usage'),
             backgroundColor: Colors.transparent,
             foregroundColor: blue,
             actions: [
@@ -1021,7 +1130,7 @@ class _FirestoreDebugScreenState extends State<FirestoreDebugScreen> {
                 icon: const Icon(Icons.cloud_sync_outlined),
               ),
               IconButton(
-                tooltip: 'Reset counters',
+                tooltip: 'Start a new device measurement',
                 onPressed: () => unawaited(_resetCounters()),
                 icon: const Icon(Icons.restart_alt),
               ),
@@ -1030,6 +1139,11 @@ class _FirestoreDebugScreenState extends State<FirestoreDebugScreen> {
           body: ListView(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
             children: [
+              _FirestoreCloudUsageCard(
+                controller: firestoreCloudUsageController,
+                timeLabel: _timeLabel,
+              ),
+              const SizedBox(height: 12),
               Container(
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
@@ -1041,7 +1155,7 @@ class _FirestoreDebugScreenState extends State<FirestoreDebugScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'This launch • since $sessionStartedLabel',
+                      'This device • server activity estimate • since $sessionStartedLabel',
                       style: const TextStyle(
                         color: Colors.white,
                         fontSize: 13,
@@ -1074,48 +1188,17 @@ class _FirestoreDebugScreenState extends State<FirestoreDebugScreen> {
                         ),
                       ],
                     ),
-                    const SizedBox(height: 14),
+                    const SizedBox(height: 12),
                     const Text(
-                      'Since reset',
+                      'Cache snapshots and pending or failed writes are excluded. Reads are estimates, not billing totals: shared listeners, reconnects, query removals, index reads and security-rule reads cannot be measured exactly by the app. Backend and other-device activity appears only in the cloud totals.',
                       style: TextStyle(
-                        color: Colors.white70,
-                        fontSize: 10.8,
-                        fontWeight: FontWeight.w800,
+                        color: Colors.white60,
+                        fontSize: 12,
+                        height: 1.4,
                       ),
-                    ),
-                    const SizedBox(height: 8),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: _FirestoreDebugTotal(
-                            label: 'Reads',
-                            value: firestoreDebugTracker.totalReads,
-                            icon: Icons.download_outlined,
-                          ),
-                        ),
-                        Expanded(
-                          child: _FirestoreDebugTotal(
-                            label: 'Writes',
-                            value: firestoreDebugTracker.totalWrites,
-                            icon: Icons.upload_outlined,
-                          ),
-                        ),
-                        Expanded(
-                          child: _FirestoreDebugTotal(
-                            label: 'Deletes',
-                            value: firestoreDebugTracker.totalDeletes,
-                            icon: Icons.delete_outline,
-                          ),
-                        ),
-                      ],
                     ),
                   ],
                 ),
-              ),
-              const SizedBox(height: 7),
-              _FirestoreCloudUsageCard(
-                controller: firestoreCloudUsageController,
-                timeLabel: _timeLabel,
               ),
               const SizedBox(height: 10),
               Container(
@@ -1159,7 +1242,7 @@ class _FirestoreDebugScreenState extends State<FirestoreDebugScreen> {
               ),
               const SizedBox(height: 14),
               const Text(
-                'Top features',
+                'Feature costs on this device',
                 style: TextStyle(
                   color: Colors.white,
                   fontSize: 18,
@@ -1167,6 +1250,21 @@ class _FirestoreDebugScreenState extends State<FirestoreDebugScreen> {
                 ),
               ),
               const SizedBox(height: 8),
+              DropdownButton<String>(
+                value: _sortBy,
+                dropdownColor: panel,
+                items: ['Reads', 'Writes', 'Deletes']
+                    .map(
+                      (value) => DropdownMenuItem(
+                        value: value,
+                        child: Text('Sort by $value'),
+                      ),
+                    )
+                    .toList(),
+                onChanged: (value) {
+                  if (value != null) setState(() => _sortBy = value);
+                },
+              ),
               if (entries.isEmpty)
                 const EmptyStateCard(
                   icon: Icons.bug_report_outlined,
@@ -1195,7 +1293,7 @@ class _FirestoreDebugScreenState extends State<FirestoreDebugScreen> {
                         ),
                         const SizedBox(height: 6),
                         Text(
-                          'R ${entry.value.reads}  •  W ${entry.value.writes}  •  D ${entry.value.deletes}  •  events ${entry.value.events}  •  last ${_timeLabel(entry.value.lastAt)}',
+                          'Reads ~${entry.value.reads}  •  Writes ${entry.value.writes}  •  Deletes ${entry.value.deletes}  •  last ${_timeLabel(entry.value.lastAt)}',
                           style: const TextStyle(
                             color: Colors.white60,
                             fontSize: 12,
@@ -1246,18 +1344,14 @@ class _FirestoreDebugScreenState extends State<FirestoreDebugScreen> {
 class _FirestoreCloudUsageCard extends StatelessWidget {
   final FirestoreCloudUsageController controller;
   final String Function(DateTime?) timeLabel;
-
   const _FirestoreCloudUsageCard({
     required this.controller,
     required this.timeLabel,
   });
-
   @override
   Widget build(BuildContext context) {
     final snapshot = controller.snapshot;
     final error = controller.errorMessage;
-    final lastFetched = controller.lastFetchedAt;
-
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -1270,15 +1364,15 @@ class _FirestoreCloudUsageCard extends StatelessWidget {
         children: [
           Row(
             children: [
-              const Icon(Icons.cloud_outlined, color: blue, size: 20),
+              const Icon(Icons.cloud_outlined, color: blue),
               const SizedBox(width: 8),
               const Expanded(
                 child: Text(
-                  'Firebase reported usage',
+                  'Actual Firestore activity',
                   style: TextStyle(
                     color: Colors.white,
-                    fontSize: 16,
                     fontWeight: FontWeight.w900,
+                    fontSize: 16,
                   ),
                 ),
               ),
@@ -1286,105 +1380,83 @@ class _FirestoreCloudUsageCard extends StatelessWidget {
                 const SizedBox(
                   width: 18,
                   height: 18,
-                  child: CircularProgressIndicator(color: blue, strokeWidth: 2),
+                  child: CircularProgressIndicator(strokeWidth: 2),
                 ),
             ],
           ),
-          const SizedBox(height: 6),
-          Text(
-            snapshot == null
-                ? 'Cloud Monitoring totals will appear here after /api/firestore-usage is deployed.'
-                : '${snapshot.windowLabel} from Google Cloud Monitoring • last app refresh ${timeLabel(lastFetched)}',
-            style: const TextStyle(
-              color: Colors.white60,
-              fontSize: 12,
-              fontWeight: FontWeight.w700,
-            ),
+          const SizedBox(height: 8),
+          const Text(
+            'Project-wide • all users and backend • today (UTC). Google metrics can arrive several minutes late; these are operation counts, not a final invoice.',
+            style: TextStyle(color: Colors.white60, height: 1.4, fontSize: 12),
           ),
-          if (error != null && error.trim().isNotEmpty) ...[
-            const SizedBox(height: 8),
+          if (error != null) ...[
+            const SizedBox(height: 12),
             Text(
-              error,
+              snapshot == null
+                  ? 'Cloud usage unavailable. No usage total is shown.'
+                  : 'Refresh failed. Showing the last successful report.',
               style: const TextStyle(
                 color: Colors.orangeAccent,
-                fontSize: 12,
                 fontWeight: FontWeight.w700,
               ),
             ),
-          ],
-          const SizedBox(height: 14),
-          const Text(
-            'Since debug reset',
-            style: TextStyle(
-              color: Colors.white70,
-              fontSize: 12,
-              fontWeight: FontWeight.w800,
+            const SizedBox(height: 6),
+            Text(
+              error,
+              style: const TextStyle(color: Colors.white60, fontSize: 12),
             ),
-          ),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              Expanded(
-                child: _FirestoreDebugTotal(
-                  label: 'Reads',
-                  value: controller.readsSinceReset,
-                  icon: Icons.download_outlined,
-                ),
+          ],
+          if (snapshot == null && error == null)
+            const Padding(
+              padding: EdgeInsets.only(top: 12),
+              child: Text(
+                'Waiting for Google Cloud metrics…',
+                style: TextStyle(color: Colors.white60),
               ),
-              Expanded(
-                child: _FirestoreDebugTotal(
-                  label: 'Writes',
-                  value: controller.writesSinceReset,
-                  icon: Icons.upload_outlined,
-                ),
-              ),
-              Expanded(
-                child: _FirestoreDebugTotal(
-                  label: 'Deletes',
-                  value: controller.deletesSinceReset,
-                  icon: Icons.delete_outline,
-                ),
-              ),
-            ],
-          ),
+            ),
           if (snapshot != null) ...[
-            const SizedBox(height: 14),
-            Text(
-              'Today total: R ${snapshot.reads} • W ${snapshot.writes} • D ${snapshot.deletes}',
-              style: const TextStyle(
-                color: Colors.white60,
-                fontSize: 12,
-                fontWeight: FontWeight.w700,
-              ),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                Expanded(
+                  child: _FirestoreDebugTotal(
+                    label: 'Reads',
+                    value: snapshot.reads,
+                    icon: Icons.download_outlined,
+                  ),
+                ),
+                Expanded(
+                  child: _FirestoreDebugTotal(
+                    label: 'Writes',
+                    value: snapshot.writes,
+                    icon: Icons.upload_outlined,
+                  ),
+                ),
+                Expanded(
+                  child: _FirestoreDebugTotal(
+                    label: 'Deletes',
+                    value: snapshot.deletes,
+                    icon: Icons.delete_outline,
+                  ),
+                ),
+              ],
             ),
-            const SizedBox(height: 4),
+            const SizedBox(height: 12),
             Text(
-              'Read type since reset: query ${controller.queryReadsSinceReset} • lookup ${controller.lookupReadsSinceReset}',
-              style: const TextStyle(
-                color: Colors.white60,
-                fontSize: 12,
-                fontWeight: FontWeight.w700,
-              ),
+              'Read breakdown: query ${snapshot.queryReads} • lookup ${snapshot.lookupReads}',
+              style: const TextStyle(color: Colors.white70, fontSize: 12),
             ),
-            const SizedBox(height: 4),
+            const SizedBox(height: 6),
             Text(
-              'Network now: ${snapshot.activeConnections} connections • ${snapshot.snapshotListeners} listeners',
-              style: const TextStyle(
-                color: Colors.white60,
-                fontSize: 12,
-                fontWeight: FontWeight.w700,
-              ),
+              'Connections: ${snapshot.activeConnections} • listeners: ${snapshot.snapshotListeners}',
+              style: const TextStyle(color: Colors.white70, fontSize: 12),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'Last refresh: ${timeLabel(controller.lastFetchedAt)}',
+              style: const TextStyle(color: Colors.white38, fontSize: 11),
             ),
           ],
-          const SizedBox(height: 8),
-          const Text(
-            'Reset stores the current Google metric totals as a local baseline. It cannot reset Firebase Console counters.',
-            style: TextStyle(
-              color: Colors.white38,
-              fontSize: 11,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
         ],
       ),
     );
@@ -1730,6 +1802,11 @@ const _ruText = <String, String>{
   'Spots': 'Споты',
   'Map': 'Карта',
   'Add Spot': 'Добавить спот',
+  'Add Event': 'Добавить событие',
+  'Add Private Event': 'Добавить частное событие',
+  'Event details': 'Детали события',
+  'Event name': 'Название события',
+  'Event schedule': 'Расписание события',
   'Chat': 'Чат',
   'Chat, forums and community': 'Чаты, форумы и сообщество',
   'Global': 'Глобальный',
@@ -1824,12 +1901,75 @@ const _ruText = <String, String>{
   'Fresh approved locations nearby': 'Новые одобренные места поблизости',
   'Messages': 'Сообщения',
   'New direct and group messages': 'Новые личные и групповые сообщения',
+  'New direct, group and global chat messages':
+      'Новые личные, групповые и глобальные сообщения',
+  'XP rewards': 'XP-награды',
+  'When you receive XP': 'Когда вы получаете XP',
+  'XP reward': 'XP-награда',
   'Friends at spots': 'Друзья на спотах',
   'When friends stay near a spot for 5 minutes':
       'Когда друзья находятся возле спота 5 минут',
   'Friends sharing location': 'Друзья делятся геопозицией',
   'When a friend starts sharing live location':
       'Когда друг начинает делиться геопозицией',
+  'Driver XP': 'XP водителя',
+  'Total XP': 'Всего XP',
+  'This week XP': 'XP за неделю',
+  'Next level': 'До следующего уровня',
+  'Max level': 'Максимальный уровень',
+  'No XP yet': 'XP пока нет',
+  'XP locked': 'XP заблокирован',
+  'XP is being calculated': 'XP рассчитывается',
+  'Level': 'Уровень',
+  'History': 'История',
+  'XP History': 'История XP',
+  'XP Leaderboard': 'Рейтинг XP',
+  'Top 100': 'Топ-100',
+  'All time': 'За всё время',
+  'Top drivers': 'Лучшие водители',
+  'Top this week': 'Лучшие за неделю',
+  'Top 100 drivers by XP': 'Топ-100 водителей по XP',
+  'View top drivers by XP': 'Посмотреть топ водителей по XP',
+  'No leaderboard yet': 'Рейтинга пока нет',
+  'Earn XP to appear in the Top 100.': 'Получайте XP, чтобы попасть в топ-100.',
+  'No weekly leaderboard yet': 'Недельного рейтинга пока нет',
+  'Earn XP this week to appear in the weekly Top 100.':
+      'Получайте XP на этой неделе, чтобы попасть в недельный топ-100.',
+  'Could not load XP leaderboard.': 'Не удалось загрузить рейтинг XP.',
+  'This leaderboard shows public profiles only.':
+      'В рейтинге показываются только публичные профили.',
+  'Rank': 'Место',
+  'Weekly XP': 'XP за неделю',
+  'Recent XP activity': 'Последние начисления XP',
+  'No XP history yet': 'Истории XP пока нет',
+  'Earn XP by completing your profile, garage, or approved spots.':
+      'Получайте XP за заполнение профиля, гараж и одобренные споты.',
+  'Could not load XP history.': 'Не удалось загрузить историю XP.',
+  'Confirmed': 'Подтверждено',
+  'Blocked': 'Заблокировано',
+  'Revoked': 'Отменено',
+  'Profile avatar': 'Аватар профиля',
+  'Profile bio': 'Описание профиля',
+  'Profile city': 'Город профиля',
+  'Profile socials': 'Соцсети профиля',
+  'Full profile': 'Полный профиль',
+  'First garage car': 'Первый автомобиль в гараже',
+  'First car photo': 'Фото первого автомобиля',
+  'First car description': 'Описание первого автомобиля',
+  'First car gallery': 'Галерея первого автомобиля',
+  'Complete first car': 'Полная карточка первого автомобиля',
+  'Spot approved': 'Спот одобрен',
+  'Spot description': 'Описание спота',
+  'Spot photo': 'Фото спота',
+  'Spot media bundle': 'Медиа спота',
+  'Garage build': 'Гараж',
+  'Weekly limit reached': 'Достигнут недельный лимит',
+  'Blocked by XP settings': 'Заблокировано настройками XP',
+  'Tester is not enabled': 'Тестер не включён',
+  'Duplicate transaction': 'Повторная операция',
+  'User blocked or deleted': 'Пользователь заблокирован или удалён',
+  'User profile not found': 'Профиль пользователя не найден',
+  'Partially limited by weekly cap': 'Частично ограничено недельным лимитом',
   'Public profile': 'Публичный профиль',
   'Let other drivers see your profile':
       'Разрешить другим водителям видеть профиль',
@@ -1958,7 +2098,6 @@ const _ruText = <String, String>{
   'Only verified users and admins can see this spot':
       'Виден только проверенным и админам',
 
-  'Temporary schedule': 'Временное расписание',
   'Categories': 'Категории',
   'Contacts': 'Контакты',
   'Opening hours': 'Часы работы',
@@ -2137,8 +2276,8 @@ const _ruText = <String, String>{
   'By continuing, you agree to our Terms & Privacy Policy':
       'Продолжая, вы принимаете условия и политику конфиденциальности',
   'Car added to your account.': 'Автомобиль добавлен в аккаунт.',
-  'Choose both start and end time for a temporary spot.':
-      'Выберите время начала и окончания временного спота.',
+  'Choose both start and end time for a event.':
+      'Выберите время начала и окончания события.',
   'Closed': 'Закрыто',
   'Comment deleted.': 'Комментарий удалён.',
   'Comment posted.': 'Комментарий опубликован.',
@@ -2315,16 +2454,15 @@ const _ruText = <String, String>{
   'Tap to change avatar': 'Нажмите, чтобы изменить аватар',
   'Tell people about your car, build, setup, and plans':
       'Расскажите об автомобиле, доработках и планах',
-  'Temporary spot': 'Временный спот',
-  'For meets and events. Max active time is 12 hours.':
-      'Для встреч и событий. До 12 часов.',
+  'Event': 'Событие',
+  'Events can last up to 12 hours.': 'Для встреч и событий. До 12 часов.',
 
-  'Temporary spot can be active for 12 hours maximum.':
-      'Временный спот может быть активен не более 12 часов.',
-  'Temporary spot end time must be after start time.':
-      'Временный спот должен закончиться после начала.',
-  'Choose when the temporary spot location should appear on the map.':
-      'Выберите, когда локация временного спота появится на карте.',
+  'Event can be active for 12 hours maximum.':
+      'Событие может быть активен не более 12 часов.',
+  'Event end time must be after start time.':
+      'Событие должен закончиться после начала.',
+  'Choose when the event location should appear on the map.':
+      'Выберите, когда локация события появится на карте.',
   'Show on map time must be before the end time.':
       'Время показа на карте должно быть раньше окончания.',
   'Admin spot added. It is live now.': 'Спот добавлен и уже опубликован.',
@@ -2332,9 +2470,9 @@ const _ruText = <String, String>{
       'Спот отправлен на проверку. Админы получили уведомление.',
   'Firebase did not save the spot/photo':
       'Firebase не сохранил спот или фотографию',
-  'Temporary spots and events': 'Временные споты и события',
-  'Temporary spots can be active for maximum 12 hours.':
-      'Временные споты могут быть активны не более 12 часов.',
+  'Events': 'События',
+  'Events can be active for maximum 12 hours.':
+      'События могут длиться не более 12 часов.',
   'This chat has no one to share location with.':
       'В этом чате не с кем поделиться геопозицией.',
   'This driver has not shared car builds yet.':
@@ -2555,7 +2693,6 @@ const _ruText = <String, String>{
       'Уведомления подключены через Firebase Cloud Messaging.',
   'you': 'вы',
   'Yesterday': 'Вчера',
-  'Temporary event': 'Временный ивент',
   'You can like this spot 2 times per day.':
       'Вы можете поставить лайк этому споту только 2 раза в день.',
   'You can remove your like from this spot 2 times per day.':
@@ -2618,7 +2755,6 @@ const _ruText = <String, String>{
   'Be the first to reply in this topic.':
       'Будьте первым, кто ответит в этой теме.',
   'Reply in topic': 'Ответить в теме',
-  'Temporary events': 'Временные ивенты',
   // Private group discovery and owner review.
   'Private groups': 'Закрытые группы',
   'Private group': 'Закрытая группа',
@@ -2754,6 +2890,11 @@ const _lvText = <String, String>{
   'Spots': 'Vietas',
   'Map': 'Karte',
   'Add Spot': 'Pievienot vietu',
+  'Add Event': 'Pievienot pasākumu',
+  'Add Private Event': 'Pievienot privātu pasākumu',
+  'Event details': 'Pasākuma informācija',
+  'Event name': 'Pasākuma nosaukums',
+  'Event schedule': 'Pasākuma laiks',
   'Chat': 'Čats',
   'Chat, forums and community': 'Čati, forumi un kopiena',
   'Global': 'Globālais',
@@ -2849,12 +2990,75 @@ const _lvText = <String, String>{
   'Fresh approved locations nearby': 'Jaunas apstiprinātas vietas tuvumā',
   'Messages': 'Ziņas',
   'New direct and group messages': 'Jaunas privātās un grupu ziņas',
+  'New direct, group and global chat messages':
+      'Jaunas privātās, grupu un globālā čata ziņas',
+  'XP rewards': 'XP balvas',
+  'When you receive XP': 'Kad saņemat XP',
+  'XP reward': 'XP balva',
   'Friends at spots': 'Draugi pie vietām',
   'When friends stay near a spot for 5 minutes':
       'Kad draugi 5 minūtes atrodas pie vietas',
   'Friends sharing location': 'Draugi kopīgo atrašanās vietu',
   'When a friend starts sharing live location':
       'Kad draugs sāk kopīgot atrašanās vietu',
+  'Driver XP': 'Vadītāja XP',
+  'Total XP': 'Kopējais XP',
+  'This week XP': 'XP šonedēļ',
+  'Next level': 'Līdz nākamajam līmenim',
+  'Max level': 'Maksimālais līmenis',
+  'No XP yet': 'XP vēl nav',
+  'XP locked': 'XP bloķēts',
+  'XP is being calculated': 'XP tiek aprēķināts',
+  'Level': 'Līmenis',
+  'History': 'Vēsture',
+  'XP History': 'XP vēsture',
+  'XP Leaderboard': 'XP reitings',
+  'Top 100': 'Top 100',
+  'All time': 'Visu laiku',
+  'Top drivers': 'Labākie braucēji',
+  'Top this week': 'Labākie šonedēļ',
+  'Top 100 drivers by XP': 'Top 100 braucēji pēc XP',
+  'View top drivers by XP': 'Skatīt braucēju XP topu',
+  'No leaderboard yet': 'Reitinga vēl nav',
+  'Earn XP to appear in the Top 100.': 'Iegūstiet XP, lai nonāktu Top 100.',
+  'No weekly leaderboard yet': 'Nedēļas reitinga vēl nav',
+  'Earn XP this week to appear in the weekly Top 100.':
+      'Iegūstiet XP šonedēļ, lai nonāktu nedēļas Top 100.',
+  'Could not load XP leaderboard.': 'Neizdevās ielādēt XP reitingu.',
+  'This leaderboard shows public profiles only.':
+      'Reitingā tiek rādīti tikai publiski profili.',
+  'Rank': 'Vieta',
+  'Weekly XP': 'Nedēļas XP',
+  'Recent XP activity': 'Pēdējās XP aktivitātes',
+  'No XP history yet': 'XP vēstures vēl nav',
+  'Earn XP by completing your profile, garage, or approved spots.':
+      'Iegūstiet XP par profilu, garāžu un apstiprinātām vietām.',
+  'Could not load XP history.': 'Neizdevās ielādēt XP vēsturi.',
+  'Confirmed': 'Apstiprināts',
+  'Blocked': 'Bloķēts',
+  'Revoked': 'Atsaukts',
+  'Profile avatar': 'Profila avatārs',
+  'Profile bio': 'Profila apraksts',
+  'Profile city': 'Profila pilsēta',
+  'Profile socials': 'Profila sociālie tīkli',
+  'Full profile': 'Pilns profils',
+  'First garage car': 'Pirmais auto garāžā',
+  'First car photo': 'Pirmā auto foto',
+  'First car description': 'Pirmā auto apraksts',
+  'First car gallery': 'Pirmā auto galerija',
+  'Complete first car': 'Pilna pirmā auto kartīte',
+  'Spot approved': 'Vieta apstiprināta',
+  'Spot description': 'Vietas apraksts',
+  'Spot photo': 'Vietas foto',
+  'Spot media bundle': 'Vietas mediji',
+  'Garage build': 'Garāža',
+  'Weekly limit reached': 'Sasniegts nedēļas limits',
+  'Blocked by XP settings': 'Bloķēts XP iestatījumos',
+  'Tester is not enabled': 'Testētājs nav iespējots',
+  'Duplicate transaction': 'Atkārtota darbība',
+  'User blocked or deleted': 'Lietotājs bloķēts vai dzēsts',
+  'User profile not found': 'Lietotāja profils nav atrasts',
+  'Partially limited by weekly cap': 'Daļēji ierobežots ar nedēļas limitu',
   'Public profile': 'Publisks profils',
   'Let other drivers see your profile':
       'Ļaut citiem autovadītājiem redzēt profilu',
@@ -2985,7 +3189,6 @@ const _lvText = <String, String>{
   'Only verified users and admins can see this spot':
       'Redz tikai verificētie un administratori',
 
-  'Temporary schedule': 'Pagaidu grafiks',
   'Categories': 'Kategorijas',
   'Contacts': 'Kontakti',
   'Opening hours': 'Darba laiks',
@@ -3163,8 +3366,8 @@ const _lvText = <String, String>{
   'By continuing, you agree to our Terms & Privacy Policy':
       'Turpinot jūs piekrītat noteikumiem un privātuma politikai',
   'Car added to your account.': 'Auto pievienots kontam.',
-  'Choose both start and end time for a temporary spot.':
-      'Izvēlieties pagaidu vietas sākuma un beigu laiku.',
+  'Choose both start and end time for a event.':
+      'Izvēlieties pasākuma sākuma un beigu laiku.',
   'Closed': 'Slēgts',
   'Comment deleted.': 'Komentārs dzēsts.',
   'Comment posted.': 'Komentārs publicēts.',
@@ -3340,16 +3543,15 @@ const _lvText = <String, String>{
   'Tap to change avatar': 'Nospiediet, lai mainītu avatāru',
   'Tell people about your car, build, setup, and plans':
       'Pastāstiet par auto, uzlabojumiem un plāniem',
-  'Temporary spot': 'Pagaidu vieta',
-  'For meets and events. Max active time is 12 hours.':
-      'Tikšanās un pasākumiem. Līdz 12 stundām.',
+  'Event': 'Pasākums',
+  'Events can last up to 12 hours.': 'Tikšanās un pasākumiem. Līdz 12 stundām.',
 
-  'Temporary spot can be active for 12 hours maximum.':
-      'Pagaidu vieta var būt aktīva ne ilgāk par 12 stundām.',
-  'Temporary spot end time must be after start time.':
-      'Pagaidu vietas beigu laikam jābūt pēc sākuma laika.',
-  'Choose when the temporary spot location should appear on the map.':
-      'Izvēlieties, kad pagaidu vietas lokācija parādīsies kartē.',
+  'Event can be active for 12 hours maximum.':
+      'Pasākums var būt aktīva ne ilgāk par 12 stundām.',
+  'Event end time must be after start time.':
+      'Pasākumss beigu laikam jābūt pēc sākuma laika.',
+  'Choose when the event location should appear on the map.':
+      'Izvēlieties, kad pasākuma lokācija parādīsies kartē.',
   'Show on map time must be before the end time.':
       'Rādīšanas laikam kartē jābūt pirms beigu laika.',
   'Admin spot added. It is live now.': 'Vieta pievienota un jau publicēta.',
@@ -3357,9 +3559,9 @@ const _lvText = <String, String>{
       'Vieta iesniegta pārbaudei. Administratori ir paziņoti.',
   'Firebase did not save the spot/photo':
       'Firebase nesaglabāja vietu vai fotoattēlu',
-  'Temporary spots and events': 'Pagaidu vietas un pasākumi',
-  'Temporary spots can be active for maximum 12 hours.':
-      'Pagaidu vietas var būt aktīvas ne ilgāk par 12 stundām.',
+  'Events': 'Pasākumi',
+  'Events can be active for maximum 12 hours.':
+      'Pasākumss var būt aktīvas ne ilgāk par 12 stundām.',
   'This chat has no one to share location with.':
       'Šajā čatā nav neviena, ar ko kopīgot atrašanās vietu.',
   'This driver has not shared car builds yet.':
@@ -3576,7 +3778,6 @@ const _lvText = <String, String>{
       'Paziņojumi ir pieslēgti caur Firebase Cloud Messaging.',
   'you': 'jūs',
   'Yesterday': 'Vakar',
-  'Temporary event': 'Pagaidu pasākums',
   'You can like this spot 2 times per day.':
       'Šai vietai varat nospiest Patīk tikai 2 reizes dienā.',
   'You can remove your like from this spot 2 times per day.':
@@ -3639,7 +3840,6 @@ const _lvText = <String, String>{
   'Be the first to reply in this topic.':
       'Esiet pirmais, kas atbild šajā tēmā.',
   'Reply in topic': 'Atbildēt tēmā',
-  'Temporary events': 'Pagaidu pasākumi',
   // Private group discovery and owner review.
   'Private groups': 'Privātās grupas',
   'Private group': 'Privāta grupa',
@@ -4190,6 +4390,7 @@ Future<void> _openChatLink(BuildContext context, String value) async {
 
 class ChatLinkText extends StatefulWidget {
   final String text;
+  final Color linkColor;
   final TextStyle? style;
   final TextAlign? textAlign;
   final bool? softWrap;
@@ -4199,6 +4400,7 @@ class ChatLinkText extends StatefulWidget {
   const ChatLinkText(
     this.text, {
     super.key,
+    this.linkColor = blue,
     this.style,
     this.textAlign,
     this.softWrap,
@@ -4258,9 +4460,9 @@ class _ChatLinkTextState extends State<ChatLinkText> {
         TextSpan(
           text: part.text,
           style: (baseStyle ?? const TextStyle()).copyWith(
-            color: blue,
+            color: widget.linkColor,
             decoration: TextDecoration.underline,
-            decorationColor: blue,
+            decorationColor: widget.linkColor,
           ),
           recognizer: recognizer,
         ),
@@ -4362,6 +4564,8 @@ class CCSApp extends StatelessWidget {
         final baseTheme = ThemeData.dark();
 
         return MaterialApp(
+          navigatorKey: rewardNavigatorKey,
+          scaffoldMessengerKey: rewardMessengerKey,
           debugShowCheckedModeBanner: false,
           title: 'CCS',
           locale: Locale(appUiPreferences.language.name),
@@ -5268,6 +5472,7 @@ String notificationPreferenceKeyForRemoteMessage(RemoteMessage message) {
     'chat_message' ||
     'global_chat_message' ||
     'global_chat_admin' => 'newMessageNotifications',
+    'xp_reward' => 'xpNotifications',
     'new_spot' ||
     'temporary_event' ||
     'temporary_spot_today' => 'newSpotNotifications',
@@ -5285,6 +5490,7 @@ bool localNotificationPreferenceEnabled(String preferenceKey) {
     'commentNotifications' => settings.commentNotifications,
     'newSpotNotifications' => settings.newSpotNotifications,
     'newMessageNotifications' => settings.newMessageNotifications,
+    'xpNotifications' => settings.xpNotifications,
     'friendAtSpotNotifications' => settings.friendAtSpotNotifications,
     'friendLiveShareNotifications' => settings.friendLiveShareNotifications,
     _ => true,
@@ -5423,7 +5629,7 @@ Future<void> _initializePushNotifications(String expectedUid) async {
       await messaging.setForegroundNotificationPresentationOptions(
         alert: true,
         badge: true,
-        sound: true,
+        sound: false,
       );
       final apnsToken = await messaging.getAPNSToken();
       debugPrint(
@@ -6161,12 +6367,13 @@ Widget spotFilterColumns({
   required VoidCallback onChanged,
 }) {
   Widget panel({required Widget child}) {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.16),
+    return Material(
+      color: Colors.black.withValues(alpha: 0.16),
+      shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: Colors.white12),
+        side: const BorderSide(color: Colors.white12),
       ),
+      clipBehavior: Clip.antiAlias,
       child: child,
     );
   }
@@ -7979,6 +8186,7 @@ void startCurrentUserDocumentWatcher() {
   }
 
   bool receivedServerProfile = false;
+  final profileReadEstimate = ServerReadEstimate();
 
   currentUserDocumentSubscription = usersCollection()
       .doc(firebaseUser.uid)
@@ -7998,7 +8206,11 @@ void startCurrentUserDocumentWatcher() {
           }
           firestoreDebugTracker.recordRead(
             'startup: current user document listener',
-            1,
+            profileReadEstimate.observe(
+              {snapshot.id: snapshot.data()},
+              fromCache: snapshot.metadata.isFromCache,
+              pendingWrites: snapshot.metadata.hasPendingWrites,
+            ),
           );
 
           final wasBanActive = currentUser.banActive;
@@ -8384,7 +8596,7 @@ Future<String> reserveUsernameForCurrentUser({
         : usernamesCollection().doc(previousKey);
 
     try {
-      await FirebaseFirestore.instance.runTransaction((transaction) async {
+      await FirebaseFirestore.instance.debugRunTransaction((transaction) async {
         final snapshot = await transaction.debugGet(usernameRef);
         final previousSnapshot = previousRef == null
             ? null
@@ -8676,6 +8888,7 @@ Future<AppUser> saveFirebaseUser(
     'commentNotifications': settings.commentNotifications,
     'newSpotNotifications': settings.newSpotNotifications,
     'newMessageNotifications': settings.newMessageNotifications,
+    'xpNotifications': settings.xpNotifications,
     'friendAtSpotNotifications': settings.friendAtSpotNotifications,
     'friendLiveShareNotifications': settings.friendLiveShareNotifications,
     'publicProfile': settings.publicProfile,
@@ -9152,6 +9365,7 @@ Future<Map<String, dynamic>> postJsonToUrl(
   String url,
   Map<String, Object?> body, {
   Map<String, String> headers = const {},
+  bool logResponse = true,
 }) async {
   final client = HttpClient();
 
@@ -9166,7 +9380,9 @@ Future<Map<String, dynamic>> postJsonToUrl(
 
     final response = await request.close();
     final responseBody = await utf8.decodeStream(response);
-    debugPrint('POST $url -> ${response.statusCode}: $responseBody');
+    if (logResponse) {
+      debugPrint('POST $url -> ${response.statusCode}: $responseBody');
+    }
 
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw Exception('Request failed ${response.statusCode}: $responseBody');
@@ -9212,6 +9428,214 @@ Future<Map<String, dynamic>> sendModerationAction(
     headers: {HttpHeaders.authorizationHeader: 'Bearer $idToken'},
   );
 }
+
+Future<void> syncXpWithServer(Map<String, Object?> body) async {
+  final firebaseUser = FirebaseAuth.instance.currentUser;
+
+  if (firebaseUser == null) {
+    return;
+  }
+
+  final idToken = await firebaseUser.getIdToken();
+  if (idToken == null || idToken.trim().isEmpty) {
+    return;
+  }
+
+  Object? lastError;
+  StackTrace? lastStack;
+
+  for (final url in xpSyncUrls) {
+    try {
+      await postJsonToUrl(
+        url,
+        body,
+        headers: {HttpHeaders.authorizationHeader: 'Bearer $idToken'},
+      );
+      return;
+    } catch (error, stack) {
+      lastError = error;
+      lastStack = stack;
+    }
+  }
+
+  debugPrint('XP sync failed: $lastError');
+  if (lastStack != null) {
+    debugPrint('$lastStack');
+  }
+}
+
+class XpLeaderboardPage {
+  final List<XpLeaderboardEntry> entries;
+  final Map<String, dynamic>? nextCursor;
+  const XpLeaderboardPage({required this.entries, this.nextCursor});
+}
+
+class XpLeaderboardPageExpired implements Exception {}
+
+typedef XpLeaderboardPageLoader =
+    Future<XpLeaderboardPage> Function({
+      required XpLeaderboardPeriod period,
+      required String search,
+      Map<String, dynamic>? cursor,
+    });
+
+Future<XpLeaderboardPage> loadXpLeaderboardEntries({
+  XpLeaderboardPeriod period = XpLeaderboardPeriod.allTime,
+  String search = '',
+  Map<String, dynamic>? cursor,
+}) async {
+  final firebaseUser = FirebaseAuth.instance.currentUser;
+
+  if (firebaseUser == null) {
+    throw FirebaseException(
+      plugin: 'firebase_auth',
+      code: 'not-logged-in',
+      message: 'Log in before opening XP leaderboard.',
+    );
+  }
+
+  final idToken = await firebaseUser.getIdToken();
+  if (idToken == null || idToken.trim().isEmpty) {
+    throw FirebaseException(
+      plugin: 'firebase_auth',
+      code: 'empty-id-token',
+      message: 'Could not verify this XP leaderboard request.',
+    );
+  }
+
+  Object? lastError;
+  StackTrace? lastStack;
+
+  Future<XpLeaderboardPage> loadBackendPage(
+    String backendSearch,
+    Map<String, dynamic>? pageCursor,
+  ) async {
+    for (final url in xpLeaderboardUrls) {
+      try {
+        final response = await postJsonToUrl(
+          url,
+          {
+            'limit': 10,
+            'period': xpLeaderboardPeriodValue(period),
+            'search': backendSearch,
+            'cursor': pageCursor,
+          },
+          headers: {HttpHeaders.authorizationHeader: 'Bearer $idToken'},
+          logResponse: false,
+        ).timeout(const Duration(seconds: 8));
+        final result = mapFromFirebase(response['result']);
+        final rawEntries = result['entries'];
+        final isSearchResponse = backendSearch.isNotEmpty;
+        final hasValidPagination =
+            result['hasMore'] is bool &&
+            (result['hasMore'] == false || result['nextCursor'] is Map);
+
+        // Search responses may intentionally omit pagination metadata. Normal
+        // ranking pages still require it so an older deployment cannot repeat
+        // the first page for every cursor.
+        if (rawEntries is List &&
+            (isSearchResponse || rawEntries.length <= 10) &&
+            (isSearchResponse || hasValidPagination)) {
+          return XpLeaderboardPage(
+            entries: rawEntries
+                .asMap()
+                .entries
+                .map(
+                  (entry) => XpLeaderboardEntry.fromJson(
+                    mapFromFirebase(entry.value),
+                    fallbackRank: entry.key + 1,
+                  ),
+                )
+                .where((entry) => entry.userId.trim().isNotEmpty)
+                .toList(),
+            nextCursor: result['hasMore'] == true && result['nextCursor'] is Map
+                ? mapFromFirebase(result['nextCursor'])
+                : null,
+          );
+        }
+
+        throw Exception('Backend returned invalid XP leaderboard data.');
+      } catch (error, stack) {
+        if (error.toString().contains('LEADERBOARD_CURSOR_EXPIRED')) {
+          throw XpLeaderboardPageExpired();
+        }
+        lastError = error;
+        lastStack = stack;
+      }
+    }
+
+    debugPrint('XP leaderboard failed: $lastError');
+    if (lastStack != null) {
+      debugPrint('$lastStack');
+    }
+
+    throw Exception('Could not load XP leaderboard.');
+  }
+
+  final searchKey = normalizeFriendSearch(search);
+  return loadBackendPage(searchKey.runes.length >= 2 ? searchKey : '', cursor);
+}
+
+enum XpLeaderboardPeriod { allTime, week }
+
+String xpLeaderboardPeriodValue(XpLeaderboardPeriod period) {
+  return switch (period) {
+    XpLeaderboardPeriod.allTime => 'all_time',
+    XpLeaderboardPeriod.week => 'weekly',
+  };
+}
+
+String xpLeaderboardPeriodLabel(XpLeaderboardPeriod period) =>
+    period == XpLeaderboardPeriod.week
+    ? achievementText(
+        appUiPreferences.language.name,
+        'This week',
+        'Эта неделя',
+        'Šonedēļ',
+      )
+    : achievementText(
+        appUiPreferences.language.name,
+        'All time',
+        'Всё время',
+        'Visu laiku',
+      );
+
+String xpLeaderboardTitle(XpLeaderboardPeriod period) =>
+    period == XpLeaderboardPeriod.week
+    ? achievementText(
+        appUiPreferences.language.name,
+        'Top this week',
+        'Лидеры недели',
+        'Nedēļas līderi',
+      )
+    : achievementText(
+        appUiPreferences.language.name,
+        'Top drivers',
+        'Лидеры рейтинга',
+        'Reitinga līderi',
+      );
+
+String xpLeaderboardEmptyTitle(XpLeaderboardPeriod period) =>
+    period == XpLeaderboardPeriod.week
+    ? achievementText(
+        appUiPreferences.language.name,
+        'No weekly leaderboard yet',
+        'Рейтинг недели пока пуст',
+        'Nedēļas reitings vēl ir tukšs',
+      )
+    : achievementText(
+        appUiPreferences.language.name,
+        'No leaderboard yet',
+        'Рейтинг пока пуст',
+        'Reitings vēl ir tukšs',
+      );
+
+String xpLeaderboardEmptyText(XpLeaderboardPeriod period) => achievementText(
+  appUiPreferences.language.name,
+  'Earn XP to appear in the ranking.',
+  'Получайте XP, чтобы попасть в рейтинг.',
+  'Iegūstiet XP, lai iekļūtu reitingā.',
+);
 
 Future<bool> currentUserHasCommunityModerationAccess() async {
   if (FirebaseAuth.instance.currentUser == null) return false;
@@ -9528,6 +9952,7 @@ class UserSettingsData {
   final bool commentNotifications;
   final bool newSpotNotifications;
   final bool newMessageNotifications;
+  final bool xpNotifications;
   final bool friendAtSpotNotifications;
   final bool friendLiveShareNotifications;
   final bool publicProfile;
@@ -9542,6 +9967,7 @@ class UserSettingsData {
     required this.commentNotifications,
     required this.newSpotNotifications,
     this.newMessageNotifications = true,
+    this.xpNotifications = true,
     this.friendAtSpotNotifications = true,
     this.friendLiveShareNotifications = true,
     required this.publicProfile,
@@ -9576,6 +10002,10 @@ class UserSettingsData {
         data['newMessageNotifications'],
         defaults.newMessageNotifications,
       ),
+      xpNotifications: boolFromFirebase(
+        data['xpNotifications'],
+        defaults.xpNotifications,
+      ),
       friendAtSpotNotifications: boolFromFirebase(
         data['friendAtSpotNotifications'],
         defaults.friendAtSpotNotifications,
@@ -9602,6 +10032,7 @@ class UserSettingsData {
       'commentNotifications': commentNotifications,
       'newSpotNotifications': newSpotNotifications,
       'newMessageNotifications': newMessageNotifications,
+      'xpNotifications': xpNotifications,
       'friendAtSpotNotifications': friendAtSpotNotifications,
       'friendLiveShareNotifications': friendLiveShareNotifications,
       'publicProfile': publicProfile,
@@ -9618,6 +10049,7 @@ class UserSettingsData {
     bool? commentNotifications,
     bool? newSpotNotifications,
     bool? newMessageNotifications,
+    bool? xpNotifications,
     bool? friendAtSpotNotifications,
     bool? friendLiveShareNotifications,
     bool? publicProfile,
@@ -9633,6 +10065,7 @@ class UserSettingsData {
       newSpotNotifications: newSpotNotifications ?? this.newSpotNotifications,
       newMessageNotifications:
           newMessageNotifications ?? this.newMessageNotifications,
+      xpNotifications: xpNotifications ?? this.xpNotifications,
       friendAtSpotNotifications:
           friendAtSpotNotifications ?? this.friendAtSpotNotifications,
       friendLiveShareNotifications:
@@ -9663,6 +10096,7 @@ Future<void> saveCurrentUserSettings(UserSettingsData settings) async {
     'commentNotifications': settings.commentNotifications,
     'newSpotNotifications': settings.newSpotNotifications,
     'newMessageNotifications': settings.newMessageNotifications,
+    'xpNotifications': settings.xpNotifications,
     'friendAtSpotNotifications': settings.friendAtSpotNotifications,
     'friendLiveShareNotifications': settings.friendLiveShareNotifications,
     'publicProfile': settings.publicProfile,
@@ -9681,6 +10115,7 @@ UserSettingsData defaultUserSettings() {
     commentNotifications: true,
     newSpotNotifications: true,
     newMessageNotifications: true,
+    xpNotifications: true,
     friendAtSpotNotifications: true,
     friendLiveShareNotifications: true,
     publicProfile: true,
@@ -10336,6 +10771,14 @@ CollectionReference<Map<String, dynamic>> usersCollection() {
   return FirebaseFirestore.instance.collection('users');
 }
 
+CollectionReference<Map<String, dynamic>> xpUserStatsCollection() {
+  return FirebaseFirestore.instance.collection('xp_user_stats');
+}
+
+CollectionReference<Map<String, dynamic>> xpTransactionsCollection() {
+  return FirebaseFirestore.instance.collection('xp_transactions');
+}
+
 CollectionReference<Map<String, dynamic>> userReportsCollection() {
   return FirebaseFirestore.instance.collection('user_reports');
 }
@@ -10535,40 +10978,40 @@ Future<CarSpot> transferSpotOwnership(
     throw StateError('Only admins and moderators can transfer ownership.');
   }
   final ref = spotsCollection().doc(expected.id);
-  final updated = await FirebaseFirestore.instance.runTransaction<CarSpot>((
-    transaction,
-  ) async {
-    final snapshot = await transaction.debugGet(
-      ref,
-      'ownership transfer: spot',
-    );
-    final target = await transaction.debugGet(
-      usersCollection().doc(recipient.uid),
-      'ownership transfer: recipient',
-    );
-    final data = snapshot.data();
-    if (data == null || !target.exists) {
-      throw StateError('The spot or user no longer exists.');
-    }
-    if (stringFromFirebase(data['addedByUid'], '') != expected.addedByUid ||
-        stringFromFirebase(data['ownerUid'], '') != expected.ownerUid) {
-      throw StateError('Ownership changed. Reopen the spot and try again.');
-    }
-    final fields = spotOwnershipTransferFields(
-      spot: data,
-      recipientUid: target.id,
-      recipient: target.data()!,
-      actorUid: uid,
-    );
-    transaction.debugUpdate(ref, fields, 'ownership transfer');
-    return CarSpot.fromFirestore(snapshot).copyWith(
-      addedByUid: target.id,
-      addedBy: fields['addedBy']! as String,
-      ownerUid: target.id,
-      ownerUsername: fields['ownerUsername']! as String,
-      updatedAtMillis: DateTime.now().millisecondsSinceEpoch,
-    );
-  });
+  final updated = await FirebaseFirestore.instance.debugRunTransaction<CarSpot>(
+    (transaction) async {
+      final snapshot = await transaction.debugGet(
+        ref,
+        'ownership transfer: spot',
+      );
+      final target = await transaction.debugGet(
+        usersCollection().doc(recipient.uid),
+        'ownership transfer: recipient',
+      );
+      final data = snapshot.data();
+      if (data == null || !target.exists) {
+        throw StateError('The spot or user no longer exists.');
+      }
+      if (stringFromFirebase(data['addedByUid'], '') != expected.addedByUid ||
+          stringFromFirebase(data['ownerUid'], '') != expected.ownerUid) {
+        throw StateError('Ownership changed. Reopen the spot and try again.');
+      }
+      final fields = spotOwnershipTransferFields(
+        spot: data,
+        recipientUid: target.id,
+        recipient: target.data()!,
+        actorUid: uid,
+      );
+      transaction.debugUpdate(ref, fields, 'ownership transfer');
+      return CarSpot.fromFirestore(snapshot).copyWith(
+        addedByUid: target.id,
+        addedBy: fields['addedBy']! as String,
+        ownerUid: target.id,
+        ownerUsername: fields['ownerUsername']! as String,
+        updatedAtMillis: DateTime.now().millisecondsSinceEpoch,
+      );
+    },
+  );
   upsertSpotIntoLocalImmediateCache(updated);
   reviewSpots.value = reviewSpots.value
       .map((spot) => isSameSpot(spot, updated) ? updated : spot)
@@ -10794,6 +11237,7 @@ CollectionReference<Map<String, dynamic>> liveLocationsCollection() {
 }
 
 class LiveLocationData {
+  final bool qualityValid;
   final String uid;
   final String username;
   final String name;
@@ -10811,6 +11255,7 @@ class LiveLocationData {
   final int updatedAtMillis;
 
   const LiveLocationData({
+    this.qualityValid = true,
     required this.uid,
     required this.username,
     required this.name,
@@ -10840,7 +11285,7 @@ class LiveLocationData {
     return now - updatedAtMillis >= liveLocationStaleAfter.inMilliseconds;
   }
 
-  bool get isActive => !isExpired && !isStale;
+  bool get isActive => qualityValid && !isExpired && !isStale;
 
   factory LiveLocationData.fromFirestore(
     DocumentSnapshot<Map<String, dynamic>> doc,
@@ -10859,6 +11304,13 @@ class LiveLocationData {
         : roleFromFirebase(data['role']);
 
     return LiveLocationData(
+      qualityValid:
+          data['isMocked'] != true &&
+          (data['accuracy'] == null ||
+              (data['accuracy'] is num &&
+                  (data['accuracy'] as num).isFinite &&
+                  (data['accuracy'] as num) >= 0 &&
+                  (data['accuracy'] as num) <= 50)),
       uid: stringFromFirebase(data['uid'], doc.id),
       username: stringFromFirebase(data['username'], 'ccs_driver'),
       name: stringFromFirebase(data['name'], 'CCS Driver'),
@@ -10880,7 +11332,9 @@ class LiveLocationData {
           : 60,
       promptAtMillis: timestampMillisFromFirebase(data['promptAt']),
       expiresAtMillis: timestampMillisFromFirebase(data['expiresAt']),
-      updatedAtMillis: timestampMillisFromFirebase(data['updatedAt']),
+      updatedAtMillis: data['recordedAtMillis'] is num
+          ? (data['recordedAtMillis'] as num).toInt()
+          : timestampMillisFromFirebase(data['updatedAt']),
     );
   }
 }
@@ -11090,7 +11544,7 @@ Future<void> createCommunityNotificationCenterItems({
         );
       }
 
-      await batch.commit();
+      await batch.debugCommit();
     }
     debugPrint(
       'Community bell items created. type=$type recipients=${cleanRecipients.length}',
@@ -11354,7 +11808,7 @@ Future<void> createNewSpotNotificationForUsers(CarSpot spot) async {
   }
 
   final type = spot.isTemporary ? 'temporary_event' : 'new_spot';
-  final title = spot.isTemporary ? 'Temporary events' : 'New spots';
+  final title = spot.isTemporary ? 'Events' : 'New spots';
   final body = spot.isTemporary
       ? '${spot.name} event was added in ${spot.cityCountry}.'
       : '${spot.name} was added in ${spot.cityCountry}.';
@@ -11407,7 +11861,7 @@ Future<void> createNewSpotNotificationForUsers(CarSpot spot) async {
     }
 
     if (writes > 0) {
-      await batch.commit();
+      await batch.debugCommit();
     }
   } catch (error, stack) {
     debugPrint('Could not create new spot notifications: $error');
@@ -11611,7 +12065,7 @@ Future<void> markChatNotificationsRead(String chatId) async {
           'readAt': FieldValue.serverTimestamp(),
         }, SetOptions(merge: true));
       }
-      await batch.commit();
+      await batch.debugCommit();
     }
 
     final nextCounts = Map<String, int>.from(chatUnreadCountsByChatId.value)
@@ -11661,11 +12115,27 @@ void startNotificationCenterUnreadWatcher() {
     String source,
     Query<Map<String, dynamic>> query,
   ) {
+    bool initialized = false;
     return trackedQuerySnapshots(
       'notification center unread watcher: $source',
-      query.where('read', isEqualTo: false).limit(50),
+      query
+          .where('read', isEqualTo: false)
+          .orderBy('createdAt', descending: true)
+          .limit(50),
     ).listen(
       (snapshot) {
+        if (initialized && !snapshot.metadata.isFromCache) {
+          for (final change in snapshot.docChanges) {
+            if (change.type == DocumentChangeType.added) {
+              handleRewardNotification(
+                firebaseUser.uid,
+                change.doc.id,
+                change.doc.data() ?? {},
+              );
+            }
+          }
+        }
+        if (!snapshot.metadata.isFromCache) initialized = true;
         // Do not trust raw unread counts for the bell. Older/hidden/invalid
         // notifications can still be unread in Firestore, while the
         // notification center filters them out. Recompute the visible unread
@@ -12122,7 +12592,7 @@ Future<void> acceptFriendRequest(FriendRequestData request) async {
   );
   final requestRef = friendRequestsCollection().doc(request.id);
 
-  await FirebaseFirestore.instance.runTransaction((transaction) async {
+  await FirebaseFirestore.instance.debugRunTransaction((transaction) async {
     transaction.debugSet(friendshipRef, {
       'userIds': [request.fromUid, request.toUid]..sort(),
       'users': {
@@ -13473,6 +13943,12 @@ Future<String> createGroupChat({
     'createdAt': FieldValue.serverTimestamp(),
   });
 
+  unawaited(
+    sendPushNotificationEvent({
+      'type': 'group_members_added',
+      'chatId': doc.id,
+    }),
+  );
   return doc.id;
 }
 
@@ -13553,7 +14029,7 @@ Future<void> sendChatMessage({
     SetOptions(merge: true),
     'chat: update summary after message send',
   );
-  await batch.commit();
+  await batch.debugCommit();
 
   // Do not create a local user_notifications chat row here. The push backend
   // creates the notification-center item for chat messages. Creating a local
@@ -13634,7 +14110,7 @@ Future<void> markChatMessagesReadByCurrentUser({
     return;
   }
 
-  await batch.commit();
+  await batch.debugCommit();
 }
 
 Future<Position?> getChatSharePosition(BuildContext context) async {
@@ -13881,6 +14357,135 @@ Future<Duration?> showLiveLocationDurationDialog(BuildContext context) async {
   );
 }
 
+bool usableLiveFix(Position position) =>
+    !position.isMocked &&
+    position.accuracy.isFinite &&
+    position.accuracy >= 0 &&
+    position.accuracy <= 50 &&
+    DateTime.now().difference(position.timestamp).abs() <=
+        const Duration(seconds: 30);
+
+final _countryAchievementRequests = <String>{};
+final _creditedSpotVisits = <String>{};
+final _spotVisitRequests = <String>{};
+final _lastMockLocationReport = <String, DateTime>{};
+
+Future<void> checkGpsSpotVisits(Position position) async {
+  final user = FirebaseAuth.instance.currentUser;
+  final now = DateTime.now();
+  if (user != null &&
+      position.isMocked &&
+      now.difference(_lastMockLocationReport[user.uid] ?? DateTime(1970)) >
+          const Duration(minutes: 5)) {
+    _lastMockLocationReport[user.uid] = now;
+    unawaited(
+      xpScreenRequest('location_check', {
+        'latitude': position.latitude,
+        'longitude': position.longitude,
+        'accuracy': position.accuracy,
+        'recordedAtMillis': position.timestamp.millisecondsSinceEpoch,
+        'isMocked': true,
+      }).catchError((_) => <String, dynamic>{}),
+    );
+  }
+  if (user == null ||
+      position.isMocked ||
+      !position.accuracy.isFinite ||
+      position.accuracy < 0 ||
+      position.accuracy > 100 ||
+      now.difference(position.timestamp).abs() > const Duration(seconds: 90))
+    return;
+  final candidates = approvedPublicSpots()
+      .where(
+        (spot) =>
+            canViewGroupSpot(spot) &&
+            spot.isVisibleOnMapNow &&
+            (!spot.isTemporary || spot.isTemporaryActiveNow) &&
+            Geolocator.distanceBetween(
+                  position.latitude,
+                  position.longitude,
+                  spot.coordinates.latitude,
+                  spot.coordinates.longitude,
+                ) <=
+                100,
+      )
+      .toList();
+  for (final spot in candidates) {
+    if (FirebaseAuth.instance.currentUser?.uid != user.uid) return;
+    final key = '${user.uid}/${spot.id}';
+    if (_creditedSpotVisits.contains(key) || !_spotVisitRequests.add(key))
+      continue;
+    try {
+      final token = await user.getIdToken();
+      if (FirebaseAuth.instance.currentUser?.uid != user.uid) return;
+      final result = await postJsonToUrl(
+        'https://ccs-telegram-auth-server.vercel.app/api/spot-visit',
+        {
+          'spotId': spot.id,
+          'gpsFix': {
+            'latitude': position.latitude,
+            'longitude': position.longitude,
+            'accuracy': position.accuracy,
+            'isMocked': position.isMocked,
+            'recordedAtMillis': position.timestamp.millisecondsSinceEpoch,
+          },
+        },
+        headers: {HttpHeaders.authorizationHeader: 'Bearer $token'},
+      );
+      if (result['ok'] == true) _creditedSpotVisits.add(key);
+    } catch (error) {
+      debugPrint('Spot visit check failed: $error');
+    } finally {
+      _spotVisitRequests.remove(key);
+    }
+  }
+}
+
+Future<void> checkGpsCountryAchievement(
+  BuildContext context,
+  Position position,
+) async {
+  final uid = FirebaseAuth.instance.currentUser?.uid;
+  if (uid == null ||
+      position.isMocked ||
+      !position.accuracy.isFinite ||
+      position.accuracy > 1000 ||
+      !_countryAchievementRequests.add(uid))
+    return;
+  try {
+    final region = await lookupSpotLocationRegion(
+      LatLng(position.latitude, position.longitude),
+    );
+    if (FirebaseAuth.instance.currentUser?.uid != uid) return;
+    final result = await xpScreenRequest('visit_country', {
+      'countryCode': region.countryCode,
+      'latitude': position.latitude,
+      'longitude': position.longitude,
+      'accuracy': position.accuracy,
+      'recordedAtMillis': position.timestamp.millisecondsSinceEpoch,
+      'isMocked': position.isMocked,
+    });
+    if (result['awarded'] == true &&
+        context.mounted &&
+        FirebaseAuth.instance.currentUser?.uid == uid) {
+      final country = localizedCountryName(result['countryCode'] as String);
+      final message = switch (appUiPreferences.language) {
+        AppLanguage.en => 'Country achievement unlocked: $country (+75 XP)',
+        AppLanguage.ru => 'Достижение страны получено: $country (+75 XP)',
+        AppLanguage.lv => 'Valsts sasniegums atbloķēts: $country (+75 XP)',
+      };
+      ScaffoldMessenger.maybeOf(
+        context,
+      )?.showSnackBar(SnackBar(content: Text(message)));
+    }
+  } catch (error) {
+    // GPS navigation and sharing must still work if the XP service is offline.
+    debugPrint('Country achievement check failed: $error');
+  } finally {
+    _countryAchievementRequests.remove(uid);
+  }
+}
+
 Future<void> shareChatLiveLocation(
   BuildContext context,
   ChatThreadData chat,
@@ -13946,9 +14551,14 @@ Future<void> shareChatLiveLocation(
 
   final position = await getChatSharePosition(context);
 
-  if (position == null) {
+  if (position != null && position.isMocked)
+    unawaited(checkGpsSpotVisits(position));
+  if (position == null || !usableLiveFix(position)) {
     return;
   }
+
+  unawaited(checkGpsCountryAchievement(context, position));
+  unawaited(checkGpsSpotVisits(position));
 
   final now = DateTime.now();
   final expiresAt = now.add(shareDuration);
@@ -13963,6 +14573,9 @@ Future<void> shareChatLiveLocation(
     'role': roleName(currentUser.role),
     'verified': currentUser.verified,
     'heading': normalizedHeadingDegrees(position.heading),
+    'accuracy': position.accuracy,
+    'isMocked': position.isMocked,
+    'recordedAtMillis': position.timestamp.millisecondsSinceEpoch,
     'lat': position.latitude,
     'lng': position.longitude,
     'coordinates': GeoPoint(position.latitude, position.longitude),
@@ -14222,7 +14835,7 @@ Future<void> leaveGroupChat(ChatThreadData chat) async {
   // same value (especially an empty photo URL). arrayRemove() would remove
   // every matching value, corrupting the parallel arrays and causing schema
   // validation in Firestore rules to reject the leave operation.
-  await FirebaseFirestore.instance.runTransaction((transaction) async {
+  await FirebaseFirestore.instance.debugRunTransaction((transaction) async {
     final snapshot = await transaction.debugGet(
       chatRef,
       'chat: leave group server verify',
@@ -14805,7 +15418,7 @@ Future<void> createMeetSpotNotificationsForNearbyUsers(CarSpot spot) async {
   }
 
   if (writes > 0) {
-    await batch.commit();
+    await batch.debugCommit();
   }
 }
 
@@ -14974,7 +15587,7 @@ Future<void> notifyStaffAboutCommunityEvent({
           'admin notifications: community event',
         );
       }
-      await batch.commit();
+      await batch.debugCommit();
     } catch (error, stack) {
       // The push endpoint may still be able to deliver even when client rules do
       // not permit direct writes to admin_notifications.
@@ -15191,7 +15804,7 @@ Future<void> createAdminUserReportNotifications({
     }, SetOptions(merge: true));
   }
 
-  await batch.commit();
+  await batch.debugCommit();
 }
 
 Future<void> createAdminSpotReviewNotification(CarSpot spot) async {
@@ -15239,7 +15852,7 @@ Future<void> createAdminSpotReviewNotification(CarSpot spot) async {
       );
     }
 
-    await batch.commit();
+    await batch.debugCommit();
   } catch (error, stack) {
     debugPrint('Pending spot admin notification documents failed: $error');
     debugPrint('$stack');
@@ -15335,7 +15948,7 @@ Future<void> createAdminSpotDecisionNotification(
     }, SetOptions(merge: true));
   }
 
-  await batch.commit();
+  await batch.debugCommit();
 }
 
 class PoliceReportData {
@@ -16396,6 +17009,9 @@ void _applySpotFeedSnapshot(
   if (authoritative) {
     _failedSpotSources.remove(source);
     _spotSourcesWithServerSnapshot.add(source);
+    _spotFeedServerReceivedAt[source] = DateTime.now();
+    final ready = _spotFeedServerReady[source];
+    if (ready != null && !ready.isCompleted) ready.complete();
     final immediate = _firebaseSpotCacheBySource[localImmediateSpotCacheSource];
     if (immediate != null) {
       for (final spot in parsedSpots) {
@@ -16424,6 +17040,9 @@ void _applySpotFeedSnapshot(
     }
   }
   _publishFirebaseSpotCaches();
+  if (authoritative && (source == 'approved' || source == 'my submissions')) {
+    unawaited(syncActiveTemporarySpotForumTopics());
+  }
   if (source == 'approved' && authoritative) {
     unawaited(saveApprovedSpotsToLocalCache());
     if (userRoleIsStaff(currentUser.role)) {
@@ -16442,6 +17061,7 @@ void _listenToSpotQuery({
   required int generation,
   required String scope,
 }) {
+  _spotFeedServerReady.putIfAbsent(source, () => Completer<void>());
   final subscription =
       trackedQuerySnapshots(
         'spots listener: $source',
@@ -16529,7 +17149,7 @@ Future<void> _backfillLegacySpotCountryCodes(Iterable<CarSpot> spots) async {
         'admin: legacy spot country code backfill',
       );
     }
-    await batch.commit();
+    await batch.debugCommit();
   } catch (error, stack) {
     _spotCountryCodeBackfillsThisSession.removeAll(
       missing.map((spot) => spot.id),
@@ -16612,6 +17232,15 @@ int _spotSyncRetryAttempt = 0;
 final Set<String> _spotSourcesWithServerSnapshot = {};
 final Set<String> _failedSpotSources = {};
 final Map<String, int> _spotFeedRevisions = {};
+final Map<String, DateTime> _spotFeedServerReceivedAt = {};
+final Map<String, Completer<void>> _spotFeedServerReady = {};
+
+bool spotFeedServerSnapshotIsFresh(DateTime? receivedAt, DateTime now) {
+  if (receivedAt == null) return false;
+  final age = now.difference(receivedAt);
+  return !age.isNegative && age < const Duration(seconds: 30);
+}
+
 Future<void>? _spotRefreshInFlight;
 String? _spotRefreshInFlightScope;
 Future<void>? _spotSyncStartInFlight;
@@ -16639,6 +17268,13 @@ void _invalidateSpotSync() {
   _spotSourcesWithServerSnapshot.clear();
   _failedSpotSources.clear();
   _spotFeedRevisions.clear();
+  _spotFeedServerReceivedAt.clear();
+  // Release waiters on an obsolete scope; their generation check prevents
+  // applying data after a sign-out or access change.
+  for (final ready in _spotFeedServerReady.values) {
+    if (!ready.isCompleted) ready.complete();
+  }
+  _spotFeedServerReady.clear();
   _spotRefreshInFlight = null;
   _spotRefreshInFlightScope = null;
   _spotSyncStartInFlight = null;
@@ -16703,7 +17339,6 @@ void startFirebaseSpotSync({bool forceFullRefresh = false}) {
       }
     }),
   );
-  unawaited(syncActiveTemporarySpotForumTopics());
 }
 
 Future<void> _startCachedSpotSync(
@@ -16764,6 +17399,9 @@ Future<void> refreshFirebaseSpotsFromServer() async {
       _spotSyncRetryTimer != null) {
     startFirebaseSpotSync(forceFullRefresh: true);
   }
+  // A newly attached listener already reads the full query. Wait for that
+  // server result instead of issuing the same query again with get().
+  await _spotSyncStartInFlight;
   final generation = _spotSyncGeneration;
   final scope = currentSpotSyncScope;
   final refresh = _refreshSpotFeedsFromServer(
@@ -16787,6 +17425,19 @@ Future<void> _refreshSpotFeedsFromServer(int generation, String scope) async {
     String source,
     Query<Map<String, dynamic>> query,
   ) async {
+    if (!_spotSyncIsCurrent(generation, scope)) return;
+    final ready = _spotFeedServerReady[source];
+    if (!_spotSourcesWithServerSnapshot.contains(source) && ready != null) {
+      await ready.future;
+      return;
+    }
+    if (!_failedSpotSources.contains(source) &&
+        spotFeedServerSnapshotIsFresh(
+          _spotFeedServerReceivedAt[source],
+          DateTime.now(),
+        )) {
+      return;
+    }
     final revision = _spotFeedRevisions[source] ?? 0;
     final snapshot = await trackedQueryGet(
       'spots manual refresh: $source',
@@ -17585,7 +18236,7 @@ Future<void> toggleSpotLike(
     setCurrentUserSpotLikedLocally(spotId, targetLiked);
 
     try {
-      await FirebaseFirestore.instance.runTransaction((transaction) async {
+      await FirebaseFirestore.instance.debugRunTransaction((transaction) async {
         // Firestore can rerun this callback after a concurrent write.
         likeDelta = 0;
         final likeSnapshot = await transaction.debugGet(likeRef);
@@ -17739,7 +18390,7 @@ Future<void> toggleCommentLike(
   setCommentLikeCountLocally(review.id, nextCount);
 
   try {
-    await FirebaseFirestore.instance.runTransaction((transaction) async {
+    await FirebaseFirestore.instance.debugRunTransaction((transaction) async {
       final likeSnapshot = await transaction.debugGet(
         likeRef,
         'comment like toggle existing like get',
@@ -17874,7 +18525,7 @@ Future<SpotReviewData> saveSpotReview({
   }
 
   try {
-    await FirebaseFirestore.instance.runTransaction((transaction) async {
+    await FirebaseFirestore.instance.debugRunTransaction((transaction) async {
       final dailyCountSnapshot = await transaction.debugGet(
         dailyCountRef,
         'spot comment daily count get',
@@ -18280,7 +18931,7 @@ Future<void> updateSpotCountersOnServer(
   final spotRef = spotsCollection().doc(spotId);
 
   try {
-    await FirebaseFirestore.instance.runTransaction((transaction) async {
+    await FirebaseFirestore.instance.debugRunTransaction((transaction) async {
       final snapshot = await transaction.debugGet(
         spotRef,
         'spot counter safe current spot get',
@@ -18412,6 +19063,14 @@ Future<void> updateSpotStatus(
     await notifyAllUsersIfTemporarySpotIsToday(updatedSpot);
 
     await sendNewSpotPushToEligibleUsers(updatedSpot);
+  }
+
+  if (statusChanged &&
+      status == SpotStatus.approved &&
+      updatedSpot.id.isNotEmpty) {
+    unawaited(
+      syncXpWithServer({'action': 'sync_spot', 'spotId': updatedSpot.id}),
+    );
   }
 
   if (statusChanged &&
@@ -18732,6 +19391,9 @@ class NotificationCenterItem {
   final double friendLng;
   final String status;
   final String rejectionReason;
+  final int xpAmount;
+  final String xpAction;
+  final String xpTransactionId;
 
   const NotificationCenterItem({
     this.countryCode = '',
@@ -18758,6 +19420,9 @@ class NotificationCenterItem {
     this.friendLng = 0,
     this.status = '',
     this.rejectionReason = '',
+    this.xpAmount = 0,
+    this.xpAction = '',
+    this.xpTransactionId = '',
   });
 
   NotificationCenterItem copyWith({
@@ -18786,6 +19451,9 @@ class NotificationCenterItem {
     double? friendLng,
     String? status,
     String? rejectionReason,
+    int? xpAmount,
+    String? xpAction,
+    String? xpTransactionId,
   }) {
     return NotificationCenterItem(
       id: id ?? this.id,
@@ -18812,6 +19480,9 @@ class NotificationCenterItem {
       friendLng: friendLng ?? this.friendLng,
       status: status ?? this.status,
       rejectionReason: rejectionReason ?? this.rejectionReason,
+      xpAmount: xpAmount ?? this.xpAmount,
+      xpAction: xpAction ?? this.xpAction,
+      xpTransactionId: xpTransactionId ?? this.xpTransactionId,
     );
   }
 
@@ -18834,6 +19505,7 @@ class NotificationCenterItem {
           type == 'friend_request' ||
           type == 'spot_pending_review' ||
           type == 'user_report_new' ||
+          type == 'xp_reward' ||
           type == 'friend_nearby' ||
           type == 'friend_at_spot' ||
           type == 'friend_live_sharing');
@@ -18908,6 +19580,7 @@ IconData notificationCenterIcon(NotificationCenterItem item) {
           : Icons.check_circle,
     'spot_pending_review' => Icons.fact_check,
     'global_chat_message' || 'global_chat_admin' => Icons.public,
+    'xp_reward' => Icons.emoji_events_outlined,
     'forum_topic_created' ||
     'forum_reply' ||
     'forum_topic_pending' ||
@@ -18939,6 +19612,7 @@ Color notificationCenterColor(NotificationCenterItem item) {
   return switch (item.type) {
     'spot_like' => Colors.redAccent,
     'spot_comment' || 'chat_message' => blue,
+    'xp_reward' => const Color(0xFFFFB300),
     'spot_review_update' =>
       notificationCenterItemIsRejected(item) ? Colors.redAccent : Colors.green,
     'spot_rejected_by_admin' => Colors.redAccent,
@@ -19002,11 +19676,25 @@ String notificationCenterDisplayTitle(NotificationCenterItem item) {
     return chatNotificationTitle(item.actorUsername);
   }
 
+  if (item.type == 'xp_reward') {
+    return 'XP reward';
+  }
+
   return item.title;
 }
 
 String notificationCenterDisplayBody(NotificationCenterItem item) {
   final body = item.body.trim();
+  if (item.type == 'xp_reward') {
+    if (body.contains(' — ')) return body;
+    final amount = item.xpAmount > 0 ? item.xpAmount : 0;
+    final amountLabel = amount > 0 ? '+${formatXpValue(amount)} XP' : 'XP';
+    final actionLabel = trText(xpTransactionActionLabel(item.xpAction)).trim();
+    return actionLabel.isEmpty || actionLabel == 'XP'
+        ? amountLabel
+        : '$amountLabel - $actionLabel';
+  }
+
   if (item.type != 'chat_message') {
     if (notificationCenterItemIsRejected(item) &&
         item.rejectionReason.trim().isNotEmpty &&
@@ -19136,6 +19824,18 @@ NotificationCenterItem notificationCenterItemFromJson(Object? value) {
     return 0;
   }
 
+  int pickInt(String key) {
+    final topLevel = data[key];
+    if (topLevel is num) {
+      return topLevel.round();
+    }
+    final nested = payload[key];
+    if (nested is num) {
+      return nested.round();
+    }
+    return 0;
+  }
+
   double pickDouble(String key) {
     final topLevel = data[key];
     if (topLevel is num) {
@@ -19213,6 +19913,9 @@ NotificationCenterItem notificationCenterItemFromJson(Object? value) {
     friendLng: pickDouble('friendLng'),
     status: status,
     rejectionReason: rejectionReason,
+    xpAmount: pickInt('xpAmount'),
+    xpAction: pickString('xpAction', ''),
+    xpTransactionId: pickString('xpTransactionId', ''),
   );
 }
 
@@ -19243,6 +19946,18 @@ NotificationCenterItem notificationCenterItemFromDocument(
     return 0;
   }
 
+  int pickInt(String key) {
+    final topLevel = data[key];
+    if (topLevel is num) {
+      return topLevel.round();
+    }
+    final nested = payload[key];
+    if (nested is num) {
+      return nested.round();
+    }
+    return 0;
+  }
+
   final type = pickString(
     'type',
     projectNews ? 'project_news' : 'notification',
@@ -19267,8 +19982,8 @@ NotificationCenterItem notificationCenterItemFromDocument(
           'spot_review_update' => 'Spot review updates',
           'chat_message' => chatNotificationTitle(actorUsername),
           'new_spot' => 'New spots',
-          'temporary_event' => 'Temporary events',
-          'temporary_spot_today' => 'Temporary spot starts in 5 hours',
+          'temporary_event' => 'Events',
+          'temporary_spot_today' => 'Event starts in 5 hours',
           'global_chat_message' || 'global_chat_admin' => 'Global chat',
           'forum_topic_created' => pickString('title', 'New forum topic'),
           'forum_reply' => pickString('title', 'Forum'),
@@ -19286,6 +20001,7 @@ NotificationCenterItem notificationCenterItemFromDocument(
           'friend_nearby' ||
           'friend_at_spot' ||
           'friend_live_sharing' => 'Live location',
+          'xp_reward' => 'XP reward',
           'project_news' => 'Project news',
           _ => stringFromFirebase(data['title'], 'CCS'),
         };
@@ -19314,11 +20030,11 @@ NotificationCenterItem notificationCenterItemFromDocument(
             : '$spotName was added.',
       'temporary_event' =>
         spotName.trim().isEmpty
-            ? 'New temporary event was added.'
-            : '$spotName temporary event was added.',
+            ? 'New event was added.'
+            : '$spotName event was added.',
       'temporary_spot_today' =>
         spotName.trim().isEmpty
-            ? 'A temporary spot starts in about 5 hours.'
+            ? 'A event starts in about 5 hours.'
             : '$spotName starts in about 5 hours.',
       'global_chat_message' ||
       'global_chat_admin' => 'New message in global chat.',
@@ -19364,6 +20080,7 @@ NotificationCenterItem notificationCenterItemFromDocument(
         friendUsername.trim().isEmpty
             ? 'A friend is sharing live location.'
             : '@$friendUsername is sharing live location.',
+      'xp_reward' => 'XP reward',
       _ => pickString('message', ''),
     };
   }
@@ -19416,6 +20133,9 @@ NotificationCenterItem notificationCenterItemFromDocument(
     friendLng: pickDouble('friendLng'),
     status: status,
     rejectionReason: rejectionReason,
+    xpAmount: pickInt('xpAmount'),
+    xpAction: pickString('xpAction', ''),
+    xpTransactionId: pickString('xpTransactionId', ''),
   );
 }
 
@@ -19926,7 +20646,7 @@ Future<void> pruneOldNotificationCenterItems(
       for (final reference in references) {
         batch.debugDelete(reference);
       }
-      await batch.commit();
+      await batch.debugCommit();
     } catch (error, stack) {
       debugPrint('Notification center old-item pruning failed: $error');
       debugPrint('$stack');
@@ -19986,6 +20706,10 @@ Future<List<NotificationCenterItem>> loadNotificationCenterItems() async {
     friendLocationNotificationsCollection(),
     'friend location notifications',
   );
+
+  if (!userSettings.value.xpNotifications) {
+    items.removeWhere((item) => item.type == 'xp_reward');
+  }
 
   final uniqueItemsById = <String, NotificationCenterItem>{};
   final uniqueItemsWithoutId = <NotificationCenterItem>[];
@@ -20135,7 +20859,7 @@ Future<void> markNotificationCenterItemsRead(
           'readAt': FieldValue.serverTimestamp(),
         }, SetOptions(merge: true));
       }
-      await batch.commit();
+      await batch.debugCommit();
     }
 
     notificationCenterUnreadCount.value = 0;
@@ -20182,7 +20906,7 @@ Future<void> clearNotificationCenterItems(
       for (final reference in references) {
         batch.debugDelete(reference);
       }
-      await batch.commit();
+      await batch.debugCommit();
     } catch (error, stack) {
       debugPrint('Notification center could not clear Firestore items: $error');
       debugPrint('$stack');
@@ -20345,12 +21069,71 @@ class CcsNotificationBell extends StatelessWidget {
   }
 }
 
-List<Widget> ccsAppBarActions() {
-  return const [
-    CcsLanguageSelector(),
-    SizedBox(width: 6),
-    CcsNotificationBell(),
-    SizedBox(width: 4),
+class CcsXpLeaderboardAction extends StatelessWidget {
+  const CcsXpLeaderboardAction({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: trText('XP Leaderboard'),
+      child: Semantics(
+        label: trText('XP Leaderboard'),
+        button: true,
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(12),
+            onTap: () {
+              Navigator.push(
+                context,
+                appPageRoute(builder: (_) => const XpLeaderboardScreen()),
+              );
+            },
+            child: Container(
+              height: 44,
+              padding: const EdgeInsets.symmetric(horizontal: 14),
+              decoration: BoxDecoration(
+                color: blue.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: blue.withValues(alpha: 0.42)),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: const [
+                  Icon(Icons.emoji_events_outlined, color: blue, size: 23),
+                  SizedBox(width: 5),
+                  Text(
+                    'Top 100',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: blue,
+                      fontSize: 15,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+List<Widget> ccsAppBarActions({
+  bool showXpLeaderboard = false,
+  List<Widget> afterXpActions = const <Widget>[],
+}) {
+  return [
+    if (showXpLeaderboard) const CcsXpLeaderboardAction(),
+    if (showXpLeaderboard) const SizedBox(width: 2),
+    ...afterXpActions,
+    const CcsLanguageSelector(),
+    const SizedBox(width: 6),
+    const CcsNotificationBell(),
+    const SizedBox(width: 4),
   ];
 }
 
@@ -20570,6 +21353,21 @@ Future<void> openNotificationCenterItem(
     unawaited(markNotificationReadBestEffort(item.reference!));
   }
 
+  if (item.type == 'xp_reward') {
+    final currentUid =
+        FirebaseAuth.instance.currentUser?.uid.trim() ?? currentUser.uid.trim();
+    final cleanUserId = item.userId.trim().isNotEmpty
+        ? item.userId.trim()
+        : currentUid;
+    if (cleanUserId.isNotEmpty && canReadXpStatsForUser(cleanUserId)) {
+      Navigator.push(
+        context,
+        appPageRoute(builder: (_) => XpHistoryScreen(userId: cleanUserId)),
+      );
+    }
+    return;
+  }
+
   if (item.type == 'global_chat_message' || item.type == 'global_chat_admin') {
     // Legacy untagged global notifications belong to the original LV channel.
     var country = countryIsoCode(item.countryCode);
@@ -20671,7 +21469,8 @@ Future<void> openNotificationCenterItem(
     );
     return;
   }
-  if (item.type == 'group_join_decision') {
+  if (item.type == 'group_join_decision' ||
+      item.type == 'group_members_added') {
     Navigator.push(
       context,
       appPageRoute(builder: (_) => const ChatScreen(initialTabIndex: 1)),
@@ -21938,6 +22737,8 @@ class _MainScreenState extends State<_MainContentScreen>
     with WidgetsBindingObserver {
   late int index;
   final List<int> tabHistory = [];
+  bool creatingEvent = false;
+  bool creatingPrivateEvent = false;
   bool hasOpenedMap = false;
   bool hasOpenedChat = false;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>?
@@ -21953,7 +22754,11 @@ class _MainScreenState extends State<_MainContentScreen>
   List<Widget> get screens => [
     ExploreScreen(isVisible: index == 0),
     hasOpenedMap ? MapScreen(isVisible: index == 1) : const SizedBox.shrink(),
-    const AddSpotScreen(),
+    AddSpotScreen(
+      key: ValueKey('$creatingEvent/$creatingPrivateEvent'),
+      eventMode: creatingEvent,
+      privateEvent: creatingPrivateEvent,
+    ),
     hasOpenedChat ? const ChatScreen(isMainTab: true) : const SizedBox.shrink(),
     const ProfileScreen(),
   ];
@@ -22365,7 +23170,7 @@ class _MainScreenState extends State<_MainContentScreen>
                 ValueListenableBuilder<bool>(
                   valueListenable: firestoreDebugButtonVisible,
                   builder: (context, visible, _) {
-                    if (!visible || !userRoleIsStaff(currentUser.role)) {
+                    if (!visible || currentUser.role != UserRole.admin) {
                       return const SizedBox.shrink();
                     }
 
@@ -22442,12 +23247,21 @@ class _MainScreenState extends State<_MainContentScreen>
                             ),
                             Expanded(
                               child: _CcsBottomNavItem(
-                                icon: Icons.add_circle_outline,
-                                label: trText('Add Spot Nav'),
+                                icon: Icons.add_rounded,
+                                label: '',
+                                iconSize: 36,
+                                prominentAction: true,
                                 selected: index == 2,
-                                onTap: () => selectBottomTab(2),
-                                twoLineCentered:
-                                    appUiPreferences.language != AppLanguage.en,
+                                onTap: () async {
+                                  final event = await showCreationMenu(context);
+                                  if (!mounted || event == null) return;
+                                  setState(() {
+                                    creatingEvent = event != CreationKind.spot;
+                                    creatingPrivateEvent =
+                                        event == CreationKind.privateEvent;
+                                  });
+                                  selectBottomTab(2);
+                                },
                               ),
                             ),
                             Expanded(
@@ -22455,8 +23269,13 @@ class _MainScreenState extends State<_MainContentScreen>
                                 valueListenable: chatUnreadCountsByChatId,
                                 builder: (context, unreadCountsByChatId, _) {
                                   return _CcsBottomNavItem(
-                                    icon: Icons.chat_bubble_outline,
-                                    label: trText('Chat'),
+                                    icon: Icons.diversity_3_outlined,
+                                    label: achievementText(
+                                      appUiPreferences.language.name,
+                                      'Community',
+                                      'Сообщество',
+                                      'Kopiena',
+                                    ),
                                     selected: index == 3,
                                     badgeCount: inAppBadges.chatCount,
                                     onTap: openChatTab,
@@ -22496,28 +23315,62 @@ class _CcsBottomNavItem extends StatelessWidget {
   final String label;
   final bool selected;
   final VoidCallback onTap;
-  final bool twoLineCentered;
   final int badgeCount;
+  final double iconSize;
+  final bool prominentAction;
 
   const _CcsBottomNavItem({
     required this.icon,
     required this.label,
     required this.selected,
     required this.onTap,
-    this.twoLineCentered = false,
     this.badgeCount = 0,
+    this.iconSize = 22,
+    this.prominentAction = false,
   });
 
   @override
   Widget build(BuildContext context) {
     final color = selected ? blue : Colors.white54;
-    final parts = label.split('\n');
-    final firstLine = parts.isEmpty ? label : parts.first;
-    final secondLine = parts.length > 1 ? parts.sublist(1).join(' ') : '';
+    final iconWidget = prominentAction
+        ? AnimatedContainer(
+            duration: const Duration(milliseconds: 180),
+            curve: Curves.easeOutCubic,
+            width: iconSize,
+            height: iconSize,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: selected
+                    ? [
+                        blue.withValues(alpha: 0.34),
+                        blue.withValues(alpha: 0.12),
+                      ]
+                    : [
+                        Colors.white.withValues(alpha: 0.15),
+                        Colors.white.withValues(alpha: 0.06),
+                      ],
+              ),
+              border: Border.all(
+                color: selected ? blue.withValues(alpha: 0.85) : Colors.white24,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: selected
+                      ? blue.withValues(alpha: 0.24)
+                      : Colors.black.withValues(alpha: 0.18),
+                  blurRadius: 10,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+            ),
+            child: Icon(icon, color: color, size: iconSize * 0.72),
+          )
+        : Icon(icon, color: color, size: iconSize);
 
     // Keep every bottom-tab icon on the same Y level.
-    // RU/LV Add Spot uses two centered lines: first line aligned with other labels,
-    // second line sits below it. EN stays as the original single-line label.
     return InkWell(
       onTap: onTap,
       child: SizedBox.expand(
@@ -22530,33 +23383,16 @@ class _CcsBottomNavItem extends StatelessWidget {
                 isLabelVisible: badgeCount > 0,
                 backgroundColor: Colors.redAccent,
                 label: Text(compactBadgeLabel(badgeCount)),
-                child: Icon(icon, color: color, size: 22),
+                child: iconWidget,
               ),
             ),
-            Positioned(
-              top: 33,
-              left: 0,
-              right: 0,
-              child: Text(
-                twoLineCentered ? firstLine : label.replaceAll('\n', ' '),
-                textAlign: TextAlign.center,
-                maxLines: 1,
-                overflow: TextOverflow.visible,
-                style: TextStyle(
-                  color: color,
-                  fontSize: 10,
-                  height: 1.0,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ),
-            if (twoLineCentered && secondLine.trim().isNotEmpty)
+            if (label.isNotEmpty)
               Positioned(
-                top: 43,
+                top: 33,
                 left: 0,
                 right: 0,
                 child: Text(
-                  secondLine,
+                  label.replaceAll('\n', ' '),
                   textAlign: TextAlign.center,
                   maxLines: 1,
                   overflow: TextOverflow.visible,
@@ -24016,7 +24852,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
     spotCategoryFilters.addListener(refreshSpotCategoryFilters);
     spotCountryFilters.addListener(refreshSpotCategoryFilters);
     appUiPreferences.addListener(refreshLanguageLabels);
-    // Temporary spots can expire or reveal their location without a Firestore
+    // Events can expire or reveal their location without a Firestore
     // update. Refresh the Spots tab so the temporary card removes expired spots
     // and updates availability labels while the user stays on this screen.
     temporarySpotRefreshTimer = Timer.periodic(
@@ -26515,7 +27351,7 @@ class _MapScreenState extends State<MapScreen>
     spotCountryFilters.addListener(refreshMap);
     mapFocusRequest.addListener(handleMapFocusRequest);
 
-    // Temporary spots can become visible or expire just because time passes.
+    // Events can become visible or expire just because time passes.
     // Firestore will not send a new snapshot at the start/end time, so the map
     // needs a small live refresh while this screen is open.
     temporarySpotRefreshTimer = Timer.periodic(
@@ -27301,19 +28137,31 @@ class _MapScreenState extends State<MapScreen>
         return marker;
       }
 
+      final peopleCount = presence[spot.id]?.length ?? 0;
+      final showPeople = currentMapZoom >= 14 && peopleCount > 0;
       return Marker(
         key: ValueKey('spot_${spot.id}'),
         point: spot.coordinates,
-        width: markerWidth,
+        alignment: showFullIcons
+            ? spotIconTipAlignment(
+                asset: spotIconAssetPathForSpot(spot, mapStyle: mapStyle),
+                iconSize: markerVisualSize,
+                markerWidth:
+                    markerWidth +
+                    (showPeople ? SpotPresenceMarker.sideSpace * 2 : 0),
+                markerHeight: markerHeight,
+              )
+            : Alignment.center,
+        width:
+            markerWidth + (showPeople ? SpotPresenceMarker.sideSpace * 2 : 0),
         height: markerHeight,
         rotate: true,
         child: IgnorePointer(
           ignoring: visibilityOpacity <= 0.05,
           child: Opacity(
             opacity: visibilityOpacity,
-            child: GestureDetector(
-              behavior: HitTestBehavior.translucent,
-              onTap: () {
+            child: SpotPresenceMarker(
+              onSpotTap: () {
                 setState(() {
                   selectedSpot = spot;
                   selectedPoliceReport = null;
@@ -27321,6 +28169,7 @@ class _MapScreenState extends State<MapScreen>
                   selectedLiveLocation = null;
                 });
               },
+<<<<<<< HEAD
               child: currentMapZoom >= 14 && (presence[spot.id]?.isNotEmpty ?? false)
                 ? Column(mainAxisAlignment: MainAxisAlignment.center, children: [
                     SpotPresenceCount(count: presence[spot.id]!.length, onTap: () => showSpotPeople(spot)),
@@ -27329,6 +28178,15 @@ class _MapScreenState extends State<MapScreen>
                       style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: mapStyle.mapLabelColor))),
                   ])
                 : showFullIcons ? fullMarker() : compactMarker(),
+=======
+              marker: showFullIcons ? fullMarker() : compactMarker(),
+              peopleButton: showPeople
+                  ? SpotPresenceCount(
+                      count: peopleCount,
+                      onTap: () => showSpotPeople(spot),
+                    )
+                  : null,
+>>>>>>> zhena-ui
             ),
           ),
         ),
@@ -27657,9 +28515,28 @@ class _MapScreenState extends State<MapScreen>
   }
 
   Map<String, List<String>> get spotPresenceGroups => groupSpotPresence(
+<<<<<<< HEAD
     {for (final spot in visibleSpots.where((spot) => spot.isVisibleOnMapNow &&
       (!spot.isTemporary || spot.isTemporaryActiveNow))) spot.id: spot.coordinates},
     liveLocations.map((p) => PresencePoint(p.uid, p.coordinates, p.updatedAtMillis, p.expiresAtMillis)),
+=======
+    {
+      for (final spot in visibleSpots.where(
+        (spot) =>
+            spot.isVisibleOnMapNow &&
+            (!spot.isTemporary || spot.isTemporaryActiveNow),
+      ))
+        spot.id: spot.coordinates,
+    },
+    liveLocations.map(
+      (p) => PresencePoint(
+        p.uid,
+        p.coordinates,
+        p.updatedAtMillis,
+        p.expiresAtMillis,
+      ),
+    ),
+>>>>>>> zhena-ui
     DateTime.now().millisecondsSinceEpoch,
   );
 
@@ -27669,16 +28546,33 @@ class _MapScreenState extends State<MapScreen>
   }
 
   void showSpotPeople(CarSpot spot) {
+<<<<<<< HEAD
     showModalBottomSheet<void>(context: context, isScrollControlled: true,
+=======
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+>>>>>>> zhena-ui
       backgroundColor: const Color(0xFF10141C),
       builder: (_) => SpotPeopleSheet(
         title: spot.name,
         load: () => mounted ? peopleAtSpot(spot) : <LiveLocationData>[],
         onProfile: (person) {
           Navigator.of(context).pop();
+<<<<<<< HEAD
           openUserProfile(context, uid: person.uid, fallbackUsername: person.username);
         },
       ));
+=======
+          openUserProfile(
+            context,
+            uid: person.uid,
+            fallbackUsername: person.username,
+          );
+        },
+      ),
+    );
+>>>>>>> zhena-ui
   }
 
   String liveLocationCarIconAsset(LiveLocationData location) {
@@ -29259,7 +30153,7 @@ class _MapScreenState extends State<MapScreen>
     var removed = false;
 
     try {
-      await FirebaseFirestore.instance.runTransaction((transaction) async {
+      await FirebaseFirestore.instance.debugRunTransaction((transaction) async {
         final snapshot = await transaction.debugGet(reportRef);
 
         if (!snapshot.exists) {
@@ -29877,6 +30771,9 @@ class _MapScreenState extends State<MapScreen>
     if (location == null) {
       return;
     }
+    unawaited(checkGpsCountryAchievement(context, position));
+    unawaited(checkGpsSpotVisits(position));
+
     final speed = position.speed.isFinite ? math.max(0.0, position.speed) : 0.0;
     final heading = headingForNewUserLocation(
       location,
@@ -30018,6 +30915,7 @@ class _MapScreenState extends State<MapScreen>
   }
 
   Future<void> recordNearbySpotVisit(Position position, User user) async {
+<<<<<<< HEAD
     final grouped = groupSpotPresence(
       {for (final spot in approvedPublicSpots().where((spot) => !spot.isGroupSpot &&
         spot.isVisibleOnMapNow && (!spot.isTemporary || spot.isTemporaryActiveNow))) spot.id: spot.coordinates},
@@ -30041,6 +30939,10 @@ class _MapScreenState extends State<MapScreen>
     } catch (_) {
       // Recording retries on a later GPS sample; map sharing must stay available.
     }
+=======
+    if (FirebaseAuth.instance.currentUser?.uid == user.uid)
+      await checkGpsSpotVisits(position);
+>>>>>>> zhena-ui
   }
 
   Future<void> writeLiveLocation(
@@ -30053,9 +30955,11 @@ class _MapScreenState extends State<MapScreen>
     String? visibleToChatName,
     String? shareScope,
   }) async {
-    if (DateTime.now().difference(position.timestamp) >
-        const Duration(seconds: 90)) {
-      return;
+    if (!usableLiveFix(position)) {
+      if (position.isMocked) unawaited(checkGpsSpotVisits(position));
+      throw StateError(
+        'Waiting for an accurate GPS fix. Move outdoors and try again.',
+      );
     }
     final firebaseUser = FirebaseAuth.instance.currentUser;
 
@@ -30115,6 +31019,10 @@ class _MapScreenState extends State<MapScreen>
       'lng': position.longitude,
       'coordinates': GeoPoint(position.latitude, position.longitude),
       'accuracy': position.accuracy,
+<<<<<<< HEAD
+=======
+      'recordedAtMillis': position.timestamp.millisecondsSinceEpoch,
+>>>>>>> zhena-ui
       'isMocked': position.isMocked,
       'visibleToUserIds': nextVisibleToUserIds.isEmpty
           ? [firebaseUser.uid]
@@ -30213,6 +31121,9 @@ class _MapScreenState extends State<MapScreen>
     if (location == null) {
       return;
     }
+    unawaited(checkGpsCountryAchievement(context, position));
+    unawaited(checkGpsSpotVisits(position));
+
     final speed = position.speed.isFinite ? math.max(0.0, position.speed) : 0.0;
     final heading = headingForNewUserLocation(
       location,
@@ -30450,7 +31361,8 @@ class _MapScreenState extends State<MapScreen>
   }
 
   void handleNavigationPosition(Position position) {
-    if (!mounted) {
+    if (position.isMocked) unawaited(checkGpsSpotVisits(position));
+    if (!mounted || !usableLiveFix(position)) {
       return;
     }
 
@@ -30594,12 +31506,18 @@ class _MapScreenState extends State<MapScreen>
         return null;
       }
 
-      return Geolocator.getCurrentPosition(
+      final position = await Geolocator.getCurrentPosition(
         locationSettings: const LocationSettings(
-          accuracy: LocationAccuracy.high,
+          accuracy: LocationAccuracy.bestForNavigation,
           timeLimit: userLocationLookupTimeout,
         ),
       );
+      if (position.isMocked) unawaited(checkGpsSpotVisits(position));
+      if (!usableLiveFix(position))
+        throw StateError(
+          'Waiting for an accurate GPS fix. Enable precise location and try outdoors.',
+        );
+      return position;
     } on TimeoutException {
       if (showErrors && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -30763,6 +31681,9 @@ class _MapScreenState extends State<MapScreen>
       setState(() => isLocatingUser = false);
       return;
     }
+    unawaited(checkGpsCountryAchievement(context, position));
+    unawaited(checkGpsSpotVisits(position));
+
     final speed = position.speed.isFinite ? math.max(0.0, position.speed) : 0.0;
     final heading = headingForNewUserLocation(
       location,
@@ -32055,6 +32976,7 @@ String spotPeopleLabel(int count) => switch (appUiPreferences.language) {
 class SpotPresenceCount extends StatelessWidget {
   final int count;
   final VoidCallback onTap;
+<<<<<<< HEAD
   const SpotPresenceCount({super.key, required this.count, required this.onTap});
   @override
   Widget build(BuildContext context) => Tooltip(message: spotPeopleLabel(count),
@@ -32072,13 +32994,70 @@ class SpotPresenceCount extends StatelessWidget {
         ]),
       ),
     )));
+=======
+  const SpotPresenceCount({
+    super.key,
+    required this.count,
+    required this.onTap,
+  });
+  @override
+  Widget build(BuildContext context) => Tooltip(
+    message: spotPeopleLabel(count),
+    child: Semantics(
+      button: true,
+      label: spotPeopleLabel(count),
+      child: InkWell(
+        onTap: onTap,
+        customBorder: const CircleBorder(),
+        child: Container(
+          width: 46,
+          height: 46,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: blue,
+            border: Border.all(color: Colors.white70, width: 2),
+            boxShadow: const [BoxShadow(color: Colors.black38, blurRadius: 6)],
+          ),
+          padding: const EdgeInsets.all(5),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(Icons.people_alt, size: 13, color: Colors.white),
+              Expanded(
+                child: FittedBox(
+                  child: Text(
+                    count > 999 ? '999+' : '$count',
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w900,
+                      color: Colors.white,
+                      fontSize: 16,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    ),
+  );
+>>>>>>> zhena-ui
 }
 
 class SpotPeopleSheet extends StatefulWidget {
   final String title;
   final List<LiveLocationData> Function() load;
   final void Function(LiveLocationData) onProfile;
+<<<<<<< HEAD
   const SpotPeopleSheet({super.key, required this.title, required this.load, required this.onProfile});
+=======
+  const SpotPeopleSheet({
+    super.key,
+    required this.title,
+    required this.load,
+    required this.onProfile,
+  });
+>>>>>>> zhena-ui
   @override
   State<SpotPeopleSheet> createState() => _SpotPeopleSheetState();
 }
@@ -32088,6 +33067,7 @@ class _SpotPeopleSheetState extends State<SpotPeopleSheet> {
   @override
   void initState() {
     super.initState();
+<<<<<<< HEAD
     timer = Timer.periodic(const Duration(seconds: 5), (_) { if (mounted) setState(() {}); });
   }
   @override
@@ -32110,6 +33090,68 @@ class _SpotPeopleSheetState extends State<SpotPeopleSheet> {
         })),
       ]),
     ));
+=======
+    timer = Timer.periodic(const Duration(seconds: 5), (_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    timer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final people = widget.load();
+    return SafeArea(
+      child: SizedBox(
+        height: MediaQuery.sizeOf(context).height * .55,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 20, 20, 6),
+              child: Text(
+                widget.title,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+              child: Text(spotPeopleLabel(people.length)),
+            ),
+            Expanded(
+              child: ListView.builder(
+                itemCount: people.length,
+                itemBuilder: (context, index) {
+                  final person = people[index];
+                  return ListTile(
+                    leading: const CircleAvatar(
+                      child: Icon(Icons.person_outline),
+                    ),
+                    title: Text(
+                      displayUsername(person.username),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () => widget.onProfile(person),
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+>>>>>>> zhena-ui
   }
 }
 
@@ -32119,8 +33161,18 @@ class SpotMapCard extends StatelessWidget {
   final int peopleCount;
   final VoidCallback? onPeople;
 
+<<<<<<< HEAD
   const SpotMapCard({super.key, required this.spot, required this.onOpen,
     this.peopleCount = 0, this.onPeople});
+=======
+  const SpotMapCard({
+    super.key,
+    required this.spot,
+    required this.onOpen,
+    this.peopleCount = 0,
+    this.onPeople,
+  });
+>>>>>>> zhena-ui
 
   @override
   Widget build(BuildContext context) {
@@ -32194,11 +33246,20 @@ class SpotMapCard extends StatelessWidget {
                   spot.cityCountry,
                   style: const TextStyle(color: Colors.white54, fontSize: 12),
                 ),
+<<<<<<< HEAD
                 if (onPeople != null) TextButton.icon(
                   onPressed: onPeople,
                   icon: const Icon(Icons.people_alt_outlined, size: 18),
                   label: Text(spotPeopleLabel(peopleCount)),
                 ),
+=======
+                if (onPeople != null)
+                  TextButton.icon(
+                    onPressed: onPeople,
+                    icon: const Icon(Icons.people_alt_outlined, size: 18),
+                    label: Text(spotPeopleLabel(peopleCount)),
+                  ),
+>>>>>>> zhena-ui
                 const SizedBox(height: 8),
                 Text(
                   spot.description,
@@ -35335,8 +36396,46 @@ class _SpotCategoryDropdown extends StatelessWidget {
   }
 }
 
+enum CreationKind { spot, event, privateEvent }
+
+Future<CreationKind?> showCreationMenu(BuildContext context) =>
+    showModalBottomSheet<CreationKind>(
+      context: context,
+      showDragHandle: true,
+      backgroundColor: panelGlass,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.add_location_alt_outlined, color: blue),
+              title: Text(trText('Add Spot')),
+              onTap: () => Navigator.pop(context, CreationKind.spot),
+            ),
+            ListTile(
+              leading: const Icon(Icons.event_outlined, color: blue),
+              title: Text(trText('Add Event')),
+              onTap: () => Navigator.pop(context, CreationKind.event),
+            ),
+            ListTile(
+              leading: const Icon(Icons.lock_outline, color: blue),
+              title: Text(trText('Add Private Event')),
+              onTap: () => Navigator.pop(context, CreationKind.privateEvent),
+            ),
+            const SizedBox(height: 12),
+          ],
+        ),
+      ),
+    );
+
 class AddSpotScreen extends StatefulWidget {
-  const AddSpotScreen({super.key});
+  final bool eventMode;
+  final bool privateEvent;
+  const AddSpotScreen({
+    super.key,
+    this.eventMode = false,
+    this.privateEvent = false,
+  });
 
   @override
   State<AddSpotScreen> createState() => _AddSpotScreenState();
@@ -35353,7 +36452,22 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
   final emailController = TextEditingController();
   final addedByController = TextEditingController();
 
-  final categoryOptions = spotCategoryOptions;
+  List<String> get categoryOptions => widget.eventMode
+      ? spotCategoryOptions
+            .where(
+              (category) => !const {
+                'Store',
+                'Photo',
+                'Service',
+                'Detailing',
+                'Wash',
+                'Activity',
+                'Food',
+                'Scrap',
+              }.contains(category),
+            )
+            .toList()
+      : spotCategoryOptions;
 
   String selectedCategory = 'Photo';
   LatLng? selectedLocation;
@@ -35379,6 +36493,13 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
   void initState() {
     super.initState();
     addedByController.text = currentUser.username;
+    isTemporarySpot = widget.eventMode;
+    groupVisibility = widget.privateEvent;
+    if (widget.eventMode) {
+      selectedCategory = 'Meet';
+      temporaryStartsAt = DateTime.now().add(const Duration(hours: 1));
+      temporaryExpiresAt = temporaryStartsAt!.add(const Duration(hours: 3));
+    }
     memberSpotGroups.addListener(groupMembershipChanged);
   }
 
@@ -35393,30 +36514,13 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
     type: MaterialType.transparency,
     child: Column(
       children: [
-        SegmentedButton<bool>(
-          segments: [
-            ButtonSegment(
-              value: false,
-              label: Text(trText('Public')),
-              icon: const Icon(Icons.public),
-            ),
-            ButtonSegment(
-              value: true,
-              label: Text(trText('Group')),
-              icon: const Icon(Icons.groups),
-            ),
-          ],
-          selected: {groupVisibility},
-          onSelectionChanged: isSubmitting
-              ? null
-              : (values) => setState(() {
-                  groupVisibility = values.first;
-                  if (groupVisibility) verifiedOnlySpot = false;
-                }),
-        ),
         if (groupVisibility) ...[
           Text(
-            trText('Select groups (up to 8)'),
+            trText(
+              memberSpotGroups.value.isEmpty
+                  ? 'Join a group before creating a private event.'
+                  : 'Select groups (up to 8)',
+            ),
             style: const TextStyle(color: Colors.white70),
           ),
           for (final group in memberSpotGroups.value)
@@ -35923,13 +37027,15 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
     addedByController.text = currentUser.username;
 
     setState(() {
-      selectedCategory = 'Photo';
+      selectedCategory = widget.eventMode ? 'Meet' : 'Photo';
       selectedLocation = null;
       detectedCityCountry = 'Choose location to detect city/country';
       isDetectingCityCountry = false;
       selectedPhotoPaths.clear();
       verifiedOnlySpot = false;
-      isTemporarySpot = false;
+      isTemporarySpot = widget.eventMode;
+      groupVisibility = widget.privateEvent;
+      selectedGroupIds.clear();
       temporaryStartsAt = null;
       temporaryExpiresAt = null;
       temporaryShowOnMapAtEnabled = false;
@@ -36095,7 +37201,7 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
             const SnackBar(
               backgroundColor: Colors.redAccent,
               content: Text(
-                'Choose both start and end time for a temporary spot.',
+                'Choose both start and end time for a event.',
                 style: TextStyle(
                   color: Colors.white,
                   fontWeight: FontWeight.w700,
@@ -36127,7 +37233,7 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
             const SnackBar(
               backgroundColor: Colors.redAccent,
               content: Text(
-                'Temporary spots can be active for maximum 12 hours.',
+                'Events can be active for maximum 12 hours.',
                 style: TextStyle(
                   color: Colors.white,
                   fontWeight: FontWeight.w700,
@@ -36162,7 +37268,7 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
                 backgroundColor: Colors.redAccent,
                 content: Text(
                   trText(
-                    'Choose when the temporary spot location should appear on the map.',
+                    'Choose when the event location should appear on the map.',
                   ),
                   style: const TextStyle(
                     color: Colors.white,
@@ -36246,7 +37352,7 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
             SnackBar(
               backgroundColor: Colors.redAccent,
               content: Text(
-                'Permanent spots must be at least ${minimumPermanentSpotDistanceMeters.round()} m apart. "${nearbySpot.name}" is $distanceLabel away. Temporary spots are allowed to overlap existing spots.',
+                'Permanent spots must be at least ${minimumPermanentSpotDistanceMeters.round()} m apart. "${nearbySpot.name}" is $distanceLabel away. Events are allowed to overlap existing spots.',
                 style: const TextStyle(
                   color: Colors.white,
                   fontWeight: FontWeight.w700,
@@ -36400,7 +37506,7 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
           ),
         );
       }
-      await batch.commit();
+      await batch.debugCommit();
       committed = true;
       // The write is already confirmed. Do not wait for a second network
       // request (or notification fan-out) to show the creator their spot.
@@ -36435,6 +37541,12 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
         await createMeetSpotNotificationsForNearbyUsers(savedNewSpot);
       }
 
+      if (canCreateApprovedSpot) {
+        unawaited(
+          syncXpWithServer({'action': 'sync_spot', 'spotId': savedNewSpot.id}),
+        );
+      }
+
       if (!canCreateApprovedSpot) {
         try {
           await createAdminSpotReviewNotification(savedNewSpot);
@@ -36450,7 +37562,19 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
 
       resetSpotFormAfterSubmit();
 
-      final message = canCreateApprovedSpot
+      final message = widget.eventMode
+          ? communityText(
+              en: canCreateApprovedSpot
+                  ? 'Event added. It is live now.'
+                  : 'Event submitted for review.',
+              ru: canCreateApprovedSpot
+                  ? 'Событие опубликовано.'
+                  : 'Событие отправлено на проверку.',
+              lv: canCreateApprovedSpot
+                  ? 'Pasākums publicēts.'
+                  : 'Pasākums iesniegts pārskatīšanai.',
+            )
+          : canCreateApprovedSpot
           ? 'Admin spot added. It is live now.'
           : 'Spot submitted for review. Admins have been notified.';
 
@@ -36534,7 +37658,13 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          trText('Add Spot'),
+                          trText(
+                            widget.privateEvent
+                                ? 'Add Private Event'
+                                : widget.eventMode
+                                ? 'Add Event'
+                                : 'Add Spot',
+                          ),
                           style: const TextStyle(
                             color: Colors.white,
                             fontSize: 22,
@@ -36567,11 +37697,11 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
               ),
               const SizedBox(height: 12),
               _AddSpotSection(
-                title: 'Spot details',
+                title: widget.eventMode ? 'Event details' : 'Spot details',
                 children: [
                   _CcsTextField(
                     controller: nameController,
-                    label: 'Spot name',
+                    label: widget.eventMode ? 'Event name' : 'Spot name',
                     hint: 'Andrejsala Harbor',
                     icon: Icons.place,
                   ),
@@ -36620,61 +37750,61 @@ class _AddSpotScreenState extends State<AddSpotScreen> {
                 ],
               ),
               const SizedBox(height: 10),
-              _AddSpotSection(
-                title: 'Temporary schedule',
-                children: [
-                  if (isTemporarySpot &&
-                      (groupVisibility || memberSpotGroups.value.isNotEmpty))
-                    temporaryAudiencePicker(),
-                  _TemporarySpotScheduleCard(
-                    enabled: isTemporarySpot,
-                    startsAt: temporaryStartsAt,
-                    expiresAt: temporaryExpiresAt,
-                    showOnMapAtEnabled: temporaryShowOnMapAtEnabled,
-                    showOnMapAt: temporaryShowOnMapAt,
-                    onEnabledChanged: (value) {
-                      setState(() {
-                        isTemporarySpot = value;
-                        if (value && temporaryStartsAt == null) {
-                          final start = DateTime.now().add(
-                            const Duration(hours: 1),
-                          );
-                          temporaryStartsAt = start;
-                          temporaryExpiresAt = start.add(
-                            const Duration(hours: 3),
-                          );
-                        }
-                        if (!value) {
-                          groupVisibility = false;
-                          selectedGroupIds.clear();
-                          temporaryShowOnMapAtEnabled = false;
-                          temporaryShowOnMapAt = null;
-                        }
-                      });
-                    },
-                    onShowOnMapAtEnabledChanged: (value) {
-                      setState(() {
-                        temporaryShowOnMapAtEnabled = value;
-                        if (value &&
-                            temporaryShowOnMapAt == null &&
-                            temporaryStartsAt != null) {
-                          temporaryShowOnMapAt = DateTime(
-                            temporaryStartsAt!.year,
-                            temporaryStartsAt!.month,
-                            temporaryStartsAt!.day,
-                          );
-                        }
-                        if (!value) {
-                          temporaryShowOnMapAt = null;
-                        }
-                      });
-                    },
-                    onPickStart: chooseTemporaryStart,
-                    onPickEnd: chooseTemporaryEnd,
-                    onPickShowOnMapAt: chooseTemporaryShowOnMapAt,
-                  ),
-                ],
-              ),
+              if (widget.eventMode)
+                _AddSpotSection(
+                  title: 'Event schedule',
+                  children: [
+                    if (widget.privateEvent) temporaryAudiencePicker(),
+                    _TemporarySpotScheduleCard(
+                      showTypeSwitch: false,
+                      enabled: isTemporarySpot,
+                      startsAt: temporaryStartsAt,
+                      expiresAt: temporaryExpiresAt,
+                      showOnMapAtEnabled: temporaryShowOnMapAtEnabled,
+                      showOnMapAt: temporaryShowOnMapAt,
+                      onEnabledChanged: (value) {
+                        setState(() {
+                          isTemporarySpot = value;
+                          if (value && temporaryStartsAt == null) {
+                            final start = DateTime.now().add(
+                              const Duration(hours: 1),
+                            );
+                            temporaryStartsAt = start;
+                            temporaryExpiresAt = start.add(
+                              const Duration(hours: 3),
+                            );
+                          }
+                          if (!value) {
+                            groupVisibility = false;
+                            selectedGroupIds.clear();
+                            temporaryShowOnMapAtEnabled = false;
+                            temporaryShowOnMapAt = null;
+                          }
+                        });
+                      },
+                      onShowOnMapAtEnabledChanged: (value) {
+                        setState(() {
+                          temporaryShowOnMapAtEnabled = value;
+                          if (value &&
+                              temporaryShowOnMapAt == null &&
+                              temporaryStartsAt != null) {
+                            temporaryShowOnMapAt = DateTime(
+                              temporaryStartsAt!.year,
+                              temporaryStartsAt!.month,
+                              temporaryStartsAt!.day,
+                            );
+                          }
+                          if (!value) {
+                            temporaryShowOnMapAt = null;
+                          }
+                        });
+                      },
+                      onPickStart: chooseTemporaryStart,
+                      onPickEnd: chooseTemporaryEnd,
+                      onPickShowOnMapAt: chooseTemporaryShowOnMapAt,
+                    ),
+                  ],
+                ),
               const SizedBox(height: 10),
               if (spotCategorySupportsContacts(selectedCategory)) ...[
                 _AddSpotSection(
@@ -36843,6 +37973,7 @@ class _PendingBadge extends StatelessWidget {
 }
 
 class _TemporarySpotScheduleCard extends StatelessWidget {
+  final bool showTypeSwitch;
   final bool enabled;
   final DateTime? startsAt;
   final DateTime? expiresAt;
@@ -36855,6 +37986,7 @@ class _TemporarySpotScheduleCard extends StatelessWidget {
   final VoidCallback onPickShowOnMapAt;
 
   const _TemporarySpotScheduleCard({
+    this.showTypeSwitch = true,
     required this.enabled,
     required this.startsAt,
     required this.expiresAt,
@@ -36933,26 +38065,14 @@ class _TemporarySpotScheduleCard extends StatelessWidget {
         type: MaterialType.transparency,
         child: Column(
           children: [
-            SwitchListTile(
-              value: enabled,
-              onChanged: onEnabledChanged,
-              activeThumbColor: blue,
-              dense: true,
-              visualDensity: VisualDensity.compact,
-              contentPadding: EdgeInsets.zero,
-              secondary: const Icon(Icons.timer, color: blue),
-              title: Text(
-                trText('Temporary spot'),
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w900,
-                ),
+            if (showTypeSwitch)
+              SwitchListTile(
+                value: enabled,
+                onChanged: onEnabledChanged,
+                title: Text(trText('Event')),
+                secondary: const Icon(Icons.event, color: blue),
+                contentPadding: EdgeInsets.zero,
               ),
-              subtitle: Text(
-                trText('For meets and events. Max active time is 12 hours.'),
-                style: const TextStyle(color: Colors.white54, fontSize: 12),
-              ),
-            ),
             if (enabled) ...[
               const SizedBox(height: 8),
               timeButton(
@@ -38865,6 +39985,22 @@ Widget chatAvatarWidget(ChatThreadData chat, String currentUid) {
   return Icon(chat.isGroup ? Icons.groups : Icons.person_outline, color: blue);
 }
 
+Tab communityTab({required Widget icon, required String label}) => Tab(
+  height: 62,
+  icon: icon,
+  child: SizedBox(
+    width: double.infinity,
+    child: FittedBox(
+      fit: BoxFit.scaleDown,
+      child: Text(
+        label,
+        maxLines: 1,
+        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800),
+      ),
+    ),
+  ),
+);
+
 class ChatScreen extends StatefulWidget {
   final int initialTabIndex;
   final bool isMainTab;
@@ -38890,18 +40026,18 @@ class _ChatScreenState extends State<ChatScreen>
   void initState() {
     super.initState();
     appUiPreferences.addListener(_handleLanguageChanged);
-    final initialIndex = widget.initialTabIndex.clamp(0, 3).toInt();
+    final initialIndex = widget.initialTabIndex.clamp(0, 4).toInt();
     activeTabIndex = initialIndex;
     if (widget.isMainTab) {
       activityChatTabIndex = initialIndex;
     } else {
       _previousBadgeSection = inAppBadges.visibleSection;
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) inAppBadges.visit(ActivitySection.values[initialIndex]);
+        if (mounted) inAppBadges.visit(chatActivitySection(initialIndex));
       });
     }
     tabController = TabController(
-      length: 4,
+      length: 5,
       vsync: this,
       initialIndex: initialIndex,
     );
@@ -38934,7 +40070,7 @@ class _ChatScreenState extends State<ChatScreen>
     globalChatTabSelectedForNotifications = tabController.index == 2;
     if (widget.isMainTab) activityChatTabIndex = tabController.index;
     if (!widget.isMainTab || mainChatScreenVisibleForNotifications) {
-      inAppBadges.visit(ActivitySection.values[tabController.index]);
+      inAppBadges.visit(chatActivitySection(tabController.index));
     }
     if (activeTabIndex != tabController.index) {
       // A composer can retain focus because every tab stays mounted inside the
@@ -38968,7 +40104,7 @@ class _ChatScreenState extends State<ChatScreen>
   }
 
   FloatingActionButton? contextualFab() {
-    if (activeTabIndex == 2) {
+    if (activeTabIndex >= 2) {
       return null;
     }
 
@@ -39107,6 +40243,15 @@ class _ChatScreenState extends State<ChatScreen>
                                   ),
                                   text: trText('Forum'),
                                 ),
+                                Tab(
+                                  icon: const Icon(Icons.emoji_events_outlined),
+                                  text: achievementText(
+                                    appUiPreferences.language.name,
+                                    'Ranking',
+                                    'Рейтинг',
+                                    'Reitings',
+                                  ),
+                                ),
                               ],
                             );
                           },
@@ -39129,6 +40274,7 @@ class _ChatScreenState extends State<ChatScreen>
                           ),
                           GlobalChatTab(isActive: activeTabIndex == 2),
                           const ForumTab(),
+                          const XpLeaderboardScreen(embedded: true),
                         ],
                       ),
                     ),
@@ -39739,7 +40885,7 @@ class _PrivateGroupDirectoryState extends State<PrivateGroupDirectory>
             width: 180,
             child: DropdownButton<String>(
               isExpanded: true,
-              value: _countryNamesByIso.containsKey(selectedCountry)
+              value: availableCommunityCountryCodes().contains(selectedCountry)
                   ? selectedCountry
                   : null,
               hint: Text(trText('Select country')),
@@ -39747,7 +40893,7 @@ class _PrivateGroupDirectoryState extends State<PrivateGroupDirectory>
               underline: const SizedBox.shrink(),
               icon: const Icon(Icons.keyboard_arrow_down, color: blue),
               items: [
-                for (final code in _countryNamesByIso.keys)
+                for (final code in availableCommunityCountryCodes())
                   DropdownMenuItem(
                     value: code,
                     child: Text(
@@ -41045,7 +42191,9 @@ class _GlobalChatTabState extends State<GlobalChatTab>
     final userRef = usersCollection().doc(firebaseUser.uid);
     final attemptAtMillis = DateTime.now().millisecondsSinceEpoch;
 
-    return FirebaseFirestore.instance.runTransaction<int>((transaction) async {
+    return FirebaseFirestore.instance.debugRunTransaction<int>((
+      transaction,
+    ) async {
       final userSnapshot = await transaction.debugGet(
         userRef,
         'global chat: rate limit user read',
@@ -41382,6 +42530,7 @@ class _GlobalChatTabState extends State<GlobalChatTab>
               if (text.trim().isNotEmpty)
                 ChatLinkText(
                   text,
+                  linkColor: mine ? const Color(0xFFFFF3B0) : blue,
                   style: const TextStyle(
                     color: Colors.white,
                     height: 1.25,
@@ -42091,7 +43240,7 @@ String temporarySpotForumDescription(CarSpot spot) {
   }
 
   final text = parts.join('\n\n').trim();
-  return text.isEmpty ? 'Temporary meet/event spot.' : text;
+  return text.isEmpty ? 'Event.' : text;
 }
 
 Map<String, Object?> temporarySpotForumTopicData({
@@ -42119,7 +43268,7 @@ Map<String, Object?> temporarySpotForumTopicData({
     'visibility': spot.visibility,
     'sharedGroupIds': spot.sharedGroupIds,
     'sharedGroups': spot.sharedGroups,
-    'title': spot.name.trim().isEmpty ? 'Temporary meet' : spot.name,
+    'title': spot.name.trim().isEmpty ? 'Event' : spot.name,
     'countryCode': spot.effectiveCountryCode,
     'authorCountryCode': authorCountryCode,
     'country': authorCountry,
@@ -42155,24 +43304,24 @@ Future<void> createTemporarySpotForumTopic(CarSpot spot) async {
   await ensureTemporarySpotForumTopic(spot, backfillFromExistingSpot: false);
 }
 
-Future<void> ensureTemporarySpotForumTopic(
+Future<bool> ensureTemporarySpotForumTopic(
   CarSpot spot, {
   required bool backfillFromExistingSpot,
 }) async {
   if (!spot.isTemporary || spot.id.trim().isEmpty) {
-    return;
+    return false;
   }
 
   final firebaseUser = FirebaseAuth.instance.currentUser;
   if (firebaseUser == null) {
-    return;
+    return false;
   }
 
   final expiresAtMillis = spot.expiresAtMillis;
   if (backfillFromExistingSpot &&
       expiresAtMillis != null &&
       expiresAtMillis <= DateTime.now().millisecondsSinceEpoch) {
-    return;
+    return false;
   }
 
   try {
@@ -42186,7 +43335,7 @@ Future<void> ensureTemporarySpotForumTopic(
           : 'forum: temporary spot topic create existing check',
     );
     if (existingTopic.exists) {
-      return;
+      return true;
     }
 
     final authorUid =
@@ -42226,17 +43375,7 @@ Future<void> ensureTemporarySpotForumTopic(
                 ? 'ccs_driver'
                 : currentUser.username,
           );
-    final approvedNow = spot.status == SpotStatus.approved;
-    final canApproveOwnAutoTopic =
-        approvedNow &&
-        (userRoleIsStaff(creatorRole) ||
-            (authorUid == firebaseUser.uid &&
-                userRoleIsStaff(currentUser.role)) ||
-            backfillFromExistingSpot);
-    final topicStatus =
-        canApproveOwnAutoTopic &&
-            (currentUser.role != UserRole.moderator ||
-                currentUserCanModerateSpot(spot))
+    final topicStatus = spot.status == SpotStatus.approved
         ? 'approved'
         : 'pending';
 
@@ -42288,9 +43427,11 @@ Future<void> ensureTemporarySpotForumTopic(
         resolveRecipientsOnServer: true,
       );
     }
+    return true;
   } catch (error, stack) {
     debugPrint('Could not create temporary spot forum topic: $error');
     debugPrint('$stack');
+    return false;
   }
 }
 
@@ -42309,14 +43450,18 @@ bool temporarySpotNeedsForumTopicBackfill(CarSpot spot) {
 }
 
 Future<void>? _activeTemporarySpotForumTopicSync;
-bool _activeTemporarySpotForumTopicBackfillCompleted = false;
+final Set<String> _checkedTemporarySpotForumTopics = {};
+final Map<String, DateTime> _temporarySpotForumTopicAttempts = {};
 
 Future<void> syncActiveTemporarySpotForumTopics() {
   if (!firebaseReady || FirebaseAuth.instance.currentUser == null) {
     return Future<void>.value();
   }
 
-  if (_activeTemporarySpotForumTopicBackfillCompleted) {
+  if (!_spotSourcesWithServerSnapshot.containsAll([
+    'approved',
+    'my submissions',
+  ])) {
     return Future<void>.value();
   }
   final existing = _activeTemporarySpotForumTopicSync;
@@ -42334,39 +43479,42 @@ Future<void> syncActiveTemporarySpotForumTopics() {
 }
 
 Future<void> _syncActiveTemporarySpotForumTopicsOnce() async {
-  try {
-    // Do not combine isTemporary + expiresAt in the Firestore query here.
-    // Some projects do not have the composite index yet, and if that query
-    // fails the forum will stay empty. Read recent temporary spots and filter
-    // the active window locally instead.
-    final snapshot = await trackedQueryGet(
-      'forum: active temporary spot topic startup backfill',
-      spotsCollection()
-          .where('visibility', isEqualTo: 'public')
-          .where('isTemporary', isEqualTo: true)
-          .limit(120),
-      const GetOptions(source: Source.server),
-    );
-
-    var createdOrChecked = false;
-    for (final doc in snapshot.docs) {
-      final spot = CarSpot.fromFirestore(doc);
-      if (temporarySpotNeedsForumTopicBackfill(spot)) {
-        createdOrChecked = true;
-        await ensureTemporarySpotForumTopic(
-          spot,
-          backfillFromExistingSpot: true,
-        );
+  final uid = FirebaseAuth.instance.currentUser?.uid;
+  final generation = _spotSyncGeneration;
+  final scope = currentSpotSyncScope;
+  // Recheck the cache after each await so spots arriving during the backfill
+  // are included, without repeatedly checking successful or failed topics.
+  while (uid != null &&
+      FirebaseAuth.instance.currentUser?.uid == uid &&
+      _spotSyncIsCurrent(generation, scope)) {
+    final candidates = <String, CarSpot>{
+      for (final source in ['approved', 'my submissions'])
+        for (final spot
+            in _firebaseSpotCacheBySource[source]?.values ?? <CarSpot>[])
+          if (!spot.isGroupSpot && temporarySpotNeedsForumTopicBackfill(spot))
+            spot.id: spot,
+    };
+    CarSpot? next;
+    final now = DateTime.now();
+    for (final spot in candidates.values) {
+      final key = '$uid/${spot.id}';
+      final lastAttempt = _temporarySpotForumTopicAttempts[key];
+      if (!_checkedTemporarySpotForumTopics.contains(key) &&
+          (lastAttempt == null ||
+              now.difference(lastAttempt) >= const Duration(minutes: 5))) {
+        next = spot;
+        break;
       }
     }
-
-    if (createdOrChecked) {
-      forumTopicsRefreshTick.value++;
+    if (next == null) return;
+    final key = '$uid/${next.id}';
+    _temporarySpotForumTopicAttempts[key] = now;
+    if (await ensureTemporarySpotForumTopic(
+      next,
+      backfillFromExistingSpot: true,
+    )) {
+      _checkedTemporarySpotForumTopics.add(key);
     }
-    _activeTemporarySpotForumTopicBackfillCompleted = true;
-  } catch (error, stack) {
-    debugPrint('Temporary spot forum topic sync failed: $error');
-    debugPrint('$stack');
   }
 }
 
@@ -45150,6 +46298,7 @@ class _ForumTopicPageState extends State<ForumTopicPage>
           if (text.trim().isNotEmpty)
             ChatLinkText(
               text,
+              linkColor: mine ? const Color(0xFFFFF3B0) : blue,
               style: const TextStyle(
                 color: Colors.white,
                 height: 1.32,
@@ -50052,6 +51201,7 @@ class _ChatConversationScreenState extends State<ChatConversationScreen>
               if (message.text.trim().isNotEmpty)
                 ChatLinkText(
                   message.text,
+                  linkColor: mine ? const Color(0xFFFFF3B0) : blue,
                   style: TextStyle(
                     color: Colors.white,
                     fontSize: 13.5,
@@ -50705,6 +51855,504 @@ List<GarageCar> garageCarsFromFirebase(Object? value) {
   return const [];
 }
 
+const int xpMaxLevel = 100;
+
+const Map<int, String> xpWheelAssetByTier = {
+  1: 'assets/xp_wheels/lvl_1.png',
+  10: 'assets/xp_wheels/lvl_10.png',
+  20: 'assets/xp_wheels/lvl_20.png',
+  30: 'assets/xp_wheels/lvl_30.png',
+  40: 'assets/xp_wheels/lvl_40.png',
+  50: 'assets/xp_wheels/lvl_50.png',
+  60: 'assets/xp_wheels/lvl_60.png',
+  70: 'assets/xp_wheels/lvl_70.png',
+  80: 'assets/xp_wheels/lvl_80.png',
+  90: 'assets/xp_wheels/lvl_90.png',
+  100: 'assets/xp_wheels/lvl_100.png',
+};
+
+// Tire bounds in the 512px assets, excluding the decorative ring and label.
+const Map<int, Rect> xpWheelBoundsByTier = {
+  1: Rect.fromLTWH(119, 79, 273, 273),
+  10: Rect.fromLTWH(119, 89, 274, 274),
+  20: Rect.fromLTWH(118, 86, 276, 276),
+  30: Rect.fromLTWH(109, 81, 294, 294),
+  40: Rect.fromLTWH(97, 71, 318, 318),
+  50: Rect.fromLTWH(96, 70, 320, 320),
+  60: Rect.fromLTWH(94, 66, 324, 324),
+  70: Rect.fromLTWH(76, 56, 360, 360),
+  80: Rect.fromLTWH(73, 51, 366, 366),
+  90: Rect.fromLTWH(74, 50, 364, 364),
+  100: Rect.fromLTWH(80, 40, 356, 356),
+};
+
+const Map<int, Color> xpWheelAccentColorByTier = {
+  1: Color(0xFF8C715A),
+  10: Color(0xFF7B93C4),
+  20: Color(0xFF457ECC),
+  30: Color(0xFF356BD3),
+  40: Color(0xFF5749D7),
+  50: Color(0xFF8347DA),
+  60: Color(0xFF803BD6),
+  70: Color(0xFFDC41A3),
+  80: Color(0xFFE29032),
+  90: Color(0xFFD9B561),
+  100: Color(0xFFD9A246),
+};
+
+int xpWheelTierForLevel(int level) {
+  final safeLevel = math.min(xpMaxLevel, math.max(1, level)).toInt();
+  if (safeLevel >= 100) {
+    return 100;
+  }
+  if (safeLevel < 10) {
+    return 1;
+  }
+
+  return (safeLevel ~/ 10) * 10;
+}
+
+String xpWheelAssetForLevel(int level) {
+  return xpWheelAssetByTier[xpWheelTierForLevel(level)] ??
+      xpWheelAssetByTier[1]!;
+}
+
+Color xpWheelAccentColorForLevel(int level) {
+  return xpWheelAccentColorByTier[xpWheelTierForLevel(level)] ?? blue;
+}
+
+int xpRequiredForLevel(int level) {
+  final safeLevel = math.min(xpMaxLevel, math.max(1, level)).toInt();
+  return 25 * math.pow(safeLevel - 1, 2).round();
+}
+
+int xpLevelFromTotal(int totalXp) {
+  if (totalXp <= 0) {
+    return 1;
+  }
+
+  return math
+      .min(xpMaxLevel, math.max(1, math.sqrt(totalXp / 25).floor() + 1))
+      .toInt();
+}
+
+String formatXpValue(int value) {
+  final safeValue = math.max(0, value);
+
+  if (safeValue >= 1000000) {
+    final formatted = (safeValue / 1000000).toStringAsFixed(
+      safeValue >= 10000000 ? 0 : 1,
+    );
+    return '${formatted.replaceAll('.0', '')}M';
+  }
+
+  if (safeValue >= 10000) {
+    return '${(safeValue / 1000).round()}K';
+  }
+
+  if (safeValue >= 1000) {
+    final formatted = (safeValue / 1000).toStringAsFixed(1);
+    return '${formatted.replaceAll('.0', '')}K';
+  }
+
+  return '$safeValue';
+}
+
+bool canReadXpStatsForUser(String userId) {
+  final cleanUserId = userId.trim();
+  final currentUid =
+      FirebaseAuth.instance.currentUser?.uid.trim() ?? currentUser.uid.trim();
+
+  return cleanUserId.isNotEmpty &&
+      currentUid.isNotEmpty &&
+      (cleanUserId == currentUid || userRoleIsStaff(currentUser.role));
+}
+
+class XpUserStats {
+  final String userId;
+  final int xpTotal;
+  final int level;
+  final int weeklyXp;
+  final String weeklyXpWeek;
+  final bool xpBlocked;
+  final String xpLastTransactionId;
+
+  const XpUserStats({
+    required this.userId,
+    required this.xpTotal,
+    required this.level,
+    required this.weeklyXp,
+    required this.weeklyXpWeek,
+    required this.xpBlocked,
+    required this.xpLastTransactionId,
+  });
+
+  factory XpUserStats.empty(String userId) {
+    return XpUserStats(
+      userId: userId,
+      xpTotal: 0,
+      level: 1,
+      weeklyXp: 0,
+      weeklyXpWeek: '',
+      xpBlocked: false,
+      xpLastTransactionId: '',
+    );
+  }
+
+  factory XpUserStats.fromFirestore(
+    DocumentSnapshot<Map<String, dynamic>> doc,
+  ) {
+    final data = doc.data() ?? {};
+    final xpTotal = math.max(0, intFromFirebase(data['xpTotal'], 0));
+    final rawLevel = intFromFirebase(data['level'], xpLevelFromTotal(xpTotal));
+
+    return XpUserStats(
+      userId: stringFromFirebase(data['userId'], doc.id),
+      xpTotal: xpTotal,
+      level: rawLevel.clamp(1, xpMaxLevel).toInt(),
+      weeklyXp: math.max(0, intFromFirebase(data['weeklyXp'], 0)),
+      weeklyXpWeek: stringFromFirebase(data['weeklyXpWeek'], ''),
+      xpBlocked: data['xpBlocked'] == true,
+      xpLastTransactionId: stringFromFirebase(data['xpLastTransactionId'], ''),
+    );
+  }
+
+  bool get hasXp => xpTotal > 0 || weeklyXp > 0;
+
+  int get currentLevelXp => xpRequiredForLevel(level);
+
+  int get nextLevel => level >= xpMaxLevel ? xpMaxLevel : level + 1;
+
+  int get nextLevelXp => xpRequiredForLevel(nextLevel);
+
+  int get remainingToNextLevel {
+    if (level >= xpMaxLevel) {
+      return 0;
+    }
+
+    return math.max(0, nextLevelXp - xpTotal);
+  }
+
+  double get progressToNextLevel {
+    if (level >= xpMaxLevel) {
+      return 1;
+    }
+
+    final levelRange = nextLevelXp - currentLevelXp;
+    if (levelRange <= 0) {
+      return 0;
+    }
+
+    return ((xpTotal - currentLevelXp) / levelRange).clamp(0.0, 1.0).toDouble();
+  }
+}
+
+class XpLeaderboardEntry {
+  final int rank;
+  final String userId;
+  final String username;
+  final String name;
+  final String photoUrl;
+  final String avatarPath;
+  final String city;
+  final String country;
+  final bool verified;
+  final int xpTotal;
+  final int weeklyXp;
+  final int level;
+
+  const XpLeaderboardEntry({
+    required this.rank,
+    required this.userId,
+    required this.username,
+    required this.name,
+    required this.photoUrl,
+    required this.avatarPath,
+    required this.city,
+    required this.country,
+    required this.verified,
+    required this.xpTotal,
+    required this.weeklyXp,
+    required this.level,
+  });
+
+  factory XpLeaderboardEntry.fromJson(
+    Map<String, dynamic> data, {
+    required int fallbackRank,
+  }) {
+    return XpLeaderboardEntry(
+      rank: math.max(1, intFromFirebase(data['rank'], fallbackRank)),
+      userId: stringFromFirebase(data['userId'], ''),
+      username: stringFromFirebase(data['username'], 'ccs_driver'),
+      name: stringFromFirebase(data['name'], ''),
+      photoUrl: stringFromFirebase(data['photoUrl'], ''),
+      avatarPath: stringFromFirebase(data['avatarPath'], ''),
+      city: stringFromFirebase(data['city'], ''),
+      country: stringFromFirebase(data['country'], ''),
+      verified: boolFromFirebase(data['verified'], false),
+      xpTotal: math.max(0, intFromFirebase(data['xpTotal'], 0)),
+      weeklyXp: math.max(0, intFromFirebase(data['weeklyXp'], 0)),
+      level: intFromFirebase(data['level'], 1).clamp(1, xpMaxLevel).toInt(),
+    );
+  }
+
+  String get displayName {
+    final handle = displayUsername(username);
+    if (handle.isNotEmpty) {
+      return handle;
+    }
+
+    return name.trim().isEmpty ? 'ccs_driver' : name.trim();
+  }
+
+  String get locationLabel {
+    final cleanCity = city.trim();
+    final cleanCountry = country.trim();
+
+    if (cleanCity.isEmpty) {
+      return cleanCountry;
+    }
+
+    if (cleanCountry.isEmpty) {
+      return cleanCity;
+    }
+
+    return '$cleanCity, $cleanCountry';
+  }
+}
+
+class XpTransactionData {
+  final String id;
+  final String userId;
+  final String action;
+  final String objectType;
+  final String objectId;
+  final String stage;
+  final String status;
+  final String reason;
+  final String weekKey;
+  final int amount;
+  final int requestedAmount;
+  final int createdAtMillis;
+  final Map<String, dynamic> metadata;
+
+  const XpTransactionData({
+    required this.id,
+    required this.userId,
+    required this.action,
+    required this.objectType,
+    required this.objectId,
+    required this.stage,
+    required this.status,
+    required this.reason,
+    required this.weekKey,
+    required this.amount,
+    required this.requestedAmount,
+    required this.createdAtMillis,
+    required this.metadata,
+  });
+
+  factory XpTransactionData.fromFirestore(
+    QueryDocumentSnapshot<Map<String, dynamic>> doc,
+  ) {
+    final data = doc.data();
+    final createdAt = timestampMillisFromFirebase(data['createdAt']);
+
+    return XpTransactionData(
+      id: stringFromFirebase(data['transactionId'], doc.id),
+      userId: stringFromFirebase(data['userId'], ''),
+      action: stringFromFirebase(data['action'], ''),
+      objectType: stringFromFirebase(data['objectType'], ''),
+      objectId: stringFromFirebase(data['objectId'], ''),
+      stage: stringFromFirebase(data['stage'], ''),
+      status: stringFromFirebase(data['status'], 'pending').toLowerCase(),
+      reason: stringFromFirebase(data['reason'], ''),
+      weekKey: stringFromFirebase(data['weekKey'], ''),
+      amount: intFromFirebase(data['amount'], 0),
+      requestedAmount: intFromFirebase(data['requestedAmount'], 0),
+      createdAtMillis: createdAt > 0
+          ? createdAt
+          : intFromFirebase(data['createdAtMillis'], 0),
+      metadata: mapFromFirebase(data['metadata']),
+    );
+  }
+
+  bool get isPositive => status == 'confirmed' && amount > 0;
+
+  String get title {
+    if (action == 'achievement.unlock') {
+      final parts = objectId.split('.');
+      if (parts.length == 2) {
+        final requirement = achievementRequirement({
+          'category': parts.first,
+          'threshold': parts.last,
+        }, appUiPreferences.language.name);
+        return '${xpTransactionActionLabel(action)}: $requirement${parts.first == 'tourist' ? ' (${parts.last})' : ''}';
+      }
+    }
+    return xpTransactionActionLabel(action);
+  }
+
+  String get category => xpTransactionObjectTypeLabel(objectType);
+
+  String get statusLabel => xpTransactionStatusLabel(status);
+
+  String get reasonLabel => xpTransactionReasonLabel(reason);
+
+  String get createdAtLabel {
+    if (createdAtMillis <= 0) {
+      return '';
+    }
+
+    return formatShortDateTime(
+      DateTime.fromMillisecondsSinceEpoch(createdAtMillis),
+    );
+  }
+
+  String get amountLabel {
+    if (amount > 0) {
+      return '+${formatXpValue(amount)} XP';
+    }
+
+    if (amount < 0) {
+      return '-${formatXpValue(amount.abs())} XP';
+    }
+
+    return '0 XP';
+  }
+}
+
+String xpTransactionActionLabel(String action) {
+  switch (action.trim().toLowerCase()) {
+    case 'achievement.unlock':
+      return achievementText(
+        appUiPreferences.language.name,
+        'Achievement unlocked',
+        'Достижение получено',
+        'Sasniegums iegūts',
+      );
+    case 'event.attended':
+      return 'Event attended';
+    case 'profile.avatar':
+      return 'Profile avatar';
+    case 'profile.bio':
+      return 'Profile bio';
+    case 'profile.city':
+      return 'Profile city';
+    case 'profile.social':
+      return 'Profile socials';
+    case 'profile.full':
+      return 'Full profile';
+    case 'garage.first_car':
+      return 'First garage car';
+    case 'garage.first_car_photo':
+      return 'First car photo';
+    case 'garage.first_car_description':
+      return 'First car description';
+    case 'garage.first_car_gallery':
+      return 'First car gallery';
+    case 'garage.first_car_full':
+      return 'Complete first car';
+    case 'spot.approved':
+      return 'Spot approved';
+    case 'spot.description':
+      return 'Spot description';
+    case 'spot.photo':
+      return 'Spot photo';
+    case 'spot.media_bundle':
+      return 'Spot media bundle';
+  }
+
+  return action.trim().isEmpty ? 'XP' : action.trim();
+}
+
+String xpTransactionObjectTypeLabel(String objectType) {
+  switch (objectType.trim().toLowerCase()) {
+    case 'achievement':
+      return achievementText(
+        appUiPreferences.language.name,
+        'Achievement',
+        'Достижение',
+        'Sasniegums',
+      );
+    case 'profile':
+      return 'Profile';
+    case 'garage_car':
+      return 'Garage build';
+    case 'spot':
+      return 'Spot';
+  }
+
+  return objectType.trim().isEmpty ? 'XP' : objectType.trim();
+}
+
+String xpTransactionStatusLabel(String status) {
+  switch (status.trim().toLowerCase()) {
+    case 'confirmed':
+      return 'Confirmed';
+    case 'blocked':
+      return 'Blocked';
+    case 'pending':
+      return 'Pending';
+    case 'rejected':
+      return 'Rejected';
+    case 'revoked':
+      return 'Revoked';
+  }
+
+  return status.trim().isEmpty ? 'Pending' : status.trim();
+}
+
+String xpTransactionReasonLabel(String reason) {
+  switch (reason.trim().toUpperCase()) {
+    case 'WEEKLY_LIMIT_REACHED':
+      return 'Weekly limit reached';
+    case 'XP_DISABLED_BY_CONFIG':
+      return 'Blocked by XP settings';
+    case 'XP_USER_NOT_ENABLED':
+      return 'Tester is not enabled';
+    case 'DUPLICATE_XP_TRANSACTION':
+      return 'Duplicate transaction';
+    case 'USER_BLOCKED_OR_DELETED':
+      return 'User blocked or deleted';
+    case 'USER_NOT_FOUND':
+      return 'User profile not found';
+    case 'WEEKLY_LIMIT_PARTIAL':
+      return 'Partially limited by weekly cap';
+  }
+
+  return reason.trim();
+}
+
+IconData xpTransactionIcon(String objectType) {
+  switch (objectType.trim().toLowerCase()) {
+    case 'profile':
+      return Icons.person_outline;
+    case 'garage_car':
+      return Icons.directions_car_outlined;
+    case 'spot':
+      return Icons.add_location_alt_outlined;
+  }
+
+  return Icons.bolt_rounded;
+}
+
+Color xpTransactionStatusColor(String status) {
+  switch (status.trim().toLowerCase()) {
+    case 'confirmed':
+      return blue;
+    case 'blocked':
+    case 'rejected':
+      return Colors.redAccent;
+    case 'pending':
+      return Colors.orangeAccent;
+    case 'revoked':
+      return Colors.white54;
+  }
+
+  return Colors.white54;
+}
+
 class PublicUserProfileData {
   final String uid;
   final String username;
@@ -50944,6 +52592,7 @@ Future<void> saveProfileToFirebase(UserProfileData profile) async {
   );
 
   userSettings.value = nextSettings;
+  unawaited(syncXpWithServer({'action': 'sync_me'}));
 }
 
 Future<void> saveGarageToFirebase(List<GarageCar> cars) async {
@@ -50992,6 +52641,7 @@ Future<void> saveGarageToFirebase(List<GarageCar> cars) async {
   // garage state consistent when a delete/edit upload fails and the UI rolls
   // back to the previous list.
   garageCars.value = uploadedCars;
+  unawaited(syncXpWithServer({'action': 'sync_me'}));
 }
 
 Future<void> saveSettingsToFirebase(UserSettingsData settings) async {
@@ -51011,11 +52661,15 @@ Future<void> saveSettingsToFirebase(UserSettingsData settings) async {
     'commentNotifications': settings.commentNotifications,
     'newSpotNotifications': settings.newSpotNotifications,
     'newMessageNotifications': settings.newMessageNotifications,
+    'xpNotifications': settings.xpNotifications,
     'friendAtSpotNotifications': settings.friendAtSpotNotifications,
     'friendLiveShareNotifications': settings.friendLiveShareNotifications,
     'publicProfile': settings.publicProfile,
     'showGarage': settings.showGarage,
   });
+
+  scheduleNotificationCenterUnreadRefresh();
+  unawaited(syncXpWithServer({'action': 'sync_me'}));
 }
 
 Widget profileMessageButton(BuildContext context, FriendUserData user) {
@@ -51268,6 +52922,20 @@ class _ProfileScreenState extends State<ProfileScreen>
     );
   }
 
+  void openXpHistory() {
+    final uid =
+        FirebaseAuth.instance.currentUser?.uid.trim() ?? currentUser.uid.trim();
+
+    if (uid.isEmpty || !canReadXpStatsForUser(uid)) {
+      return;
+    }
+
+    Navigator.push(
+      context,
+      appPageRoute(builder: (_) => XpHistoryScreen(userId: uid)),
+    );
+  }
+
   void openBlacklist() {
     Navigator.push(
       context,
@@ -51381,6 +53049,8 @@ class _ProfileScreenState extends State<ProfileScreen>
                 spotsValue: '${spots.length} spots',
                 onEdit: editProfile,
               ),
+              const SizedBox(height: 12),
+              XpSummaryCard(userId: currentUser.uid, onTap: openXpHistory),
               const SizedBox(height: 12),
               if (cars.isEmpty) ...[
                 _EmptyGarageCard(onAdd: addCar),
@@ -52635,20 +54305,12 @@ class PublicUserProfileScreen extends StatelessWidget {
               CreatorSpotsBadge(uid: profile.uid, username: profile.username),
             ],
           ),
-          if (socialButtons.isNotEmpty) ...[
-            const SizedBox(height: 9),
-            Row(
-              children: [
-                for (var index = 0; index < socialButtons.length; index++) ...[
-                  if (index > 0) const SizedBox(width: 7),
-                  Expanded(child: socialButtons[index]),
-                ],
-              ],
+          if (showActions || socialButtons.isNotEmpty) ...[
+            const SizedBox(height: 14),
+            _ProfileActionFooter(
+              action: showActions ? messageButton(context, profile) : null,
+              links: socialButtons,
             ),
-          ],
-          if (showActions) ...[
-            const SizedBox(height: 10),
-            messageButton(context, profile),
           ],
         ],
       ),
@@ -52740,19 +54402,19 @@ class PublicUserProfileScreen extends StatelessWidget {
     final settings = profile.settings;
     final links = <Widget>[
       if (settings.instagram.trim().isNotEmpty)
-        _SocialLinkRow(
+        _CompactSocialLinkButton(
           icon: Icons.camera_alt,
           label: 'Instagram',
           value: settings.instagram,
         ),
       if (settings.tiktok.trim().isNotEmpty)
-        _SocialLinkRow(
+        _CompactSocialLinkButton(
           icon: Icons.music_note,
           label: 'TikTok',
           value: settings.tiktok,
         ),
       if (settings.telegram.trim().isNotEmpty)
-        _SocialLinkRow(
+        _CompactSocialLinkButton(
           icon: Icons.send,
           label: 'Telegram',
           value: settings.telegram,
@@ -52782,10 +54444,7 @@ class PublicUserProfileScreen extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 12),
-          for (var index = 0; index < links.length; index++) ...[
-            if (index > 0) const SizedBox(height: 10),
-            links[index],
-          ],
+          Wrap(spacing: 8, runSpacing: 8, children: links),
         ],
       ),
     );
@@ -52866,6 +54525,20 @@ class PublicUserProfileScreen extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(14, 12, 14, 24),
       children: [
         profileHeader(context, profile),
+        ...[
+          const SizedBox(height: 12),
+          XpSummaryCard(
+            userId: profile.uid,
+            onTap: () {
+              Navigator.push(
+                context,
+                appPageRoute(
+                  builder: (_) => XpHistoryScreen(userId: profile.uid),
+                ),
+              );
+            },
+          ),
+        ],
         const SizedBox(height: 12),
         if (userRoleIsStaff(currentUser.role) &&
             profile.uid != currentUser.uid &&
@@ -54341,21 +56014,21 @@ class _ProfileHeader extends StatelessWidget {
               ),
             ],
           ),
-          const SizedBox(height: 10),
-          const _CompactProfileSocialLinks(),
-          const SizedBox(height: 10),
-          SizedBox(
-            width: double.infinity,
-            height: 38,
-            child: OutlinedButton.icon(
-              onPressed: onEdit,
-              icon: const Icon(Icons.edit, size: 16),
-              label: const Text('Edit Profile'),
-              style: OutlinedButton.styleFrom(
-                foregroundColor: Colors.white,
-                side: const BorderSide(color: Colors.white24),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(9),
+          const SizedBox(height: 14),
+          _CompactProfileSocialLinks(
+            action: SizedBox(
+              width: double.infinity,
+              height: 44,
+              child: OutlinedButton.icon(
+                onPressed: onEdit,
+                icon: const Icon(Icons.edit, size: 16),
+                label: const Text('Edit Profile'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: Colors.white,
+                  side: const BorderSide(color: Colors.white24),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(9),
+                  ),
                 ),
               ),
             ),
@@ -54366,17 +56039,1394 @@ class _ProfileHeader extends StatelessWidget {
   }
 }
 
-Query<Map<String, dynamic>> creatorSpotsQuery(String uid) {
+Future<Map<String, dynamic>> xpScreenRequest(
+  String action, [
+  Map<String, dynamic> extra = const {},
+]) async {
+  final user = FirebaseAuth.instance.currentUser;
+  if (user == null) throw StateError('Not signed in');
+  final token = await user.getIdToken();
+  Object? lastError;
+  for (final url in xpSyncUrls) {
+    try {
+      final response = await postJsonToUrl(
+        url,
+        {'action': action, ...extra},
+        headers: {HttpHeaders.authorizationHeader: 'Bearer $token'},
+      );
+      if (response['ok'] != true) throw StateError('XP unavailable');
+      return Map<String, dynamic>.from(response['result'] as Map);
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw lastError ?? StateError('XP unavailable');
+}
+
+void openAchievements(BuildContext context) {
+  Navigator.of(context).push(
+    appPageRoute(
+      builder: (_) => AchievementsScreen(
+        language: appUiPreferences.language.name,
+        load: () => xpScreenRequest('achievements'),
+      ),
+    ),
+  );
+}
+
+void openPublicAchievements(BuildContext context, String userId) {
+  if (userId == currentUser.uid) {
+    openAchievements(context);
+    return;
+  }
+  Navigator.of(context).push(
+    appPageRoute(
+      builder: (_) => AchievementsScreen(
+        language: appUiPreferences.language.name,
+        load: () => xpScreenRequest('public_achievements', {'userId': userId}),
+      ),
+    ),
+  );
+}
+
+class XpSummaryCard extends StatefulWidget {
+  final String userId;
+  final VoidCallback? onTap;
+
+  const XpSummaryCard({super.key, required this.userId, this.onTap});
+
+  @override
+  State<XpSummaryCard> createState() => _XpSummaryCardState();
+}
+
+class _XpSummaryCardState extends State<XpSummaryCard> {
+  Stream<DocumentSnapshot<Map<String, dynamic>>>? _stream;
+  String? _subscribedUserId;
+
+  void _subscribe(String userId) {
+    if (_subscribedUserId == userId) return;
+    _subscribedUserId = userId;
+    _stream = xpUserStatsCollection()
+        .doc(userId)
+        .debugSnapshots('profile: xp user stats listener');
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cleanUserId = widget.userId.trim();
+
+    if (cleanUserId != currentUser.uid) {
+      _subscribedUserId = null;
+      _stream = null;
+      return PublicXpSummaryCard(userId: cleanUserId, onHistory: widget.onTap);
+    }
+
+    // Keep the same listener when unrelated profile fields rebuild this card.
+    _subscribe(cleanUserId);
+    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      key: ValueKey(cleanUserId),
+      stream: _stream,
+      builder: (context, snapshot) {
+        final doc = snapshot.data;
+        final loading =
+            snapshot.connectionState == ConnectionState.waiting &&
+            !snapshot.hasData;
+        final stats = doc != null && doc.exists
+            ? XpUserStats.fromFirestore(doc)
+            : XpUserStats.empty(cleanUserId);
+
+        return XpSummaryContent(
+          stats: stats,
+          loading: loading,
+          unavailable: snapshot.hasError,
+          onTap: widget.onTap,
+        );
+      },
+    );
+  }
+}
+
+class PublicXpSummaryCard extends StatefulWidget {
+  final String userId;
+  final VoidCallback? onHistory;
+  const PublicXpSummaryCard({super.key, required this.userId, this.onHistory});
+  @override
+  State<PublicXpSummaryCard> createState() => _PublicXpSummaryCardState();
+}
+
+class _PublicXpSummaryCardState extends State<PublicXpSummaryCard> {
+  late Future<Map<String, dynamic>> request;
+  void load() {
+    request = xpScreenRequest('public_xp', {
+      'userId': widget.userId,
+      'section': 'stats',
+    });
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    load();
+  }
+
+  @override
+  void didUpdateWidget(PublicXpSummaryCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.userId != widget.userId) load();
+  }
+
+  @override
+  Widget build(BuildContext context) => FutureBuilder<Map<String, dynamic>>(
+    future: request,
+    builder: (context, snapshot) {
+      final total = intFromFirebase(snapshot.data?['xpTotal'], 0);
+      return Column(
+        children: [
+          XpSummaryContent(
+            stats: XpUserStats(
+              userId: widget.userId,
+              xpTotal: total,
+              level: xpLevelFromTotal(total),
+              weeklyXp: 0,
+              weeklyXpWeek: '',
+              xpBlocked: false,
+              xpLastTransactionId: '',
+            ),
+            loading: snapshot.connectionState == ConnectionState.waiting,
+            unavailable: snapshot.hasError,
+            onTap: widget.onHistory,
+          ),
+          if (snapshot.hasError)
+            TextButton(
+              onPressed: () => setState(load),
+              child: Text(
+                achievementText(
+                  appUiPreferences.language.name,
+                  'Retry',
+                  'Повторить',
+                  'Mēģināt vēlreiz',
+                ),
+              ),
+            ),
+        ],
+      );
+    },
+  );
+}
+
+class XpLevelWheel extends StatelessWidget {
+  final int level;
+  final Color accentColor;
+  final bool loading;
+  final double size;
+
+  const XpLevelWheel({
+    super.key,
+    required this.level,
+    required this.accentColor,
+    this.loading = false,
+    this.size = 58,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final asset = xpWheelAssetForLevel(level);
+    final bounds = xpWheelBoundsByTier[xpWheelTierForLevel(level)]!;
+    final wheelScale = 512 / bounds.width;
+
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        boxShadow: [
+          BoxShadow(
+            color: accentColor.withValues(alpha: 0.44),
+            blurRadius: 18,
+            spreadRadius: 1.6,
+          ),
+          BoxShadow(
+            color: accentColor.withValues(alpha: 0.22),
+            blurRadius: 30,
+            spreadRadius: 5,
+          ),
+        ],
+      ),
+      child: ClipOval(
+        child: Image.asset(
+          asset,
+          width: size,
+          height: size,
+          fit: BoxFit.contain,
+          filterQuality: FilterQuality.high,
+          frameBuilder: (_, child, frame, wasSynchronouslyLoaded) {
+            return Transform.translate(
+              offset: Offset(
+                (256 - bounds.center.dx) * size / bounds.width,
+                (256 - bounds.center.dy) * size / bounds.height,
+              ),
+              child: Transform.scale(scale: wheelScale, child: child),
+            );
+          },
+          errorBuilder: (_, _, _) {
+            return Container(
+              width: size,
+              height: size,
+              decoration: BoxDecoration(
+                color: accentColor.withValues(alpha: 0.16),
+                shape: BoxShape.circle,
+                border: Border.all(color: accentColor.withValues(alpha: 0.42)),
+              ),
+              child: Icon(
+                loading ? Icons.hourglass_top_rounded : Icons.bolt_rounded,
+                color: accentColor,
+                size: size * 0.48,
+              ),
+            );
+          },
+        ),
+      ),
+    );
+  }
+}
+
+class XpSummaryContent extends StatelessWidget {
+  final XpUserStats stats;
+  final bool loading;
+  final bool unavailable;
+  final VoidCallback? onTap;
+
+  const XpSummaryContent({
+    super.key,
+    required this.stats,
+    required this.loading,
+    required this.unavailable,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final totalLabel = loading ? '...' : '${formatXpValue(stats.xpTotal)} XP';
+    final levelLabel = loading ? '...' : '${stats.level}';
+    final displayedLevel = loading
+        ? 1
+        : stats.level.clamp(1, xpMaxLevel).toInt();
+    final accentColor = stats.xpBlocked
+        ? Colors.redAccent
+        : xpWheelAccentColorForLevel(displayedLevel);
+    final nextLabel = loading
+        ? '...'
+        : stats.level >= xpMaxLevel
+        ? trText('Max level')
+        : '${formatXpValue(stats.remainingToNextLevel)} XP';
+    final footerLabel = unavailable
+        ? 'XP is being calculated'
+        : stats.xpBlocked
+        ? 'XP locked'
+        : stats.hasXp
+        ? 'Next level'
+        : 'No XP yet';
+    final progressValue = loading || unavailable
+        ? null
+        : stats.progressToNextLevel;
+
+    final card = Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: panelGlass,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: Colors.white12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              XpLevelWheel(
+                level: displayedLevel,
+                accentColor: accentColor,
+                loading: loading,
+              ),
+              const SizedBox(width: 11),
+              const Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Driver XP',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    SizedBox(height: 2),
+                    Text(
+                      'Level',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: Colors.white54,
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 10),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Text(
+                    totalLabel,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 18,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    '${trText('Level')} $levelLabel',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: accentColor,
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(999),
+            child: LinearProgressIndicator(
+              value: progressValue,
+              minHeight: 8,
+              backgroundColor: accentColor.withValues(alpha: 0.15),
+              valueColor: AlwaysStoppedAnimation<Color>(accentColor),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  footerLabel,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: stats.xpBlocked ? Colors.redAccent : Colors.white54,
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+              if (!unavailable && !stats.xpBlocked && stats.hasXp)
+                Text(
+                  nextLabel,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Colors.white70,
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          XpProfileActions(
+            language: appUiPreferences.language.name,
+            onAchievements: () => openPublicAchievements(context, stats.userId),
+            onRewards: () => Navigator.of(context).push(
+              appPageRoute(
+                builder: (_) => XpRewardsScreen(
+                  language: appUiPreferences.language.name,
+                  load: () => stats.userId == currentUser.uid
+                      ? xpScreenRequest('rewards')
+                      : xpScreenRequest('public_xp', {
+                          'userId': stats.userId,
+                          'section': 'rewards',
+                        }),
+                ),
+              ),
+            ),
+            onHistory: onTap,
+          ),
+        ],
+      ),
+    );
+
+    return card;
+  }
+}
+
+class XpHistoryScreen extends StatelessWidget {
+  final String userId;
+
+  const XpHistoryScreen({super.key, required this.userId});
+
+  @override
+  Widget build(BuildContext context) {
+    final cleanUserId = userId.trim();
+
+    if (cleanUserId != currentUser.uid)
+      return PublicXpHistoryScreen(userId: cleanUserId);
+
+    return Scaffold(
+      backgroundColor: Colors.transparent,
+      appBar: AppBar(
+        title: const Text('XP History'),
+        backgroundColor: Colors.transparent,
+        foregroundColor: blue,
+        actions: ccsAppBarActions(),
+      ),
+      body: !canReadXpStatsForUser(cleanUserId)
+          ? const Padding(
+              padding: EdgeInsets.all(16),
+              child: EmptyStateCard(
+                icon: Icons.lock_outline,
+                title: 'Could not load XP history.',
+                text: 'XP is being calculated',
+              ),
+            )
+          : StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+              stream: xpTransactionsCollection()
+                  .where('userId', isEqualTo: cleanUserId)
+                  .orderBy('createdAt', descending: true)
+                  .limit(100)
+                  .debugSnapshots('profile: xp history listener'),
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting &&
+                    !snapshot.hasData) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+
+                if (snapshot.hasError) {
+                  return const Padding(
+                    padding: EdgeInsets.all(16),
+                    child: EmptyStateCard(
+                      icon: Icons.warning_amber_rounded,
+                      title: 'Could not load XP history.',
+                      text: 'XP is being calculated',
+                    ),
+                  );
+                }
+
+                final transactions =
+                    snapshot.data?.docs
+                        .map(XpTransactionData.fromFirestore)
+                        .toList() ??
+                    <XpTransactionData>[];
+                transactions.sort(
+                  (first, second) =>
+                      second.createdAtMillis.compareTo(first.createdAtMillis),
+                );
+
+                if (transactions.isEmpty) {
+                  return ListView(
+                    padding: const EdgeInsets.fromLTRB(16, 14, 16, 28),
+                    children: const [
+                      EmptyStateCard(
+                        icon: Icons.history,
+                        title: 'No XP history yet',
+                        text:
+                            'Earn XP by completing your profile, garage, or approved spots.',
+                      ),
+                    ],
+                  );
+                }
+
+                return ListView(
+                  padding: const EdgeInsets.fromLTRB(16, 14, 16, 28),
+                  children: [
+                    const Text(
+                      'Recent XP activity',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 22,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    for (final transaction in transactions)
+                      XpTransactionTile(transaction: transaction),
+                  ],
+                );
+              },
+            ),
+    );
+  }
+}
+
+class PublicXpHistoryScreen extends StatefulWidget {
+  final String userId;
+  const PublicXpHistoryScreen({super.key, required this.userId});
+  @override
+  State<PublicXpHistoryScreen> createState() => _PublicXpHistoryScreenState();
+}
+
+class _PublicXpHistoryScreenState extends State<PublicXpHistoryScreen> {
+  late Future<Map<String, dynamic>> request;
+  void load() {
+    request = xpScreenRequest('public_xp', {
+      'userId': widget.userId,
+      'section': 'history',
+    });
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    load();
+  }
+
+  @override
+  void didUpdateWidget(PublicXpHistoryScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.userId != widget.userId) load();
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    backgroundColor: Colors.transparent,
+    appBar: AppBar(
+      title: const Text('XP History'),
+      actions: [
+        IconButton(
+          icon: const Icon(Icons.refresh),
+          tooltip: trText('Retry'),
+          onPressed: () => setState(load),
+        ),
+      ],
+    ),
+    body: FutureBuilder<Map<String, dynamic>>(
+      future: request,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting)
+          return const Center(child: CircularProgressIndicator());
+        if (snapshot.hasError)
+          return Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text('Could not load XP history.'),
+                TextButton(
+                  onPressed: () => setState(load),
+                  child: Text(
+                    achievementText(
+                      appUiPreferences.language.name,
+                      'Retry',
+                      'Повторить',
+                      'Mēģināt vēlreiz',
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          );
+        final items = (snapshot.data?['items'] as List? ?? []).cast<Map>();
+        if (items.isEmpty) {
+          return const Center(child: Text('No XP history yet'));
+        }
+        return ListView(
+          padding: const EdgeInsets.all(14),
+          children: [
+            for (final item in items)
+              XpTransactionTile(
+                transaction: XpTransactionData(
+                  id: '',
+                  userId: widget.userId,
+                  action: item['action'] as String,
+                  objectType: item['objectType'] as String,
+                  objectId: item['achievementId'] as String? ?? '',
+                  stage: '',
+                  status: 'confirmed',
+                  reason: '',
+                  weekKey: '',
+                  amount: intFromFirebase(item['amount'], 0),
+                  requestedAmount: 0,
+                  createdAtMillis: intFromFirebase(item['createdAtMillis'], 0),
+                  metadata: const {},
+                ),
+              ),
+          ],
+        );
+      },
+    ),
+  );
+}
+
+class XpTransactionTile extends StatelessWidget {
+  final XpTransactionData transaction;
+
+  const XpTransactionTile({super.key, required this.transaction});
+
+  @override
+  Widget build(BuildContext context) {
+    final statusColor = xpTransactionStatusColor(transaction.status);
+    final amountColor = transaction.amount > 0 ? blue : statusColor;
+    final reasonLabel = transaction.reasonLabel;
+    final createdAtLabel = transaction.createdAtLabel;
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(13),
+      decoration: BoxDecoration(
+        color: panelGlass,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.white12),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 42,
+            height: 42,
+            decoration: BoxDecoration(
+              color: statusColor.withValues(alpha: 0.14),
+              shape: BoxShape.circle,
+              border: Border.all(color: statusColor.withValues(alpha: 0.38)),
+            ),
+            child: Icon(
+              xpTransactionIcon(transaction.objectType),
+              color: statusColor,
+              size: 21,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  transaction.title,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 15.5,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(height: 7),
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: [
+                    _XpHistoryBadge(
+                      label: transaction.category,
+                      color: Colors.white54,
+                    ),
+                    _XpHistoryBadge(
+                      label: transaction.statusLabel,
+                      color: statusColor,
+                    ),
+                    if (reasonLabel.isNotEmpty)
+                      _XpHistoryBadge(
+                        label: reasonLabel,
+                        color: Colors.orangeAccent,
+                      ),
+                  ],
+                ),
+                if (createdAtLabel.isNotEmpty) ...[
+                  const SizedBox(height: 7),
+                  Text(
+                    createdAtLabel,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Colors.white38,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          const SizedBox(width: 10),
+          ConstrainedBox(
+            constraints: const BoxConstraints(minWidth: 56, maxWidth: 92),
+            child: Text(
+              transaction.amountLabel,
+              textAlign: TextAlign.right,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: amountColor,
+                fontSize: 14,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _XpHistoryBadge extends StatelessWidget {
+  final String label;
+  final Color color;
+
+  const _XpHistoryBadge({required this.label, required this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: color.withValues(alpha: 0.26)),
+      ),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 220),
+        child: Text(
+          label,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+            color: color == Colors.white54 ? Colors.white60 : color,
+            fontSize: 10.5,
+            fontWeight: FontWeight.w900,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class XpLeaderboardScreen extends StatefulWidget {
+  final bool embedded;
+  final XpLeaderboardPageLoader? loadPage;
+  const XpLeaderboardScreen({super.key, this.embedded = false, this.loadPage});
+
+  @override
+  State<XpLeaderboardScreen> createState() => _XpLeaderboardScreenState();
+}
+
+class _XpLeaderboardScreenState extends State<XpLeaderboardScreen>
+    with AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true;
+  final _searchController = TextEditingController();
+  final _scrollController = ScrollController();
+  final _entries = <XpLeaderboardEntry>[];
+  Map<String, dynamic>? _cursor;
+  Timer? _debounce;
+  int _generation = 0;
+  bool _loading = true;
+  bool _failed = false;
+  bool _expired = false;
+  String _search = '';
+  XpLeaderboardPeriod selectedPeriod = XpLeaderboardPeriod.allTime;
+
+  String t(String en, String ru, String lv) =>
+      achievementText(appUiPreferences.language.name, en, ru, lv);
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_load(reset: true));
+  }
+
+  @override
+  void dispose() {
+    _debounce?.cancel();
+    _searchController.dispose();
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _load({bool reset = false}) async {
+    if (!reset && (_loading || _cursor == null)) return;
+    if (reset) {
+      _debounce?.cancel();
+      _generation++;
+      if (_scrollController.hasClients) _scrollController.jumpTo(0);
+    }
+    final generation = _generation;
+    final period = selectedPeriod;
+    final search = _search;
+    setState(() {
+      _loading = true;
+      _failed = false;
+      _expired = false;
+      if (reset) {
+        _entries.clear();
+        _cursor = null;
+      }
+    });
+    try {
+      final page = await (widget.loadPage ?? loadXpLeaderboardEntries)(
+        period: period,
+        search: search,
+        cursor: reset ? null : _cursor,
+      ).timeout(const Duration(seconds: 15));
+      if (!mounted || generation != _generation) return;
+      setState(() {
+        final ids = _entries.map((entry) => entry.userId).toSet();
+        _entries.addAll(page.entries.where((entry) => ids.add(entry.userId)));
+        _cursor = page.nextCursor;
+      });
+    } catch (error) {
+      if (!mounted || generation != _generation) return;
+      setState(() {
+        _failed = true;
+        _expired = error is XpLeaderboardPageExpired;
+      });
+    } finally {
+      if (mounted && generation == _generation) {
+        setState(() => _loading = false);
+      }
+    }
+  }
+
+  void _searchChanged(String value) {
+    final search = value
+        .trim()
+        .replaceFirst(RegExp(r'^@'), '')
+        .trim()
+        .toLowerCase();
+    if (search == _search) {
+      setState(() {});
+      return;
+    }
+    _debounce?.cancel();
+    // Invalidate the current request immediately, before the debounce expires.
+    _generation++;
+    final canLoad = search.isEmpty || search.runes.length >= 2;
+    setState(() {
+      _search = search;
+      _entries.clear();
+      _cursor = null;
+      _failed = false;
+      _loading = canLoad;
+    });
+    if (!canLoad) return;
+    _debounce = Timer(
+      const Duration(milliseconds: 350),
+      () => _load(reset: true),
+    );
+  }
+
+  void selectPeriod(XpLeaderboardPeriod period) {
+    if (period == selectedPeriod) return;
+    setState(() => selectedPeriod = period);
+    unawaited(_load(reset: true));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    super.build(context);
+    return Scaffold(
+      backgroundColor: Colors.transparent,
+      appBar: widget.embedded
+          ? null
+          : AppBar(
+              title: Text(t('Ranking', 'Рейтинг', 'Reitings')),
+              backgroundColor: Colors.transparent,
+              foregroundColor: blue,
+              actions: ccsAppBarActions(showXpLeaderboard: false),
+            ),
+      body: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
+            child: Column(
+              children: [
+                TextField(
+                  key: const ValueKey('ranking-search'),
+                  controller: _searchController,
+                  onChanged: _searchChanged,
+                  maxLength: 31,
+                  textInputAction: TextInputAction.search,
+                  onSubmitted: (_) {
+                    if (_search.isEmpty || _search.runes.length >= 2) {
+                      unawaited(_load(reset: true));
+                    }
+                  },
+                  decoration: InputDecoration(
+                    counterText: '',
+                    hintText: t(
+                      'Search by nickname',
+                      'Поиск по нику',
+                      'Meklēt pēc lietotājvārda',
+                    ),
+                    prefixIcon: const Icon(Icons.search),
+                    suffixIcon: _searchController.text.isEmpty
+                        ? null
+                        : IconButton(
+                            tooltip: t(
+                              'Clear search',
+                              'Очистить поиск',
+                              'Notīrīt meklēšanu',
+                            ),
+                            icon: const Icon(Icons.clear),
+                            onPressed: () {
+                              _searchController.clear();
+                              _searchChanged('');
+                            },
+                          ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                XpLeaderboardPeriodSelector(
+                  selectedPeriod: selectedPeriod,
+                  onChanged: selectPeriod,
+                ),
+                const SizedBox(height: 8),
+              ],
+            ),
+          ),
+          Expanded(
+            child: RefreshIndicator(
+              color: blue,
+              backgroundColor: panelGlass,
+              onRefresh: () => _load(reset: true),
+              child: ListView(
+                key: const ValueKey('ranking-list'),
+                controller: _scrollController,
+                physics: const AlwaysScrollableScrollPhysics(),
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 28),
+                children: [
+                  Text(
+                    _search.isEmpty
+                        ? xpLeaderboardTitle(selectedPeriod)
+                        : t(
+                            'Search results',
+                            'Результаты поиска',
+                            'Meklēšanas rezultāti',
+                          ),
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 24,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  const SizedBox(height: 5),
+                  Text(
+                    t(
+                      'This leaderboard shows public profiles only.',
+                      'В рейтинге показаны только открытые профили.',
+                      'Reitingā redzami tikai publiski profili.',
+                    ),
+                    style: const TextStyle(
+                      color: Colors.white54,
+                      fontSize: 12.5,
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  if (_search.isNotEmpty && _search.runes.length < 2)
+                    Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: Text(
+                        t(
+                          'Type at least 2 characters to search.',
+                          'Введите минимум 2 символа для поиска.',
+                          'Ievadiet vismaz 2 rakstzīmes, lai meklētu.',
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    )
+                  else ...[
+                    for (final entry in _entries)
+                      XpLeaderboardTile(
+                        key: ValueKey('ranking-user-${entry.userId}'),
+                        entry: entry,
+                        period: selectedPeriod,
+                      ),
+                    if (_loading)
+                      const Padding(
+                        padding: EdgeInsets.all(24),
+                        child: Center(child: CircularProgressIndicator()),
+                      )
+                    else if (_failed) ...[
+                      Text(
+                        _expired
+                            ? t(
+                                'Ranking changed. Refresh to continue.',
+                                'Рейтинг изменился. Обновите список.',
+                                'Reitings ir mainījies. Atjaunojiet sarakstu.',
+                              )
+                            : t(
+                                'Could not load ranking.',
+                                'Не удалось загрузить рейтинг.',
+                                'Neizdevās ielādēt reitingu.',
+                              ),
+                        textAlign: TextAlign.center,
+                      ),
+                      TextButton(
+                        key: const ValueKey('ranking-retry'),
+                        onPressed: () =>
+                            _load(reset: _expired || _entries.isEmpty),
+                        child: Text(
+                          _expired
+                              ? t('Refresh', 'Обновить', 'Atjaunot')
+                              : t('Retry', 'Повторить', 'Mēģināt vēlreiz'),
+                        ),
+                      ),
+                    ] else if (_entries.isEmpty)
+                      Padding(
+                        padding: const EdgeInsets.all(24),
+                        child: Text(
+                          _search.isEmpty
+                              ? xpLeaderboardEmptyTitle(selectedPeriod)
+                              : t(
+                                  'No matching users in this ranking.',
+                                  'В этом рейтинге никого не найдено.',
+                                  'Šajā reitingā lietotāji nav atrasti.',
+                                ),
+                          textAlign: TextAlign.center,
+                        ),
+                      )
+                    else if (_cursor != null)
+                      TextButton(
+                        key: const ValueKey('ranking-load-more'),
+                        onPressed: () => _load(),
+                        child: Text(
+                          t('Show more', 'Показать ещё', 'Rādīt vairāk'),
+                        ),
+                      ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class XpLeaderboardPeriodSelector extends StatelessWidget {
+  final XpLeaderboardPeriod selectedPeriod;
+  final ValueChanged<XpLeaderboardPeriod> onChanged;
+
+  const XpLeaderboardPeriodSelector({
+    super.key,
+    required this.selectedPeriod,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return SegmentedButton<XpLeaderboardPeriod>(
+      segments: [
+        for (final period in XpLeaderboardPeriod.values)
+          ButtonSegment<XpLeaderboardPeriod>(
+            value: period,
+            icon: Icon(
+              period == XpLeaderboardPeriod.week
+                  ? Icons.calendar_month_outlined
+                  : Icons.emoji_events_outlined,
+            ),
+            label: Text(xpLeaderboardPeriodLabel(period)),
+          ),
+      ],
+      selected: {selectedPeriod},
+      onSelectionChanged: (value) => onChanged(value.first),
+      style: ButtonStyle(
+        foregroundColor: WidgetStateProperty.resolveWith(
+          (states) => states.contains(WidgetState.selected)
+              ? Colors.white
+              : Colors.white70,
+        ),
+        backgroundColor: WidgetStateProperty.resolveWith(
+          (states) => states.contains(WidgetState.selected) ? blue : panel,
+        ),
+        side: WidgetStateProperty.resolveWith(
+          (states) => BorderSide(
+            color: states.contains(WidgetState.selected)
+                ? blue
+                : Colors.white24,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class XpLeaderboardTile extends StatelessWidget {
+  final XpLeaderboardEntry entry;
+  final XpLeaderboardPeriod period;
+
+  const XpLeaderboardTile({
+    super.key,
+    required this.entry,
+    this.period = XpLeaderboardPeriod.allTime,
+  });
+
+  Color get rankColor {
+    switch (entry.rank) {
+      case 1:
+        return const Color(0xFFFFC857);
+      case 2:
+        return const Color(0xFFC9D1D9);
+      case 3:
+        return const Color(0xFFCD7F32);
+    }
+
+    return blue;
+  }
+
+  Widget avatar() {
+    final imageUrl = isNetworkUrl(entry.photoUrl)
+        ? entry.photoUrl
+        : isNetworkUrl(entry.avatarPath)
+        ? entry.avatarPath
+        : '';
+    final initial = entry.displayName.trim().isEmpty
+        ? 'C'
+        : entry.displayName.trim()[0].toUpperCase();
+
+    Widget fallback() {
+      return Center(
+        child: Text(
+          initial,
+          style: const TextStyle(
+            color: blue,
+            fontSize: 18,
+            fontWeight: FontWeight.w900,
+          ),
+        ),
+      );
+    }
+
+    return Container(
+      width: 48,
+      height: 48,
+      decoration: BoxDecoration(
+        color: blue.withValues(alpha: 0.14),
+        shape: BoxShape.circle,
+        border: Border.all(color: blue.withValues(alpha: 0.36)),
+      ),
+      child: ClipOval(
+        child: imageUrl.isNotEmpty
+            ? Image.network(
+                imageUrl,
+                fit: BoxFit.cover,
+                errorBuilder: (_, _, _) => fallback(),
+              )
+            : fallback(),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final podium = entry.rank <= 3;
+    final highlighted = entry.rank <= 10;
+    final accent = rankColor;
+    Widget metric(String label, String value, Color color) => Expanded(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(color: Colors.white54, fontSize: 10),
+          ),
+          const SizedBox(height: 4),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Text(
+              value,
+              style: TextStyle(
+                color: color,
+                fontSize: 14,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: () => openUserProfile(
+            context,
+            uid: entry.userId,
+            fallbackUsername: entry.displayName,
+          ),
+          borderRadius: BorderRadius.circular(8),
+          child: Container(
+            padding: const EdgeInsets.all(13),
+            decoration: BoxDecoration(
+              color: panelGlass,
+              gradient: highlighted
+                  ? LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [
+                        accent.withValues(alpha: podium ? .16 : .09),
+                        const Color(0xED11151D),
+                      ],
+                    )
+                  : null,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(
+                color: highlighted
+                    ? accent.withValues(alpha: podium ? .55 : .3)
+                    : Colors.white12,
+              ),
+              boxShadow: podium
+                  ? [
+                      BoxShadow(
+                        color: accent.withValues(alpha: .08),
+                        blurRadius: 12,
+                        offset: const Offset(0, 3),
+                      ),
+                    ]
+                  : null,
+            ),
+            child: Column(
+              children: [
+                Row(
+                  children: [
+                    SizedBox(
+                      width: 32,
+                      height: 48,
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          if (highlighted)
+                            Icon(
+                              podium
+                                  ? Icons.emoji_events_rounded
+                                  : Icons.star_rounded,
+                              size: podium ? 19 : 13,
+                              color: accent,
+                            ),
+                          FittedBox(
+                            fit: BoxFit.scaleDown,
+                            child: Text(
+                              '#${entry.rank}',
+                              maxLines: 1,
+                              style: TextStyle(
+                                color: accent,
+                                fontSize: 13,
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    avatar(),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Flexible(
+                                child: Text(
+                                  entry.displayName,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
+                              ),
+                              if (entry.verified)
+                                const Padding(
+                                  padding: EdgeInsets.only(left: 4),
+                                  child: Icon(
+                                    Icons.verified_rounded,
+                                    color: blue,
+                                    size: 14,
+                                  ),
+                                ),
+                            ],
+                          ),
+                          if (entry.locationLabel.isNotEmpty) ...[
+                            const SizedBox(height: 4),
+                            Text(
+                              entry.locationLabel,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: Colors.white54,
+                                fontSize: 11,
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                    const Icon(
+                      Icons.chevron_right,
+                      color: Colors.white38,
+                      size: 18,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    metric(trText('Level'), '${entry.level}', blue),
+                    const SizedBox(width: 8),
+                    metric(
+                      trText('Total XP'),
+                      formatXpValue(entry.xpTotal),
+                      const Color(0xFF8CD5FF),
+                    ),
+                    const SizedBox(width: 8),
+                    metric(
+                      trText('Weekly XP'),
+                      formatXpValue(entry.weeklyXp),
+                      const Color(0xFFA8B3C4),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+bool qualifiesPermanentCreatedSpot(Map<String, dynamic> data, String uid) {
+  final creator = stringFromFirebase(data['addedByUid'], '');
+  final owner = stringFromFirebase(data['ownerUid'], '');
+  return (creator.isNotEmpty ? creator : owner) == uid &&
+      data['status'] == 'approved' &&
+      data['isTemporary'] != true &&
+      data['deleted'] != true;
+}
+
+Query<Map<String, dynamic>> creatorSpotsQuery(
+  String uid, {
+  bool legacyOwner = false,
+}) {
   var query = spotsCollection()
       .where('visibility', isEqualTo: 'public')
-      .where('addedByUid', isEqualTo: uid);
-  if (uid != FirebaseAuth.instance.currentUser?.uid) {
-    query = query
-        .where('visibility', isEqualTo: 'public')
-        .where('status', isEqualTo: 'approved');
-    if (!currentUserCanUseVerifiedOnlySpots) {
-      query = query.where('verifiedOnly', isEqualTo: false);
-    }
+      .where(legacyOwner ? 'ownerUid' : 'addedByUid', isEqualTo: uid)
+      .where('status', isEqualTo: 'approved');
+  if ((legacyOwner || uid != FirebaseAuth.instance.currentUser?.uid) &&
+      !currentUserCanUseVerifiedOnlySpots) {
+    query = query.where('verifiedOnly', isEqualTo: false);
   }
   return query;
 }
@@ -54419,8 +57469,14 @@ class _CreatorSpotsBadgeState extends State<CreatorSpotsBadge>
 
   Future<int> loadCount() async {
     if (widget.uid.isEmpty) return 0;
-    final result = await creatorSpotsQuery(widget.uid).count().get();
-    return result.count ?? 0;
+    final result = await xpScreenRequest('creator_spots', {
+      'userId': widget.uid,
+    });
+    final value = result['count'];
+    if (value is! num || value < 0) {
+      throw const FormatException('Invalid created spots count');
+    }
+    return value.toInt();
   }
 
   @override
@@ -54475,9 +57531,7 @@ class CreatorSpotsScreen extends StatefulWidget {
 class _CreatorSpotsScreenState extends State<CreatorSpotsScreen>
     with LanguageReactiveState {
   final List<CarSpot> spots = [];
-  DocumentSnapshot<Map<String, dynamic>>? cursor;
   bool loading = false;
-  bool hasMore = true;
   bool failed = false;
 
   @override
@@ -54493,22 +57547,39 @@ class _CreatorSpotsScreenState extends State<CreatorSpotsScreen>
       failed = false;
       if (refresh) {
         spots.clear();
-        cursor = null;
-        hasMore = true;
       }
     });
     try {
-      // Document-ID ordering also includes legacy spots without createdAt.
-      var query = creatorSpotsQuery(
-        widget.uid,
-      ).orderBy(FieldPath.documentId).limit(20);
-      if (cursor != null) query = query.startAfterDocument(cursor!);
-      final page = await query.debugGet(null, 'profile: creator spots page');
-      if (!mounted) return;
+      // Match the counter's legacy-owner fallback and permanent-spot policy.
+      // Filter optional flags locally so old documents without isTemporary or
+      // deleted are included. Exhaust pages even if a page has no eligible spots.
+      final byId = <String, CarSpot>{};
+      for (final legacyOwner in [false, true]) {
+        DocumentSnapshot<Map<String, dynamic>>? cursor;
+        while (true) {
+          var query = creatorSpotsQuery(
+            widget.uid,
+            legacyOwner: legacyOwner,
+          ).orderBy(FieldPath.documentId).limit(100);
+          if (cursor != null) query = query.startAfterDocument(cursor);
+          final page = await query.debugGet(
+            null,
+            'profile: creator permanent spots page',
+          );
+          if (!mounted) return;
+          for (final doc in page.docs) {
+            if (qualifiesPermanentCreatedSpot(doc.data(), widget.uid)) {
+              byId[doc.id] = CarSpot.fromFirestore(doc);
+            }
+          }
+          if (page.docs.length < 100) break;
+          cursor = page.docs.last;
+        }
+      }
       setState(() {
-        spots.addAll(page.docs.map(CarSpot.fromFirestore));
-        if (page.docs.isNotEmpty) cursor = page.docs.last;
-        hasMore = page.docs.length == 20;
+        spots
+          ..clear()
+          ..addAll(byId.values);
       });
     } catch (error) {
       debugPrint('Creator spots could not load: $error');
@@ -54568,13 +57639,6 @@ class _CreatorSpotsScreenState extends State<CreatorSpotsScreen>
                   'Pagaidām nav pieejamu vietu.',
                 ),
                 textAlign: TextAlign.center,
-              ),
-            )
-          else if (hasMore)
-            TextButton(
-              onPressed: () => load(),
-              child: Text(
-                creatorSpotsText('Load more', 'Загрузить ещё', 'Ielādēt vēl'),
               ),
             ),
         ],
@@ -55035,7 +58099,8 @@ class _EmptyGarageCard extends StatelessWidget {
 }
 
 class _CompactProfileSocialLinks extends StatelessWidget {
-  const _CompactProfileSocialLinks();
+  final Widget action;
+  const _CompactProfileSocialLinks({required this.action});
 
   @override
   Widget build(BuildContext context) {
@@ -55063,28 +58128,58 @@ class _CompactProfileSocialLinks extends StatelessWidget {
             ),
         ];
 
-        if (links.isEmpty) {
-          return const SizedBox.shrink();
-        }
-
-        return Row(
-          children: [
-            for (var index = 0; index < links.length; index++) ...[
-              if (index > 0) const SizedBox(width: 7),
-              Expanded(child: links[index]),
-            ],
-          ],
-        );
+        return _ProfileActionFooter(action: action, links: links);
       },
     );
   }
+}
+
+class _ProfileActionFooter extends StatelessWidget {
+  final Widget? action;
+  final List<Widget> links;
+  const _ProfileActionFooter({this.action, required this.links});
+
+  @override
+  Widget build(BuildContext context) => Column(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      const Divider(height: 1, color: Colors.white10),
+      const SizedBox(height: 12),
+      LayoutBuilder(
+        builder: (context, constraints) {
+          final socials = Wrap(spacing: 8, runSpacing: 8, children: links);
+          if (action == null)
+            return Align(alignment: Alignment.centerRight, child: socials);
+          if (links.isEmpty) return action!;
+          final linksWidth = links.length * 44 + (links.length - 1) * 8;
+          final actionWidth = 145 * MediaQuery.textScalerOf(context).scale(1);
+          if (constraints.maxWidth < actionWidth + linksWidth + 12) {
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                action!,
+                const SizedBox(height: 10),
+                Align(alignment: Alignment.centerRight, child: socials),
+              ],
+            );
+          }
+          return Row(
+            children: [
+              Expanded(child: action!),
+              const SizedBox(width: 12),
+              socials,
+            ],
+          );
+        },
+      ),
+    ],
+  );
 }
 
 class _CompactSocialLinkButton extends StatelessWidget {
   final IconData icon;
   final String label;
   final String value;
-
   const _CompactSocialLinkButton({
     required this.icon,
     required this.label,
@@ -55092,99 +58187,38 @@ class _CompactSocialLinkButton extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) {
-    return Tooltip(
+  Widget build(BuildContext context) => Semantics(
+    button: true,
+    label: label,
+    child: Tooltip(
       message: label,
-      child: InkWell(
-        onTap: () => launchExternalUrl(context, value.trim(), kind: label),
-        borderRadius: BorderRadius.circular(9),
-        child: Container(
-          height: 34,
-          padding: const EdgeInsets.symmetric(horizontal: 8),
-          decoration: BoxDecoration(
-            color: blue.withValues(alpha: 0.10),
-            borderRadius: BorderRadius.circular(9),
-            border: Border.all(color: blue.withValues(alpha: 0.24)),
-          ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(icon, color: blue, size: 16),
-              const SizedBox(width: 5),
-              Flexible(
-                child: Text(
-                  label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: Colors.white70,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-              ),
-            ],
+      child: Material(
+        color: const Color(0xFF181A20),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(10),
+          side: const BorderSide(color: Colors.white12),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: () => launchExternalUrl(context, value.trim(), kind: label),
+          child: SizedBox(
+            width: 44,
+            height: 44,
+            child: Center(
+              child: label == 'Instagram' || label == 'Telegram'
+                  ? Image.asset(
+                      'assets/social/${label.toLowerCase()}.png',
+                      width: 22,
+                      height: 22,
+                      excludeFromSemantics: true,
+                    )
+                  : Icon(icon, size: 22, color: Colors.white70),
+            ),
           ),
         ),
       ),
-    );
-  }
-}
-
-class _SocialLinkRow extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final String value;
-
-  const _SocialLinkRow({
-    required this.icon,
-    required this.label,
-    required this.value,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final cleanValue = value.trim();
-
-    if (cleanValue.isEmpty) {
-      return const SizedBox.shrink();
-    }
-
-    return InkWell(
-      onTap: () => launchExternalUrl(context, cleanValue, kind: label),
-      borderRadius: BorderRadius.circular(12),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 5),
-        child: Row(
-          children: [
-            Icon(icon, color: blue, size: 19),
-            const SizedBox(width: 10),
-            SizedBox(
-              width: 82,
-              child: Text(
-                label,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-            ),
-            Expanded(
-              child: Text(
-                cleanValue,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                textAlign: TextAlign.right,
-                style: const TextStyle(color: blue),
-              ),
-            ),
-            const SizedBox(width: 8),
-            const Icon(Icons.open_in_new, color: Colors.white38, size: 15),
-          ],
-        ),
-      ),
-    );
-  }
+    ),
+  );
 }
 
 class _BuildChip extends StatelessWidget {
@@ -56447,6 +59481,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   late bool commentNotifications;
   late bool newSpotNotifications;
   late bool newMessageNotifications;
+  late bool xpNotifications;
   late bool friendAtSpotNotifications;
   late bool friendLiveShareNotifications;
   late bool publicProfile;
@@ -56465,6 +59500,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     commentNotifications = settings.commentNotifications;
     newSpotNotifications = settings.newSpotNotifications;
     newMessageNotifications = settings.newMessageNotifications;
+    xpNotifications = settings.xpNotifications;
     friendAtSpotNotifications = settings.friendAtSpotNotifications;
     friendLiveShareNotifications = settings.friendLiveShareNotifications;
     publicProfile = settings.publicProfile;
@@ -56489,6 +59525,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       commentNotifications: commentNotifications,
       newSpotNotifications: newSpotNotifications,
       newMessageNotifications: newMessageNotifications,
+      xpNotifications: xpNotifications,
       friendAtSpotNotifications: friendAtSpotNotifications,
       friendLiveShareNotifications: friendLiveShareNotifications,
       publicProfile: publicProfile,
@@ -56611,6 +59648,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 value: newMessageNotifications,
                 onChanged: (value) =>
                     updateSettingsSwitch(() => newMessageNotifications = value),
+              ),
+              _SettingsSwitchTile(
+                icon: Icons.emoji_events_outlined,
+                title: 'XP rewards',
+                subtitle: 'When you receive XP',
+                value: xpNotifications,
+                onChanged: (value) =>
+                    updateSettingsSwitch(() => xpNotifications = value),
               ),
               _SettingsSwitchTile(
                 icon: Icons.place,
@@ -56860,7 +59905,7 @@ class _AdminUsersScreenState extends State<AdminUsersScreen>
   @override
   void initState() {
     super.initState();
-    bannedOnly = widget.initialBannedOnly && currentUser.role == UserRole.admin;
+    bannedOnly = widget.initialBannedOnly && userRoleIsStaff(currentUser.role);
   }
 
   @override
@@ -57627,6 +60672,9 @@ class _AdminUsersScreenState extends State<AdminUsersScreen>
           commentNotifications: false,
           newSpotNotifications: false,
           newMessageNotifications: false,
+          xpNotifications: false,
+          friendAtSpotNotifications: false,
+          friendLiveShareNotifications: false,
           publicProfile: false,
           showGarage: false,
         ).toFirebase(),
@@ -58036,7 +61084,7 @@ class _AdminUsersScreenState extends State<AdminUsersScreen>
               .map(AdminUserData.fromFirestore)
               .where((user) => !user.deleted)
               .toList();
-          final canUseBannedList = currentUser.role == UserRole.admin;
+          final canUseBannedList = userRoleIsStaff(currentUser.role);
           final users = bannedOnly
               ? allUsers.where((user) => user.banned).toList()
               : allUsers;
@@ -58901,7 +61949,7 @@ Future<void> requestSpotRemovalFromAdmins(
       );
     }
 
-    await batch.commit();
+    await batch.debugCommit();
 
     if (!context.mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
@@ -59796,7 +62844,7 @@ class _AdminReviewScreenState extends State<AdminReviewScreen>
   @override
   void initState() {
     super.initState();
-    startAdminReviewSpotSync();
+    if (userRoleIsStaff(currentUser.role)) startAdminReviewSpotSync();
   }
 
   @override
@@ -59829,6 +62877,9 @@ class _AdminReviewScreenState extends State<AdminReviewScreen>
 
   @override
   Widget build(BuildContext context) {
+    if (!userRoleIsStaff(currentUser.role)) {
+      return const Scaffold(body: Center(child: Text('No access')));
+    }
     return Scaffold(
       backgroundColor: Colors.transparent,
       appBar: AppBar(
@@ -59889,43 +62940,45 @@ class _AdminReviewScreenState extends State<AdminReviewScreen>
                 ),
               ],
               const SizedBox(height: 16),
-              ValueListenableBuilder<bool>(
-                valueListenable: firestoreDebugButtonVisible,
-                builder: (context, debugVisible, _) {
-                  return Material(
-                    color: panelGlass,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(18),
-                      side: const BorderSide(color: Colors.white12),
-                    ),
-                    clipBehavior: Clip.antiAlias,
-                    child: SwitchListTile.adaptive(
-                      value: debugVisible,
-                      activeColor: blue,
-                      contentPadding: const EdgeInsets.fromLTRB(16, 4, 12, 4),
-                      secondary: const Icon(
-                        Icons.bug_report_outlined,
-                        color: blue,
+              if (currentUser.role == UserRole.admin) ...[
+                ValueListenableBuilder<bool>(
+                  valueListenable: firestoreDebugButtonVisible,
+                  builder: (context, debugVisible, _) {
+                    return Material(
+                      color: panelGlass,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(18),
+                        side: const BorderSide(color: Colors.white12),
                       ),
-                      title: const Text(
-                        'Debug mode',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.w900,
+                      clipBehavior: Clip.antiAlias,
+                      child: SwitchListTile.adaptive(
+                        value: debugVisible,
+                        activeColor: blue,
+                        contentPadding: const EdgeInsets.fromLTRB(16, 4, 12, 4),
+                        secondary: const Icon(
+                          Icons.bug_report_outlined,
+                          color: blue,
                         ),
+                        title: const Text(
+                          'Debug mode',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                        subtitle: const Text(
+                          'Show or hide the Firestore debug bug button',
+                          style: TextStyle(color: Colors.white54),
+                        ),
+                        onChanged: (value) {
+                          unawaited(saveFirestoreDebugButtonPreference(value));
+                        },
                       ),
-                      subtitle: const Text(
-                        'Show or hide the Firestore debug bug button',
-                        style: TextStyle(color: Colors.white54),
-                      ),
-                      onChanged: (value) {
-                        unawaited(saveFirestoreDebugButtonPreference(value));
-                      },
-                    ),
-                  );
-                },
-              ),
-              const SizedBox(height: 10),
+                    );
+                  },
+                ),
+                const SizedBox(height: 10),
+              ],
               _ProfileActionTile(
                 icon: Icons.people_alt,
                 title: 'Users',
@@ -59966,22 +63019,22 @@ class _AdminReviewScreenState extends State<AdminReviewScreen>
                 },
               ),
               const SizedBox(height: 10),
+              _ProfileActionTile(
+                icon: Icons.block,
+                title: 'Banned app users',
+                subtitle: 'Open banned users and remove bans',
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    appPageRoute(
+                      builder: (_) =>
+                          const AdminUsersScreen(initialBannedOnly: true),
+                    ),
+                  );
+                },
+              ),
+              const SizedBox(height: 10),
               if (currentUser.role == UserRole.admin) ...[
-                _ProfileActionTile(
-                  icon: Icons.block,
-                  title: 'Banned app users',
-                  subtitle: 'Open banned users and remove bans',
-                  onTap: () {
-                    Navigator.push(
-                      context,
-                      appPageRoute(
-                        builder: (_) =>
-                            const AdminUsersScreen(initialBannedOnly: true),
-                      ),
-                    );
-                  },
-                ),
-                const SizedBox(height: 10),
                 _ProfileActionTile(
                   icon: Icons.public_off_outlined,
                   title: 'Regional restrictions',
@@ -60812,7 +63865,7 @@ class _AdminEditSpotScreenState extends State<AdminEditSpotScreen>
           const SnackBar(
             backgroundColor: Colors.redAccent,
             content: Text(
-              'Choose both start and end time for a temporary spot.',
+              'Choose both start and end time for a event.',
               style: TextStyle(
                 color: Colors.white,
                 fontWeight: FontWeight.w700,
@@ -60828,7 +63881,7 @@ class _AdminEditSpotScreenState extends State<AdminEditSpotScreen>
           const SnackBar(
             backgroundColor: Colors.redAccent,
             content: Text(
-              'Temporary spot end time must be after start time.',
+              'Event end time must be after start time.',
               style: TextStyle(
                 color: Colors.white,
                 fontWeight: FontWeight.w700,
@@ -60844,7 +63897,7 @@ class _AdminEditSpotScreenState extends State<AdminEditSpotScreen>
           const SnackBar(
             backgroundColor: Colors.redAccent,
             content: Text(
-              'Temporary spot can be active for 12 hours maximum.',
+              'Event can be active for 12 hours maximum.',
               style: TextStyle(
                 color: Colors.white,
                 fontWeight: FontWeight.w700,
@@ -60862,7 +63915,7 @@ class _AdminEditSpotScreenState extends State<AdminEditSpotScreen>
             const SnackBar(
               backgroundColor: Colors.redAccent,
               content: Text(
-                'Choose when the temporary spot location should appear on the map.',
+                'Choose when the event location should appear on the map.',
                 style: TextStyle(
                   color: Colors.white,
                   fontWeight: FontWeight.w700,
@@ -61339,7 +64392,7 @@ class _AdminEditSpotScreenState extends State<AdminEditSpotScreen>
           ],
           const SizedBox(height: 16),
           _AddSpotSection(
-            title: 'Temporary schedule',
+            title: 'Event schedule',
             children: [
               _TemporarySpotScheduleCard(
                 enabled: isTemporarySpot,

@@ -19,14 +19,22 @@ function fixture() {
   return {db, rows};
 }
 
+<<<<<<< HEAD
 test('nearby visit records once per Riga day, without coordinates or XP', async () => {
+=======
+test('nearby visit records once per spot lifetime, without storing coordinates', async () => {
+>>>>>>> zhena-ui
   const {db, rows} = fixture();
   assert.equal((await recordSpotVisit(db, 'u', 's', now)).duplicate, false);
   assert.equal((await recordSpotVisit(db, 'u', 's', now + 1000)).duplicate, true);
   const records = [...rows.entries()].filter(([key]) => key.startsWith('spot_visit_records/'));
   assert.equal(records.length, 1);
+<<<<<<< HEAD
   assert.equal(records[0][1].status, 'observed');
   assert.equal(records[0][1].xpAwarded, false);
+=======
+  assert.equal(records[0][1].status, 'verified');
+>>>>>>> zhena-ui
   assert.equal('lat' in records[0][1], false);
   assert.equal('coordinates' in records[0][1], false);
 });
@@ -78,14 +86,22 @@ test('endpoint binds visit to authenticated UID and rejects missing or invalid t
   const fs = require('node:fs'); const path = require('node:path'); const vm = require('node:vm');
   const calls = [];
   const module = {exports: {}};
+<<<<<<< HEAD
   vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../api/spot-visit.js'), 'utf8'), {
+=======
+  vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../handlers/spot-visit.js'), 'utf8'), {
+>>>>>>> zhena-ui
     module,
     require: name => name.includes('firebase-admin') ? {
       db: {}, admin: {auth: () => ({verifyIdToken: async token => {
         if (token !== 'valid') throw new Error('Invalid token');
         return {uid: 'authenticated-user'};
       }})},
+<<<<<<< HEAD
     } : {recordSpotVisit: async (_, uid, spotId) => {calls.push({uid, spotId}); return {recorded: true};}},
+=======
+    } : name.includes('location-integrity') ? {assessLocation: async()=>true} : name.includes('xp-firestore') ? {awardXp: async()=>({})} : name.includes('achievements') ? {syncAchievements: async()=>({})} : {recordSpotVisit: async (_, uid, spotId) => {calls.push({uid, spotId}); return {recorded: true};}},
+>>>>>>> zhena-ui
   });
   const response = () => ({code: 0, setHeader() {}, status(code) {this.code = code; return this;}, json(value) {this.value = value; return this;}});
   for (const header of ['', 'Bearer invalid']) {
@@ -94,7 +110,11 @@ test('endpoint binds visit to authenticated UID and rejects missing or invalid t
   }
   const res = response();
   await module.exports({method: 'POST', headers: {authorization: 'Bearer valid'},
+<<<<<<< HEAD
     body: {userId: 'victim', spotId: 's', lat: 80, lng: 80}}, res);
+=======
+    body: {userId: 'victim', spotId: 's', gpsFix: {latitude:0,longitude:0,accuracy:5,isMocked:false,recordedAtMillis:Date.now()}} }, res);
+>>>>>>> zhena-ui
   assert.equal(res.code, 200);
   assert.equal(calls.length, 1);
   assert.equal(calls[0].uid, 'authenticated-user');
