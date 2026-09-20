@@ -26,6 +26,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'firebase_options.dart';
+import 'map_start_position.dart';
+import 'notification_freshness.dart';
 import 'reward_feedback.dart';
 import 'spot_presence_marker.dart';
 import 'achievements_screen.dart';
@@ -716,6 +718,19 @@ Stream<QuerySnapshot<T>> observedQuerySnapshots<T extends Object?>(
   Query<T> query,
   String label, {
   bool includeMetadataChanges = false,
+}) => Stream<QuerySnapshot<T>>.multi((sink) {
+  final subscription = _observedQuerySnapshots(
+    query,
+    label,
+    includeMetadataChanges: includeMetadataChanges,
+  ).listen(sink.add, onError: sink.addError, onDone: sink.close);
+  sink.onCancel = subscription.cancel;
+}, isBroadcast: true);
+
+Stream<QuerySnapshot<T>> _observedQuerySnapshots<T extends Object?>(
+  Query<T> query,
+  String label, {
+  bool includeMetadataChanges = false,
 }) async* {
   final estimate = ServerReadEstimate();
   Map<String, Object?>? delivered;
@@ -742,6 +757,17 @@ Stream<QuerySnapshot<T>> observedQuerySnapshots<T extends Object?>(
 }
 
 Stream<DocumentSnapshot<T>> observedDocSnapshots<T extends Object?>(
+  DocumentReference<T> ref,
+  String label,
+) => Stream<DocumentSnapshot<T>>.multi((sink) {
+  final subscription = _observedDocSnapshots(
+    ref,
+    label,
+  ).listen(sink.add, onError: sink.addError, onDone: sink.close);
+  sink.onCancel = subscription.cancel;
+}, isBroadcast: true);
+
+Stream<DocumentSnapshot<T>> _observedDocSnapshots<T extends Object?>(
   DocumentReference<T> ref,
   String label,
 ) async* {
@@ -4485,6 +4511,7 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
 }
 
 Future<void> main() async {
+  notificationLaunchTime = DateTime.now();
   WidgetsFlutterBinding.ensureInitialized();
   startAppIconBadgeSync();
   await warmUpAppMapBackground();
@@ -4552,8 +4579,19 @@ Future<void> main() async {
   runApp(const CCSApp());
 }
 
-class CCSApp extends StatelessWidget {
+class CCSApp extends StatefulWidget {
   const CCSApp({super.key});
+  @override
+  State<CCSApp> createState() => _CCSAppState();
+}
+
+class _CCSAppState extends State<CCSApp> {
+  late final Widget initialHome =
+      firebaseReady &&
+          rememberMeEnabled &&
+          FirebaseAuth.instance.currentUser != null
+      ? const MainScreen()
+      : const SplashScreen();
 
   @override
   Widget build(BuildContext context) {
@@ -4603,12 +4641,7 @@ class CCSApp extends StatelessWidget {
               ),
             );
           },
-          home:
-              firebaseReady &&
-                  rememberMeEnabled &&
-                  FirebaseAuth.instance.currentUser != null
-              ? const MainScreen()
-              : const SplashScreen(),
+          home: initialHome,
         );
       },
     );
@@ -5503,8 +5536,11 @@ bool remoteMessageTargetsGlobalChat(RemoteMessage message) {
 }
 
 Future<void> showForegroundSystemNotification(RemoteMessage message) async {
+  if (message.sentTime == null ||
+      !message.sentTime!.isAfter(notificationLaunchTime))
+    return;
   if (!moderationNotificationAllowed(message.data)) return;
-  if (!Platform.isAndroid) {
+  if (!Platform.isAndroid && !Platform.isIOS) {
     return;
   }
 
@@ -5627,7 +5663,7 @@ Future<void> _initializePushNotifications(String expectedUid) async {
     );
     if (Platform.isIOS) {
       await messaging.setForegroundNotificationPresentationOptions(
-        alert: true,
+        alert: false,
         badge: true,
         sound: false,
       );
@@ -7790,7 +7826,10 @@ AppUser currentUser = const AppUser(
 final currentUserProfileRevision = ValueNotifier<int>(0);
 
 void setCurrentUser(AppUser value) {
-  _accountSigningOut = false;
+  if (value.uid.isNotEmpty) {
+    _accountSigningOut = false;
+    accountSigningOut.value = false;
+  }
   final previousUid = currentUser.uid;
   final previousHomeCountryCode = currentUserHomeCountryCode();
   final wasBrowsingHome =
@@ -8278,62 +8317,76 @@ void startCurrentUserDocumentWatcher() {
 }
 
 Future<void> signOutCurrentAccount() async {
+  if (_accountSigningOut) return;
   _accountSigningOut = true;
-  await stopIncomingFriendRequestCountStream();
+  accountSigningOut.value = true;
   _profileWatcherGeneration++;
   _profileWatcherRetry?.cancel();
   _profileWatcherRetry = null;
   _profileWatcherRetryAttempt = 0;
   _invalidateSpotSync();
-  await _spotSyncCancellation;
-  // Stop profile callbacks before token removal writes can restart the feed.
-  await currentUserDocumentSubscription?.cancel();
-  currentUserDocumentSubscription = null;
   stopTemporarySpotTodayNotificationScheduler();
-  await saveRememberMePreference(false);
-  await unregisterPushTokenForCurrentUser();
+  inAppBadges.stop();
+  notificationCenterUnreadRefreshDebounce?.cancel();
+  final subscriptions = <StreamSubscription?>[
+    currentUserDocumentSubscription,
+    adminReviewSpotSubscription,
+    notificationCenterUnreadSubscription,
+    adminNotificationCenterUnreadSubscription,
+    friendLocationNotificationCenterUnreadSubscription,
+  ];
+  currentUserDocumentSubscription = null;
+  adminReviewSpotSubscription = null;
+  notificationCenterUnreadSubscription = null;
+  adminNotificationCenterUnreadSubscription = null;
+  friendLocationNotificationCenterUnreadSubscription = null;
+  // Detach authenticated widgets before clearing their data and streams.
+  await WidgetsBinding.instance.endOfFrame;
+  Future<void> bestEffort(Future<void> future) async {
+    try {
+      await future.timeout(const Duration(seconds: 3));
+    } catch (error) {
+      debugPrint('Sign-out cleanup: $error');
+    }
+  }
+
+  try {
+    await Future.wait([
+      for (final subscription in subscriptions)
+        if (subscription != null) bestEffort(subscription.cancel()),
+      bestEffort(stopIncomingFriendRequestCountStream()),
+      bestEffort(stopCurrentUserLikedSpotsSync()),
+      bestEffort(_spotSyncCancellation),
+      bestEffort(saveRememberMePreference(false)),
+      bestEffort(unregisterPushTokenForCurrentUser()),
+      bestEffort(updateCurrentUserOnlinePresence(isOnline: false)),
+      bestEffort(liveLocationBackgroundChannel.invokeMethod<void>('stop')),
+      if (FirebaseAuth.instance.currentUser != null)
+        bestEffort(
+          liveLocationsCollection()
+              .doc(FirebaseAuth.instance.currentUser!.uid)
+              .delete(),
+        ),
+    ]);
+    await FirebaseAuth.instance.signOut();
+    await bestEffort(GoogleSignIn.instance.signOut());
+  } catch (_) {
+    _accountSigningOut = false;
+    accountSigningOut.value = false;
+    rethrow;
+  }
   _pushInitializationUid = null;
   _pushInitializationFuture = null;
-
-  // Stop live Firebase listeners before auth becomes null.
-  await currentUserDocumentSubscription?.cancel();
-  currentUserDocumentSubscription = null;
-  for (final subscription in spotSyncSubscriptions) {
-    await subscription.cancel();
-  }
-  spotSyncSubscriptions.clear();
-  await adminReviewSpotSubscription?.cancel();
-  adminReviewSpotSubscription = null;
   adminReviewSpotSyncRequested = false;
   _firebaseSpotCacheBySource.clear();
-  await notificationCenterUnreadSubscription?.cancel();
-  notificationCenterUnreadSubscription = null;
-  await adminNotificationCenterUnreadSubscription?.cancel();
-  adminNotificationCenterUnreadSubscription = null;
-  await friendLocationNotificationCenterUnreadSubscription?.cancel();
-  friendLocationNotificationCenterUnreadSubscription = null;
-  notificationCenterUnreadRefreshDebounce?.cancel();
-  notificationCenterUnreadRefreshDebounce = null;
   notificationCenterUnreadCountsBySource.clear();
   notificationCenterUnreadCount.value = 0;
-  WidgetsBinding.instance.addPostFrameCallback((_) {
-    chatUnreadCountsByChatId.value = const <String, int>{};
-  });
-  await stopCurrentUserLikedSpotsSync();
+  chatUnreadCountsByChatId.value = const <String, int>{};
   spotCommentsSessionCache.clear();
-
-  // Best effort: mark the user offline before signing out.
-  await updateCurrentUserOnlinePresence(isOnline: false);
-
-  // Google Sign-In can throw on some platforms/states. Sign out must not crash.
-  try {
-    await GoogleSignIn.instance.signOut();
-  } catch (_) {}
-
-  try {
-    await FirebaseAuth.instance.signOut();
-  } catch (_) {}
-
+  rewardNavigatorKey.currentState?.pushAndRemoveUntil(
+    appPageRoute(builder: (_) => const SplashScreen()),
+    (_) => false,
+  );
   setCurrentUser(
     const AppUser(
       uid: '',
@@ -12116,6 +12169,7 @@ void startNotificationCenterUnreadWatcher() {
     Query<Map<String, dynamic>> query,
   ) {
     bool initialized = false;
+    final alertGate = NotificationFreshness(DateTime.now());
     return trackedQuerySnapshots(
       'notification center unread watcher: $source',
       query
@@ -12126,7 +12180,17 @@ void startNotificationCenterUnreadWatcher() {
       (snapshot) {
         if (initialized && !snapshot.metadata.isFromCache) {
           for (final change in snapshot.docChanges) {
-            if (change.type == DocumentChangeType.added) {
+            final data = change.doc.data() ?? {};
+            final rawCreated = data['createdAt'];
+            final created = rawCreated is Timestamp
+                ? rawCreated.toDate()
+                : data['createdAtMillis'] is num
+                ? DateTime.fromMillisecondsSinceEpoch(
+                    (data['createdAtMillis'] as num).toInt(),
+                  )
+                : null;
+            if (change.type == DocumentChangeType.added &&
+                alertGate.accept(change.doc.id, created)) {
               handleRewardNotification(
                 firebaseUser.uid,
                 change.doc.id,
@@ -12135,6 +12199,7 @@ void startNotificationCenterUnreadWatcher() {
             }
           }
         }
+        if (!initialized) alertGate.seed(snapshot.docs.map((doc) => doc.id));
         if (!snapshot.metadata.isFromCache) initialized = true;
         // Do not trust raw unread counts for the bell. Older/hidden/invalid
         // notifications can still be unread in Firestore, while the
@@ -12213,6 +12278,7 @@ Future<DocumentSnapshot<Map<String, dynamic>>?> safeFriendRequestGet(
 SessionCountStream? _incomingFriendRequests;
 String? _incomingFriendRequestUid;
 bool _accountSigningOut = false;
+final accountSigningOut = ValueNotifier<bool>(false);
 
 Future<void> stopIncomingFriendRequestCountStream() async {
   final previous = _incomingFriendRequests;
@@ -22577,13 +22643,16 @@ class ProfileRegionGate extends StatefulWidget {
 class _ProfileRegionGateState extends State<ProfileRegionGate> {
   final formKey = GlobalKey<FormState>();
   late final cityController = TextEditingController(text: currentUser.city);
-  late String? countryCode = countryIsoCode(currentUser.country);
+  late final countryController = TextEditingController(
+    text: currentUser.country,
+  );
   bool saving = false;
   String? saveError;
 
   @override
   void dispose() {
     cityController.dispose();
+    countryController.dispose();
     super.dispose();
   }
 
@@ -22594,7 +22663,10 @@ class _ProfileRegionGateState extends State<ProfileRegionGate> {
       saveError = null;
     });
     try {
-      await widget.saveRegion(cityController.text.trim(), countryCode!);
+      await widget.saveRegion(
+        cityController.text.trim(),
+        countryIsoCode(countryController.text)!,
+      );
       if (!mounted) return;
       setState(() => saving = false);
     } catch (_) {
@@ -22644,7 +22716,8 @@ class _ProfileRegionGateState extends State<ProfileRegionGate> {
                       Text(requiredRegionMessage),
                       const SizedBox(height: 18),
                       DropdownButtonFormField<String>(
-                        initialValue: countryCode,
+                        key: const ValueKey('profile-country'),
+                        initialValue: countryIsoCode(countryController.text),
                         isExpanded: true,
                         decoration: InputDecoration(
                           labelText: communityText(
@@ -22652,28 +22725,35 @@ class _ProfileRegionGateState extends State<ProfileRegionGate> {
                             ru: 'Страна',
                             lv: 'Valsts',
                           ),
+                          prefixIcon: const Icon(Icons.public, color: blue),
                         ),
                         items: allSupportedCountryNames()
                             .map(
-                              (country) => DropdownMenuItem(
+                              (country) => DropdownMenuItem<String>(
                                 value: countryIsoCode(country),
                                 child: Text(
-                                  '${countryFlagEmoji(country)} ${localizedCountryName(country)}',
+                                  countryFlagEmoji(country) +
+                                      ' ' +
+                                      localizedCountryName(country),
                                 ),
                               ),
                             )
                             .toList(),
                         onChanged: saving
                             ? null
-                            : (value) => setState(() => countryCode = value),
+                            : (code) {
+                                if (code != null)
+                                  countryController.text =
+                                      canonicalSpotCountryName(code);
+                              },
                         validator: (value) =>
                             value == null ? requiredRegionMessage : null,
                       ),
                       const SizedBox(height: 14),
                       TextFormField(
+                        key: const ValueKey('profile-city'),
                         controller: cityController,
                         enabled: !saving,
-                        maxLength: 120,
                         decoration: InputDecoration(
                           labelText: communityText(
                             en: 'City',
@@ -22681,7 +22761,9 @@ class _ProfileRegionGateState extends State<ProfileRegionGate> {
                             lv: 'Pilsēta',
                           ),
                         ),
-                        validator: (value) => (value ?? '').trim().isEmpty
+                        validator: (value) =>
+                            (value ?? '').trim().isEmpty ||
+                                (value ?? '').trim().length > 120
                             ? requiredRegionMessage
                             : null,
                       ),
@@ -22720,8 +22802,17 @@ class MainScreen extends StatelessWidget {
   final int initialIndex;
   const MainScreen({super.key, this.initialIndex = 0});
   @override
-  Widget build(BuildContext context) =>
-      ProfileRegionGate(child: _MainContentScreen(initialIndex: initialIndex));
+  Widget build(BuildContext context) => ValueListenableBuilder<bool>(
+    valueListenable: accountSigningOut,
+    builder: (context, leaving, _) => leaving
+        ? const Scaffold(
+            backgroundColor: Colors.black,
+            body: Center(child: CircularProgressIndicator()),
+          )
+        : ProfileRegionGate(
+            child: _MainContentScreen(initialIndex: initialIndex),
+          ),
+  );
 }
 
 class _MainContentScreen extends StatefulWidget {
@@ -27301,8 +27392,9 @@ class _MapScreenState extends State<MapScreen>
   String? nativeLiveLocationBackgroundSignature;
   List<PoliceReportData> policeReports = [];
   List<SosReportData> sosReports = [];
-  LatLng currentMapCenter = rigaCenter;
-  double currentMapZoom = rigaZoom;
+  bool defaultMapUsesSpots = true;
+  LatLng currentMapCenter = loadedSpotsMapCenter();
+  double currentMapZoom = 0;
   double currentMapRotationDegrees = 0;
   double currentUserHeadingDegrees = 0;
   LatLng? previousAcceptedHeadingLocation;
@@ -27376,61 +27468,25 @@ class _MapScreenState extends State<MapScreen>
       mapCameraReady = true;
       restoreMapCamera();
       handleMapFocusRequest();
-      unawaited(focusInitialMapOnProfileCity());
+      unawaited(focusInitialMapOnCurrentLocation());
     });
   }
 
-  Future<void> focusInitialMapOnProfileCity() async {
-    if (initialProfileCityFocusApplied || initialProfileCityFocusInProgress) {
+  Future<void> focusInitialMapOnCurrentLocation() async {
+    if (initialProfileCityFocusApplied || initialProfileCityFocusInProgress)
       return;
-    }
-
-    final city = currentUser.city.trim();
-    final country = currentUser.country.trim();
-
-    // Empty/legacy profiles keep the existing Riga fallback.
-    if (city.isEmpty) {
-      initialProfileCityFocusApplied = true;
-      return;
-    }
-
     initialProfileCityFocusInProgress = true;
-    final address = country.isEmpty ? city : '$city, $country';
-
-    try {
-      final locations = await locationFromAddress(
-        address,
-      ).timeout(userLocationLookupTimeout);
-
-      if (!mounted) {
-        return;
-      }
-
-      // An explicit spot/friend focus request or a manual pan always wins over
-      // this one-time default-city lookup.
-      if (mapFocusRequest.value != null || mapCameraChangedByUser) {
-        return;
-      }
-
-      if (locations.isEmpty) {
-        return;
-      }
-
-      final resolved = LatLng(
-        locations.first.latitude,
-        locations.first.longitude,
-      );
-      if (!isValidLatLng(resolved)) {
-        return;
-      }
-
-      moveMapCamera(resolved, rigaZoom, rotationDegrees: 0);
-    } catch (error) {
-      debugPrint('Profile city map focus failed for "$address": $error');
-    } finally {
-      initialProfileCityFocusInProgress = false;
-      initialProfileCityFocusApplied = true;
-    }
+    final location = await currentMapStartLocation();
+    if (!mounted) return;
+    initialProfileCityFocusInProgress = false;
+    initialProfileCityFocusApplied = true;
+    if (mapFocusRequest.value != null || mapCameraChangedByUser) return;
+    defaultMapUsesSpots = location == null;
+    moveMapCamera(
+      location ?? loadedSpotsMapCenter(),
+      location == null ? 0 : rigaZoom,
+      rotationDegrees: 0,
+    );
   }
 
   Future<void> loadMapStylePreference() async {
@@ -27586,6 +27642,11 @@ class _MapScreenState extends State<MapScreen>
   }
 
   void refreshMap() {
+    if (defaultMapUsesSpots &&
+        !mapCameraChangedByUser &&
+        mapFocusRequest.value == null) {
+      moveMapCamera(loadedSpotsMapCenter(), 0);
+    }
     if (!mounted) {
       return;
     }
@@ -28768,11 +28829,12 @@ class _MapScreenState extends State<MapScreen>
       return;
     }
 
-    final safeZoom = zoom.clamp(4.0, 18.0).toDouble();
+    final safeZoom = zoom.clamp(0.0, 18.0).toDouble();
     final safeRotation = normalizedHeadingDegrees(
       rotationDegrees ?? currentMapRotationDegrees,
     );
 
+    if (zoom > 0) defaultMapUsesSpots = false;
     currentMapCenter = location;
     currentMapZoom = safeZoom;
     currentMapRotationDegrees = safeRotation;
@@ -31270,7 +31332,7 @@ class _MapScreenState extends State<MapScreen>
   void loadInitialUserLocation() {
     // This centers on the profile city only; GPS is still requested only after
     // pressing the blue "find me" button or enabling live location.
-    unawaited(focusInitialMapOnProfileCity());
+    unawaited(focusInitialMapOnCurrentLocation());
   }
 
   void startNavigationTracking() {
@@ -31677,7 +31739,7 @@ class _MapScreenState extends State<MapScreen>
               initialCenter: currentMapCenter,
               initialZoom: currentMapZoom,
               initialRotation: currentMapRotationDegrees,
-              minZoom: 4,
+              minZoom: 0,
               maxZoom: 18,
               interactionOptions: ccsMapInteractionOptions,
               backgroundColor: mapStyle.backgroundColor,
@@ -31691,7 +31753,7 @@ class _MapScreenState extends State<MapScreen>
                   return;
                 }
 
-                final nextZoom = camera.zoom.clamp(4.0, 18.0).toDouble();
+                final nextZoom = camera.zoom.clamp(0.0, 18.0).toDouble();
                 final nextRotation = normalizedHeadingDegrees(
                   camera.rotation,
                   fallback: currentMapRotationDegrees,
@@ -32819,12 +32881,12 @@ class PoliceReportMapCard extends StatelessWidget {
           const SizedBox(height: 12),
           Row(
             children: [
-              _SmallTag(
+              SpotInfoTag(
                 label: '${report.stillThereCount} still there',
                 icon: Icons.check_circle_outline,
               ),
               const SizedBox(width: 8),
-              _SmallTag(
+              SpotInfoTag(
                 label: '${report.notThereCount} not there',
                 icon: Icons.cancel_outlined,
               ),
@@ -33153,15 +33215,17 @@ class SpotMapCard extends StatelessWidget {
                   runSpacing: 7,
                   children: [
                     if (spot.verifiedOnly)
-                      _SmallTag(label: 'Verified only', icon: Icons.verified),
+                      SpotInfoTag(label: 'Verified only', icon: Icons.verified),
                     if (spot.isTemporary)
-                      _SmallTag(
+                      SpotInfoTag(
+                        fullLabel: true,
                         label: spot.temporaryTimeLabel,
                         icon: Icons.event,
                       ),
                     if (spot.isTemporary &&
                         !spot.isTemporaryLocationAvailableNow)
-                      _SmallTag(
+                      SpotInfoTag(
+                        fullLabel: true,
                         label: spot.temporaryLocationAvailableAtLabel,
                         icon: Icons.visibility_off_outlined,
                       ),
@@ -33424,11 +33488,11 @@ class LiveLocationMapCard extends StatelessWidget {
                       spacing: 7,
                       runSpacing: 7,
                       children: [
-                        _SmallTag(
+                        SpotInfoTag(
                           label: isFriend ? 'Friend' : 'Driver',
                           icon: isFriend ? Icons.people : Icons.person,
                         ),
-                        _SmallTag(
+                        SpotInfoTag(
                           label: location.isActive ? 'online' : 'offline',
                           icon: Icons.my_location,
                         ),
@@ -33606,7 +33670,7 @@ class SavedSpotTile extends StatelessWidget {
                     runSpacing: 6,
                     children: [
                       for (final category in spot.categories.take(2))
-                        _SmallTag(label: category, icon: Icons.local_offer),
+                        SpotInfoTag(label: category, icon: Icons.local_offer),
                     ],
                   ),
                 ],
@@ -34371,18 +34435,20 @@ class _SpotDetailScreenState extends State<SpotDetailScreen>
                   runSpacing: 8,
                   children: [
                     if (spot.isTemporary)
-                      _SmallTag(
+                      SpotInfoTag(
+                        fullLabel: true,
                         label: spot.temporaryTimeLabel,
                         icon: Icons.event,
                       ),
                     if (spot.isTemporary &&
                         !spot.isTemporaryLocationAvailableNow)
-                      _SmallTag(
+                      SpotInfoTag(
+                        fullLabel: true,
                         label: spot.temporaryLocationAvailableAtLabel,
                         icon: Icons.visibility_off_outlined,
                       ),
                     for (final category in spot.categories)
-                      _SmallTag(label: category, icon: Icons.local_offer),
+                      SpotInfoTag(label: category, icon: Icons.local_offer),
                   ],
                 ),
                 if (spot.supportsContacts) ...[
@@ -35944,12 +36010,18 @@ class _SpotPhotoPlaceholder extends StatelessWidget {
   }
 }
 
-class _SmallTag extends StatelessWidget {
+class SpotInfoTag extends StatelessWidget {
   final String label;
   final IconData icon;
   final Color? color;
 
-  const _SmallTag({required this.label, required this.icon, this.color});
+  final bool fullLabel;
+  const SpotInfoTag({
+    required this.label,
+    required this.icon,
+    this.color,
+    this.fullLabel = false,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -35967,19 +36039,27 @@ class _SmallTag extends StatelessWidget {
         children: [
           Icon(icon, color: accent, size: 14),
           const SizedBox(width: 5),
-          ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 98),
-            child: Text(
-              label,
-              maxLines: 1,
-              softWrap: false,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                color: accent.computeLuminance() > 0.55
-                    ? Colors.black87
-                    : Colors.white,
-                fontSize: 11.5,
-                fontWeight: FontWeight.w800,
+          Flexible(
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                maxWidth: fullLabel
+                    ? MediaQuery.sizeOf(context).width - 95
+                    : 98,
+              ),
+              child: Text(
+                label,
+                maxLines: fullLabel ? null : 1,
+                softWrap: fullLabel,
+                overflow: fullLabel
+                    ? TextOverflow.visible
+                    : TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: accent.computeLuminance() > 0.55
+                      ? Colors.black87
+                      : Colors.white,
+                  fontSize: 11.5,
+                  fontWeight: FontWeight.w800,
+                ),
               ),
             ),
           ),
@@ -37916,8 +37996,7 @@ class _TemporarySpotScheduleCard extends StatelessWidget {
                     value == null
                         ? trText('Choose time')
                         : formatShortDateTime(value),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
+                    softWrap: true,
                     style: const TextStyle(color: Colors.white54, fontSize: 12),
                   ),
                 ],
@@ -38021,10 +38100,36 @@ class LocationPickerScreen extends StatefulWidget {
   State<LocationPickerScreen> createState() => _LocationPickerScreenState();
 }
 
+Future<LatLng?> currentMapStartLocation() async {
+  try {
+    if (!await Geolocator.isLocationServiceEnabled()) return null;
+    var permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied)
+      permission = await Geolocator.requestPermission();
+    if (permission != LocationPermission.always &&
+        permission != LocationPermission.whileInUse)
+      return null;
+    final position = await Geolocator.getCurrentPosition(
+      locationSettings: const LocationSettings(
+        accuracy: LocationAccuracy.high,
+        timeLimit: Duration(seconds: 12),
+      ),
+    );
+    final point = LatLng(position.latitude, position.longitude);
+    return isValidLatLng(point) ? point : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+LatLng loadedSpotsMapCenter() =>
+    spotsMidpoint(approvedPublicSpots().map((spot) => spot.coordinates));
+
 class _LocationPickerScreenState extends State<LocationPickerScreen>
     with LanguageReactiveState {
-  static const defaultCenter = LatLng(56.9496, 24.1052);
-  static const defaultZoom = 13.0;
+  LatLng defaultCenter = const LatLng(20, 0);
+  bool centerLoading = true;
+  double defaultZoom = 13.0;
 
   final mapController = MapController();
   LatLng? pickedLocation;
@@ -38077,12 +38182,23 @@ class _LocationPickerScreenState extends State<LocationPickerScreen>
   void initState() {
     super.initState();
     pickedLocation = widget.initialLocation;
+    unawaited(loadProfileCenter());
     maintenanceModeConfig.addListener(regionsChanged);
     if (widget.restrictSpotRegions) {
       unawaited(loadOutlines());
       if (pickedLocation != null) unawaited(selectPin(pickedLocation!));
     }
     unawaited(loadMapStylePreference());
+  }
+
+  Future<void> loadProfileCenter() async {
+    if (widget.initialLocation == null) {
+      final location = await currentMapStartLocation();
+      if (!mounted) return;
+      defaultCenter = location ?? loadedSpotsMapCenter();
+      defaultZoom = location == null ? 0 : 13;
+    }
+    if (mounted) setState(() => centerLoading = false);
   }
 
   Future<void> loadMapStylePreference() async {
@@ -38149,158 +38265,165 @@ class _LocationPickerScreenState extends State<LocationPickerScreen>
         backgroundColor: Colors.transparent,
         foregroundColor: blue,
       ),
-      body: Stack(
-        children: [
-          FlutterMap(
-            mapController: mapController,
-            options: MapOptions(
-              initialCenter: pickedLocation ?? defaultCenter,
-              initialZoom: defaultZoom,
-              minZoom: 4,
-              maxZoom: 18,
-              interactionOptions: ccsMapInteractionOptions,
-              backgroundColor: mapStyle.backgroundColor,
-              onTap: (_, point) => unawaited(selectPin(point)),
-            ),
-            children: [
-              _CcsSmoothMapTileLayer(mapStyle: mapStyle),
-              if (widget.restrictSpotRegions)
-                IgnorePointer(
-                  child: PolygonLayer(
-                    polygons: [
-                      for (final outline in outlines)
-                        if (!spotCountryIsSupported(outline.code))
-                          Polygon(
-                            points: outline.rings.first,
-                            holePointsList: outline.rings.skip(1).toList(),
-                            color: Colors.red.withValues(alpha: 0.16),
-                            borderColor: Colors.redAccent.withValues(
-                              alpha: 0.6,
+      body: centerLoading
+          ? const Center(child: CircularProgressIndicator())
+          : Stack(
+              children: [
+                FlutterMap(
+                  mapController: mapController,
+                  options: MapOptions(
+                    initialCenter: pickedLocation ?? defaultCenter,
+                    initialZoom: defaultZoom,
+                    minZoom: 0,
+                    maxZoom: 18,
+                    interactionOptions: ccsMapInteractionOptions,
+                    backgroundColor: mapStyle.backgroundColor,
+                    onTap: (_, point) => unawaited(selectPin(point)),
+                  ),
+                  children: [
+                    _CcsSmoothMapTileLayer(mapStyle: mapStyle),
+                    if (widget.restrictSpotRegions)
+                      IgnorePointer(
+                        child: PolygonLayer(
+                          polygons: [
+                            for (final outline in outlines)
+                              if (!spotCountryIsSupported(outline.code))
+                                Polygon(
+                                  points: outline.rings.first,
+                                  holePointsList: outline.rings
+                                      .skip(1)
+                                      .toList(),
+                                  color: Colors.red.withValues(alpha: 0.16),
+                                  borderColor: Colors.redAccent.withValues(
+                                    alpha: 0.6,
+                                  ),
+                                  borderStrokeWidth: 1,
+                                  label: '×',
+                                  labelStyle: const TextStyle(
+                                    color: Colors.redAccent,
+                                    fontSize: 32,
+                                  ),
+                                ),
+                          ],
+                        ),
+                      ),
+                    MarkerLayer(markers: markers),
+                  ],
+                ),
+                Positioned(
+                  left: 16,
+                  right: 16,
+                  top: 16,
+                  child: Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.78),
+                      borderRadius: BorderRadius.circular(18),
+                      border: Border.all(color: Colors.white12),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.touch_app, color: blue),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            trText(
+                              widget.restrictSpotRegions
+                                  ? 'Tap to place a pin. Red regions are unsupported. Borders are approximate.'
+                                  : 'Tap the map where this car spot should be placed.',
                             ),
-                            borderStrokeWidth: 1,
-                            label: '×',
-                            labelStyle: const TextStyle(
-                              color: Colors.redAccent,
-                              fontSize: 32,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w700,
+                              height: 1.25,
                             ),
                           ),
-                    ],
+                        ),
+                      ],
+                    ),
                   ),
                 ),
-              MarkerLayer(markers: markers),
-            ],
-          ),
-          Positioned(
-            left: 16,
-            right: 16,
-            top: 16,
-            child: Container(
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                color: Colors.black.withValues(alpha: 0.78),
-                borderRadius: BorderRadius.circular(18),
-                border: Border.all(color: Colors.white12),
-              ),
-              child: Row(
-                children: [
-                  const Icon(Icons.touch_app, color: blue),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Text(
-                      trText(
-                        widget.restrictSpotRegions
-                            ? 'Tap to place a pin. Red regions are unsupported. Borders are approximate.'
-                            : 'Tap the map where this car spot should be placed.',
-                      ),
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w700,
-                        height: 1.25,
-                      ),
+                Positioned(
+                  left: 16,
+                  right: 16,
+                  bottom: 16,
+                  child: Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: panelGlass,
+                      borderRadius: BorderRadius.circular(22),
+                      border: Border.all(color: Colors.white12),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.36),
+                          blurRadius: 24,
+                          offset: const Offset(0, 10),
+                        ),
+                      ],
                     ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          Positioned(
-            left: 16,
-            right: 16,
-            bottom: 16,
-            child: Container(
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                color: panelGlass,
-                borderRadius: BorderRadius.circular(22),
-                border: Border.all(color: Colors.white12),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.36),
-                    blurRadius: 24,
-                    offset: const Offset(0, 10),
-                  ),
-                ],
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Icon(
-                        hasLocation ? Icons.check_circle : Icons.place,
-                        color: hasLocation ? blue : Colors.white54,
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Text(
-                          trText(
-                            checkingRegion
-                                ? 'Checking region...'
-                                : pickedRegion != null && !pickedRegion!.allowed
-                                ? pickedRegion!.warning
-                                : hasLocation
-                                ? 'Location selected'
-                                : 'No location selected yet',
-                          ),
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 17,
-                            fontWeight: FontWeight.w900,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Icon(
+                              hasLocation ? Icons.check_circle : Icons.place,
+                              color: hasLocation ? blue : Colors.white54,
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Text(
+                                trText(
+                                  checkingRegion
+                                      ? 'Checking region...'
+                                      : pickedRegion != null &&
+                                            !pickedRegion!.allowed
+                                      ? pickedRegion!.warning
+                                      : hasLocation
+                                      ? 'Location selected'
+                                      : 'No location selected yet',
+                                ),
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 17,
+                                  fontWeight: FontWeight.w900,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        SizedBox(
+                          height: 48,
+                          width: double.infinity,
+                          child: ElevatedButton(
+                            onPressed: hasLocation
+                                ? () => Navigator.pop(context, pickedLocation)
+                                : null,
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: blue,
+                              disabledBackgroundColor: Colors.white12,
+                              foregroundColor: Colors.white,
+                              disabledForegroundColor: Colors.white38,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(16),
+                              ),
+                            ),
+                            child: Text(
+                              trText('Use this Location'),
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
                           ),
                         ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  SizedBox(
-                    height: 48,
-                    width: double.infinity,
-                    child: ElevatedButton(
-                      onPressed: hasLocation
-                          ? () => Navigator.pop(context, pickedLocation)
-                          : null,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: blue,
-                        disabledBackgroundColor: Colors.white12,
-                        foregroundColor: Colors.white,
-                        disabledForegroundColor: Colors.white38,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(16),
-                        ),
-                      ),
-                      child: Text(
-                        trText('Use this Location'),
-                        style: const TextStyle(fontWeight: FontWeight.w800),
-                      ),
+                      ],
                     ),
                   ),
-                ],
-              ),
+                ),
+              ],
             ),
-          ),
-        ],
-      ),
     );
   }
 }
@@ -45984,7 +46107,7 @@ class _ForumTopicPageState extends State<ForumTopicPage>
                   spacing: 7,
                   runSpacing: 6,
                   children: [
-                    _SmallTag(
+                    SpotInfoTag(
                       label: trText('Topic creator'),
                       icon: Icons.edit_note_rounded,
                     ),
@@ -49312,14 +49435,14 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen>
                     children: [
                       OnlineStatusBadge(online: user.appearsOnline),
                       if (isOwner)
-                        _SmallTag(label: trText('owner'), icon: Icons.shield)
+                        SpotInfoTag(label: trText('owner'), icon: Icons.shield)
                       else if (isModerator)
-                        _SmallTag(
+                        SpotInfoTag(
                           label: trText('moderator'),
                           icon: Icons.admin_panel_settings,
                         )
                       else
-                        _SmallTag(
+                        SpotInfoTag(
                           label: trText('member'),
                           icon: Icons.person_outline,
                           color: const Color(0xFF94A3B8),
@@ -55949,6 +56072,9 @@ void openAchievements(BuildContext context) {
       builder: (_) => AchievementsScreen(
         language: appUiPreferences.language.name,
         load: () => xpScreenRequest('achievements'),
+        onSelect: (id) async {
+          await xpScreenRequest('select_achievement', {'achievementId': id});
+        },
       ),
     ),
   );
@@ -56015,11 +56141,16 @@ class _XpSummaryCardState extends State<XpSummaryCard> {
             ? XpUserStats.fromFirestore(doc)
             : XpUserStats.empty(cleanUserId);
 
-        return XpSummaryContent(
-          stats: stats,
-          loading: loading,
-          unavailable: snapshot.hasError,
-          onTap: widget.onTap,
+        return Column(
+          children: [
+            XpSummaryContent(
+              stats: stats,
+              loading: loading,
+              unavailable: snapshot.hasError,
+              onTap: widget.onTap,
+            ),
+            ProfileAchievement(userId: cleanUserId),
+          ],
         );
       },
     );
@@ -56076,6 +56207,8 @@ class _PublicXpSummaryCardState extends State<PublicXpSummaryCard> {
             unavailable: snapshot.hasError,
             onTap: widget.onHistory,
           ),
+          if (snapshot.hasData && !snapshot.hasError)
+            ProfileAchievement(userId: widget.userId),
           if (snapshot.hasError)
             TextButton(
               onPressed: () => setState(load),
@@ -56708,6 +56841,14 @@ class _XpLeaderboardScreenState extends State<XpLeaderboardScreen>
   bool _failed = false;
   bool _expired = false;
   String _search = '';
+  String _rankingCountry = currentUserHomeCountryCode();
+  void _countryChanged() {
+    final country = currentUserHomeCountryCode();
+    if (!mounted || country == _rankingCountry) return;
+    _rankingCountry = country;
+    unawaited(_load(reset: true));
+  }
+
   XpLeaderboardPeriod selectedPeriod = XpLeaderboardPeriod.allTime;
 
   String t(String en, String ru, String lv) =>
@@ -56716,11 +56857,13 @@ class _XpLeaderboardScreenState extends State<XpLeaderboardScreen>
   @override
   void initState() {
     super.initState();
+    currentUserProfileRevision.addListener(_countryChanged);
     unawaited(_load(reset: true));
   }
 
   @override
   void dispose() {
+    currentUserProfileRevision.removeListener(_countryChanged);
     _debounce?.cancel();
     _searchController.dispose();
     _scrollController.dispose();
@@ -56896,7 +57039,7 @@ class _XpLeaderboardScreenState extends State<XpLeaderboardScreen>
                   const SizedBox(height: 5),
                   Text(
                     t(
-                      'This leaderboard shows public profiles only.',
+                      '${localizedCountryName(currentUser.country)} • ${trText('This leaderboard shows public profiles only.')}',
                       'В рейтинге показаны только открытые профили.',
                       'Reitingā redzami tikai publiski profili.',
                     ),
@@ -58276,10 +58419,10 @@ class _ProfileStyleSection extends StatelessWidget {
             runSpacing: 8,
             children: [
               if (tags.isEmpty)
-                const _SmallTag(label: 'No tags yet', icon: Icons.local_offer)
+                const SpotInfoTag(label: 'No tags yet', icon: Icons.local_offer)
               else
                 for (final tag in tags)
-                  _SmallTag(label: tag, icon: Icons.local_offer),
+                  SpotInfoTag(label: tag, icon: Icons.local_offer),
             ],
           ),
         ],
@@ -58635,7 +58778,7 @@ class EditProfileScreen extends StatefulWidget {
 }
 
 class _EditProfileScreenState extends State<EditProfileScreen> {
-  String? selectedCountryCode;
+  late final TextEditingController countryController;
   late final TextEditingController usernameController;
   late final TextEditingController cityController;
   late final TextEditingController bioController;
@@ -58656,7 +58799,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     super.initState();
     usernameController = TextEditingController(text: widget.profile.username);
     cityController = TextEditingController(text: widget.profile.city);
-    selectedCountryCode = countryIsoCode(widget.profile.country);
+    countryController = TextEditingController(text: widget.profile.country);
     bioController = TextEditingController(text: widget.profile.bio);
     instagramController = TextEditingController(text: widget.profile.instagram);
     tiktokController = TextEditingController(text: widget.profile.tiktok);
@@ -58671,6 +58814,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     usernameController.removeListener(queueUsernameAvailabilityCheck);
     usernameController.dispose();
     cityController.dispose();
+    countryController.dispose();
     bioController.dispose();
     instagramController.dispose();
     tiktokController.dispose();
@@ -58729,11 +58873,8 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     setState(() => avatarPath = path);
   }
 
-  void saveProfile() {
-    if (!profileRegionIsComplete(
-      cityController.text,
-      selectedCountryCode ?? widget.profile.country,
-    )) {
+  Future<void> saveProfile() async {
+    if (!profileRegionIsComplete(cityController.text, countryController.text)) {
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text(requiredRegionMessage)));
@@ -58762,9 +58903,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
             ? currentUser.username
             : cleanProfileUsername(usernameController.text),
         city: cityController.text.trim(),
-        country: selectedCountryCode == null
-            ? widget.profile.country
-            : canonicalSpotCountryName(selectedCountryCode!),
+        country: canonicalSpotCountryName(countryController.text.trim()),
         bio: bioController.text.trim().isEmpty
             ? 'Find. Drive. Shoot.'
             : bioController.text.trim(),
@@ -58886,22 +59025,10 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                 ],
               ),
               const SizedBox(height: 14),
-              _CcsTextField(
-                controller: cityController,
-                label: communityText(en: 'City', ru: 'Город', lv: 'Pilsēta'),
-                hint: communityText(
-                  en: 'Enter your city',
-                  ru: 'Введите город',
-                  lv: 'Ievadiet pilsētu',
-                ),
-                icon: Icons.location_city,
-              ),
-              const SizedBox(height: 14),
               DropdownButtonFormField<String>(
-                initialValue: selectedCountryCode,
+                key: const ValueKey('profile-country'),
+                initialValue: countryIsoCode(countryController.text),
                 isExpanded: true,
-                dropdownColor: const Color(0xFF171C24),
-                style: const TextStyle(color: Colors.white),
                 decoration: InputDecoration(
                   labelText: communityText(
                     en: 'Country',
@@ -58910,23 +59037,36 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                   ),
                   prefixIcon: const Icon(Icons.public, color: blue),
                 ),
-                hint: Text(
-                  communityText(
-                    en: 'Choose your country',
-                    ru: 'Выберите страну',
-                    lv: 'Izvēlieties valsti',
+                items: allSupportedCountryNames()
+                    .map(
+                      (country) => DropdownMenuItem<String>(
+                        value: countryIsoCode(country),
+                        child: Text(
+                          countryFlagEmoji(country) +
+                              ' ' +
+                              localizedCountryName(country),
+                        ),
+                      ),
+                    )
+                    .toList(),
+                onChanged: (code) {
+                  if (code != null)
+                    countryController.text = canonicalSpotCountryName(code);
+                },
+                validator: (value) =>
+                    value == null ? requiredRegionMessage : null,
+              ),
+              const SizedBox(height: 14),
+              TextFormField(
+                key: const ValueKey('profile-city'),
+                controller: cityController,
+                decoration: InputDecoration(
+                  labelText: communityText(
+                    en: 'City',
+                    ru: 'Город',
+                    lv: 'Pilsēta',
                   ),
                 ),
-                items: allSupportedCountryNames().map((country) {
-                  final code = countryIsoCode(country)!;
-                  return DropdownMenuItem(
-                    value: code,
-                    child: Text(
-                      '${countryFlagEmoji(code)} ${localizedCountryName(code)}',
-                    ),
-                  );
-                }).toList(),
-                onChanged: (code) => setState(() => selectedCountryCode = code),
               ),
               const SizedBox(height: 8),
               Text(
@@ -65286,9 +65426,9 @@ class _LockedAdminSpotReviewScreen extends StatelessWidget {
             runSpacing: 8,
             children: [
               if (spot.verifiedOnly)
-                _SmallTag(label: 'Verified only', icon: Icons.verified_user),
+                SpotInfoTag(label: 'Verified only', icon: Icons.verified_user),
               for (final category in spot.categories)
-                _SmallTag(label: category, icon: Icons.local_offer),
+                SpotInfoTag(label: category, icon: Icons.local_offer),
             ],
           ),
           const SizedBox(height: 22),
@@ -65416,4 +65556,49 @@ class AppPage extends StatelessWidget {
       ),
     );
   }
+}
+
+class ProfileAchievement extends StatefulWidget {
+  final String userId;
+  const ProfileAchievement({super.key, required this.userId});
+  @override
+  State<ProfileAchievement> createState() => _ProfileAchievementState();
+}
+
+class _ProfileAchievementState extends State<ProfileAchievement> {
+  late Stream<DocumentSnapshot<Map<String, dynamic>>> stream;
+  void subscribe() {
+    stream = FirebaseFirestore.instance
+        .collection('xp_featured_achievements')
+        .doc(widget.userId)
+        .debugSnapshots('profile: featured achievement');
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    subscribe();
+  }
+
+  @override
+  void didUpdateWidget(ProfileAchievement oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.userId != widget.userId) subscribe();
+  }
+
+  @override
+  Widget build(BuildContext context) =>
+      StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+        key: ValueKey(widget.userId),
+        stream: stream,
+        builder: (context, snapshot) {
+          if (snapshot.hasError) return const SizedBox.shrink();
+          final item = snapshot.data?.data()?['item'];
+          if (item is! Map) return const SizedBox.shrink();
+          return FeaturedAchievement(
+            item: Map<String, dynamic>.from(item),
+            language: appUiPreferences.language.name,
+          );
+        },
+      );
 }

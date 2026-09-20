@@ -150,6 +150,7 @@ test('notification opt-out at root or settings suppresses notification but prese
 });
 
 async function leaderboard(f, uid, period) {
+  for(const [key,user] of f.rows) if(key.startsWith('users/') && user.country === undefined) user.country='LV';
   const response = { status(code) { this.code = code; return this; },
     json(body) { this.body = body; return this; }, setHeader() {} };
   await f.load('../handlers/xp-leaderboard.js')({ method: 'POST',

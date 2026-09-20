@@ -178,6 +178,12 @@ import UIKit
     withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
   ) {
     super.userNotificationCenter(center, willPresent: notification) { _ in
+      // Dart applies the launch cutoff before creating a local foreground alert.
+      // Let FCM deliver the message to Dart without presenting the raw push twice.
+      if notification.request.trigger is UNPushNotificationTrigger {
+        completionHandler([])
+        return
+      }
       if #available(iOS 14.0, *) {
         completionHandler([.banner, .list, .badge])
       } else {
