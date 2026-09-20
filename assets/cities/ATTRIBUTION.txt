@@ -1,0 +1,4 @@
+City and administrative region data: GeoNames, https://www.geonames.org/
+Source: https://download.geonames.org/export/dump/cities500.zip and admin1CodesASCII.txt
+Downloaded 2026-09-20. Licensed CC BY 4.0: https://creativecommons.org/licenses/by/4.0/
+Filtered to supported countries and populated places; city districts and abandoned/historical places excluded. Names/aliases and coordinates retained. This is a gazetteer of populated places, not an exhaustive municipal register.

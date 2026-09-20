@@ -114,6 +114,9 @@ class InAppBadgeController extends ChangeNotifier {
   ActivityBadgeState state = ActivityBadgeState(
     DateTime.now().millisecondsSinceEpoch,
   );
+  // A cold launch establishes a new baseline, never restoring old UI counters.
+  // Re-subscribing or switching country within this process keeps fresh activity.
+  final _sessionStates = <String, ActivityBadgeState>{};
   String? _uid;
   String _countryCode = 'LV';
   int _generation = 0;
@@ -189,18 +192,9 @@ class InAppBadgeController extends ChangeNotifier {
     _countryCode = cleanCountryCode.isEmpty ? 'LV' : cleanCountryCode;
     final generation = _generation;
     await _saving.catchError((Object _) {});
-    final prefs = await SharedPreferences.getInstance();
     if (generation != _generation) return;
     final now = DateTime.now().millisecondsSinceEpoch;
-    try {
-      state = ActivityBadgeState.restore(
-        jsonDecode(prefs.getString('activity_badges_v1_$uid') ?? '{}')
-            as Map<String, dynamic>,
-        now,
-      );
-    } catch (_) {
-      state = ActivityBadgeState(now);
-    }
+    state = _sessionStates.putIfAbsent(uid, () => ActivityBadgeState(now));
     _ready = true;
     for (final entry in _pendingForumReads.entries) {
       state.readTopic(entry.key, entry.value);

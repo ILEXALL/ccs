@@ -63,6 +63,7 @@ test('search finds a low-ranked username or display name beyond the first hundre
   f.rows.set('users/u'+i,{username:'driver'+i,name:i===249?'Distinct Name':'Driver',publicProfile:true});
   f.rows.set('xp_user_stats/u'+i,{xpTotal:1000-i,userId:'u'+i,level:3});
  }
+ for(const [key,user] of f.rows) if(key.startsWith('users/')) user.country='LV';
  const handler=f.load('../handlers/xp-leaderboard.js');
  const res={status(c){this.code=c;return this;},json(v){this.body=v;return this;},setHeader(){}};
  await handler({method:'POST',headers:{authorization:'Bearer tester'},body:{search:'distinct',limit:10}},res);

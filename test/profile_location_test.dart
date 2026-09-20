@@ -90,7 +90,10 @@ void main() {
     await tester.tap(find.text('Save and continue'));
     await tester.pump();
     expect(attempts, 0);
-    await tester.enterText(find.byType(TextFormField), ' Moscow ');
+    await tester.enterText(
+      find.byKey(const ValueKey('profile-city')),
+      'Moscow',
+    );
     await tester.tap(find.text('Save and continue'));
     await tester.pump();
     expect(attempts, 1);
@@ -177,16 +180,16 @@ void main() {
     );
     await tester.tap(find.text('Edit'));
     await tester.pumpAndSettle();
-    final city = find.byWidgetPredicate(
-      (widget) => widget is TextField && widget.controller?.text == 'Riga',
-    );
-    await tester.enterText(city, 'Moscow');
-    await tester.tap(find.byType(DropdownButtonFormField<String>));
+    await tester.tap(find.byKey(const ValueKey('profile-country')));
     await tester.pumpAndSettle();
     final russia = find.text('🇷🇺 Russia').last;
     await tester.ensureVisible(russia);
     await tester.tap(russia);
     await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('profile-city')),
+      'Moscow',
+    );
     await tester.ensureVisible(find.text('Save Profile'));
     await tester.tap(find.text('Save Profile'));
     await tester.pumpAndSettle();

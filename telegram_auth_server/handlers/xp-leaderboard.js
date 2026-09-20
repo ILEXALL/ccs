@@ -1,3 +1,4 @@
+const {profileCountry} = require('../lib/private-groups');
 const { admin, db } = require('../lib/firebase-admin');
 const { weekKeyFor } = require('../lib/xp/xp-engine');
 
@@ -140,7 +141,7 @@ function readCursor(body, context) {
   const cursor = body.cursor;
   if (cursor == null) return null;
   if (typeof cursor !== 'object' || Array.isArray(cursor) ||
-      cursor.period !== context.period || cursor.weekKey !== context.weekKey ||
+      cursor.country !== context.country || cursor.period !== context.period || cursor.weekKey !== context.weekKey ||
       cursor.search !== context.search || typeof cursor.afterId !== 'string' ||
       !cursor.afterId || cursor.afterId.length > 1500 || cursor.afterId.includes('/') ||
       !Number.isSafeInteger(cursor.rank) || cursor.rank < 0 || cursor.rank > 10000000 ||
@@ -152,10 +153,10 @@ function readCursor(body, context) {
   return cursor;
 }
 
-async function cursorUserAvailable(userId, stats) {
+async function cursorUserAvailable(userId, stats, country) {
   const snapshot = await db.collection('users').doc(userId).get();
   const user = snapshot.data() || {};
-  return snapshot.exists && isActiveUser(user) && publicProfileEnabled(user) && stats.xpBlocked !== true;
+  return snapshot.exists && profileCountry(user) === country && isActiveUser(user) && publicProfileEnabled(user) && stats.xpBlocked !== true;
 }
 
 async function loadAllTimeLeaderboard(limit, context, cursor) {
@@ -166,7 +167,7 @@ async function loadAllTimeLeaderboard(limit, context, cursor) {
   if (cursor) {
     after = await db.collection('xp_user_stats').doc(cursor.afterId).get();
     if (!after.exists || after.data().xpTotal !== cursor.score ||
-        !await cursorUserAvailable(cleanString(after.data().userId, after.id), after.data())) {
+        !await cursorUserAvailable(cleanString(after.data().userId, after.id), after.data(), context.country)) {
       const error = new Error('LEADERBOARD_CURSOR_EXPIRED');
       error.statusCode = 409;
       throw error;
@@ -185,6 +186,7 @@ async function loadAllTimeLeaderboard(limit, context, cursor) {
     for (let index = 0; index < docs.length; index++) {
       const user = users[index].data() || {};
       if (!users[index].exists || !isActiveUser(user) || !publicProfileEnabled(user)) continue;
+      if (!context.country || profileCountry(user) !== context.country) continue;
       rank++;
       if (!matchesSearch(user, context.search)) continue;
       const stats = docs[index].data();
@@ -250,7 +252,7 @@ async function loadWeeklyLeaderboard(limit, context, cursor) {
   if (cursor) {
     const index = weeks.findIndex(week => week.userId === cursor.afterId && week.weeklyXp === cursor.score);
     const stats = (await db.collection('xp_user_stats').doc(cursor.afterId).get()).data() || {};
-    if (index < 0 || !await cursorUserAvailable(cursor.afterId, stats)) {
+    if (index < 0 || !await cursorUserAvailable(cursor.afterId, stats, context.country)) {
       const error = new Error('LEADERBOARD_CURSOR_EXPIRED');
       error.statusCode = 409;
       throw error;
@@ -272,6 +274,7 @@ async function loadWeeklyLeaderboard(limit, context, cursor) {
       const stats = statsSnapshots[index].data() || {};
       if (!userSnapshots[index].exists || !isActiveUser(user) ||
           !publicProfileEnabled(user) || stats.xpBlocked === true) continue;
+      if (!context.country || profileCountry(user) !== context.country) continue;
       rank++;
       if (!matchesSearch(user, context.search)) continue;
       matches.push({
@@ -284,9 +287,9 @@ async function loadWeeklyLeaderboard(limit, context, cursor) {
   return pageResult(matches, limit, weekKey);
 }
 
-async function loadLeaderboard(limit, period, config, body) {
+async function loadLeaderboard(limit, period, config, body, country) {
   const search = cleanString(body.search).replace(/^@/, '').trim().toLowerCase().slice(0, 30);
-  const context = {period, weekKey: currentXpWeekKey(config), search};
+  const context = {country, period, weekKey: currentXpWeekKey(config), search};
   const cursor = readCursor(body, context);
   return period === 'weekly'
     ? loadWeeklyLeaderboard(limit, context, cursor)
@@ -318,11 +321,12 @@ module.exports = async function handler(req, res) {
 
     const body = req.body || {};
     const period = periodFromBody(body);
-    const leaderboard = await loadLeaderboard(limitFromBody(body), period, config, body);
+    const leaderboard = await loadLeaderboard(limitFromBody(body), period, config, body, profileCountry(actor.user));
 
     return res.status(200).json({
       ok: true,
       result: {
+        countryCode: profileCountry(actor.user),
         entries: leaderboard.entries,
         nextCursor: leaderboard.nextCursor,
         hasMore: leaderboard.hasMore,

@@ -129,6 +129,7 @@ test('weekly ranking ignores stale legacy mirrors after full revocation and rest
   async function entries() {
     const res = {status(code) {this.code = code; return this;},
       json(body) {this.body = body; return this;}, setHeader() {}};
+    f.rows.get('users/tester').country='LV';
     await f.load('../handlers/xp-leaderboard.js')({method: 'POST',
       headers: {authorization: 'Bearer tester'}, body: {period: 'weekly', limit: 100}}, res);
     assert.equal(res.code, 200);

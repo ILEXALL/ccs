@@ -4,6 +4,7 @@ const {fixture} = require('./support');
 const {weekKeyFor} = require('../lib/xp/xp-engine');
 
 async function request(f, body = {}) {
+  for(const [key,user] of f.rows) if(key.startsWith('users/') && user.country === undefined) user.country='LV';
   const response = {status(code) {this.code = code; return this;},
     json(body) {this.body = body; return this;}, setHeader() {}};
   await f.load('../handlers/xp-leaderboard.js')({method: 'POST',

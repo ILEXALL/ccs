@@ -32,6 +32,55 @@ void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
   test(
+    'cold launch ignores persisted badges and old activity; session restart keeps new badges',
+    () async {
+      final stored = ActivityBadgeState(1);
+      stored.counts['map'] = 26;
+      stored.counts['direct'] = 70;
+      SharedPreferences.setMockInitialValues({
+        'activity_badges_v1_user': jsonEncode(stored.toJson()),
+      });
+      final controller = InAppBadgeController(_FirestoreStub());
+      addTearDown(() {
+        controller.stop();
+        controller.dispose();
+      });
+      await controller.start('user');
+      expect(controller.count(ActivitySection.map), 0);
+      expect(controller.chatCount, 0);
+      final baseline = controller.state.since;
+      controller.observeSpot('old', baseline - 1, own: false, eligible: true);
+      controller.state.receive(
+        ActivitySection.direct,
+        baseline - 1,
+        own: false,
+      );
+      expect(controller.count(ActivitySection.map), 0);
+      expect(controller.chatCount, 0);
+      controller.observeSpot('new', baseline + 1, own: false, eligible: true);
+      controller.state.receive(
+        ActivitySection.direct,
+        baseline + 1,
+        own: false,
+      );
+      expect(controller.count(ActivitySection.map), 1);
+      expect(controller.chatCount, 1);
+      controller.stop();
+      await controller.start('user', countryCode: 'DE');
+      expect(controller.count(ActivitySection.map), 1);
+      expect(controller.chatCount, 1);
+      final nextLaunch = InAppBadgeController(_FirestoreStub());
+      addTearDown(() {
+        nextLaunch.stop();
+        nextLaunch.dispose();
+      });
+      await nextLaunch.start('user');
+      expect(nextLaunch.count(ActivitySection.map), 0);
+      expect(nextLaunch.chatCount, 0);
+    },
+  );
+
+  test(
     'displayed replies clear topic, category and navigation badges immediately',
     () {
       final controller = InAppBadgeController(_FirestoreStub());
