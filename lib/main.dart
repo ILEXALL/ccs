@@ -1,4 +1,5 @@
-﻿import 'dart:async';
+import 'admin_rewards_screen.dart';
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
@@ -14462,7 +14463,7 @@ bool usableLiveFix(Position position) =>
         const Duration(seconds: 30);
 
 final _countryAchievementRequests = <String>{};
-final _creditedSpotVisits = <String>{};
+final _creditedSpotVisits = <String, DateTime>{};
 final _spotVisitRequests = <String>{};
 final _lastMockLocationReport = <String, DateTime>{};
 
@@ -14509,7 +14510,7 @@ Future<void> checkGpsSpotVisits(Position position) async {
   for (final spot in candidates) {
     if (FirebaseAuth.instance.currentUser?.uid != user.uid) return;
     final key = '${user.uid}/${spot.id}';
-    if (_creditedSpotVisits.contains(key) || !_spotVisitRequests.add(key))
+    if (now.difference(_creditedSpotVisits[key] ?? DateTime(1970)) < const Duration(minutes: 2) || !_spotVisitRequests.add(key))
       continue;
     try {
       final token = await user.getIdToken();
@@ -14528,7 +14529,7 @@ Future<void> checkGpsSpotVisits(Position position) async {
         },
         headers: {HttpHeaders.authorizationHeader: 'Bearer $token'},
       );
-      if (result['ok'] == true) _creditedSpotVisits.add(key);
+      if (result['ok'] == true) _creditedSpotVisits[key] = now;
     } catch (error) {
       debugPrint('Spot visit check failed: $error');
     } finally {
@@ -52347,6 +52348,10 @@ class XpTransactionData {
   bool get isPositive => status == 'confirmed' && amount > 0;
 
   String get title {
+    if (['weekly.completed', 'admin_reward.completed'].contains(action) && metadata['title'] is Map) {
+      final titles = metadata['title'] as Map;
+      return titles[appUiPreferences.language.name] as String? ?? titles['en'] as String? ?? xpTransactionActionLabel(action);
+    }
     if (action == 'achievement.unlock') {
       final parts = objectId.split('.');
       if (parts.length == 2) {
@@ -52398,6 +52403,12 @@ String xpTransactionActionLabel(String action) {
         'Достижение получено',
         'Sasniegums iegūts',
       );
+    case 'weekly.completed':
+      return achievementText(appUiPreferences.language.name, 'Weekly task completed', 'Задание недели выполнено', 'Nedēļas uzdevums izpildīts');
+    case 'admin_reward.completed':
+      return achievementText(appUiPreferences.language.name, 'Admin reward', 'Награда от администратора', 'Administratora atlīdzība');
+    case 'visit.weekly':
+      return achievementText(appUiPreferences.language.name, 'Weekly spot visit', 'Посещение спота за неделю', 'Vietas apmeklējums šonedēļ');
     case 'event.attended':
       return 'Event attended';
     case 'profile.avatar':
@@ -52435,6 +52446,12 @@ String xpTransactionActionLabel(String action) {
 
 String xpTransactionObjectTypeLabel(String objectType) {
   switch (objectType.trim().toLowerCase()) {
+    case 'weekly_task':
+    case 'weekly_visit':
+      return achievementText(appUiPreferences.language.name, 'Weekly reward', 'Недельная награда', 'Nedēļas atlīdzība');
+    case 'admin_reward':
+      return achievementText(appUiPreferences.language.name, 'Admin reward', 'Награда от администратора', 'Administratora atlīdzība');
+
     case 'achievement':
       return achievementText(
         appUiPreferences.language.name,
@@ -56745,6 +56762,17 @@ class XpSummaryContent extends StatelessWidget {
             onRewards: () => Navigator.of(context).push(
               appPageRoute(
                 builder: (_) => XpRewardsScreen(
+                  onOpenSpot: (id) async {
+                    try {
+                      final doc = await FirebaseFirestore.instance.collection('spots').doc(id).get();
+                      if (!context.mounted || !doc.exists) return;
+                      final spot = CarSpot.fromFirestore(doc);
+                      if (!canViewGroupSpot(spot)) return;
+                      Navigator.of(context).push(appPageRoute(builder: (_) => SpotDetailScreen(spot: spot)));
+                    } catch (_) {
+                      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(trText('Spot is not available anymore.'))));
+                    }
+                  },
                   language: appUiPreferences.language.name,
                   load: () => stats.userId == currentUser.uid
                       ? xpScreenRequest('rewards')
@@ -63337,6 +63365,16 @@ class _AdminReviewScreenState extends State<AdminReviewScreen>
               ),
               const SizedBox(height: 10),
               if (currentUser.role == UserRole.admin) ...[
+                _ProfileActionTile(
+                  icon: Icons.card_giftcard,
+                  title: achievementText(appUiPreferences.language.name, 'Rewards', 'Награды', 'Atlīdzības'),
+                  subtitle: achievementText(appUiPreferences.language.name, 'Create bonus tasks', 'Создать дополнительные задания', 'Izveidot papildu uzdevumus'),
+                  onTap: () => Navigator.push(context, appPageRoute(builder: (_) => AdminRewardsScreen(
+                    language: appUiPreferences.language.name,
+                    request: xpScreenRequest,
+                  ))),
+                ),
+                const SizedBox(height: 10),
                 _ProfileActionTile(
                   icon: Icons.public_off_outlined,
                   title: 'Regional restrictions',

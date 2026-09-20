@@ -1,3 +1,4 @@
+const {syncWeeklyTasks} = require('../lib/xp/weekly-tasks');
 const {assessLocation} = require('../lib/location-integrity');
 const {awardXp} = require('../lib/xp/xp-firestore');
 const {syncAchievements} = require('../lib/xp/achievements');
@@ -24,6 +25,7 @@ module.exports = async (req, res) => {
         objectId: req.body.spotId, stage: 'attended', amount: 200,
         metadata: {reason: 'Event attended'}});
     }
+    await syncWeeklyTasks(token.uid);
     await syncAchievements(token.uid);
     return res.status(200).json({ok: true, result});
   } catch (_) { return res.status(403).json({ok: false, error: 'Visit could not be recorded'}); }

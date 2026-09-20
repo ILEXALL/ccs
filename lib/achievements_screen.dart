@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'weekly_rewards_section.dart';
+export 'xp_rewards_screen.dart';
 import 'achievement_emblem.dart';
 export 'achievement_emblem.dart' show achievementCategoryLabel;
 
@@ -26,17 +26,23 @@ class AchievementsScreen extends StatefulWidget {
 
 class _AchievementsScreenState extends State<AchievementsScreen> {
   late Future<Map<String, dynamic>> result;
-  bool selecting = false;
+  String? selectedId;
+  Future<Map<String, dynamic>> load() async {
+    final data = await widget.load();
+    selectedId = data['selectedId'] as String?;
+    return data;
+  }
+
   String t(String en, String ru, String lv) =>
       achievementText(widget.language, en, ru, lv);
   @override
   void initState() {
     super.initState();
-    result = widget.load();
+    result = load();
   }
 
   void refresh() {
-    final next = widget.load();
+    final next = load();
     setState(() {
       result = next;
     });
@@ -66,109 +72,116 @@ class _AchievementsScreenState extends State<AchievementsScreen> {
   }
 
   void showDetails(Map<String, dynamic> item) {
+    var saving = false;
+    String? error;
     showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
       backgroundColor: const Color(0xFF171A20),
-      builder: (context) => SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              AchievementBadge(item: item),
-              const SizedBox(height: 12),
-              Text(
-                title(item),
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              const SizedBox(height: 12),
-              Text(
-                achievementRequirement(item, widget.language),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 16),
-              Text(
-                '+${item['xp']} XP',
-                style: const TextStyle(
-                  color: Color(0xFF72D8AE),
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              const SizedBox(height: 8),
-              if (item['category'] != 'tourist')
-                Text(tierName(item), textAlign: TextAlign.center),
-              Text(status(item), textAlign: TextAlign.center),
-              if (widget.selectForProfile != null &&
-                  item['status'] == 'confirmed')
-                StatefulBuilder(
-                  builder: (context, update) => FilledButton.icon(
-                    icon: const Icon(Icons.workspace_premium),
-                    label: Text(
-                      t(
-                        'Display on profile',
-                        'Показать в профиле',
-                        'Rādīt profilā',
-                      ),
-                    ),
-                    onPressed: selecting
-                        ? null
-                        : () async {
-                            update(() => selecting = true);
-                            try {
-                              await widget.selectForProfile!(
-                                item['id'] as String,
-                              );
-                              if (!context.mounted) return;
-                              Navigator.pop(context);
-                              if (mounted)
-                                ScaffoldMessenger.of(this.context).showSnackBar(
-                                  SnackBar(
-                                    content: Text(
-                                      t(
-                                        'Achievement displayed on profile',
-                                        'Достижение показано в профиле',
-                                        'Sasniegums redzams profilā',
-                                      ),
-                                    ),
-                                  ),
-                                );
-                            } catch (_) {
-                              if (context.mounted)
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(
-                                    content: Text(
-                                      t(
-                                        'Could not save. Try again.',
-                                        'Не удалось сохранить. Повторите.',
-                                        'Neizdevās saglabāt. Mēģiniet vēlreiz.',
-                                      ),
-                                    ),
-                                  ),
-                                );
-                            } finally {
-                              selecting = false;
-                              if (context.mounted) update(() {});
-                            }
-                          },
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (context, updateSheet) => SafeArea(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                AchievementBadge(item: item),
+                const SizedBox(height: 12),
+                Text(
+                  title(item),
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w700,
                   ),
                 ),
-              if (item['available'] == true && item['status'] == 'confirmed')
+                const SizedBox(height: 12),
                 Text(
-                  '${item['progress'] ?? item['threshold']} / ${item['threshold']}',
+                  achievementRequirement(item, widget.language),
                   textAlign: TextAlign.center,
                 ),
-              const SizedBox(height: 16),
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: Text(t('Close', 'Закрыть', 'Aizvērt')),
-              ),
-            ],
+                const SizedBox(height: 16),
+                Text(
+                  '+${item['xp']} XP',
+                  style: const TextStyle(
+                    color: Color(0xFF72D8AE),
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                if (item['category'] != 'tourist')
+                  Text(tierName(item), textAlign: TextAlign.center),
+                Text(status(item), textAlign: TextAlign.center),
+                if (item['available'] == true && item['status'] == 'confirmed')
+                  Text(
+                    '${item['progress'] ?? item['threshold']} / ${item['threshold']}',
+                    textAlign: TextAlign.center,
+                  ),
+                if (widget.selectForProfile != null &&
+                    item['status'] == 'confirmed') ...[
+                  const SizedBox(height: 16),
+                  FilledButton.icon(
+                    onPressed: saving
+                        ? null
+                        : () async {
+                            final nextId = selectedId == item['id']
+                                ? null
+                                : item['id'] as String;
+                            updateSheet(() {
+                              saving = true;
+                              error = null;
+                            });
+                            try {
+                              await widget.selectForProfile!(nextId);
+                              if (!mounted) return;
+                              setState(() {
+                                selectedId = nextId;
+                              });
+                              if (sheetContext.mounted)
+                                Navigator.pop(sheetContext);
+                            } catch (_) {
+                              if (sheetContext.mounted)
+                                updateSheet(() {
+                                  saving = false;
+                                  error = t(
+                                    'Could not save. Try again.',
+                                    'Не удалось сохранить. Повторите.',
+                                    'Neizdevās saglabāt. Mēģiniet vēlreiz.',
+                                  );
+                                });
+                            }
+                          },
+                    icon: Icon(
+                      selectedId == item['id']
+                          ? Icons.check_circle
+                          : Icons.workspace_premium,
+                    ),
+                    label: Text(
+                      saving
+                          ? t('Saving…', 'Сохранение…', 'Saglabā…')
+                          : selectedId == item['id']
+                          ? t(
+                              'Remove from profile',
+                              'Убрать из профиля',
+                              'Noņemt no profila',
+                            )
+                          : t(
+                              'Display on profile',
+                              'Показать в профиле',
+                              'Rādīt profilā',
+                            ),
+                    ),
+                  ),
+                  if (error != null) Text(error!, textAlign: TextAlign.center),
+                ],
+                const SizedBox(height: 16),
+                TextButton(
+                  onPressed: () => Navigator.pop(sheetContext),
+                  child: Text(t('Close', 'Закрыть', 'Aizvērt')),
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -393,6 +406,7 @@ class _AchievementsScreenState extends State<AchievementsScreen> {
     return Semantics(
       label:
           '${title(item)}. ${achievementRequirement(item, widget.language)}. ${status(item)}. +${item['xp']} XP',
+      selected: selectedId == item['id'],
       button: true,
       onTap: () => showDetails(item),
       excludeSemantics: true,
@@ -414,8 +428,26 @@ class _AchievementsScreenState extends State<AchievementsScreen> {
                   height: 48,
                   width: double.infinity,
                   child: RepaintBoundary(
-                    child: FittedBox(
-                      child: AchievementBadge(item: item, displayHeight: 48),
+                    child: Stack(
+                      alignment: Alignment.center,
+                      children: [
+                        FittedBox(
+                          child: AchievementBadge(
+                            item: item,
+                            displayHeight: 48,
+                          ),
+                        ),
+                        if (selectedId == item['id'])
+                          const Positioned(
+                            right: 0,
+                            top: 0,
+                            child: Icon(
+                              Icons.check_circle,
+                              size: 16,
+                              color: Color(0xFF72D8AE),
+                            ),
+                          ),
+                      ],
                     ),
                   ),
                 ),
@@ -565,148 +597,6 @@ class XpProfileActions extends StatelessWidget {
   }
 }
 
-class XpRewardsScreen extends StatefulWidget {
-  final String language;
-  final Future<Map<String, dynamic>> Function() load;
-  const XpRewardsScreen({
-    super.key,
-    required this.language,
-    required this.load,
-  });
-  @override
-  State<XpRewardsScreen> createState() => _XpRewardsScreenState();
-}
-
-class _XpRewardsScreenState extends State<XpRewardsScreen> {
-  late Future<Map<String, dynamic>> result;
-  String t(String en, String ru, String lv) =>
-      achievementText(widget.language, en, ru, lv);
-  @override
-  void initState() {
-    super.initState();
-    result = widget.load();
-  }
-
-  void refresh() {
-    final next = widget.load();
-    setState(() {
-      result = next;
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) => Scaffold(
-    backgroundColor: const Color(0xFF0D0F13),
-    appBar: AppBar(
-      title: Text(t('Rewards', 'Награды', 'Atlīdzības')),
-      actions: [
-        IconButton(
-          onPressed: refresh,
-          tooltip: t('Refresh', 'Обновить', 'Atjaunot'),
-          icon: const Icon(Icons.refresh),
-        ),
-      ],
-    ),
-    body: FutureBuilder<Map<String, dynamic>>(
-      future: result,
-      builder: (context, snapshot) {
-        if (snapshot.connectionState != ConnectionState.done)
-          return const Center(child: CircularProgressIndicator());
-        if (snapshot.hasError) {
-          return Center(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  t(
-                    'Could not load rewards',
-                    'Не удалось загрузить награды',
-                    'Neizdevās ielādēt atlīdzības',
-                  ),
-                ),
-                TextButton(
-                  onPressed: refresh,
-                  child: Text(t('Retry', 'Повторить', 'Mēģināt vēlreiz')),
-                ),
-              ],
-            ),
-          );
-        }
-        final items = (snapshot.data!['items'] as List).cast<Map>();
-        return ListView.separated(
-          padding: const EdgeInsets.all(16),
-          itemCount: items.length + 2,
-          separatorBuilder: (_, _) => const Divider(height: 28),
-          itemBuilder: (context, index) {
-            if (index == 0)
-              return WeeklyRewardsSection(
-                language: widget.language,
-                weekly: snapshot.data?['weekly'] as Map?,
-              );
-            if (index == 1)
-              return Text(
-                t(
-                  'Regular rewards',
-                  'Обычные начисления',
-                  'Parastās atlīdzības',
-                ),
-                style: const TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w800,
-                ),
-              );
-            final item = items[index - 2];
-            return Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Padding(
-                  padding: const EdgeInsets.only(right: 12),
-                  child: Icon(
-                    item['category'] == 'profile'
-                        ? Icons.person_outline
-                        : item['category'] == 'garage_car'
-                        ? Icons.directions_car_outlined
-                        : Icons.place_outlined,
-                    color: const Color(0xFF72D8AE),
-                  ),
-                ),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        (item['title'] as Map)[widget.language] as String? ??
-                            (item['title'] as Map)['en'] as String,
-                        style: const TextStyle(
-                          fontSize: 15,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                      const SizedBox(height: 6),
-                      Text(
-                        '+${item['xp']} XP · ${item['repeatable'] == true ? t('Per spot', 'За каждый спот', 'Par katru vietu') : t('Once', 'Один раз', 'Vienu reizi')}',
-                        style: const TextStyle(color: Color(0xFF72D8AE)),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        '${t('Completed', 'Выполнено', 'Izpildīts')}: ${item['completed']}${item['repeatable'] == true ? '' : ' / 1'} · ${t('Earned', 'Получено', 'Saņemts')}: ${item['earnedXp']} XP',
-                      ),
-                      if ((item['pending'] as num? ?? 0) > 0)
-                        Text(
-                          '${t('Pending awards', 'Ожидают начисления', 'Gaida piešķiršanu')}: ${item['pending']}',
-                        ),
-                    ],
-                  ),
-                ),
-              ],
-            );
-          },
-        );
-      },
-    ),
-  );
-}
-
 class AchievementBadge extends StatelessWidget {
   final Map<String, dynamic> item;
   final double displayHeight;
@@ -801,4 +691,54 @@ class _CountryShieldClipper extends CustomClipper<Path> {
     ..close();
   @override
   bool shouldReclip(_CountryShieldClipper oldClipper) => false;
+}
+
+/// The single achievement chosen by the profile owner.
+class FeaturedAchievement extends StatelessWidget {
+  final Map<String, dynamic> item;
+  final String language;
+  const FeaturedAchievement({
+    super.key,
+    required this.item,
+    required this.language,
+  });
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.symmetric(vertical: 12),
+    child: Row(
+      children: [
+        SizedBox(
+          width: 56,
+          height: 60,
+          child: FittedBox(
+            child: AchievementBadge(item: {...item, 'status': 'confirmed'}),
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                achievementText(
+                  language,
+                  'Profile achievement',
+                  'Достижение в профиле',
+                  'Profila sasniegums',
+                ),
+                style: const TextStyle(color: Colors.white54, fontSize: 12),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                (item['title'] as Map)[language] as String? ??
+                    (item['title'] as Map)['en'] as String,
+                style: const TextStyle(fontWeight: FontWeight.w700),
+              ),
+            ],
+          ),
+        ),
+      ],
+    ),
+  );
 }

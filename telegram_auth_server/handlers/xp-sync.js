@@ -1,3 +1,5 @@
+const adminRewards = require('../lib/xp/admin-rewards');
+const {syncWeeklyTasks} = require('../lib/xp/weekly-tasks');
 const {assessLocation} = require('../lib/location-integrity');
 const { admin, db } = require('../lib/firebase-admin');
 const { adjustXp } = require('../lib/xp/xp-adjustments');
@@ -69,6 +71,7 @@ async function syncCurrentUser(actor) {
     ...evaluateFirstCarXp(actor.uid, user),
   ];
 
+  await syncWeeklyTasks(actor.uid);
   return [...await settlePendingXp(actor.uid), ...await awardManyXp(awards)];
 }
 
@@ -115,11 +118,15 @@ async function syncSpot(actor, body) {
   }
 
   const awards = await awardManyXp(evaluatePermanentSpotApprovalXp(spotId, spot));
-  if (authorUid) await syncAchievements(authorUid);
+  if (authorUid) { await syncWeeklyTasks(authorUid); await syncAchievements(authorUid); }
   return awards;
 }
 
 const handlers = {
+  admin_rewards: (actor) => adminRewards.listRewards(actor.uid),
+  admin_reward_targets: (actor, body) => adminRewards.targetOptions(actor.uid, body.search),
+  admin_reward_create: (actor, body) => adminRewards.createReward(actor.uid, body),
+  admin_reward_cancel: (actor, body) => adminRewards.cancelReward(actor.uid, body.id),
   location_check: async (actor, body) => ({accepted: await assessLocation(actor.uid, body)}),
   visit_country: async (actor, body) => {
     if (!await assessLocation(actor.uid, body)) throw new Error('Location could not be verified');

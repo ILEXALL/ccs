@@ -43,11 +43,11 @@ test('reward guide uses evaluator amounts and only own original confirmed reward
   f.rows.set('xp_transactions/b', {userId: 'tester', action: 'spot.approved', amount: 50, status: 'revoked'});
   f.rows.set('xp_transactions/c', {userId: 'tester', action: 'spot.approved', amount: 0, status: 'pending'});
   f.rows.set('xp_transactions/d', {userId: 'other', action: 'spot.approved', amount: 50, status: 'confirmed'});
-  const result = await rewards.rewardProgress('tester');
-  assert.equal(result.weekly.status, 'preview');
+  const result = await rewards.rewardProgress('tester', {now: new Date('2026-09-22T12:00:00Z')});
+  assert.equal(result.weekly.status, 'active');
   assert.equal(result.weekly.items.length, 3);
-  assert.equal(result.weekly.items.reduce((sum, item) => sum + item.xp, 0), 300);
-  assert.ok(result.weekly.items.every(item => !('progress' in item)));
+  assert.equal(result.weekly.items.reduce((sum, item) => sum + item.xp, 0), 600);
+  assert.ok(result.weekly.items.every(item => item.progress === 0));
   const spot = result.items.find(item => item.id === 'spot.approved');
   assert.equal(spot.earnedXp, 50); assert.equal(spot.completed, 1); assert.equal(spot.pending, 1);
 });

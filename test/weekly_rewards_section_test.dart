@@ -1,5 +1,5 @@
 import 'support/preview_font.dart';
-import 'package:ccs_app/achievements_screen.dart';
+import 'package:ccs_app/xp_rewards_screen.dart';
 import 'package:ccs_app/weekly_rewards_section.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';

@@ -364,7 +364,8 @@ void main() {
         fail = false;
         await tester.tap(find.byIcon(Icons.refresh));
         await tester.pumpAndSettle();
-        expect(find.textContaining(' / 1'), findsOneWidget);
+        expect(find.byType(ExpansionTile), findsOneWidget);
+        expect(find.byIcon(Icons.check_circle), findsNothing); // Completed first steps are collapsed.
         expect(tester.takeException(), isNull);
       },
     );

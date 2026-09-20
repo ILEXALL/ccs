@@ -1,3 +1,4 @@
+const {weekKeyFor} = require('./xp-engine');
 const MIN_NORMAL_DESCRIPTION_CHARS = 20;
 
 function shouldAwardSpotApprovalXp(before, after) {
@@ -25,6 +26,10 @@ function evaluatePermanentSpotApprovalXp(spotId, spot) {
     spotId,
     spotName: stringValue(spot.name),
     isTemporary: false,
+    publicationWeek: (spot.reviewedAt?.toMillis?.() || spot.createdAt?.toMillis?.() || 0) > 0
+      ? weekKeyFor(new Date(spot.reviewedAt?.toMillis?.() || spot.createdAt.toMillis())) : null,
+    weeklyComplete: description.length >= MIN_NORMAL_DESCRIPTION_CHARS && photoCount >= 1,
+    weeklyGallery: photoCount >= 3,
   };
 
   const awards = [
