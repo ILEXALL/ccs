@@ -1086,7 +1086,8 @@ service cloud.firestore {
     function isChatMember(chatId) {
       return isSignedIn()
         && chatExists(chatId)
-        && currentUid() in chatData(chatId).memberIds;
+        && currentUid() in chatData(chatId).memberIds
+        && !(currentUid() in chatData(chatId).get('bannedMemberIds', []));
     }
 
     function chatExists(chatId) {
@@ -1258,6 +1259,7 @@ service cloud.firestore {
         && request.resource.data.memberIds is list
         && request.resource.data.memberIds.size() >= 1
         && ownerUid in request.resource.data.memberIds
+        && !request.resource.data.memberIds.hasAny(resource.data.get('bannedMemberIds', []))
         && request.resource.data.get('moderatorIds', []) is list
         && request.resource.data.memberIds.hasAll(
           request.resource.data.get('moderatorIds', [])
@@ -2385,6 +2387,11 @@ service cloud.firestore {
         && request.resource.data.memberIds is list
         && currentUid() in request.resource.data.memberIds
         && request.resource.data.memberIds.size() >= 2
+        && (request.resource.data.get('isGroup', false) != true || (
+          request.resource.data.get('description', '') is string
+          && request.resource.data.description.matches('(?s).*\\S.*')
+          && request.resource.data.description.size() <= 1000
+        ))
         && (
           request.resource.data.get('isGroup', false) != true
           || !request.resource.data.keys().hasAny(['countryCode'])

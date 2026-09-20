@@ -49,12 +49,45 @@ module.exports = async function handler(req, res) {
       const countries = await Promise.all(snapshot.docs.map(doc =>
         countryCode(doc.data().countryCode) || ensureGroupCountry(doc.ref)));
       const visible = snapshot.docs.filter((doc, i) => countries[i] === selectedCountry);
-      const groups = visible.filter(doc => doc.data().isPrivate === true);
+      const groups = visible;
       const requests = groups.length ? await db.getAll(...groups.map(doc => doc.ref.collection('join_requests').doc(uid))) : [];
       return res.status(200).json({ countryCode: selectedCountry, visibleGroupIds: visible.map(doc => doc.id), groups: groups.map((doc, i) => directoryEntry(doc.id, doc.data(), uid, canMonitor(selectedCountry), requests[i].data()?.status || '')) });
     }
     if (!validId(chatId)) fail(400, 'Invalid group.');
     const chatRef = db.collection('chats').doc(chatId);
+    if (action === 'join' || action === 'ban') {
+      if (action === 'ban' && (!validId(requesterUid) || requesterUid === uid)) fail(400, 'Invalid member.');
+      if (action === 'join') await ensureGroupCountry(chatRef);
+      const targetUid = action === 'join' ? uid : requesterUid;
+      const result = await db.runTransaction(async tx => {
+        const requestRef = chatRef.collection('join_requests').doc(targetUid);
+        const [groupDoc, userDoc, requestDoc] = await Promise.all([tx.get(chatRef), tx.get(db.collection('users').doc(targetUid)), tx.get(requestRef)]);
+        if (!groupDoc.exists || groupDoc.data().isGroup !== true) fail(404, 'Group no longer exists.');
+        const chat = groupDoc.data(), target = userDoc.data();
+        const now = admin.firestore.FieldValue.serverTimestamp();
+        if (action === 'join') {
+          if (chat.isPrivate === true) fail(403, 'Private groups require approval.');
+          if (!target || target.deleted === true || target.banned === true) fail(403, 'Account unavailable.');
+          if ((chat.bannedMemberIds || []).includes(uid) || requestDoc.data()?.status === 'rejected') fail(403, 'Group access permanently denied.');
+          if (target.role !== 'admin' && (!profileCountry(target) || profileCountry(target) !== countryCode(chat.countryCode))) fail(403, 'This group is outside your profile country.');
+          if ((chat.memberIds || []).includes(uid)) return {status:'joined'};
+          tx.update(chatRef, {...acceptedMemberFields(chat, uid, target), updatedAt:now});
+          tx.set(requestRef, {username:target.username || 'driver',status:'accepted',decidedAt:now});
+          return {status:'joined'};
+        }
+        if (ownerUid(chat) !== uid || targetUid === ownerUid(chat)) fail(403, 'Only the owner can permanently deny access.');
+        const ids = chat.memberIds || [], keep = ids.map((id,i)=>({id,i})).filter(row=>row.id !== targetUid);
+        tx.update(chatRef, {
+          memberIds:keep.map(row=>row.id), memberUsernames:keep.map(row=>(chat.memberUsernames || [])[row.i] || ''), memberPhotoUrls:keep.map(row=>(chat.memberPhotoUrls || [])[row.i] || ''),
+          moderatorIds:(chat.moderatorIds || []).filter(id=>id !== targetUid),
+          bannedMemberIds:[...new Set([...(chat.bannedMemberIds || []),targetUid])],
+          hiddenForUserIds:[...new Set([...(chat.hiddenForUserIds || []),targetUid])], updatedAt:now,
+        });
+        tx.set(requestRef,{username:target?.username || 'driver',status:'rejected',decidedBy:uid,decidedAt:now});
+        return {status:'rejected'};
+      });
+      return res.status(200).json(result);
+    }
     if (action === 'requests') {
       const chatDoc = await chatRef.get();
       if (!chatDoc.exists || chatDoc.data().isGroup !== true || ownerUid(chatDoc.data()) !== uid) fail(403, 'Only the owner can review requests.');
@@ -77,7 +110,9 @@ module.exports = async function handler(req, res) {
         const applicant = targetDoc.data() || {};
         if (applicant.deleted === true || applicant.banned === true) fail(403, 'Account unavailable.');
         if (applicant.role !== 'admin' && (!profileCountry(applicant) || profileCountry(applicant) !== countryCode(chat.countryCode))) fail(403, 'This group is outside your profile country.');
-        if (chat.isPrivate !== true || (chat.memberIds || []).includes(uid)) fail(409, 'This group does not need a join request.');
+        if (chat.isPrivate !== true) fail(409, 'Use join for public groups.');
+        if ((chat.bannedMemberIds || []).includes(uid)) fail(403, 'Group access permanently denied.');
+        if ((chat.memberIds || []).includes(uid)) fail(409, 'This group does not need a join request.');
         if (requestDoc.exists) return { status: requestDoc.data().status };
         tx.create(requestRef, { username: actor.username || 'driver', status: 'pending', createdAt: now });
         tx.create(db.collection('user_notifications').doc(`group_request_${chatId}_${uid}`), {
@@ -92,6 +127,7 @@ module.exports = async function handler(req, res) {
       if (requestDoc.data().status !== 'pending') return { status: requestDoc.data().status };
       if (decision === 'accepted') {
         const target = targetDoc.data();
+        if ((chat.bannedMemberIds || []).includes(targetUid)) fail(403, 'Group access permanently denied.');
         if (!target || target.banned === true || target.deleted === true) fail(409, 'Applicant account unavailable.');
         tx.update(chatRef, { ...acceptedMemberFields(chat, targetUid, target), updatedAt: now });
       }

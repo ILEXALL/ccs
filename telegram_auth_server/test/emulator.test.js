@@ -132,3 +132,16 @@ test('[rules spots] optional region config preserves country bans', async () => 
   await seed({'app_config/main': {bannedCountryCodes: [], bannedCountryKeys: []}});
   await assertSucceeds(setDoc(doc(client('owner'), 'spots/allowed'), spot()));
 });
+
+test('[rules groups] descriptions required and only actual non-banned members can message',async()=>{
+  const group={isGroup:true,isPrivate:false,ownerUid:'owner',memberIds:['owner','other'],memberUsernames:['owner','other'],moderatorIds:[]};
+  for(const description of ['', '   ', 'x'.repeat(1001)]) await assertFails(setDoc(doc(client('owner'),'chats/new'),{...group,description}));
+  await assertSucceeds(setDoc(doc(client('owner'),'chats/new'),{...group,description:'First line\nSecond line'}));
+  const msg=uid=>({senderUid:uid,senderUsername:uid,text:'Hello'});
+  await assertSucceeds(setDoc(doc(client('other'),'chats/new/messages/member'),msg('other')));
+  await assertFails(setDoc(doc(client('admin'),'chats/new/messages/nonmember'),msg('admin')));
+  await seed({'chats/new':{...group,description:'Group',bannedMemberIds:['other']}});
+  await assertFails(setDoc(doc(client('other'),'chats/new/messages/blocked'),msg('other')));
+  await seed({'chats/new':{...group,memberIds:['owner'],memberUsernames:['owner'],description:'Group',bannedMemberIds:['other']}});
+  await assertFails(updateDoc(doc(client('owner'),'chats/new'),{memberIds:['owner','other'],memberUsernames:['owner','other']}));
+});

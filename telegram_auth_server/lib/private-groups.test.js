@@ -177,3 +177,42 @@ test('accepted requests dispatch a membership push; rejected requests do not', a
   await f.call('owner',{action:'decide',chatId:'group',requesterUid:'bob',decision:'rejected'});
   assert.equal(f.notifications.length,1);
 });
+
+
+test('public joining is immediate and idempotent; only owner can ban and ban survives rejoin', async () => {
+  const {call,data} = fixture();
+  data.get('chats/group').isPrivate=false;
+  const listing=(await call('alice',{action:'directory'})).body.groups[0];
+  assert.equal(listing.isPrivate,false); assert.equal(listing.memberCount,1);
+  assert.equal(listing.memberIds,undefined); assert.equal(listing.lastMessage,undefined);
+  assert.equal((await call('alice',{action:'request',chatId:'group'})).code,409);
+  const joins=await Promise.all([call('alice',{action:'join',chatId:'group'}),call('alice',{action:'join',chatId:'group'})]);
+  assert.ok(joins.every(r=>r.code===200));
+  assert.deepEqual(data.get('chats/group').memberIds,['owner','alice']);
+  assert.equal((await call('bob',{action:'ban',chatId:'group',requesterUid:'alice'})).code,403);
+  assert.equal((await call('owner',{action:'ban',chatId:'group',requesterUid:'owner'})).code,400);
+  assert.equal((await call('owner',{action:'ban',chatId:'group',requesterUid:'alice'})).code,200);
+  assert.deepEqual(data.get('chats/group').memberIds,['owner']);
+  assert.deepEqual(Array.from(data.get('chats/group').bannedMemberIds),['alice']);
+  assert.equal((await call('alice',{action:'join',chatId:'group'})).code,403);
+  assert.equal((await call('alice',{action:'directory'})).body.groups[0].isBlocked,true);
+});
+test('private, foreign, rejected and banned accounts cannot use public join', async()=>{
+  const {call,data}=fixture();
+  assert.equal((await call('alice',{action:'join',chatId:'group'})).code,403);
+  data.get('chats/group').isPrivate=false;
+  data.get('users/alice').country='Estonia';
+  assert.equal((await call('alice',{action:'join',chatId:'group'})).code,403);
+  data.get('users/alice').country='Latvia';
+  data.set('chats/group/join_requests/alice',{status:'rejected'});
+  assert.equal((await call('alice',{action:'join',chatId:'group'})).code,403);
+  data.get('users/alice').banned=true;
+  assert.equal((await call('alice',{action:'join',chatId:'group'})).code,403);
+});
+test('kicked public members can rejoin unless permanently denied',async()=>{
+  const {call,data}=fixture(); data.get('chats/group').isPrivate=false;
+  await call('alice',{action:'join',chatId:'group'});
+  const group=data.get('chats/group'); group.memberIds=['owner'];group.memberUsernames=['owner'];group.memberPhotoUrls=[''];group.hiddenForUserIds=['alice'];
+  assert.equal((await call('alice',{action:'join',chatId:'group'})).code,200);
+  assert.deepEqual(data.get('chats/group').hiddenForUserIds,[]);
+});

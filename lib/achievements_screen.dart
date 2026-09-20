@@ -13,10 +13,12 @@ String achievementText(String language, String en, String ru, String lv) =>
 class AchievementsScreen extends StatefulWidget {
   final Future<Map<String, dynamic>> Function() load;
   final String language;
+  final Future<void> Function(String? id)? selectForProfile;
   const AchievementsScreen({
     super.key,
     required this.load,
     required this.language,
+    this.selectForProfile,
   });
   @override
   State<AchievementsScreen> createState() => _AchievementsScreenState();
@@ -24,6 +26,7 @@ class AchievementsScreen extends StatefulWidget {
 
 class _AchievementsScreenState extends State<AchievementsScreen> {
   late Future<Map<String, dynamic>> result;
+  bool selecting = false;
   String t(String en, String ru, String lv) =>
       achievementText(widget.language, en, ru, lv);
   @override
@@ -101,6 +104,60 @@ class _AchievementsScreenState extends State<AchievementsScreen> {
               if (item['category'] != 'tourist')
                 Text(tierName(item), textAlign: TextAlign.center),
               Text(status(item), textAlign: TextAlign.center),
+              if (widget.selectForProfile != null &&
+                  item['status'] == 'confirmed')
+                StatefulBuilder(
+                  builder: (context, update) => FilledButton.icon(
+                    icon: const Icon(Icons.workspace_premium),
+                    label: Text(
+                      t(
+                        'Display on profile',
+                        'Показать в профиле',
+                        'Rādīt profilā',
+                      ),
+                    ),
+                    onPressed: selecting
+                        ? null
+                        : () async {
+                            update(() => selecting = true);
+                            try {
+                              await widget.selectForProfile!(
+                                item['id'] as String,
+                              );
+                              if (!context.mounted) return;
+                              Navigator.pop(context);
+                              if (mounted)
+                                ScaffoldMessenger.of(this.context).showSnackBar(
+                                  SnackBar(
+                                    content: Text(
+                                      t(
+                                        'Achievement displayed on profile',
+                                        'Достижение показано в профиле',
+                                        'Sasniegums redzams profilā',
+                                      ),
+                                    ),
+                                  ),
+                                );
+                            } catch (_) {
+                              if (context.mounted)
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text(
+                                      t(
+                                        'Could not save. Try again.',
+                                        'Не удалось сохранить. Повторите.',
+                                        'Neizdevās saglabāt. Mēģiniet vēlreiz.',
+                                      ),
+                                    ),
+                                  ),
+                                );
+                            } finally {
+                              selecting = false;
+                              if (context.mounted) update(() {});
+                            }
+                          },
+                  ),
+                ),
               if (item['available'] == true && item['status'] == 'confirmed')
                 Text(
                   '${item['progress'] ?? item['threshold']} / ${item['threshold']}',
