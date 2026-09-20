@@ -9577,6 +9577,13 @@ Future<XpLeaderboardPage> loadXpLeaderboardEntries({
           logResponse: false,
         ).timeout(const Duration(seconds: 8));
         final result = mapFromFirebase(response['result']);
+        final expectedCountry = currentUserHomeCountryCode();
+        if (expectedCountry.isEmpty ||
+            result['countryCode'] != expectedCountry) {
+          throw StateError(
+            'Ranking country mismatch. Update the backend and retry.',
+          );
+        }
         final rawEntries = result['entries'];
         final isSearchResponse = backendSearch.isNotEmpty;
         final hasValidPagination =
@@ -9599,7 +9606,12 @@ Future<XpLeaderboardPage> loadXpLeaderboardEntries({
                     fallbackRank: entry.key + 1,
                   ),
                 )
-                .where((entry) => entry.userId.trim().isNotEmpty)
+                .where(
+                  (entry) =>
+                      entry.userId.trim().isNotEmpty &&
+                      countryIsoCode(entry.country) ==
+                          currentUserHomeCountryCode(),
+                )
                 .toList(),
             nextCursor: result['hasMore'] == true && result['nextCursor'] is Map
                 ? mapFromFirebase(result['nextCursor'])
@@ -13947,12 +13959,30 @@ Future<String> createOrOpenDirectChat(FriendUserData user) async {
   return chatId;
 }
 
+String groupVisibilityLabel(bool isPrivate) => isPrivate
+    ? communityText(
+        en: 'Private group',
+        ru: 'Закрытая группа',
+        lv: 'Privāta grupa',
+      )
+    : communityText(
+        en: 'Public group',
+        ru: 'Открытая группа',
+        lv: 'Publiska grupa',
+      );
+String groupMemberCountLabel(int count) =>
+    communityText(en: 'Members: ', ru: 'Участников: ', lv: 'Dalībnieki: ') +
+    count.toString();
+
 Future<String> createGroupChat({
   required String name,
+  required String description,
   required List<FriendUserData> users,
   String? avatarLocalPath,
   bool isPrivate = false,
 }) async {
+  if (description.trim().isEmpty || description.trim().length > 1000)
+    throw ArgumentError('Enter a group description (1–1000 characters).');
   final firebaseUser = FirebaseAuth.instance.currentUser;
 
   if (firebaseUser == null) {
@@ -14000,7 +14030,7 @@ Future<String> createGroupChat({
     'isPrivate': isPrivate,
     'photoUrl': groupAvatarUrl,
     'avatarUrl': groupAvatarUrl,
-    'description': '',
+    'description': description.trim(),
     'lastMessage': '',
     'lastSenderUid': '',
     'lastSenderUsername': '',
@@ -27394,7 +27424,7 @@ class _MapScreenState extends State<MapScreen>
   List<SosReportData> sosReports = [];
   bool defaultMapUsesSpots = true;
   LatLng currentMapCenter = loadedSpotsMapCenter();
-  double currentMapZoom = 0;
+  double currentMapZoom = 3;
   double currentMapRotationDegrees = 0;
   double currentUserHeadingDegrees = 0;
   LatLng? previousAcceptedHeadingLocation;
@@ -27484,7 +27514,7 @@ class _MapScreenState extends State<MapScreen>
     defaultMapUsesSpots = location == null;
     moveMapCamera(
       location ?? loadedSpotsMapCenter(),
-      location == null ? 0 : rigaZoom,
+      location == null ? 3 : rigaZoom,
       rotationDegrees: 0,
     );
   }
@@ -27645,7 +27675,7 @@ class _MapScreenState extends State<MapScreen>
     if (defaultMapUsesSpots &&
         !mapCameraChangedByUser &&
         mapFocusRequest.value == null) {
-      moveMapCamera(loadedSpotsMapCenter(), 0);
+      moveMapCamera(loadedSpotsMapCenter(), 3);
     }
     if (!mounted) {
       return;
@@ -28829,12 +28859,12 @@ class _MapScreenState extends State<MapScreen>
       return;
     }
 
-    final safeZoom = zoom.clamp(0.0, 18.0).toDouble();
+    final safeZoom = zoom.clamp(3.0, 18.0).toDouble();
     final safeRotation = normalizedHeadingDegrees(
       rotationDegrees ?? currentMapRotationDegrees,
     );
 
-    if (zoom > 0) defaultMapUsesSpots = false;
+    if (zoom > 3) defaultMapUsesSpots = false;
     currentMapCenter = location;
     currentMapZoom = safeZoom;
     currentMapRotationDegrees = safeRotation;
@@ -31739,7 +31769,7 @@ class _MapScreenState extends State<MapScreen>
               initialCenter: currentMapCenter,
               initialZoom: currentMapZoom,
               initialRotation: currentMapRotationDegrees,
-              minZoom: 0,
+              minZoom: 3,
               maxZoom: 18,
               interactionOptions: ccsMapInteractionOptions,
               backgroundColor: mapStyle.backgroundColor,
@@ -31753,7 +31783,7 @@ class _MapScreenState extends State<MapScreen>
                   return;
                 }
 
-                final nextZoom = camera.zoom.clamp(0.0, 18.0).toDouble();
+                final nextZoom = camera.zoom.clamp(3.0, 18.0).toDouble();
                 final nextRotation = normalizedHeadingDegrees(
                   camera.rotation,
                   fallback: currentMapRotationDegrees,
@@ -38196,7 +38226,7 @@ class _LocationPickerScreenState extends State<LocationPickerScreen>
       final location = await currentMapStartLocation();
       if (!mounted) return;
       defaultCenter = location ?? loadedSpotsMapCenter();
-      defaultZoom = location == null ? 0 : 13;
+      defaultZoom = location == null ? 3 : 13;
     }
     if (mounted) setState(() => centerLoading = false);
   }
@@ -38274,7 +38304,7 @@ class _LocationPickerScreenState extends State<LocationPickerScreen>
                   options: MapOptions(
                     initialCenter: pickedLocation ?? defaultCenter,
                     initialZoom: defaultZoom,
-                    minZoom: 0,
+                    minZoom: 3,
                     maxZoom: 18,
                     interactionOptions: ccsMapInteractionOptions,
                     backgroundColor: mapStyle.backgroundColor,
@@ -40578,6 +40608,16 @@ class _PrivateGroupDirectoryState extends State<PrivateGroupDirectory>
     if (!busy.add(id)) return;
     setState(() {});
     try {
+      if (group['isPrivate'] == false &&
+          group['isMember'] != true &&
+          group['isBlocked'] != true) {
+        await (widget.requestAction ?? privateGroupAction)({
+          'action': 'join',
+          'chatId': id,
+        });
+        group = {...group, 'isMember': true};
+        refresh();
+      }
       if (group['isMember'] == true || group['canMonitor'] == true) {
         final doc = await chatsCollection()
             .doc(id)
@@ -40664,11 +40704,15 @@ class _PrivateGroupDirectoryState extends State<PrivateGroupDirectory>
   Widget groupCard(Map<String, dynamic> group, String label) {
     final id = group['id'] as String;
     final member = group['isMember'] == true;
-    final monitor = !member && group['canMonitor'] == true;
+    final monitor =
+        !member && group['canMonitor'] == true && group['isPrivate'] != false;
     final status = group['requestStatus'] ?? '';
     final isBusy = busy.contains(id);
     final canOpen = member || monitor;
-    final canRequest = !canOpen && status == '';
+    final canRequest =
+        !canOpen &&
+        group['isBlocked'] != true &&
+        (group['isPrivate'] == false || status == '');
     final photoUrl = stringFromFirebase(group['photoUrl'], '').trim();
     final description = stringFromFirebase(group['description'], '').trim();
     final statusColor = status == 'rejected' ? Colors.white54 : blue;
@@ -40719,15 +40763,19 @@ class _PrivateGroupDirectoryState extends State<PrivateGroupDirectory>
                         children: [
                           Row(
                             children: [
-                              const Icon(
-                                Icons.lock_outline_rounded,
+                              Icon(
+                                group['isPrivate'] == false
+                                    ? Icons.public
+                                    : Icons.lock_outline_rounded,
                                 size: 12,
                                 color: Colors.white54,
                               ),
                               const SizedBox(width: 5),
                               Flexible(
                                 child: Text(
-                                  trText('Private group'),
+                                  groupVisibilityLabel(
+                                    group['isPrivate'] != false,
+                                  ),
                                   style: const TextStyle(
                                     color: Colors.white54,
                                     fontSize: 11,
@@ -40747,6 +40795,15 @@ class _PrivateGroupDirectoryState extends State<PrivateGroupDirectory>
                               fontSize: 17,
                               fontWeight: FontWeight.w800,
                               height: 1.2,
+                            ),
+                          ),
+                          Text(
+                            groupMemberCountLabel(
+                              intFromFirebase(group['memberCount'], 0),
+                            ),
+                            style: const TextStyle(
+                              color: Colors.white54,
+                              fontSize: 12,
                             ),
                           ),
                           if (description.isNotEmpty) ...[
@@ -40812,7 +40869,15 @@ class _PrivateGroupDirectoryState extends State<PrivateGroupDirectory>
                                   : Icons.person_add_alt_1_rounded,
                               size: canRequest ? 14 : 16,
                             ),
-                      label: Text(trText(label)),
+                      label: Text(
+                        label == 'Join group'
+                            ? communityText(
+                                en: 'Join group',
+                                ru: 'Вступить в группу',
+                                lv: 'Pievienoties grupai',
+                              )
+                            : trText(label),
+                      ),
                     )
                   else
                     Padding(
@@ -40950,12 +41015,9 @@ class _PrivateGroupDirectoryState extends State<PrivateGroupDirectory>
           }
           final groups = (displayedDirectory?['groups'] as List? ?? [])
               .cast<Map<String, dynamic>>();
-          final visibleIds = stringListFromFirebase(
-            displayedDirectory?['visibleGroupIds'],
-            const [],
-          );
+
           final publicChats = widget.chats
-              .where((chat) => !chat.isPrivate && visibleIds.contains(chat.id))
+              .where((chat) => !chat.isPrivate)
               .toList();
           if (groups.isEmpty && publicChats.isEmpty) {
             return Text(
@@ -40982,7 +41044,9 @@ class _PrivateGroupDirectoryState extends State<PrivateGroupDirectory>
                     ),
                   ),
               ],
-              for (final group in groups)
+              for (final group in groups.where(
+                (group) => !publicChats.any((chat) => chat.id == group['id']),
+              ))
                 Builder(
                   builder: (context) {
                     final member = group['isMember'] == true;
@@ -40990,6 +41054,10 @@ class _PrivateGroupDirectoryState extends State<PrivateGroupDirectory>
                     final status = group['requestStatus'] ?? '';
                     final label = member
                         ? 'Open group'
+                        : group['isBlocked'] == true
+                        ? 'Request rejected'
+                        : group['isPrivate'] == false
+                        ? 'Join group'
                         : monitor
                         ? 'Monitor (read only)'
                         : switch (status) {
@@ -47783,6 +47851,16 @@ class _ChatThreadTileState extends State<ChatThreadTile> {
                   ),
                   const SizedBox(height: 4),
                   subtitleLine(subtitle, directUser),
+                  if (chat.isGroup)
+                    Text(
+                      groupVisibilityLabel(chat.isPrivate) +
+                          ' · ' +
+                          groupMemberCountLabel(chat.memberIds.length),
+                      style: const TextStyle(
+                        color: Colors.white54,
+                        fontSize: 12,
+                      ),
+                    ),
                 ],
               ),
             ),
@@ -48098,6 +48176,7 @@ class _NewChatScreenState extends State<NewChatScreen>
     with LanguageReactiveState {
   final searchController = TextEditingController();
   final groupNameController = TextEditingController();
+  final groupDescriptionController = TextEditingController();
   final Set<String> selectedUserIds = {};
   bool groupMode = false;
   String searchText = '';
@@ -48118,6 +48197,7 @@ class _NewChatScreenState extends State<NewChatScreen>
   void dispose() {
     searchController.dispose();
     groupNameController.dispose();
+    groupDescriptionController.dispose();
     super.dispose();
   }
 
@@ -48202,6 +48282,21 @@ class _NewChatScreenState extends State<NewChatScreen>
   }
 
   Future<void> createGroup(List<FriendUserData> friends) async {
+    if (groupDescriptionController.text.trim().isEmpty ||
+        groupDescriptionController.text.trim().length > 1000) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            communityText(
+              en: 'Enter a group description (1–1000 characters).',
+              ru: 'Введите описание группы (1–1000 символов).',
+              lv: 'Ievadiet grupas aprakstu (1–1000 rakstzīmes).',
+            ),
+          ),
+        ),
+      );
+      return;
+    }
     final selected = friends
         .where((user) => selectedUserIds.contains(user.uid))
         .toList();
@@ -48224,6 +48319,7 @@ class _NewChatScreenState extends State<NewChatScreen>
     try {
       final chatId = await createGroupChat(
         name: groupNameController.text,
+        description: groupDescriptionController.text,
         users: selected,
         avatarLocalPath: groupAvatarLocalPath,
         isPrivate: groupIsPrivate,
@@ -48558,7 +48654,7 @@ class _NewChatScreenState extends State<NewChatScreen>
                       ),
                     ),
                     subtitle: const Text(
-                      'Private: only owner/staff can add members. Public: group moderators can add members too.',
+                      'Private groups require approval. Anyone can join a public group unless the owner has denied access.',
                       style: TextStyle(color: Colors.white54),
                     ),
                     secondary: Icon(
@@ -48575,6 +48671,19 @@ class _NewChatScreenState extends State<NewChatScreen>
                   label: 'Group name',
                   hint: 'Night drive crew',
                   icon: Icons.groups,
+                ),
+                TextField(
+                  controller: groupDescriptionController,
+                  maxLength: 1000,
+                  minLines: 2,
+                  maxLines: 4,
+                  decoration: InputDecoration(
+                    labelText: communityText(
+                      en: 'Group description (required)',
+                      ru: 'Описание группы (обязательно)',
+                      lv: 'Grupas apraksts (obligāts)',
+                    ),
+                  ),
                 ),
                 const SizedBox(height: 12),
                 SizedBox(
@@ -49194,6 +49303,48 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen>
     return true;
   }
 
+  Future<void> permanentlyDenyGroupMember(FriendUserData user) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(
+          communityText(
+            en: 'Permanently deny group access?',
+            ru: 'Запретить доступ к группе навсегда?',
+            lv: 'Neatgriezeniski liegt piekļuvi grupai?',
+          ),
+        ),
+        content: Text(displayUsername(user.username)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: Text(trText('Cancel')),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: Text(trText('Confirm')),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    try {
+      await privateGroupAction({
+        'action': 'ban',
+        'chatId': widget.chat.id,
+        'requesterUid': user.uid,
+      });
+      if (mounted) Navigator.pop(context);
+    } catch (_) {
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(trText('Could not update group. Please retry.')),
+          ),
+        );
+    }
+  }
+
   Future<void> removeGroupMember(FriendUserData user) async {
     if (!canRemoveGroupMember(user)) {
       return;
@@ -49459,11 +49610,24 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen>
                 onSelected: (value) {
                   if (value == 'toggle_moderator') {
                     unawaited(toggleGroupModerator(user));
+                  } else if (value == 'ban_member') {
+                    unawaited(permanentlyDenyGroupMember(user));
                   } else if (value == 'remove_member') {
                     unawaited(removeGroupMember(user));
                   }
                 },
                 itemBuilder: (_) => [
+                  if (currentUser.uid == ownerUid && canRemove)
+                    PopupMenuItem(
+                      value: 'ban_member',
+                      child: Text(
+                        communityText(
+                          en: 'Permanently deny access',
+                          ru: 'Запретить доступ навсегда',
+                          lv: 'Neatgriezeniski liegt piekļuvi',
+                        ),
+                      ),
+                    ),
                   if (canToggleModerator)
                     PopupMenuItem(
                       value: 'toggle_moderator',
@@ -54282,6 +54446,7 @@ class PublicUserProfileScreen extends StatelessWidget {
                   ],
                 ),
               ),
+              FeaturedProfileAchievement(userId: profile.uid, emblemSize: 56),
             ],
           ),
           if (profile.bio.trim().isNotEmpty) ...[
@@ -55894,6 +56059,7 @@ class _ProfileHeader extends StatelessWidget {
       child: Column(
         children: [
           Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Container(
                 width: 68,
@@ -55958,15 +56124,21 @@ class _ProfileHeader extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      profile.username,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 22,
-                        fontWeight: FontWeight.w900,
-                      ),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            profile.username,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 22,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                     const SizedBox(height: 5),
                     Align(
@@ -56015,6 +56187,7 @@ class _ProfileHeader extends StatelessWidget {
                   ],
                 ),
               ),
+              FeaturedProfileAchievement(userId: currentUser.uid),
             ],
           ),
           const SizedBox(height: 14),
@@ -56072,7 +56245,7 @@ void openAchievements(BuildContext context) {
       builder: (_) => AchievementsScreen(
         language: appUiPreferences.language.name,
         load: () => xpScreenRequest('achievements'),
-        onSelect: (id) async {
+        selectForProfile: (id) async {
           await xpScreenRequest('select_achievement', {'achievementId': id});
         },
       ),
@@ -56093,6 +56266,122 @@ void openPublicAchievements(BuildContext context, String userId) {
       ),
     ),
   );
+}
+
+class FeaturedAchievementDisplay extends StatelessWidget {
+  final Map<String, dynamic> item;
+  final String language;
+  final double emblemSize;
+  const FeaturedAchievementDisplay({
+    super.key,
+    required this.item,
+    required this.language,
+    this.emblemSize = 64,
+  });
+  @override
+  Widget build(BuildContext context) {
+    final titles = item['title'];
+    final label = titles is Map
+        ? (titles[language] ??
+                  titles['en'] ??
+                  achievementCategoryLabel(
+                    item['category']?.toString() ?? 'spots',
+                    language,
+                  ))
+              .toString()
+        : achievementCategoryLabel(
+            item['category']?.toString() ?? 'spots',
+            language,
+          );
+    return SizedBox(
+      width: emblemSize + 12,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          SizedBox(
+            width: emblemSize,
+            height: emblemSize,
+            child: FittedBox(
+              fit: BoxFit.contain,
+              child: AchievementBadge(item: item, displayHeight: emblemSize),
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            label,
+            textAlign: TextAlign.center,
+            softWrap: true,
+            style: const TextStyle(
+              color: Colors.white70,
+              fontSize: 10.5,
+              height: 1.2,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class FeaturedProfileAchievement extends StatefulWidget {
+  final String userId;
+  final double emblemSize;
+  const FeaturedProfileAchievement({
+    super.key,
+    required this.userId,
+    this.emblemSize = 64,
+  });
+  @override
+  State<FeaturedProfileAchievement> createState() =>
+      _FeaturedProfileAchievementState();
+}
+
+class _FeaturedProfileAchievementState extends State<FeaturedProfileAchievement>
+    with LanguageReactiveState {
+  late Stream<DocumentSnapshot<Map<String, dynamic>>> stream;
+  void subscribe() {
+    stream = observedDocSnapshots(
+      FirebaseFirestore.instance
+          .collection('xp_featured_achievements')
+          .doc(widget.userId),
+      'profile: featured achievement',
+    );
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    subscribe();
+  }
+
+  @override
+  void didUpdateWidget(covariant FeaturedProfileAchievement oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.userId != widget.userId) subscribe();
+  }
+
+  @override
+  Widget build(BuildContext context) =>
+      StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+        stream: stream,
+        builder: (context, snapshot) {
+          final raw = snapshot.data?.data()?['item'];
+          if (raw is! Map) return const SizedBox.shrink();
+          final item = Map<String, dynamic>.from(raw)..['status'] = 'confirmed';
+          return Padding(
+            padding: const EdgeInsets.only(left: 6),
+            child: InkWell(
+              onTap: () => openPublicAchievements(context, widget.userId),
+              child: FeaturedAchievementDisplay(
+                item: item,
+                language: appUiPreferences.language.name,
+                emblemSize: widget.emblemSize,
+              ),
+            ),
+          );
+        },
+      );
 }
 
 class XpSummaryCard extends StatefulWidget {
@@ -56141,16 +56430,11 @@ class _XpSummaryCardState extends State<XpSummaryCard> {
             ? XpUserStats.fromFirestore(doc)
             : XpUserStats.empty(cleanUserId);
 
-        return Column(
-          children: [
-            XpSummaryContent(
-              stats: stats,
-              loading: loading,
-              unavailable: snapshot.hasError,
-              onTap: widget.onTap,
-            ),
-            ProfileAchievement(userId: cleanUserId),
-          ],
+        return XpSummaryContent(
+          stats: stats,
+          loading: loading,
+          unavailable: snapshot.hasError,
+          onTap: widget.onTap,
         );
       },
     );
@@ -56207,8 +56491,6 @@ class _PublicXpSummaryCardState extends State<PublicXpSummaryCard> {
             unavailable: snapshot.hasError,
             onTap: widget.onHistory,
           ),
-          if (snapshot.hasData && !snapshot.hasError)
-            ProfileAchievement(userId: widget.userId),
           if (snapshot.hasError)
             TextButton(
               onPressed: () => setState(load),
@@ -56828,7 +57110,7 @@ class XpLeaderboardScreen extends StatefulWidget {
 }
 
 class _XpLeaderboardScreenState extends State<XpLeaderboardScreen>
-    with AutomaticKeepAliveClientMixin {
+    with AutomaticKeepAliveClientMixin, LanguageReactiveState {
   @override
   bool get wantKeepAlive => true;
   final _searchController = TextEditingController();
@@ -65556,49 +65838,4 @@ class AppPage extends StatelessWidget {
       ),
     );
   }
-}
-
-class ProfileAchievement extends StatefulWidget {
-  final String userId;
-  const ProfileAchievement({super.key, required this.userId});
-  @override
-  State<ProfileAchievement> createState() => _ProfileAchievementState();
-}
-
-class _ProfileAchievementState extends State<ProfileAchievement> {
-  late Stream<DocumentSnapshot<Map<String, dynamic>>> stream;
-  void subscribe() {
-    stream = FirebaseFirestore.instance
-        .collection('xp_featured_achievements')
-        .doc(widget.userId)
-        .debugSnapshots('profile: featured achievement');
-  }
-
-  @override
-  void initState() {
-    super.initState();
-    subscribe();
-  }
-
-  @override
-  void didUpdateWidget(ProfileAchievement oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.userId != widget.userId) subscribe();
-  }
-
-  @override
-  Widget build(BuildContext context) =>
-      StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-        key: ValueKey(widget.userId),
-        stream: stream,
-        builder: (context, snapshot) {
-          if (snapshot.hasError) return const SizedBox.shrink();
-          final item = snapshot.data?.data()?['item'];
-          if (item is! Map) return const SizedBox.shrink();
-          return FeaturedAchievement(
-            item: Map<String, dynamic>.from(item),
-            language: appUiPreferences.language.name,
-          );
-        },
-      );
 }

@@ -13,12 +13,12 @@ String achievementText(String language, String en, String ru, String lv) =>
 class AchievementsScreen extends StatefulWidget {
   final Future<Map<String, dynamic>> Function() load;
   final String language;
-  final Future<void> Function(String? achievementId)? onSelect;
+  final Future<void> Function(String? id)? selectForProfile;
   const AchievementsScreen({
     super.key,
     required this.load,
     required this.language,
-    this.onSelect,
+    this.selectForProfile,
   });
   @override
   State<AchievementsScreen> createState() => _AchievementsScreenState();
@@ -26,24 +26,17 @@ class AchievementsScreen extends StatefulWidget {
 
 class _AchievementsScreenState extends State<AchievementsScreen> {
   late Future<Map<String, dynamic>> result;
-  String? selectedId;
-
-  Future<Map<String, dynamic>> load() async {
-    final data = await widget.load();
-    selectedId = data['selectedId'] as String?;
-    return data;
-  }
-
+  bool selecting = false;
   String t(String en, String ru, String lv) =>
       achievementText(widget.language, en, ru, lv);
   @override
   void initState() {
     super.initState();
-    result = load();
+    result = widget.load();
   }
 
   void refresh() {
-    final next = load();
+    final next = widget.load();
     setState(() {
       result = next;
     });
@@ -73,117 +66,109 @@ class _AchievementsScreenState extends State<AchievementsScreen> {
   }
 
   void showDetails(Map<String, dynamic> item) {
-    var saving = false;
-    String? error;
     showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
       backgroundColor: const Color(0xFF171A20),
-      builder: (sheetContext) => StatefulBuilder(
-        builder: (context, updateSheet) => SafeArea(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                AchievementBadge(item: item),
-                const SizedBox(height: 12),
-                Text(
-                  title(item),
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.w700,
-                  ),
+      builder: (context) => SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              AchievementBadge(item: item),
+              const SizedBox(height: 12),
+              Text(
+                title(item),
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.w700,
                 ),
-                const SizedBox(height: 12),
-                Text(
-                  achievementRequirement(item, widget.language),
-                  textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 12),
+              Text(
+                achievementRequirement(item, widget.language),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 16),
+              Text(
+                '+${item['xp']} XP',
+                style: const TextStyle(
+                  color: Color(0xFF72D8AE),
+                  fontWeight: FontWeight.w700,
                 ),
-                const SizedBox(height: 16),
-                Text(
-                  '+${item['xp']} XP',
-                  style: const TextStyle(
-                    color: Color(0xFF72D8AE),
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                if (item['category'] != 'tourist')
-                  Text(tierName(item), textAlign: TextAlign.center),
-                Text(status(item), textAlign: TextAlign.center),
-                if (item['available'] == true && item['status'] == 'confirmed')
-                  Text(
-                    '${item['progress'] ?? item['threshold']} / ${item['threshold']}',
-                    textAlign: TextAlign.center,
-                  ),
-                if (widget.onSelect != null &&
-                    item['status'] == 'confirmed') ...[
-                  const SizedBox(height: 16),
-                  FilledButton.icon(
-                    onPressed: saving
+              ),
+              const SizedBox(height: 8),
+              if (item['category'] != 'tourist')
+                Text(tierName(item), textAlign: TextAlign.center),
+              Text(status(item), textAlign: TextAlign.center),
+              if (widget.selectForProfile != null &&
+                  item['status'] == 'confirmed')
+                StatefulBuilder(
+                  builder: (context, update) => FilledButton.icon(
+                    icon: const Icon(Icons.workspace_premium),
+                    label: Text(
+                      t(
+                        'Display on profile',
+                        'Показать в профиле',
+                        'Rādīt profilā',
+                      ),
+                    ),
+                    onPressed: selecting
                         ? null
                         : () async {
-                            final nextId = selectedId == item['id']
-                                ? null
-                                : item['id'] as String;
-                            updateSheet(() {
-                              saving = true;
-                              error = null;
-                            });
+                            update(() => selecting = true);
                             try {
-                              await widget.onSelect!(nextId);
-                              if (!mounted) return;
-                              setState(() {
-                                selectedId = nextId;
-                              });
-                              if (sheetContext.mounted)
-                                Navigator.pop(sheetContext);
+                              await widget.selectForProfile!(
+                                item['id'] as String,
+                              );
+                              if (!context.mounted) return;
+                              Navigator.pop(context);
+                              if (mounted)
+                                ScaffoldMessenger.of(this.context).showSnackBar(
+                                  SnackBar(
+                                    content: Text(
+                                      t(
+                                        'Achievement displayed on profile',
+                                        'Достижение показано в профиле',
+                                        'Sasniegums redzams profilā',
+                                      ),
+                                    ),
+                                  ),
+                                );
                             } catch (_) {
-                              if (sheetContext.mounted) {
-                                updateSheet(() {
-                                  saving = false;
-                                  error = t(
-                                    'Could not save. Try again.',
-                                    'Не удалось сохранить. Попробуйте ещё раз.',
-                                    'Neizdevās saglabāt. Mēģiniet vēlreiz.',
-                                  );
-                                });
-                              }
+                              if (context.mounted)
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text(
+                                      t(
+                                        'Could not save. Try again.',
+                                        'Не удалось сохранить. Повторите.',
+                                        'Neizdevās saglabāt. Mēģiniet vēlreiz.',
+                                      ),
+                                    ),
+                                  ),
+                                );
+                            } finally {
+                              selecting = false;
+                              if (context.mounted) update(() {});
                             }
                           },
-                    icon: Icon(
-                      selectedId == item['id']
-                          ? Icons.check_circle
-                          : Icons.person_outline,
-                    ),
-                    label: Text(
-                      saving
-                          ? t('Saving…', 'Сохранение…', 'Saglabā…')
-                          : selectedId == item['id']
-                          ? t(
-                              'Remove from profile',
-                              'Убрать из профиля',
-                              'Noņemt no profila',
-                            )
-                          : t(
-                              'Show on profile',
-                              'Показать в профиле',
-                              'Rādīt profilā',
-                            ),
-                    ),
                   ),
-                  if (error != null) Text(error!, textAlign: TextAlign.center),
-                ],
-                const SizedBox(height: 16),
-                TextButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: Text(t('Close', 'Закрыть', 'Aizvērt')),
                 ),
-              ],
-            ),
+              if (item['available'] == true && item['status'] == 'confirmed')
+                Text(
+                  '${item['progress'] ?? item['threshold']} / ${item['threshold']}',
+                  textAlign: TextAlign.center,
+                ),
+              const SizedBox(height: 16),
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: Text(t('Close', 'Закрыть', 'Aizvērt')),
+              ),
+            ],
           ),
         ),
       ),
@@ -408,7 +393,6 @@ class _AchievementsScreenState extends State<AchievementsScreen> {
     return Semantics(
       label:
           '${title(item)}. ${achievementRequirement(item, widget.language)}. ${status(item)}. +${item['xp']} XP',
-      selected: selectedId == item['id'],
       button: true,
       onTap: () => showDetails(item),
       excludeSemantics: true,
@@ -430,26 +414,8 @@ class _AchievementsScreenState extends State<AchievementsScreen> {
                   height: 48,
                   width: double.infinity,
                   child: RepaintBoundary(
-                    child: Stack(
-                      alignment: Alignment.center,
-                      children: [
-                        FittedBox(
-                          child: AchievementBadge(
-                            item: item,
-                            displayHeight: 48,
-                          ),
-                        ),
-                        if (selectedId == item['id'])
-                          const Positioned(
-                            right: 0,
-                            top: 0,
-                            child: Icon(
-                              Icons.check_circle,
-                              size: 16,
-                              color: Color(0xFF72D8AE),
-                            ),
-                          ),
-                      ],
+                    child: FittedBox(
+                      child: AchievementBadge(item: item, displayHeight: 48),
                     ),
                   ),
                 ),
@@ -835,54 +801,4 @@ class _CountryShieldClipper extends CustomClipper<Path> {
     ..close();
   @override
   bool shouldReclip(_CountryShieldClipper oldClipper) => false;
-}
-
-/// The single achievement chosen by the profile owner.
-class FeaturedAchievement extends StatelessWidget {
-  final Map<String, dynamic> item;
-  final String language;
-  const FeaturedAchievement({
-    super.key,
-    required this.item,
-    required this.language,
-  });
-
-  @override
-  Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.symmetric(vertical: 12),
-    child: Row(
-      children: [
-        SizedBox(
-          width: 56,
-          height: 60,
-          child: FittedBox(
-            child: AchievementBadge(item: {...item, 'status': 'confirmed'}),
-          ),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                achievementText(
-                  language,
-                  'Profile achievement',
-                  'Достижение в профиле',
-                  'Profila sasniegums',
-                ),
-                style: const TextStyle(color: Colors.white54, fontSize: 12),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                (item['title'] as Map)[language] as String? ??
-                    (item['title'] as Map)['en'] as String,
-                style: const TextStyle(fontWeight: FontWeight.w700),
-              ),
-            ],
-          ),
-        ),
-      ],
-    ),
-  );
 }

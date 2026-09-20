@@ -5,7 +5,7 @@ function ownerUid(chat) {
 
 function directoryEntry(id, chat, uid, canMonitor, requestStatus = '') {
   return {
-    id, name: chat.name || 'Group chat',
+    id, name: chat.name || 'Group chat', isPrivate: chat.isPrivate === true, memberCount: new Set(chat.memberIds || []).size, isBlocked: (chat.bannedMemberIds || []).includes(uid) || requestStatus === 'rejected',
     photoUrl: chat.photoUrl || chat.avatarUrl || '',
     description: chat.description || '',
     isMember: (chat.memberIds || []).includes(uid),

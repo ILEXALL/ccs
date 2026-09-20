@@ -82,7 +82,7 @@ function publicEntry(rank, userId, stats, user, weeklyXpOverride) {
     photoUrl: cleanString(user.photoUrl),
     avatarPath: cleanString(user.avatarPath),
     city: cleanString(user.city),
-    country: cleanString(user.country),
+    country: cleanString(user.country, profileCountry(user)),
     verified:
       user.verified === true || user.role === 'admin' || user.role === 'moderator',
     xpTotal: Math.max(0, numberValue(stats.xpTotal)),
