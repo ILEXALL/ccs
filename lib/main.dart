@@ -56072,6 +56072,9 @@ void openAchievements(BuildContext context) {
       builder: (_) => AchievementsScreen(
         language: appUiPreferences.language.name,
         load: () => xpScreenRequest('achievements'),
+        onSelect: (id) async {
+          await xpScreenRequest('select_achievement', {'achievementId': id});
+        },
       ),
     ),
   );
@@ -56138,11 +56141,16 @@ class _XpSummaryCardState extends State<XpSummaryCard> {
             ? XpUserStats.fromFirestore(doc)
             : XpUserStats.empty(cleanUserId);
 
-        return XpSummaryContent(
-          stats: stats,
-          loading: loading,
-          unavailable: snapshot.hasError,
-          onTap: widget.onTap,
+        return Column(
+          children: [
+            XpSummaryContent(
+              stats: stats,
+              loading: loading,
+              unavailable: snapshot.hasError,
+              onTap: widget.onTap,
+            ),
+            ProfileAchievement(userId: cleanUserId),
+          ],
         );
       },
     );
@@ -56199,6 +56207,8 @@ class _PublicXpSummaryCardState extends State<PublicXpSummaryCard> {
             unavailable: snapshot.hasError,
             onTap: widget.onHistory,
           ),
+          if (snapshot.hasData && !snapshot.hasError)
+            ProfileAchievement(userId: widget.userId),
           if (snapshot.hasError)
             TextButton(
               onPressed: () => setState(load),
@@ -65546,4 +65556,49 @@ class AppPage extends StatelessWidget {
       ),
     );
   }
+}
+
+class ProfileAchievement extends StatefulWidget {
+  final String userId;
+  const ProfileAchievement({super.key, required this.userId});
+  @override
+  State<ProfileAchievement> createState() => _ProfileAchievementState();
+}
+
+class _ProfileAchievementState extends State<ProfileAchievement> {
+  late Stream<DocumentSnapshot<Map<String, dynamic>>> stream;
+  void subscribe() {
+    stream = FirebaseFirestore.instance
+        .collection('xp_featured_achievements')
+        .doc(widget.userId)
+        .debugSnapshots('profile: featured achievement');
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    subscribe();
+  }
+
+  @override
+  void didUpdateWidget(ProfileAchievement oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.userId != widget.userId) subscribe();
+  }
+
+  @override
+  Widget build(BuildContext context) =>
+      StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+        key: ValueKey(widget.userId),
+        stream: stream,
+        builder: (context, snapshot) {
+          if (snapshot.hasError) return const SizedBox.shrink();
+          final item = snapshot.data?.data()?['item'];
+          if (item is! Map) return const SizedBox.shrink();
+          return FeaturedAchievement(
+            item: Map<String, dynamic>.from(item),
+            language: appUiPreferences.language.name,
+          );
+        },
+      );
 }
