@@ -123,6 +123,12 @@ async function syncSpot(actor, body) {
 }
 
 const handlers = {
+  reset_spot_visit: async actor => {
+    await db.runTransaction(async tx => tx.delete(db.collection('spot_visit_sessions').doc(actor.uid)));
+    return {reset: true};
+  },
+  admin_reward_recipients: (actor, body) => adminRewards.recipients(actor.uid, body.id, body.cursor),
+  admin_xp_audit: (actor, body) => adminRewards.xpAudit(actor.uid, body.cursor),
   admin_rewards: (actor) => adminRewards.listRewards(actor.uid),
   admin_reward_targets: (actor, body) => adminRewards.targetOptions(actor.uid, body.search, body.offset),
   admin_reward_create: (actor, body) => adminRewards.createReward(actor.uid, body),

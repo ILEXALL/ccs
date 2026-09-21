@@ -166,14 +166,18 @@ async function recordCountryAchievement(userId, input, options = {}) {
   // The country badge has the same visit requirement as the UI: GPS inside
   // the country alone is insufficient. Reuse the authoritative visit validator
   // for freshness, radius, moderation, event dates and private-group access.
-  const spots = await db.collection('spots').where('status', '==', 'approved').get();
+  const session = (await db.collection('spot_visit_sessions').doc(userId).get()).data();
+  if (!session || session.elapsedMs < 300000) return {status: 'visit_required', countryCode: code, awarded: false};
+  const candidate = await db.collection('spots').doc(session.spotId).get();
+  const spots = {docs: candidate.exists ? [candidate] : []};
   const position = {lat: input.latitude, lng: input.longitude};
   let visitedSpotId = null;
   for (const doc of spots.docs) {
     const point = coordinates(doc.data());
     if (!point || distanceMeters(position, point) > VISIT_RADIUS_METERS) continue;
     try {
-      await recordSpotVisit(db, userId, doc.id, options.now?.getTime() ?? Date.now(), input);
+      const visit = await recordSpotVisit(db, userId, doc.id, options.now?.getTime() ?? Date.now(), input);
+      if (!visit.recorded) continue;
       visitedSpotId = doc.id;
       break;
     } catch (_) {

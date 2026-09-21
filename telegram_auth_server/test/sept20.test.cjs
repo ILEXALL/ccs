@@ -1,6 +1,6 @@
 const test=require('node:test');
 const assert=require('node:assert/strict');
-const {fixture}=require('./support');
+const {fixture,completedDwell}=require('./support');
 const now=Date.now();
 const gps={latitude:56.95,longitude:24.1,accuracy:8,isMocked:false,recordedAtMillis:now};
 function setup(extra={}) {return fixture({
@@ -9,6 +9,7 @@ function setup(extra={}) {return fixture({
  'spots/e':{status:'approved',isTemporary:true,visibility:'public',startsAt:now-10000,expiresAt:now+3600000,lat:56.95,lng:24.1},...extra,
 });}
 async function call(f,body,uid='tester') {
+ completedDwell(f,uid,body.spotId,body.gpsFix?.recordedAtMillis || now);
  const res={status(code){this.code=code;return this;},json(body){this.body=body;return this;},setHeader(){}};
  await f.load('../handlers/spot-visit.js')({method:'POST',headers:{authorization:'Bearer '+uid},body},res);
  return res;

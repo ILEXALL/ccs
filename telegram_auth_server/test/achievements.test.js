@@ -36,8 +36,8 @@ test('featured achievement requires ownership and confirmation, supports replace
 test('reward guide uses evaluator amounts and only own original confirmed rewards', async () => {
   const f = setup(); const rewards = f.load('../lib/xp/rewards.js');
   const catalog = rewards.rewardCatalog();
-  assert.equal(catalog.length, 14);
-  assert.equal(catalog.reduce((sum, row) => sum + row.xp, 0), 600);
+  assert.equal(catalog.length, 13);
+  assert.equal(catalog.reduce((sum, row) => sum + row.xp, 0), 525);
   for (const item of catalog) for (const lang of ['en', 'ru', 'lv']) assert.ok(item.title[lang]);
   f.rows.set('xp_transactions/a', {userId: 'tester', action: 'spot.approved', amount: 50, status: 'confirmed'});
   f.rows.set('xp_transactions/b', {userId: 'tester', action: 'spot.approved', amount: 50, status: 'revoked'});

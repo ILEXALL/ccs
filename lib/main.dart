@@ -1,4 +1,4 @@
-﻿import 'admin_rewards_screen.dart';
+import 'admin_rewards_screen.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -35,6 +35,7 @@ import 'in_flight_load.dart';
 import 'event_forum_description.dart';
 import 'reward_feedback.dart';
 import 'spot_presence_marker.dart';
+import 'visit_dwell_marker.dart';
 import 'achievements_screen.dart';
 import 'in_app_badges.dart';
 import 'query_pages.dart';
@@ -14451,8 +14452,9 @@ bool usableLiveFix(Position position) =>
 
 final _countryAchievementRequests = <String>{};
 final _creditedSpotVisits = <String, DateTime>{};
-final _spotVisitRequests = <String>{};
 final _lastMockLocationReport = <String, DateTime>{};
+final visitDwellProgress = ValueNotifier<VisitDwellProgress?>(null);
+bool _visitSampleInFlight = false;
 
 Future<void> checkGpsSpotVisits(Position position) async {
   final user = FirebaseAuth.instance.currentUser;
@@ -14477,8 +14479,18 @@ Future<void> checkGpsSpotVisits(Position position) async {
       !position.accuracy.isFinite ||
       position.accuracy < 0 ||
       position.accuracy > 100 ||
-      now.difference(position.timestamp).abs() > const Duration(seconds: 90))
+      now.difference(position.timestamp).abs() > const Duration(seconds: 60)) {
+    if (visitDwellProgress.value != null) {
+      visitDwellProgress.value = null;
+      if (user != null)
+        unawaited(
+          xpScreenRequest(
+            'reset_spot_visit',
+          ).catchError((_) => <String, dynamic>{}),
+        );
+    }
     return;
+  }
   final candidates = approvedPublicSpots()
       .where(
         (spot) =>
@@ -14494,36 +14506,85 @@ Future<void> checkGpsSpotVisits(Position position) async {
                 100,
       )
       .toList();
-  for (final spot in candidates) {
-    if (FirebaseAuth.instance.currentUser?.uid != user.uid) return;
-    final key = '${user.uid}/${spot.id}';
-    if (now.difference(_creditedSpotVisits[key] ?? DateTime(1970)) <
-            const Duration(minutes: 2) ||
-        !_spotVisitRequests.add(key))
-      continue;
-    try {
-      final token = await user.getIdToken();
-      if (FirebaseAuth.instance.currentUser?.uid != user.uid) return;
-      final result = await postJsonToUrl(
-        spotVisitUrl,
-        {
-          'spotId': spot.id,
-          'gpsFix': {
-            'latitude': position.latitude,
-            'longitude': position.longitude,
-            'accuracy': position.accuracy,
-            'isMocked': position.isMocked,
-            'recordedAtMillis': position.timestamp.millisecondsSinceEpoch,
-          },
-        },
-        headers: {HttpHeaders.authorizationHeader: 'Bearer $token'},
-      );
-      if (result['ok'] == true) _creditedSpotVisits[key] = now;
-    } catch (error) {
-      debugPrint('Spot visit check failed: $error');
-    } finally {
-      _spotVisitRequests.remove(key);
+  if (_visitSampleInFlight) return;
+  final current = visitDwellProgress.value;
+  candidates.sort(
+    (a, b) =>
+        Geolocator.distanceBetween(
+          position.latitude,
+          position.longitude,
+          a.coordinates.latitude,
+          a.coordinates.longitude,
+        ).compareTo(
+          Geolocator.distanceBetween(
+            position.latitude,
+            position.longitude,
+            b.coordinates.latitude,
+            b.coordinates.longitude,
+          ),
+        ),
+  );
+  CarSpot? spot;
+  if (current?.userId == user.uid) {
+    for (final candidate in candidates) {
+      if (candidate.id == current!.spotId) spot = candidate;
     }
+  }
+  spot ??= candidates.isEmpty ? null : candidates.first;
+  // Send an outside sample for the previous target so departure resets server state.
+  final spotId =
+      spot?.id ?? (current?.userId == user.uid ? current?.spotId : null);
+  if (spotId == null) {
+    visitDwellProgress.value = null;
+    return;
+  }
+  final key = '${user.uid}/$spotId';
+  if (spot != null &&
+      current?.spotId == spotId &&
+      now.difference(_creditedSpotVisits[key] ?? DateTime(1970)) <
+          const Duration(seconds: 15))
+    return;
+  _visitSampleInFlight = true;
+  try {
+    final token = await user.getIdToken();
+    final fix = {
+      'latitude': position.latitude,
+      'longitude': position.longitude,
+      'accuracy': position.accuracy,
+      'isMocked': position.isMocked,
+      'recordedAtMillis': position.timestamp.millisecondsSinceEpoch,
+    };
+    final response = await postJsonToUrl(
+      spotVisitUrl,
+      {'spotId': spotId, 'gpsFix': fix},
+      headers: {HttpHeaders.authorizationHeader: 'Bearer $token'},
+    );
+    if (FirebaseAuth.instance.currentUser?.uid != user.uid) return;
+    if (response['ok'] == true) {
+      _creditedSpotVisits[key] = now;
+      final result = response['result'] as Map;
+      if (result['status'] == 'outside_or_invalid') {
+        visitDwellProgress.value = null;
+      } else {
+        final wasCompleted =
+            current?.spotId == spotId && current?.completed == true;
+        visitDwellProgress.value = VisitDwellProgress(
+          userId: user.uid,
+          spotId: spotId,
+          elapsedMs: (result['elapsedMs'] as num? ?? 0).toInt(),
+          requiredMs: (result['requiredMs'] as num? ?? 300000).toInt(),
+          completed: result['recorded'] == true,
+          receivedAt: DateTime.now(),
+        );
+        if (result['recorded'] == true && !wasCompleted)
+          await xpScreenRequest('visit_country', fix);
+      }
+    }
+  } catch (error) {
+    visitDwellProgress.value = null;
+    debugPrint('Spot visit check failed: $error');
+  } finally {
+    _visitSampleInFlight = false;
   }
 }
 
@@ -17229,11 +17290,9 @@ Future<void> _backfillLegacySpotCountryCodes(Iterable<CarSpot> spots) async {
   try {
     final batch = FirebaseFirestore.instance.batch();
     for (final spot in missing) {
-      batch.debugUpdate(
-        spotsCollection().doc(spot.id),
-        {'countryCode': spot.effectiveCountryCode},
-        'admin: legacy spot country code backfill',
-      );
+      batch.debugUpdate(spotsCollection().doc(spot.id), {
+        'countryCode': spot.effectiveCountryCode,
+      }, 'admin: legacy spot country code backfill');
     }
     await batch.debugCommit();
   } catch (error, stack) {
@@ -27374,6 +27433,8 @@ class _MapScreenState extends State<MapScreen>
 
   final mapController = MapController();
   late final AnimationController mapAlertPulseController;
+  Timer? visitDwellTimer;
+  bool visitDwellPolling = false;
   Timer? temporarySpotRefreshTimer;
   Timer? nextTemporarySpotExpiryTimer;
   Timer? adaptiveMapStyleTimer;
@@ -27486,6 +27547,30 @@ class _MapScreenState extends State<MapScreen>
       vsync: this,
       duration: const Duration(seconds: 1),
     )..addListener(updatePredictedUserMarker);
+    visitDwellTimer = Timer.periodic(const Duration(seconds: 20), (_) async {
+      if (!widget.isVisible ||
+          visitDwellPolling ||
+          WidgetsBinding.instance.lifecycleState != AppLifecycleState.resumed)
+        return;
+      visitDwellPolling = true;
+      try {
+        final permission = await Geolocator.checkPermission();
+        if (permission != LocationPermission.always &&
+            permission != LocationPermission.whileInUse)
+          return;
+        final position = await Geolocator.getCurrentPosition(
+          locationSettings: const LocationSettings(
+            accuracy: LocationAccuracy.high,
+            timeLimit: Duration(seconds: 12),
+          ),
+        );
+        if (mounted && widget.isVisible) await checkGpsSpotVisits(position);
+      } catch (_) {
+        visitDwellProgress.value = null;
+      } finally {
+        visitDwellPolling = false;
+      }
+    });
     reviewSpots.addListener(refreshMap);
     spotCategoryFilters.addListener(refreshMap);
     spotCountryFilters.addListener(refreshMap);
@@ -28326,7 +28411,24 @@ class _MapScreenState extends State<MapScreen>
                   selectedLiveLocation = null;
                 });
               },
-              marker: showFullIcons ? fullMarker() : compactMarker(),
+              marker: ValueListenableBuilder<VisitDwellProgress?>(
+                valueListenable: visitDwellProgress,
+                builder: (context, progress, child) => VisitDwellMarker(
+                  progress:
+                      progress?.userId ==
+                              FirebaseAuth.instance.currentUser?.uid &&
+                          progress?.spotId == spot.id
+                      ? progress
+                      : null,
+                  label: creatorSpotsText(
+                    'Stay for 5 minutes',
+                    'Оставайся 5 минут',
+                    'Paliec 5 minūtes',
+                  ),
+                  child: child!,
+                ),
+                child: showFullIcons ? fullMarker() : compactMarker(),
+              ),
               peopleButton: showPeople
                   ? SpotPresenceCount(
                       count: peopleCount,
@@ -31293,6 +31395,7 @@ class _MapScreenState extends State<MapScreen>
   @override
   void dispose() {
     unawaited(setScreenAwakeForMap(false));
+    visitDwellTimer?.cancel();
     temporarySpotRefreshTimer?.cancel();
     adaptiveMapStyleTimer?.cancel();
     liveLocationUploadTimer?.cancel();
@@ -31695,12 +31798,10 @@ class _MapScreenState extends State<MapScreen>
       return;
     }
 
-    final safeHeading = normalizedHeadingDegrees(
-      headingDegrees,
-      fallback: currentMapRotationDegrees,
-    );
-
-    moveMapCamera(location, navigationZoom, rotationDegrees: -safeHeading);
+    // Match the camera to the same smoothed course rendered by the arrow.
+    // This keeps the arrow pointing up even between GPS updates during turns.
+    final course = normalizedHeadingDegrees(displayedNavigationHeading, fallback: headingDegrees);
+    moveMapCamera(location, navigationZoom, rotationDegrees: -course);
   }
 
   Future<void> moveToCurrentLocation({bool showErrors = true}) async {
@@ -31749,7 +31850,8 @@ class _MapScreenState extends State<MapScreen>
       currentUserSpeedMetersPerSecond = speed;
       navigationZoom = 16.35; // Explicit GPS tap enters street-level following.
       currentMapZoom = navigationZoom;
-      currentMapRotationDegrees = heading;
+      displayedNavigationHeading = heading;
+      currentMapRotationDegrees = normalizedHeadingDegrees(-heading);
       mapCenteredOnCurrentUser = true;
       selectedSpot = null;
       selectedPoliceReport = null;
@@ -63516,6 +63618,17 @@ class _AdminReviewScreenState extends State<AdminReviewScreen>
                       builder: (_) => AdminRewardsScreen(
                         language: appUiPreferences.language.name,
                         request: xpScreenRequest,
+                        onOpenSpot: (id) async {
+                          final doc = await spotsCollection().doc(id).get();
+                          if (!context.mounted || !doc.exists) return;
+                          final spot = CarSpot.fromFirestore(doc);
+                          Navigator.push(
+                            context,
+                            appPageRoute(
+                              builder: (_) => SpotDetailScreen(spot: spot),
+                            ),
+                          );
+                        },
                       ),
                     ),
                   ),

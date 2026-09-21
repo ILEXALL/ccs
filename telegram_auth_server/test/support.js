@@ -99,3 +99,12 @@ function fixture(extra = {}) {
   return { db, rows, load, reads, awards: load('../lib/xp/xp-firestore.js') };
 }
 module.exports = { fixture };
+
+// Existing reward/access tests start at the final sample of a completed stay.
+// dwell-visits.test.cjs separately exercises the complete real sample sequence.
+function completedDwell(f, uid, spotId, now) {
+  const {rigaDay} = require('../lib/spot-visits');
+  f.rows.set(`spot_visit_sessions/${uid}`, {spotId,dayKey:rigaDay(now),elapsedMs:300000,
+    startedAt:now-300000,lastSeenAt:now,lastSampleAt:now});
+}
+module.exports.completedDwell = completedDwell;

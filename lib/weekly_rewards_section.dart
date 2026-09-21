@@ -126,9 +126,9 @@ class WeeklyRewardsSection extends StatelessWidget {
             padding: const EdgeInsets.only(top: 8),
             child: Text(
               t(
-                'Spot visits: 300 XP each, up to 7 different permanent spots per week. Familiar places count again next week.',
-                'Посещения: 300 XP за спот, до 7 разных постоянных спотов за неделю. Знакомые места снова учитываются на следующей неделе.',
-                'Apmeklējumi: 300 XP par vietu, līdz 7 dažādām pastāvīgām vietām nedēļā. Pazīstamas vietas atkal skaitās nākamnedēļ.',
+                'Spot visits: 50 XP after 5 minutes within 100 m. Up to 3 different spots per day and 7 per week. Leaving or a GPS gap over 1 minute resets the timer. Familiar places count again next week.',
+                'Посещения: 50 XP за 5 минут в пределах 100 м. До 3 разных спотов в день и 7 в неделю. Выход из радиуса или перерыв GPS больше минуты сбрасывает таймер. Знакомые места снова учитываются на следующей неделе.',
+                'Apmeklējumi: 50 XP par 5 minūtēm 100 m rādiusā. Līdz 3 vietām dienā un 7 nedēļā. Attālinoties vai bez GPS ilgāk par minūti, taimeris sākas no jauna. Pazīstamas vietas atkal skaitās nākamnedēļ.',
               ),
               style: const TextStyle(color: Colors.white60, fontSize: 12),
             ),

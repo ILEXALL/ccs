@@ -18,8 +18,12 @@ module.exports = async (req, res) => {
     const fix = req.body?.gpsFix || (stored && {latitude: stored.lat, longitude: stored.lng,
       accuracy: stored.accuracy, isMocked: stored.isMocked,
       recordedAtMillis: stored.recordedAtMillis ?? stored.updatedAt?.toMillis?.()});
-    if (!await assessLocation(token.uid, fix)) throw new Error('Location could not be verified');
+    if (!await assessLocation(token.uid, fix)) {
+      await db.runTransaction(async tx => tx.delete(db.collection('spot_visit_sessions').doc(token.uid)));
+      throw new Error('Location could not be verified');
+    }
     const result = await recordSpotVisit(db, token.uid, req.body?.spotId, Date.now(), req.body?.gpsFix ?? null);
+    if (!result.recorded) return res.status(200).json({ok: true, result});
     if (result.event) {
       result.xp = await awardXp({userId: token.uid, action: 'event.attended', objectType: 'event',
         objectId: req.body.spotId, stage: 'attended', amount: 200,

@@ -183,6 +183,61 @@ void main() {
     },
   );
 
+  testWidgets(
+    'admin journal and recipients show paid and pending XP on narrow screens',
+    (tester) async {
+      tester.view.physicalSize = const Size(320, 800);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      Future<Map<String, dynamic>> request(
+        String action, [
+        Map<String, dynamic> extra = const {},
+      ]) async => {
+        'items': [
+          {
+            'userId': 'user-id',
+            'username': 'driver',
+            'title': {'ru': 'Посещение спота'},
+            'status': 'confirmed',
+            'amount': 50,
+            'receivedXp': 50,
+            'requestedAmount': 50,
+            'xp': 50,
+            'createdAt': 1700000000000,
+          },
+          {
+            'userId': 'other-id',
+            'username': 'other',
+            'title': {'ru': 'Награда администратора'},
+            'status': 'pending',
+            'amount': 0,
+            'receivedXp': 0,
+            'requestedAmount': 200,
+            'xp': 200,
+          },
+        ],
+      };
+      for (final reward in [null, 'reward-id']) {
+        await tester.pumpWidget(
+          MaterialApp(
+            home: AdminXpActivityScreen(
+              key: ValueKey(reward),
+              language: 'ru',
+              request: request,
+              rewardId: reward,
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(find.text('@driver'), findsOneWidget);
+        expect(find.text('Получено · 50 XP / 50 XP'), findsOneWidget);
+        expect(find.text('Ожидает начисления · 0 XP / 200 XP'), findsOneWidget);
+        expect(tester.takeException(), isNull);
+      }
+    },
+  );
+
   testWidgets('admin can select target and submit a dated fixed XP reward', (
     tester,
   ) async {
@@ -194,7 +249,14 @@ void main() {
       if (action == 'admin_reward_targets')
         return {
           'items': [
-            {'id': 'spot-id', 'name': 'Meet place', 'event': true},
+            {
+              'id': 'spot-id',
+              'name': 'Meet place',
+              'event': true,
+              'cityCountry': 'Riga, Latvia',
+              'lat': 56.95,
+              'lng': 24.1,
+            },
           ],
         };
       if (action == 'admin_reward_create') {

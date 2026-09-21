@@ -12,7 +12,7 @@ test('all legacy URLs dispatch to their original handler with request intact', a
     const target = new URL(rewrite.destination, 'https://example.test');
     assert.equal(target.pathname, '/api/community');
     const req = {method:'POST', headers:{authorization:'Bearer test'}, body:{action:'sync_me'}, query:Object.fromEntries(target.searchParams)};
-    const res = {};
+    const res = {setHeader(){}};
     let called = false;
     const module = {exports:{}};
     vm.runInNewContext(fs.readFileSync(path.join(root,'api/community.js'),'utf8'), {module, require: id => (actualReq, actualRes) => {
@@ -28,7 +28,7 @@ test('unknown routes do not dispatch and function count fits Hobby limit', () =>
   vm.runInNewContext(fs.readFileSync(path.join(root,'api/community.js'),'utf8'),{module,require:()=>()=>assert.fail('Unexpected dispatch')});
   for (const endpoint of ['constructor','unknown',undefined,['xp-sync']]) {
     let status;
-    module.exports({query:{endpoint}},{status(code){status=code; return this;},json(){}});
+    module.exports({query:{endpoint}},{setHeader(){},status(code){status=code; return this;},json(){}});
     assert.equal(status,404);
   }
   assert.equal(fs.readdirSync(path.join(root,'api')).filter(f=>f.endsWith('.js')).length,12);

@@ -12,10 +12,12 @@ typedef RewardRequest =
 class AdminRewardsScreen extends StatefulWidget {
   final String language;
   final RewardRequest request;
+  final ValueChanged<String>? onOpenSpot;
   const AdminRewardsScreen({
     super.key,
     required this.language,
     required this.request,
+    this.onOpenSpot,
   });
   @override
   State<AdminRewardsScreen> createState() => _AdminRewardsScreenState();
@@ -41,8 +43,11 @@ class _AdminRewardsScreenState extends State<AdminRewardsScreen> {
   Future<void> create() async {
     final added = await Navigator.of(context).push<bool>(
       MaterialPageRoute(
-        builder: (_) =>
-            _RewardEditor(language: widget.language, request: widget.request),
+        builder: (_) => _RewardEditor(
+          language: widget.language,
+          request: widget.request,
+          onOpenSpot: widget.onOpenSpot,
+        ),
       ),
     );
     if (added == true && mounted) setState(reload);
@@ -100,6 +105,19 @@ class _AdminRewardsScreenState extends State<AdminRewardsScreen> {
       title: Text(t('Rewards', 'Награды', 'Atlīdzības')),
       actions: [
         IconButton(
+          tooltip: t('XP activity', 'Журнал XP', 'XP žurnāls'),
+          icon: const Icon(Icons.receipt_long),
+          onPressed: () => Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => AdminXpActivityScreen(
+                language: widget.language,
+                request: widget.request,
+              ),
+            ),
+          ),
+        ),
+        IconButton(
           onPressed: () => setState(reload),
           icon: const Icon(Icons.refresh),
         ),
@@ -143,9 +161,9 @@ class _AdminRewardsScreenState extends State<AdminRewardsScreen> {
             const SizedBox(height: 8),
             Text(
               t(
-                'Awarded once per person after a verified visit during the specified dates. Counts toward the weekly XP limit.',
-                'Награда выдаётся один раз каждому за подтверждённое посещение в указанный срок. Входит в недельный лимит XP.',
-                'Piešķir vienreiz par apstiprinātu apmeklējumu norādītajā laikā. Ietilpst nedēļas XP limitā.',
+                'Awarded once per person after a verified 5-minute stay within 100 m during the specified dates. Counts toward the weekly XP limit.',
+                'Награда выдаётся один раз каждому за подтверждённые 5 минут в пределах 100 м в указанный срок. Входит в недельный лимит XP.',
+                'Piešķir vienreiz par apstiprinātām 5 minūtēm 100 m rādiusā norādītajā laikā. Ietilpst nedēļas XP limitā.',
               ),
             ),
             const SizedBox(height: 16),
@@ -170,6 +188,20 @@ class _AdminRewardsScreenState extends State<AdminRewardsScreen> {
                         style: const TextStyle(fontWeight: FontWeight.w800),
                       ),
                       Text('${item['spotName']} · +${item['xp']} XP'),
+                      TextButton.icon(
+                        icon: const Icon(Icons.people_outline),
+                        label: Text(t('Recipients', 'Получатели', 'Saņēmēji')),
+                        onPressed: () => Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => AdminXpActivityScreen(
+                              language: widget.language,
+                              request: widget.request,
+                              rewardId: item['id'] as String,
+                            ),
+                          ),
+                        ),
+                      ),
                       Text(
                         '${DateFormat('dd.MM.yyyy HH:mm').format(DateTime.fromMillisecondsSinceEpoch((item['startsAt'] as num).toInt()).toLocal())} → ${DateFormat('dd.MM.yyyy HH:mm').format(DateTime.fromMillisecondsSinceEpoch((item['endsAt'] as num).toInt()).toLocal())}',
                       ),
@@ -211,7 +243,12 @@ class _AdminRewardsScreenState extends State<AdminRewardsScreen> {
 class _RewardEditor extends StatefulWidget {
   final String language;
   final RewardRequest request;
-  const _RewardEditor({required this.language, required this.request});
+  final ValueChanged<String>? onOpenSpot;
+  const _RewardEditor({
+    required this.language,
+    required this.request,
+    this.onOpenSpot,
+  });
   @override
   State<_RewardEditor> createState() => _RewardEditorState();
 }
@@ -445,10 +482,42 @@ class _RewardEditorState extends State<_RewardEditor> {
               ),
             for (final item in targets)
               ListTile(
-                leading: Icon(
-                  item['event'] == true ? Icons.event : Icons.place,
+                leading: SizedBox(
+                  width: 52,
+                  height: 52,
+                  child:
+                      item['photoUrl'] is String &&
+                          (item['photoUrl'] as String).startsWith('https://')
+                      ? ClipRRect(
+                          borderRadius: BorderRadius.circular(8),
+                          child: Image.network(
+                            item['photoUrl'],
+                            fit: BoxFit.cover,
+                            errorBuilder: (_, __, ___) => Icon(
+                              item['event'] == true ? Icons.event : Icons.place,
+                            ),
+                          ),
+                        )
+                      : Icon(item['event'] == true ? Icons.event : Icons.place),
                 ),
                 title: Text(item['name'] as String),
+                subtitle: Text(
+                  [
+                    if ((item['cityCountry'] as String? ?? '').isNotEmpty)
+                      item['cityCountry'],
+                    if (item['lat'] is num && item['lng'] is num)
+                      '${(item['lat'] as num).toStringAsFixed(5)}, ${(item['lng'] as num).toStringAsFixed(5)}',
+                    'ID: ${item['id']}',
+                  ].join('\n'),
+                ),
+                trailing: widget.onOpenSpot == null
+                    ? null
+                    : IconButton(
+                        tooltip: t('Open spot', 'Открыть спот', 'Atvērt vietu'),
+                        icon: const Icon(Icons.open_in_new),
+                        onPressed: () =>
+                            widget.onOpenSpot!(item['id'] as String),
+                      ),
                 selected: target?['id'] == item['id'],
                 onTap: () => setState(() {
                   target = item;
@@ -515,6 +584,174 @@ class _RewardEditorState extends State<_RewardEditor> {
           ],
         ),
       ),
+    ),
+  );
+}
+
+class AdminXpActivityScreen extends StatefulWidget {
+  final String language;
+  final RewardRequest request;
+  final String? rewardId;
+  const AdminXpActivityScreen({
+    super.key,
+    required this.language,
+    required this.request,
+    this.rewardId,
+  });
+  @override
+  State<AdminXpActivityScreen> createState() => _AdminXpActivityScreenState();
+}
+
+class _AdminXpActivityScreenState extends State<AdminXpActivityScreen> {
+  final List<Map> items = [];
+  String? cursor;
+  bool loading = false;
+  bool failed = false;
+  String t(String en, String ru, String lv) => widget.language == 'ru'
+      ? ru
+      : widget.language == 'lv'
+      ? lv
+      : en;
+  @override
+  void initState() {
+    super.initState();
+    load();
+  }
+
+  Future<void> load({bool refresh = false}) async {
+    if (loading) return;
+    setState(() {
+      loading = true;
+      failed = false;
+      if (refresh) {
+        items.clear();
+        cursor = null;
+      }
+    });
+    try {
+      final data = await widget.request(
+        widget.rewardId == null ? 'admin_xp_audit' : 'admin_reward_recipients',
+        {
+          if (widget.rewardId != null) 'id': widget.rewardId,
+          if (cursor != null) 'cursor': cursor,
+        },
+      );
+      if (mounted)
+        setState(() {
+          items.addAll((data['items'] as List).cast<Map>());
+          cursor = data['nextCursor'] as String?;
+        });
+    } catch (_) {
+      if (mounted) setState(() => failed = true);
+    } finally {
+      if (mounted) setState(() => loading = false);
+    }
+  }
+
+  String status(Map item) => switch (item['status']) {
+    'confirmed' => t('Received', 'Получено', 'Saņemts'),
+    'pending' => t('Pending', 'Ожидает начисления', 'Gaida piešķiršanu'),
+    'awaiting_payment' => t(
+      'Visit confirmed, awaiting XP',
+      'Посещение подтверждено, ожидает XP',
+      'Apmeklējums apstiprināts, gaida XP',
+    ),
+    'rejected' => t('Rejected', 'Отклонено', 'Noraidīts'),
+    _ => '${item['status']}',
+  };
+  String title(Map item) {
+    final value = item['title'];
+    return value is Map
+        ? '${value[widget.language] ?? value['en'] ?? item['action']}'
+        : '${value ?? ''}';
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(
+      title: Text(
+        widget.rewardId == null
+            ? t('XP activity', 'Журнал XP', 'XP žurnāls')
+            : t(
+                'Reward recipients',
+                'Получатели награды',
+                'Atlīdzības saņēmēji',
+              ),
+      ),
+      actions: [
+        IconButton(
+          onPressed: loading ? null : () => load(refresh: true),
+          icon: const Icon(Icons.refresh),
+        ),
+      ],
+    ),
+    body: ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        if (widget.rewardId == null)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 16),
+            child: Text(
+              t(
+                'Visit XP: 50 per spot, up to 3 per day and 7 per week. Each visit requires 5 minutes within 100 m. Repeated claims do not award XP again.',
+                'За спот — 50 XP: максимум 3 в день и 7 в неделю. Для посещения нужны 5 минут в пределах 100 м. Повторные запросы не дают XP заново.',
+                'Par vietu — 50 XP: līdz 3 dienā un 7 nedēļā. Apmeklējumam vajag 5 minūtes 100 m rādiusā. Atkārtoti pieprasījumi nedod papildu XP.',
+              ),
+            ),
+          ),
+        for (final item in items)
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '@${item['username']}',
+                    style: const TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  Text(
+                    'ID: ${item['userId']}',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                  if (widget.rewardId == null) Text(title(item)),
+                  Text(
+                    '${status(item)} · ${item['amount'] ?? item['receivedXp'] ?? 0} XP / ${item['requestedAmount'] ?? item['xp'] ?? 0} XP',
+                  ),
+                  if (item['reason'] != null) Text('${item['reason']}'),
+                  if (item['createdAt'] is num || item['completedAt'] is num)
+                    Text(
+                      DateFormat('dd.MM.yyyy HH:mm').format(
+                        DateTime.fromMillisecondsSinceEpoch(
+                          ((item['completedAt'] ?? item['createdAt']) as num)
+                              .toInt(),
+                        ).toLocal(),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
+        if (loading) const Center(child: CircularProgressIndicator()),
+        if (failed)
+          TextButton(
+            onPressed: () => load(),
+            child: Text(
+              t(
+                'Could not load. Retry',
+                'Не удалось загрузить. Повторить',
+                'Neizdevās ielādēt. Atkārtot',
+              ),
+            ),
+          ),
+        if (!loading && !failed && items.isEmpty)
+          Text(t('No records yet', 'Записей пока нет', 'Ierakstu vēl nav')),
+        if (!loading && cursor != null)
+          TextButton(
+            onPressed: () => load(),
+            child: Text(t('Show more', 'Показать ещё', 'Rādīt vairāk')),
+          ),
+      ],
     ),
   );
 }

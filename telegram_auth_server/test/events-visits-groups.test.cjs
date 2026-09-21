@@ -1,11 +1,13 @@
-const test=require('node:test');const assert=require('node:assert/strict');const {fixture}=require('./support');
+const test=require('node:test');const assert=require('node:assert/strict');const {fixture,completedDwell}=require('./support');
 const now=Date.parse('2026-09-19T12:00:00Z');
 function setup(){return fixture({'app_config/xp':{levels_enabled:true,xp_awards_enabled:true,achievements_enabled:true,enabledUserIds:['*'],weeklyLimit:3000,timezone:'Europe/Riga'},'users/tester':{role:'user',verified:true},'spots/s':{status:'approved',lat:0,lng:0}});}
 const gps={latitude:0,longitude:0,accuracy:10,isMocked:false,recordedAtMillis:now};
 test('GPS button records without live sharing, once across days and account sessions',async()=>{
  const f=setup();const {recordSpotVisit}=f.load('../lib/spot-visits.js');const achievements=f.load('../lib/xp/achievements.js');
+ completedDwell(f,'tester','s',now);
  assert.equal((await recordSpotVisit(f.db,'tester','s',now,gps)).duplicate,false);
  const later=now+86400000;
+ completedDwell(f,'tester','s',later);
  assert.equal((await recordSpotVisit(f.db,'tester','s',later,{...gps,recordedAtMillis:later})).duplicate,true);
  await achievements.syncAchievements('tester',{now:new Date(later)});
  const firstXp=f.rows.get('xp_user_stats/tester').xpTotal;
@@ -18,7 +20,8 @@ test('GPS button records without live sharing, once across days and account sess
 test('GPS visit rejects bad fixes and cannot use a forged user id',async()=>{
  const f=setup();const {recordSpotVisit}=f.load('../lib/spot-visits.js');
  for(const change of [{isMocked:true},{isMocked:undefined},{accuracy:101},{accuracy:undefined},{recordedAtMillis:now-150001},{recordedAtMillis:now+5000},{latitude:1}]){
-  await assert.rejects(recordSpotVisit(f.db,'tester','s',now,{...gps,...change}));
+  const result = await recordSpotVisit(f.db,'tester','s',now,{...gps,...change}).catch(() => ({recorded:false}));
+  assert.equal(result.recorded,false);
  }
  assert.equal([...f.rows.keys()].filter(k=>k.startsWith('spot_visit_records/')).length,0);
 });

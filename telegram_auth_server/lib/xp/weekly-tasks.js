@@ -85,9 +85,17 @@ async function syncWeeklyTasks(userId, options = {}) {
   for (const key of [...keys].sort()) {
     if (key > weekKeyFor(now)) continue;
     const evidence = rows.filter(r => r.weekKey === key);
-    const paidSpots = [...new Map(evidence.filter(r => !r.event).sort((a,b) => a.recordedAtMillis - b.recordedAtMillis || a.spotId.localeCompare(b.spotId)).map(r => [r.spotId,r])).keys()].slice(0,7);
+    const daily = new Map(), seen = new Set(), paidSpots = [];
+    for (const row of evidence.filter(r => !r.event).sort((a,b) => a.recordedAtMillis - b.recordedAtMillis || a.spotId.localeCompare(b.spotId))) {
+      if (seen.has(row.spotId)) continue;
+      seen.add(row.spotId);
+      const count = daily.get(row.dayKey) || 0;
+      if (count >= 3 || paidSpots.length >= 7) continue;
+      daily.set(row.dayKey, count + 1);
+      paidSpots.push(row.spotId);
+    }
     for (const spotId of paidSpots) await awardXp({userId, action: 'visit.weekly', objectType: 'weekly_visit',
-      objectId: `${key}_${spotId}`, stage: 'visited', amount: 300, metadata: {reason: 'Weekly spot visit', assignmentWeek: key}}, {now});
+      objectId: `${key}_${spotId}`, stage: 'visited', amount: 50, metadata: {reason: 'Weekly spot visit', assignmentWeek: key, spotId}}, {now});
     const published = publications.filter(r => r.metadata?.publicationWeek === key);
     for (const task of tasksForWeek(key)) {
       if (progress(task, evidence, published) >= task.target) await awardXp(weeklyAward(userId, key, task), {now});
@@ -137,7 +145,7 @@ async function weeklyProgress(userId, options = {}) {
     ((r.action === 'weekly.completed' && r.metadata?.assignmentWeek !== key) ||
       (r.action === 'admin_reward.completed' && !adminItems.some(i => i.id === r.objectId))))
     .map(r => ({id: r.objectId, title: r.metadata.title, xp: r.requestedAmount, status: 'pending', target: 1, progress: 1}));
-  return {status: enabled ? 'active' : 'disabled', weekKey: key, totalXp: 600, items, adminItems, pendingItems,
+  return {visitXp: 50, dailyVisitLimit: 3, weeklyVisitLimit: 7, dwellSeconds: 300, status: enabled ? 'active' : 'disabled', weekKey: key, totalXp: 600, items, adminItems, pendingItems,
     limit: Math.min(3000, Number(config.weeklyLimit) || 3000), consumedXp: Math.max(0, (week.confirmedXp || 0) - (week.achievementBonusXp || 0)),
     pendingXp: ledger.filter(r => r.status === 'pending' && r.reason === 'WEEKLY_LIMIT_REACHED').reduce((n,r) => n + (Number(r.requestedAmount) || Number(r.amount) || 0), 0)};
 }

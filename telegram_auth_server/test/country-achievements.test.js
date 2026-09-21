@@ -1,5 +1,5 @@
 const test=require('node:test');const assert=require('node:assert/strict');
-const {fixture}=require('./support');
+const {fixture,completedDwell}=require('./support');
 const {countryForCoordinates,validateCountryFix}=require('../lib/xp/country-location');
 const now=new Date('2026-09-18T12:00:00Z');
 const fix={latitude:56.9496,longitude:24.1052,accuracy:15,isMocked:false,recordedAtMillis:now.getTime()};
@@ -15,6 +15,7 @@ test('freshness, accuracy, mock and coordinate checks',()=>{
 test('GPS grants only the current country once and public boards show only that country earned',async()=>{
  const f=fixture({'users/viewer':{}, 'spots/riga':{status:'approved',lat:56.9496,lng:24.1052}, 'spots/vilnius':{status:'approved',lat:54.687,lng:25.279}});f.rows.get('app_config/xp').achievements_enabled=true;
  const a=f.load('../lib/xp/achievements.js');
+ completedDwell(f,'tester','riga',now.getTime());
  const first=await a.recordCountryAchievement('tester',{...fix,countryCode:'DE',amount:9999},{now});
  assert.equal(first.countryCode,'LV');assert.equal(first.amount,75);assert.equal(first.awarded,true);
  assert.equal((await a.recordCountryAchievement('tester',fix,{now})).awarded,false);
@@ -26,6 +27,7 @@ test('GPS grants only the current country once and public boards show only that 
  const award=[...f.rows.values()].find(v=>v.objectId==='tourist.LV');
  assert.equal(JSON.stringify(award).includes('latitude'),false);
  assert.equal(JSON.stringify(award).includes('longitude'),false);
+ completedDwell(f,'tester','vilnius',now.getTime());
  await a.recordCountryAchievement('tester',{...fix,latitude:54.687,longitude:25.279},{now});
  assert.equal(f.rows.get('xp_user_stats/tester').xpTotal,150);
 });
@@ -43,6 +45,7 @@ test('country badge requires a real visit within 100m, never 500m or GPS alone',
  for (const [meters, accepted] of [[99.6, true], [100.4, false], [500, false]]) {
   const f=fixture({'spots/s':{status:'approved', lat:fix.latitude + meters / 6371000 * 180 / Math.PI, lng:fix.longitude}});
   f.rows.get('app_config/xp').achievements_enabled=true;
+  completedDwell(f,'tester','s',now.getTime());
   const result=await f.load('../lib/xp/achievements.js').recordCountryAchievement('tester',fix,{now});
   assert.equal(result.awarded,accepted,`${meters}m`);
   assert.equal([...f.rows.values()].some(row=>row.objectId==='tourist.LV'),accepted);
@@ -54,6 +57,7 @@ test('country badge cannot bypass spot access, freshness or event restrictions',
  for (const change of [{status:'pending'},{deleted:true},{visibility:'group',isTemporary:true,sharedGroupIds:['private'],expiresAt:now.getTime()+60000},{verifiedOnly:true},{isTemporary:true,expiresAt:now.getTime()-1}]) {
   const f=fixture({'spots/s':{status:'approved',lat:fix.latitude,lng:fix.longitude,...change}});
   f.rows.get('app_config/xp').achievements_enabled=true;
+  completedDwell(f,'tester','s',now.getTime());
   const result=await f.load('../lib/xp/achievements.js').recordCountryAchievement('tester',fix,{now});
   assert.equal(result.awarded,false,JSON.stringify(change));
  }

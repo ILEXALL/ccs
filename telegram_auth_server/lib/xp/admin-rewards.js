@@ -1,4 +1,5 @@
 const {db} = require('../firebase-admin');
+const {buildXpTransactionId} = require('./xp-engine');
 const validId = value => typeof value === 'string' && /^[A-Za-z0-9_-]{1,128}$/.test(value);
 async function requireAdmin(tx, uid) {
   const user = (await tx.get(db.collection('users').doc(uid))).data();
@@ -18,8 +19,11 @@ async function targetOptions(uid, search = '', offset = 0) {
   const start = Number.isSafeInteger(offset) && offset >= 0 ? offset : 0;
   const docs = await db.collection('spots').where('status', '==', 'approved').get();
   const items = docs.docs.filter(d => !d.data().deleted)
-    .map(d => ({id: d.id, name: String(d.data().name || d.id), event: d.data().isTemporary === true}))
-    .filter(item => !query || normalizeSearch(item.name).includes(query) || normalizeSearch(item.id) === query)
+    .map(d => ({id: d.id, name: String(d.data().name || d.id), event: d.data().isTemporary === true, cityCountry: String(d.data().cityCountry || ''),
+      photoUrl: String(d.data().photoUrl || d.data().photoUrls?.[0] || ''),
+      lat: d.data().coordinates?.latitude ?? d.data().lat ?? null,
+      lng: d.data().coordinates?.longitude ?? d.data().lng ?? null}))
+    .filter(item => !query || normalizeSearch(item.name + ' ' + item.cityCountry).includes(query) || normalizeSearch(item.id) === query)
     .sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
   return {items: items.slice(start, start + 5), nextOffset: start + 5 < items.length ? start + 5 : null};
 }
@@ -64,4 +68,48 @@ async function cancelReward(uid, id, now = Date.now()) {
     return {id, enabled: false};
   });
 }
-module.exports = {listRewards, targetOptions, createReward, cancelReward};
+const time = value => value?.toMillis?.() ?? (typeof value === 'number' ? value : null);
+async function recipients(uid, rewardId, cursor) {
+  await db.runTransaction(tx => requireAdmin(tx, uid));
+  if (!validId(rewardId)) throw new Error('Invalid reward');
+  let query = db.collection('admin_reward_claims').where('rewardId', '==', rewardId).orderBy('__name__').limit(26);
+  if (cursor) {
+    if (!validId(cursor)) throw new Error('Invalid cursor');
+    const previous = await db.collection('admin_reward_claims').doc(cursor).get();
+    if (!previous.exists || previous.data().rewardId !== rewardId) throw new Error('Invalid cursor');
+    query = query.startAfter(previous);
+  }
+  const docs = (await query.get()).docs;
+  const items = await Promise.all(docs.slice(0,25).map(async doc => {
+    const claim = doc.data();
+    const transactionId = buildXpTransactionId({userId: claim.userId, action:'admin_reward.completed',
+      objectType:'admin_reward',objectId:rewardId,stage:'completed',amount:claim.xp});
+    const [user, transaction] = await db.getAll(db.collection('users').doc(claim.userId), db.collection('xp_transactions').doc(transactionId));
+    const payment = transaction.data();
+    return {userId: claim.userId, username: String(user.data()?.username || user.data()?.name || claim.userId),
+      completedAt: claim.completedAt, xp: claim.xp, receivedXp: payment?.status === 'confirmed' ? payment.amount : 0,
+      status: payment?.status || 'awaiting_payment'};
+  }));
+  return {items, nextCursor: docs.length > 25 ? docs[24].id : null};
+}
+async function xpAudit(uid, cursor) {
+  await db.runTransaction(tx => requireAdmin(tx, uid));
+  let query = db.collection('xp_transactions').orderBy('createdAt', 'desc').limit(26);
+  if (cursor) {
+    if (!validId(cursor)) throw new Error('Invalid cursor');
+    const previous = await db.collection('xp_transactions').doc(cursor).get();
+    if (!previous.exists) throw new Error('Invalid cursor');
+    query = query.startAfter(previous);
+  }
+  const docs = (await query.get()).docs;
+  const items = await Promise.all(docs.slice(0,25).map(async doc => {
+    const row = doc.data();
+    const user = await db.collection('users').doc(row.userId).get();
+    return {id: doc.id, userId: row.userId, username: String(user.data()?.username || user.data()?.name || row.userId),
+      action: row.action, title: row.metadata?.title || row.metadata?.reason || row.action,
+      objectId: row.objectId, amount: row.amount, requestedAmount: row.requestedAmount,
+      status: row.status, reason: row.reason, createdAt: time(row.createdAt), weekKey: row.weekKey};
+  }));
+  return {items, nextCursor: docs.length > 25 ? docs[24].id : null};
+}
+module.exports = {listRewards, targetOptions, createReward, cancelReward, recipients, xpAudit};

@@ -2,7 +2,9 @@ const {prepareTaskVisit} = require('./xp/weekly-visit-evidence');
 const crypto = require('node:crypto');
 
 const VISIT_RADIUS_METERS = 100;
-const MAX_SAMPLE_AGE_MS = 150000;
+const MAX_SAMPLE_AGE_MS = 60000;
+const DWELL_MS = 5 * 60000;
+const MAX_DWELL_GAP_MS = 60000;
 const millis = value => value?.toMillis?.() ?? (typeof value === 'number' ? value : 0);
 function coordinates(data = {}) {
   const lat = data.coordinates?.latitude ?? data.lat;
@@ -35,6 +37,8 @@ async function recordSpotVisit(db, userId, spotId, now = Date.now(), gpsFix = nu
     const liveDoc = gpsFix == null ? await tx.get(db.collection('live_locations').doc(userId)) : null;
     const recordRef = db.collection('spot_visit_records').doc(id);
     const existing = await tx.get(recordRef);
+    const sessionRef = db.collection('spot_visit_sessions').doc(userId);
+    const session = (await tx.get(sessionRef)).data() || {};
     const user = userDoc.data(); const spot = spotDoc.data(); const live = gpsFix == null ? liveDoc.data() : {
       lat: gpsFix.latitude, lng: gpsFix.longitude, updatedAt: gpsFix.recordedAtMillis,
       expiresAt: Number(gpsFix.recordedAtMillis) + MAX_SAMPLE_AGE_MS,
@@ -61,14 +65,30 @@ async function recordSpotVisit(db, userId, spotId, now = Date.now(), gpsFix = nu
     if (!position || !target || millis(live?.expiresAt) <= now || sample <= 0 || sample > now ||
         now - sample > MAX_SAMPLE_AGE_MS || live?.isMocked === true ||
         (typeof live?.accuracy === 'number' && (!Number.isFinite(live.accuracy) || live.accuracy < 0 || live.accuracy > 100)) ||
-        distanceMeters(position, target) > VISIT_RADIUS_METERS) throw new Error('Fresh nearby location required');
+        distanceMeters(position, target) > VISIT_RADIUS_METERS) {
+      tx.delete(sessionRef);
+      return {recorded: false, status: 'outside_or_invalid', spotId, elapsedMs: 0, requiredMs: DWELL_MS};
+    }
+    const continuous = session.spotId === spotId && session.dayKey === dayKey &&
+      now >= session.lastSeenAt && now - session.lastSeenAt <= MAX_DWELL_GAP_MS &&
+      sample >= session.lastSampleAt && sample - session.lastSampleAt <= MAX_DWELL_GAP_MS;
+    const elapsedMs = continuous ? Math.min(DWELL_MS, (session.elapsedMs || 0) +
+      Math.max(0, Math.min(now - session.lastSeenAt, sample - session.lastSampleAt))) : 0;
+    const state = {spotId, dayKey, elapsedMs, lastSeenAt: now, lastSampleAt: sample,
+      startedAt: continuous ? session.startedAt : now};
+    const progress = {spotId, elapsedMs, requiredMs: DWELL_MS};
+    if (elapsedMs < DWELL_MS) {
+      tx.set(sessionRef, state);
+      return {recorded: false, status: 'dwelling', ...progress};
+    }
     const writeTaskVisit = await prepareTaskVisit(db, tx, userId, spotId, spot, now, dayKey, !existing.exists, candidates);
+    tx.set(sessionRef, state);
     writeTaskVisit();
-    if (existing.exists) return {recorded: true, duplicate: true, dayKey, event: existing.data().event === true};
+    if (existing.exists) return {...progress, status: 'completed', recorded: true, duplicate: true, dayKey, event: existing.data().event === true};
     tx.create(recordRef, {userId, spotId, dayKey, recordedAtMillis: now,
       event: spot.isTemporary === true,
       source: gpsFix == null ? 'shared_live_location' : 'gps_button', status: 'verified'});
-    return {recorded: true, duplicate: false, dayKey, event: spot.isTemporary === true};
+    return {...progress, status: 'completed', recorded: true, duplicate: false, dayKey, event: spot.isTemporary === true};
   });
 }
-module.exports = {recordSpotVisit, coordinates, distanceMeters, rigaDay, VISIT_RADIUS_METERS};
+module.exports = {recordSpotVisit, coordinates, distanceMeters, rigaDay, VISIT_RADIUS_METERS, DWELL_MS, MAX_DWELL_GAP_MS};

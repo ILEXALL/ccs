@@ -3,11 +3,13 @@ const assert = require('node:assert/strict');
 const {recordSpotVisit, rigaDay} = require('../lib/spot-visits');
 const now = Date.parse('2026-09-14T12:00:00Z');
 function fixture() {
-  return require('./support').fixture({
+  const f = require('./support').fixture({
     'users/u': {verified:true},
     'spots/s': {status:'approved',lat:0,lng:0},
     'live_locations/u': {lat:0,lng:0,updatedAt:now,expiresAt:now+60000,accuracy:10},
   });
+  require('./support').completedDwell(f,'u','s',now);
+  return f;
 }
 
 test('nearby visit records once per spot lifetime, without storing coordinates', async () => {
@@ -26,7 +28,7 @@ test('radius is 100m, not rounded to include 100.4m', async () => {
     const {db, rows} = fixture();
     rows.get('live_locations/u').lat = meters / 6371000 * 180 / Math.PI;
     if (accepted) assert.equal((await recordSpotVisit(db, 'u', 's', now)).recorded, true);
-    else await assert.rejects(recordSpotVisit(db, 'u', 's', now), /location/);
+    else assert.equal((await recordSpotVisit(db, 'u', 's', now)).recorded,false);
   }
 });
 
@@ -34,10 +36,10 @@ test('stale, future, expired, mock and inaccurate positions cannot record visits
   for (const change of [{updatedAt: now - 150001}, {updatedAt: now + 1}, {expiresAt: now},
     {isMocked: true}, {accuracy: 101}, {accuracy: -1}, {lat: NaN}, {lat: 91}]) {
     const {db, rows} = fixture(); Object.assign(rows.get('live_locations/u'), change);
-    await assert.rejects(recordSpotVisit(db, 'u', 's', now));
+    assert.equal((await recordSpotVisit(db, 'u', 's', now)).recorded,false);
   }
   const {db, rows} = fixture(); rows.delete('live_locations/u');
-  await assert.rejects(recordSpotVisit(db, 'u', 's', now));
+  assert.equal((await recordSpotVisit(db, 'u', 's', now)).recorded,false);
 });
 
 test('deleted, unapproved, private, expired and upcoming spots do not qualify', async () => {

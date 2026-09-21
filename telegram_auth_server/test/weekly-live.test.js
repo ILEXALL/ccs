@@ -1,13 +1,13 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const {fixture} = require('./support');
+const {fixture, completedDwell} = require('./support');
 const now = Date.parse('2026-09-22T12:00:00Z');
 const gps = at => ({latitude:0, longitude:0, accuracy:10, isMocked:false, recordedAtMillis:at});
 function setup() { return fixture({'users/admin':{role:'admin'}, 'users/mod':{role:'moderator'},
   'users/tester':{role:'user'}, 'spots/s':{status:'approved',lat:0,lng:0,name:'Spot',category:'photo'},
   'app_config/xp':{levels_enabled:true,xp_awards_enabled:true,achievements_enabled:true,enabledUserIds:['*'],weeklyLimit:3000,timezone:'Europe/Riga'}}); }
 function campaign(id='campaign') { return {id, spotId:'s',title:{en:'Visit',ru:'Посети',lv:'Apmeklē'},xp:250,startsAt:now,endsAt:now+86400000}; }
-async function visit(f, spot='s', time=now) { return f.load('../lib/spot-visits.js').recordSpotVisit(f.db,'tester',spot,time,gps(time)); }
+async function visit(f, spot='s', time=now) { completedDwell(f,'tester',spot,time); return f.load('../lib/spot-visits.js').recordSpotVisit(f.db,'tester',spot,time,gps(time)); }
 test('520 weeks: stable schedule, 600 XP, no adjacent metric repeats or IDs within four weeks', () => {
   const service=setup().load('../lib/xp/weekly-tasks.js'); const history=[];
   for(let i=0;i<520;i++) {
@@ -72,8 +72,8 @@ test('expired, cancelled, future and inaccessible targets never award or leak', 
 });
 test('seven weekly paid spots maximum; eighth can still advance tasks', async()=>{
   const f=setup(), w=f.load('../lib/xp/weekly-tasks.js');
-  for(let i=0;i<8;i++){f.rows.set('spots/s'+i,{status:'approved',lat:0,lng:0});await visit(f,'s'+i,now+i);}
-  await w.syncWeeklyTasks('tester',{now:new Date(now+10)});
+  for(let i=0;i<8;i++){f.rows.set('spots/s'+i,{status:'approved',lat:0,lng:0});await visit(f,'s'+i,now+Math.floor(i/3)*86400000+i);}
+  await w.syncWeeklyTasks('tester',{now:new Date(now+3*86400000)});
   assert.equal([...f.rows.values()].filter(r=>r.action==='visit.weekly').length,7);
 });
 test('live weekly completion uses server visit evidence and awards exactly once', async()=>{
@@ -149,7 +149,7 @@ test('admin target browser paginates all approved places and searches beyond fir
   assert.equal(ids.length, 14);
   assert.equal(new Set(ids).size, 14);
   assert.ok(!ids.includes('deleted') && !ids.includes('pending'));
-  assert.deepEqual(JSON.parse(JSON.stringify((await a.targetOptions('admin', ' RIGA ')).items)), [{id: 'riga', name: 'Rīga Meet', event: true}]);
+  assert.deepEqual(JSON.parse(JSON.stringify((await a.targetOptions('admin', ' RIGA ')).items)), [{id: 'riga', name: 'Rīga Meet', event: true, cityCountry:'',photoUrl:'',lat:null,lng:null}]);
   assert.equal((await a.targetOptions('admin', 'Place 11')).items[0].id, 'place11');
   assert.equal((await a.targetOptions('admin', 'absent')).items.length, 0);
 });
