@@ -129,6 +129,44 @@ void main() {
     await tester.pumpAndSettle();
   });
 
+  testWidgets('category swipe survives cards arriving during the gesture', (
+    tester,
+  ) async {
+    await tester.pumpWidget(guide(hasCards: false));
+    await tester.pumpAndSettle();
+    final finger = await tester.startGesture(
+      tester.getCenter(find.byKey(const ValueKey('categories'))),
+    );
+    await finger.moveBy(const Offset(-80, 0));
+    await tester.pump();
+    await tester.pumpWidget(guide(hasCards: true));
+    await tester.pump();
+    await finger.moveBy(const Offset(-80, 0));
+    await finger.up();
+    await tester.pump();
+    await tester.pump();
+    expect(find.textContaining('2/2'), findsOneWidget);
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('reversing a completed slide still advances immediately', (
+    tester,
+  ) async {
+    await tester.pumpWidget(guide());
+    await tester.pumpAndSettle();
+    final finger = await tester.startGesture(
+      tester.getCenter(find.byKey(const ValueKey('categories'))),
+    );
+    await finger.moveBy(const Offset(-80, 0));
+    await finger.moveBy(const Offset(-60, 0));
+    await finger.moveBy(const Offset(60, 0));
+    await finger.up();
+    await tester.pump();
+    await tester.pump();
+    expect(find.textContaining('2/2'), findsOneWidget);
+    await tester.pumpAndSettle();
+  });
+
   testWidgets('short and cancelled swipes do not complete a step', (
     tester,
   ) async {

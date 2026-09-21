@@ -43,6 +43,7 @@ class _SpotsInteractionGuideState extends State<SpotsInteractionGuide>
   int? _step;
   double _dragDistance = 0;
   bool _dragging = false;
+  bool _forwardingGesture = false;
   Future<void> _save = Future<void>.value();
 
   @override
@@ -99,7 +100,18 @@ class _SpotsInteractionGuideState extends State<SpotsInteractionGuide>
         ? widget.categoryController
         : widget.cardsController;
     if (!controller.hasClients) return;
+    // A scroll already coasting/snapping may not emit another ScrollStart.
+    // Track the actual finger gesture independently of scroll notifications.
+    _forwardingGesture = true;
+    _dragging = true;
+    _dragDistance = 0;
     _drag = controller.position.drag(details, () => _drag = null);
+  }
+
+  void _updateDrag(DragUpdateDetails details) {
+    if (!_forwardingGesture) return;
+    _dragDistance += (details.primaryDelta ?? 0).abs();
+    _drag?.update(details);
   }
 
   void _endDrag(DragEndDetails details) {
@@ -109,9 +121,11 @@ class _SpotsInteractionGuideState extends State<SpotsInteractionGuide>
     // continues coasting or the category slider snaps into place.
     _finishGesture();
     drag?.end(details);
+    _forwardingGesture = false;
   }
 
   void _cancelDrag() {
+    _forwardingGesture = false;
     _dragging = false;
     _dragDistance = 0;
     _drag?.cancel();
@@ -156,15 +170,11 @@ class _SpotsInteractionGuideState extends State<SpotsInteractionGuide>
           child: GestureDetector(
             behavior: HitTestBehavior.opaque,
             onHorizontalDragStart: _step == 0 ? _startDrag : null,
-            onHorizontalDragUpdate: _step == 0
-                ? (details) => _drag?.update(details)
-                : null,
+            onHorizontalDragUpdate: _step == 0 ? _updateDrag : null,
             onHorizontalDragEnd: _step == 0 ? _endDrag : null,
             onHorizontalDragCancel: _step == 0 ? _cancelDrag : null,
             onVerticalDragStart: _step == 1 ? _startDrag : null,
-            onVerticalDragUpdate: _step == 1
-                ? (details) => _drag?.update(details)
-                : null,
+            onVerticalDragUpdate: _step == 1 ? _updateDrag : null,
             onVerticalDragEnd: _step == 1 ? _endDrag : null,
             onVerticalDragCancel: _step == 1 ? _cancelDrag : null,
             child: Semantics(
@@ -199,9 +209,8 @@ class _SpotsInteractionGuideState extends State<SpotsInteractionGuide>
   @override
   void didUpdateWidget(covariant SpotsInteractionGuide oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (!widget.isVisible || oldWidget.hasCards != widget.hasCards) {
-      _dragging = false;
-      _dragDistance = 0;
+    if (!widget.isVisible || (_step == 1 && !widget.hasCards)) {
+      _cancelDrag();
     }
   }
 
@@ -209,7 +218,8 @@ class _SpotsInteractionGuideState extends State<SpotsInteractionGuide>
       widget.isVisible && _step == step && (step == 0 || widget.hasCards);
 
   bool _observe(ScrollNotification notification, int step) {
-    if (!_isActive(step) ||
+    if (_forwardingGesture ||
+        !_isActive(step) ||
         notification.depth != 0 ||
         notification.metrics.axis !=
             (step == 0 ? Axis.horizontal : Axis.vertical)) {

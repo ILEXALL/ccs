@@ -28,6 +28,8 @@ import 'package:url_launcher/url_launcher.dart';
 
 import 'firebase_options.dart';
 import 'map_start_position.dart';
+import 'navigation_arrow.dart';
+import 'startup_location.dart';
 import 'notification_freshness.dart';
 import 'in_flight_load.dart';
 import 'event_forum_description.dart';
@@ -128,21 +130,11 @@ const int chatAttachmentMaxBytes = 300 * 1024;
 const int r2ChatAttachmentPhotoMaxLongSide = 1280;
 const double garagePhotoAspectRatio = 1.45;
 
-// Map gesture setup.
-// Rotation is enabled on all maps, but it should not trigger from a tiny
-// accidental two-finger movement. A medium threshold keeps the map stable
-// during normal pan/zoom, while still allowing rotation with a clear gesture.
+// Simultaneous pinch/pan/rotation avoids flutter_map 8.3's gesture-race
+// scale correction becoming negative during fast pinch reversals.
 const InteractionOptions ccsMapInteractionOptions = InteractionOptions(
   flags: InteractiveFlag.all,
-  enableMultiFingerGestureRace: true,
-  rotationThreshold: 22,
-  pinchZoomThreshold: 0.35,
-  pinchMoveThreshold: 22,
-  rotationWinGestures: MultiFingerGesture.rotate,
-  pinchZoomWinGestures:
-      MultiFingerGesture.pinchZoom | MultiFingerGesture.pinchMove,
-  pinchMoveWinGestures:
-      MultiFingerGesture.pinchMove | MultiFingerGesture.pinchZoom,
+  enableMultiFingerGestureRace: false,
 );
 
 String? googleSignInSetupError;
@@ -5654,10 +5646,8 @@ Future<void> _initializePushNotifications(String expectedUid) async {
   try {
     final messaging = FirebaseMessaging.instance;
 
-    final settings = await messaging.requestPermission(
-      alert: true,
-      badge: true,
-      sound: true,
+    final settings = await runPermissionRequest(
+      () => messaging.requestPermission(alert: true, badge: true, sound: true),
     );
     if (Platform.isIOS) {
       await messaging.setForegroundNotificationPresentationOptions(
@@ -22899,6 +22889,13 @@ class _MainScreenState extends State<_MainContentScreen>
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted &&
+          !accountSigningOut.value &&
+          FirebaseAuth.instance.currentUser != null) {
+        unawaited(initializeStartupLocation());
+      }
+    });
     index = widget.initialIndex.clamp(0, 4).toInt();
     hasOpenedMap = index == 1;
     hasOpenedChat = index == 3;
@@ -27355,8 +27352,7 @@ class MapScreen extends StatefulWidget {
 
 class _MapScreenState extends State<MapScreen>
     with TickerProviderStateMixin, LanguageReactiveState {
-  // Riga remains the safe fallback, but the first/default map view is resolved
-  // from the signed-in user's profile city + country when the Map tab opens.
+  // Start from granted GPS permission; otherwise keep the overview of spots.
   static const rigaCenter = LatLng(56.9496, 24.1052);
   static const rigaZoom = 11.25;
   static const fullSpotIconMinZoom = 11.25;
@@ -27366,13 +27362,14 @@ class _MapScreenState extends State<MapScreen>
   static const double spotFogFullZoom = 5.2;
   static const double spotFogFadeOutZoom = 8.2;
 
-  static const navigationZoom = 16.35;
+  double navigationZoom = 10.0;
   static const Duration liveLocationUploadInterval = Duration(seconds: 60);
   static const double liveLocationMinimumUploadDistanceMeters = 0;
   // Navigation heading tuning: behave like Waze/Google Maps.
   // While the car is moving we trust the GPS movement vector, not the phone
   // compass, because the compass often points sideways/backwards in a car.
-  static const double gpsCourseMinSpeedMetersPerSecond = 1.4; // ~5 km/h
+  static const double gpsCourseMinSpeedMetersPerSecond =
+      0.8; // walking or driving
   static const double gpsCourseBaseMovementMeters = 2.2;
 
   final mapController = MapController();
@@ -27385,8 +27382,13 @@ class _MapScreenState extends State<MapScreen>
   Timer? liveLocationAutoStopTimer;
   Timer? liveLocationStaleSweepTimer;
   Timer? mapGestureIdleTimer;
+  Timer? automaticGpsRetryTimer;
   DateTime? lastMapCameraUiUpdateAt;
-  Timer? navigationPredictionTimer;
+  late final AnimationController navigationMotionController;
+  DateTime? lastNavigationFrameAt;
+  double displayedNavigationHeading = 0;
+  bool northResetScheduled = false;
+  final followExitGesture = FollowExitGesture();
   StreamSubscription<Position>? navigationPositionSubscription;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>?
   liveLocationSubscription;
@@ -27480,6 +27482,10 @@ class _MapScreenState extends State<MapScreen>
       vsync: this,
       duration: const Duration(seconds: 3),
     )..repeat(reverse: true);
+    navigationMotionController = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 1),
+    )..addListener(updatePredictedUserMarker);
     reviewSpots.addListener(refreshMap);
     spotCategoryFilters.addListener(refreshMap);
     spotCountryFilters.addListener(refreshMap);
@@ -27516,21 +27522,60 @@ class _MapScreenState extends State<MapScreen>
     });
   }
 
+  void scheduleAutomaticGpsRetry() {
+    if (!mounted || !widget.isVisible || automaticGpsRetryTimer != null) return;
+    automaticGpsRetryTimer = Timer(const Duration(seconds: 3), () {
+      automaticGpsRetryTimer = null;
+      if (mounted && widget.isVisible)
+        unawaited(focusInitialMapOnCurrentLocation());
+    });
+  }
+
   Future<void> focusInitialMapOnCurrentLocation() async {
-    if (initialProfileCityFocusApplied || initialProfileCityFocusInProgress)
+    if (initialProfileCityFocusInProgress || !mounted || !widget.isVisible)
       return;
     initialProfileCityFocusInProgress = true;
-    final location = await currentMapStartLocation();
-    if (!mounted) return;
-    initialProfileCityFocusInProgress = false;
-    initialProfileCityFocusApplied = true;
-    if (mapFocusRequest.value != null || mapCameraChangedByUser) return;
-    defaultMapUsesSpots = location == null;
-    moveMapCamera(
-      location ?? loadedSpotsMapCenter(),
-      location == null ? 3 : rigaZoom,
-      rotationDegrees: 0,
-    );
+    try {
+      final granted = await mapLocationPermissionReady(
+        check: Geolocator.checkPermission,
+        finishFirstLaunchPrompt: initializeStartupLocation,
+      );
+      if (!mounted || !widget.isVisible || !granted) return;
+      if (!await Geolocator.isLocationServiceEnabled()) {
+        scheduleAutomaticGpsRetry();
+        return;
+      }
+      if (!mounted || !widget.isVisible) return;
+      if (!initialProfileCityFocusApplied &&
+          mapFocusRequest.value == null &&
+          !mapCameraChangedByUser) {
+        navigationZoom = cityOverviewZoom(MediaQuery.sizeOf(context).width);
+        mapCenteredOnCurrentUser = true;
+      }
+      startNavigationTracking();
+      // Use a completed fresh warm-up, never await a startup request that may
+      // have stalled while another OS permission dialog was open.
+      final warmPosition = warmedStartupPosition;
+      if (warmPosition != null && usableLiveFix(warmPosition)) {
+        handleNavigationPosition(warmPosition);
+      }
+      final position = await getMapUserPosition(
+        showErrors: false,
+        requestPermission: false,
+      );
+      if (!mounted || !widget.isVisible) return;
+      if (position != null) {
+        handleNavigationPosition(position);
+      } else if (currentUserLocation == null ||
+          navigationPositionSubscription == null) {
+        scheduleAutomaticGpsRetry();
+      }
+    } catch (error) {
+      debugPrint('Automatic map GPS could not start: $error');
+      scheduleAutomaticGpsRetry();
+    } finally {
+      initialProfileCityFocusInProgress = false;
+    }
   }
 
   Future<void> loadMapStylePreference() async {
@@ -27668,6 +27713,14 @@ class _MapScreenState extends State<MapScreen>
 
     if (!widget.isVisible) {
       mapCameraReady = false;
+      automaticGpsRetryTimer?.cancel();
+      automaticGpsRetryTimer = null;
+      navigationMotionController.stop();
+      lastNavigationFrameAt = null;
+      if (!isSharingLiveLocation) {
+        navigationPositionSubscription?.cancel();
+        navigationPositionSubscription = null;
+      }
       pauseMapRealtimeSync();
       return;
     }
@@ -27682,6 +27735,7 @@ class _MapScreenState extends State<MapScreen>
       mapCameraReady = true;
       restoreMapCamera();
       handleMapFocusRequest();
+      unawaited(focusInitialMapOnCurrentLocation());
     });
   }
 
@@ -28350,10 +28404,6 @@ class _MapScreenState extends State<MapScreen>
   List<Marker> get allMapMarkers {
     if (routePreviewMode) {
       final routeMarkers = [...markers];
-      final userMarker = currentUserMarker;
-      if (userMarker != null) {
-        routeMarkers.add(userMarker);
-      }
 
       return routeMarkers
           .where((marker) => isValidLatLng(marker.point))
@@ -28367,11 +28417,6 @@ class _MapScreenState extends State<MapScreen>
       ...sosReportMarkers,
       ...liveLocationMarkers,
     ];
-    final userMarker = currentUserMarker;
-
-    if (userMarker != null) {
-      allMarkers.add(userMarker);
-    }
 
     return allMarkers.where((marker) => isValidLatLng(marker.point)).toList();
   }
@@ -28806,64 +28851,19 @@ class _MapScreenState extends State<MapScreen>
 
   Marker? get currentUserMarker {
     final location = displayedUserLocation ?? currentUserLocation;
-
-    if (location == null) {
-      return null;
-    }
-
-    if (routePreviewMode) {
-      final carIconSize = scaledMapIconValue(
-        zoom: currentMapZoom,
-        minZoom: 4,
-        maxZoom: 17,
-        minValue: 18,
-        maxValue: 38,
-      );
-
-      return Marker(
-        point: location,
-        width: 58,
-        height: 58,
-        rotate: false,
-        child: Tooltip(
-          message: 'Your location',
-          child: Center(
-            child: SizedBox(
-              width: carIconSize,
-              height: carIconSize,
-              child: Transform.rotate(
-                angle: headingRadiansForMap(
-                  currentUserHeadingDegrees,
-                  currentMapRotationDegrees,
-                ),
-                child: Image.asset(
-                  currentUser.verified
-                      ? verifiedUserCarIconAsset
-                      : regularUserCarIconAsset,
-                  fit: BoxFit.contain,
-                  errorBuilder: (context, error, stackTrace) {
-                    return Icon(
-                      Icons.directions_car,
-                      color: currentUser.verified ? blue : Colors.greenAccent,
-                      size: carIconSize * 0.82,
-                    );
-                  },
-                ),
-              ),
-            ),
-          ),
-        ),
-      );
-    }
-
+    if (location == null || !isValidLatLng(location)) return null;
+    final size = navigationArrowSize(currentMapZoom);
     return Marker(
       point: location,
-      width: 54,
-      height: 54,
+      width: size,
+      height: size,
       rotate: false,
       child: Tooltip(
-        message: 'Your location',
-        child: CurrentUserPulseDot(animation: mapAlertPulseController),
+        message: trText('Your location'),
+        child: NavigationArrow(
+          headingDegrees: displayedNavigationHeading,
+          pulse: mapAlertPulseController.value,
+        ),
       ),
     );
   }
@@ -31307,7 +31307,8 @@ class _MapScreenState extends State<MapScreen>
     sosReportSubscription?.cancel();
     sosDistanceCheckTimer?.cancel();
     navigationPositionSubscription?.cancel();
-    navigationPredictionTimer?.cancel();
+    automaticGpsRetryTimer?.cancel();
+    navigationMotionController.dispose();
     reviewSpots.removeListener(refreshMap);
     spotCategoryFilters.removeListener(refreshMap);
     spotCountryFilters.removeListener(refreshMap);
@@ -31374,8 +31375,7 @@ class _MapScreenState extends State<MapScreen>
   }
 
   void loadInitialUserLocation() {
-    // This centers on the profile city only; GPS is still requested only after
-    // pressing the blue "find me" button or enabling live location.
+    // Auto-enable local GPS only if permission was already granted.
     unawaited(focusInitialMapOnCurrentLocation());
   }
 
@@ -31397,15 +31397,22 @@ class _MapScreenState extends State<MapScreen>
                 ),
         ).listen(
           handleNavigationPosition,
-          onError: (_) {
-            // Keep the map usable even if the high-frequency stream is unavailable.
+          onError: (Object error) {
+            debugPrint('Map GPS stream failed: $error');
+            navigationPositionSubscription?.cancel();
+            navigationPositionSubscription = null;
+            scheduleAutomaticGpsRetry();
+          },
+          onDone: () {
+            navigationPositionSubscription = null;
+            scheduleAutomaticGpsRetry();
           },
         );
 
-    navigationPredictionTimer ??= Timer.periodic(
-      const Duration(milliseconds: 80),
-      (_) => updatePredictedUserMarker(),
-    );
+    if (widget.isVisible && !navigationMotionController.isAnimating) {
+      lastNavigationFrameAt = null;
+      navigationMotionController.repeat();
+    }
   }
 
   void handleNavigationPosition(Position position) {
@@ -31432,11 +31439,11 @@ class _MapScreenState extends State<MapScreen>
       location,
     );
 
-    final nextDisplay = distanceToNewGps > 80
-        ? location
-        : lerpLatLng(currentDisplay, location, speed >= 2.0 ? 0.35 : 0.18);
+    final nextDisplay = distanceToNewGps > 80 ? location : currentDisplay;
 
     setState(() {
+      initialProfileCityFocusApplied = true;
+      defaultMapUsesSpots = false;
       currentUserLocation = location;
       displayedUserLocation = nextDisplay;
       lastGpsUserLocation = location;
@@ -31449,63 +31456,53 @@ class _MapScreenState extends State<MapScreen>
     if (routePreviewMode) {
       fitRoutePreviewCamera();
     } else if (mapCenteredOnCurrentUser) {
-      updateFollowCamera(nextDisplay, heading);
+      updateFollowCamera(nextDisplay, displayedNavigationHeading);
     }
   }
 
   void updatePredictedUserMarker() {
-    if (!mounted) {
-      return;
-    }
-
+    if (!mounted || !widget.isVisible) return;
     final gpsLocation = lastGpsUserLocation ?? currentUserLocation;
     final gpsTime = lastGpsUserLocationAt;
-
-    if (gpsLocation == null || gpsTime == null) {
+    if (gpsLocation == null || gpsTime == null || !isValidLatLng(gpsLocation))
       return;
-    }
-
-    final speed = currentUserSpeedMetersPerSecond.clamp(0.0, 38.0).toDouble();
-    final currentDisplay = displayedUserLocation ?? gpsLocation;
-
-    // If almost stopped, do not keep projecting forward. Gently settle back
-    // onto the latest GPS point instead of overshooting and snapping back.
-    if (speed < 0.8) {
-      final nextDisplay = lerpLatLng(currentDisplay, gpsLocation, 0.12);
-
-      setState(() => displayedUserLocation = nextDisplay);
-
-      if (mapCenteredOnCurrentUser && !routePreviewMode) {
-        updateFollowCamera(nextDisplay, currentUserHeadingDegrees);
-      }
-
-      return;
-    }
-
-    final secondsSinceGps =
-        DateTime.now().difference(gpsTime).inMilliseconds / 1000.0;
-    final predictedSeconds = secondsSinceGps.clamp(0.0, 0.75).toDouble();
-    final predicted = projectLatLngMeters(
-      gpsLocation,
+    final now = DateTime.now();
+    final dt = lastNavigationFrameAt == null
+        ? 1 / 60
+        : now.difference(lastNavigationFrameAt!).inMicroseconds / 1000000;
+    lastNavigationFrameAt = now;
+    final blend = navigationBlend(dt);
+    displayedNavigationHeading = interpolateCourse(
+      displayedNavigationHeading,
       currentUserHeadingDegrees,
-      speed * predictedSeconds,
+      blend,
     );
-    final distanceToGps = distanceBetweenLatLngMeters(
-      currentDisplay,
-      gpsLocation,
-    );
-    final nextDisplay = distanceToGps > 80
+    final speed = currentUserSpeedMetersPerSecond.clamp(0.0, 70.0).toDouble();
+    final age = now.difference(gpsTime).inMilliseconds / 1000.0;
+    // Brief bounded visual extrapolation only. Uploaded coordinates remain GPS fixes.
+    final target = speed < 0.8
         ? gpsLocation
-        : lerpLatLng(currentDisplay, predicted, 0.16);
-
-    setState(() => displayedUserLocation = nextDisplay);
-
-    if (mapCenteredOnCurrentUser && !routePreviewMode) {
-      updateFollowCamera(nextDisplay, currentUserHeadingDegrees);
+        : projectLatLngMeters(
+            gpsLocation,
+            currentUserHeadingDegrees,
+            speed * age.clamp(0.0, 0.5),
+          );
+    displayedUserLocation = lerpLatLng(
+      displayedUserLocation ?? gpsLocation,
+      target,
+      blend,
+    );
+    if (mapCenteredOnCurrentUser &&
+        !routePreviewMode &&
+        !mapGestureInProgress) {
+      updateFollowCamera(displayedUserLocation!, displayedNavigationHeading);
     }
   }
 
-  Future<Position?> getMapUserPosition({required bool showErrors}) async {
+  Future<Position?> getMapUserPosition({
+    required bool showErrors,
+    bool requestPermission = true,
+  }) async {
     try {
       final serviceEnabled = await Geolocator.isLocationServiceEnabled();
 
@@ -31530,7 +31527,7 @@ class _MapScreenState extends State<MapScreen>
 
       var permission = await Geolocator.checkPermission();
 
-      if (permission == LocationPermission.denied) {
+      if (permission == LocationPermission.denied && requestPermission) {
         permission = await Geolocator.requestPermission();
       }
 
@@ -31651,7 +31648,10 @@ class _MapScreenState extends State<MapScreen>
     // 2) When stopped or crawling, keep the last good heading instead of using
     //    the phone compass. This prevents the arrow from pointing sideways in a
     //    car, on a magnetic mount, or when the phone is in a pocket/cup holder.
-    if (speed >= gpsCourseMinSpeedMetersPerSecond &&
+    if (speed >= gpsCourseMinSpeedMetersPerSecond && hasRawHeading) {
+      targetHeading = normalizedRawHeading;
+      previousAcceptedHeadingLocation = nextLocation;
+    } else if (speed >= gpsCourseMinSpeedMetersPerSecond &&
         movedMeters >= movementThreshold) {
       targetHeading = bearingBetweenLatLngDegrees(
         previousLocation,
@@ -31700,7 +31700,7 @@ class _MapScreenState extends State<MapScreen>
       fallback: currentMapRotationDegrees,
     );
 
-    moveMapCamera(location, navigationZoom, rotationDegrees: safeHeading);
+    moveMapCamera(location, navigationZoom, rotationDegrees: -safeHeading);
   }
 
   Future<void> moveToCurrentLocation({bool showErrors = true}) async {
@@ -31747,6 +31747,7 @@ class _MapScreenState extends State<MapScreen>
       lastGpsUserLocationAt = DateTime.now();
       currentUserHeadingDegrees = heading;
       currentUserSpeedMetersPerSecond = speed;
+      navigationZoom = 16.35; // Explicit GPS tap enters street-level following.
       currentMapZoom = navigationZoom;
       currentMapRotationDegrees = heading;
       mapCenteredOnCurrentUser = true;
@@ -31780,6 +31781,11 @@ class _MapScreenState extends State<MapScreen>
           FlutterMap(
             mapController: mapController,
             options: MapOptions(
+              onMapReady: () {
+                mapCameraReady = true;
+                if (widget.isVisible)
+                  unawaited(focusInitialMapOnCurrentLocation());
+              },
               initialCenter: currentMapCenter,
               initialZoom: currentMapZoom,
               initialRotation: currentMapRotationDegrees,
@@ -31787,6 +31793,19 @@ class _MapScreenState extends State<MapScreen>
               maxZoom: 18,
               interactionOptions: ccsMapInteractionOptions,
               backgroundColor: mapStyle.backgroundColor,
+              onPointerDown: (event, _) {
+                followExitGesture.pointerDown(
+                  event.pointer,
+                  following: mapCenteredOnCurrentUser,
+                  zoom: currentMapZoom,
+                );
+                mapCenteredOnCurrentUser = false;
+                mapCameraChangedByUser = true;
+              },
+              onPointerUp: (event, _) =>
+                  followExitGesture.pointerUp(event.pointer),
+              onPointerCancel: (event, _) =>
+                  followExitGesture.pointerUp(event.pointer),
               onPositionChanged: (camera, hasGesture) {
                 if (!isValidLatLng(camera.center) || !camera.zoom.isFinite) {
                   WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -31798,6 +31817,18 @@ class _MapScreenState extends State<MapScreen>
                 }
 
                 final nextZoom = camera.zoom.clamp(3.0, 18.0).toDouble();
+                if (hasGesture &&
+                    followExitGesture.consumeZoomOut(nextZoom) &&
+                    camera.rotation != 0 &&
+                    !northResetScheduled) {
+                  northResetScheduled = true;
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    northResetScheduled = false;
+                    if (mounted && widget.isVisible && mapCameraReady) {
+                      mapController.rotate(0);
+                    }
+                  });
+                }
                 final nextRotation = normalizedHeadingDegrees(
                   camera.rotation,
                   fallback: currentMapRotationDegrees,
@@ -31809,7 +31840,6 @@ class _MapScreenState extends State<MapScreen>
                 if (zoomChanged || rotationChanged || hasGesture) {
                   final now = DateTime.now();
                   final allowUiRefresh =
-                      !hasGesture ||
                       lastMapCameraUiUpdateAt == null ||
                       now.difference(lastMapCameraUiUpdateAt!) >=
                           const Duration(milliseconds: 90);
@@ -31856,6 +31886,16 @@ class _MapScreenState extends State<MapScreen>
               _CcsSmoothMapTileLayer(mapStyle: mapStyle),
               MarkerLayer(markers: spotFogCloudMarkers),
               MarkerLayer(markers: allMapMarkers),
+              AnimatedBuilder(
+                animation: Listenable.merge([
+                  navigationMotionController,
+                  mapAlertPulseController,
+                ]),
+                builder: (context, _) {
+                  final marker = currentUserMarker;
+                  return MarkerLayer(markers: [if (marker != null) marker]);
+                },
+              ),
               RichAttributionWidget(
                 attributions: mapAttributions,
                 showFlutterMapAttribution: false,
