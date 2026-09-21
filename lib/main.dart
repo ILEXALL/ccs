@@ -56176,29 +56176,24 @@ class _ProfileHeader extends StatelessWidget {
                     const SizedBox(height: 8),
                     SizedBox(
                       width: double.infinity,
-                      child: FittedBox(
-                        fit: BoxFit.scaleDown,
-                        alignment: Alignment.centerLeft,
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
+                      child: Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
                             _MiniProfileInfoChip(
                               icon: Icons.location_on,
                               label: profile.cityCountry,
                               allowFullLabel: true,
                             ),
-                            const SizedBox(width: 6),
                             _MiniProfileInfoChip(
                               icon: Icons.directions_car,
                               label: garageValue,
                             ),
-                            const SizedBox(width: 6),
                             CreatorSpotsBadge(
                               uid: currentUser.uid,
                               username: profile.username,
                             ),
-                          ],
-                        ),
+                        ],
                       ),
                     ),
                   ],
@@ -57992,14 +57987,12 @@ class _MiniProfileInfoChip extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) {
-    final availableLabelWidth = MediaQuery.sizeOf(context).width - 72;
-    final maxFullLabelWidth = availableLabelWidth < 74
-        ? 74.0
-        : availableLabelWidth;
+  Widget build(BuildContext context) => LayoutBuilder(builder: (context, constraints) {
+    final availableLabelWidth = math.max(0.0, (constraints.hasBoundedWidth ? constraints.maxWidth : MediaQuery.sizeOf(context).width - 32) - 46);
+    final maxFullLabelWidth = availableLabelWidth;
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 5),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
       decoration: BoxDecoration(
         color: blue.withValues(alpha: 0.10),
         borderRadius: BorderRadius.circular(999),
@@ -58009,11 +58002,11 @@ class _MiniProfileInfoChip extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          Icon(icon, color: blue, size: 12),
-          const SizedBox(width: 4),
+          Icon(icon, color: blue, size: 20),
+          const SizedBox(width: 6),
           ConstrainedBox(
             constraints: BoxConstraints(
-              maxWidth: allowFullLabel ? maxFullLabelWidth : 74,
+              maxWidth: allowFullLabel ? maxFullLabelWidth : math.min(100.0, availableLabelWidth),
             ),
             child: Text(
               label,
@@ -58024,7 +58017,7 @@ class _MiniProfileInfoChip extends StatelessWidget {
               softWrap: allowFullLabel,
               style: const TextStyle(
                 color: Colors.white70,
-                fontSize: 9.3,
+                fontSize: 12.5,
                 fontWeight: FontWeight.w800,
                 height: 1.15,
               ),
@@ -58033,7 +58026,7 @@ class _MiniProfileInfoChip extends StatelessWidget {
         ],
       ),
     );
-  }
+  });
 }
 
 class _GarageGalleryHeader extends StatefulWidget {
