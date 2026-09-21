@@ -46,12 +46,20 @@ tasks.register<Delete>("clean") {
 }
 
 // App Check skips applying Kotlin on AGP 9, but this project explicitly opts
-// out of AGP's built-in Kotlin. Compile the plugin's Kotlin sources explicitly.
+// out of AGP's built-in Kotlin. Compile the plugin's Kotlin sources explicitly
+// and force Kotlin to use JVM 17 so it matches Java 17.
 subprojects {
     if (name == "firebase_app_check" &&
         providers.gradleProperty("android.builtInKotlin").orNull == "false") {
+
         plugins.withId("com.android.library") {
             pluginManager.apply("org.jetbrains.kotlin.android")
+
+            tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
+                compilerOptions {
+                    jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
+                }
+            }
         }
     }
 }
