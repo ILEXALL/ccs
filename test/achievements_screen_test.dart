@@ -195,7 +195,7 @@ void main() {
           expect(
             find.text(
               id == 'tourist.LV'
-                  ? 'Visit a spot within 100 m in this foreign country'
+                  ? 'Visit a spot shown on the CCS map in this country and enable location while within 100 m of it. Being in the country alone does not unlock this achievement.'
                   : '${id == 'spots.1' ? 1 : 2} approved permanent spots',
             ),
             findsOneWidget,

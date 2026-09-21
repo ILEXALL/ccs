@@ -6,6 +6,7 @@ const handlers = new Map([
 ]);
 
 module.exports = (req, res) => {
+  res.setHeader('X-CCS-Rewards-Version', 'weekly-live-v1');
   const handler = handlers.get(req.query?.endpoint);
   if (!handler) return res.status(404).json({ok: false, error: 'Unknown endpoint'});
   return handler(req, res);

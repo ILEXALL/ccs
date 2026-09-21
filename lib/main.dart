@@ -103,16 +103,11 @@ const firestoreUsageUrl =
 // legacy Telegram-login host (which can run an older moderation endpoint).
 const moderationActionUrl =
     'https://ccs-telegram-auth-server.vercel.app/api/moderation-action';
-const xpSyncUrls = <String>[
-  // Prefer the current achievement catalogue over the legacy login backend.
-  'https://ccs-telegram-auth-server.vercel.app/api/xp-sync',
-  '$telegramAuthBaseUrl/api/xp-sync',
-];
-const xpLeaderboardUrls = <String>[
-  // Use the current backend first; the legacy host may not support cursors.
-  'https://ccs-telegram-auth-server.vercel.app/api/xp-leaderboard',
-  '$telegramAuthBaseUrl/api/xp-leaderboard',
-];
+// Assignments, progress and visit evidence must use the same deployed backend.
+// A successful response from the legacy server can still be an inactive preview.
+const xpSyncUrls = <String>['$telegramAuthBaseUrl/api/xp-sync'];
+const xpLeaderboardUrls = <String>['$telegramAuthBaseUrl/api/xp-leaderboard'];
+const spotVisitUrl = '$telegramAuthBaseUrl/api/spot-visit';
 const r2PresignUploadUrl =
     'https://ccs-telegram-auth-server.vercel.app/api/r2-presign-upload';
 const int maxSpotGalleryPhotos = 4;
@@ -14516,7 +14511,7 @@ Future<void> checkGpsSpotVisits(Position position) async {
       final token = await user.getIdToken();
       if (FirebaseAuth.instance.currentUser?.uid != user.uid) return;
       final result = await postJsonToUrl(
-        'https://ccs-telegram-auth-server.vercel.app/api/spot-visit',
+        spotVisitUrl,
         {
           'spotId': spot.id,
           'gpsFix': {

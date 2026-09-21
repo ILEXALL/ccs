@@ -36,11 +36,11 @@ test('profile rewards and full-profile bonus total 250 XP', () => {
   assert.deepEqual(awards.map((x) => x.amount), [50, 40, 30, 30, 100]);
 });
 
-test('first car totals 250 XP; repeated photo does not earn gallery bonus', () => {
+test('first car totals 175 XP; repeated photo does not earn gallery bonus', () => {
   const car = { name: 'Car', description: 'a'.repeat(20), photoPath: 'a',
     photoPaths: ['a', 'b', 'c'], buildType: 'stock', tags: ['daily'] };
   assert.equal(evaluateFirstCarXp('tester', { garage: [car] })
-    .reduce((sum, x) => sum + x.amount, 0), 250);
+    .reduce((sum, x) => sum + x.amount, 0), 175);
   car.photoPaths = ['a', 'a', 'a'];
   assert.equal(evaluateFirstCarXp('tester', { garage: [car] })
     .some((x) => x.action === 'garage.first_car_gallery'), false);

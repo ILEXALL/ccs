@@ -28,3 +28,17 @@ Deploy the backend before distributing the rebuilt Flutter app. Existing `app_co
 Before rollout, verify on devices: fresh GPS at a selected spot, duplicate requests, next-week reuse, group-private event access, cancellation during attendance, and pending XP across the Riga Monday boundary. Offline tests verify logic with a transaction double, not Firestore concurrency or push delivery.
 
 Forum/group activity rewards remain a separate proposal and are not enabled by this change.
+
+## Activation and follow-up, 2026-09-21
+
+Production backend is the Vercel project `ccs` (team `ccs-projects1`, root `telegram_auth_server`), alias `https://ccs-wine.vercel.app`. The older local `.vercel` binding names a different project: do not deploy using that binding. XP, leaderboard and GPS visits now use the same canonical backend in the client. The obsolete API-level spot-visit wrapper was removed; the existing rewrite routes visits to the validated community handler, keeping within the 12-function plan limit. Unauthenticated smoke requests to both routes return 401 and `X-CCS-Rewards-Version: weekly-live-v1`.
+
+Only `app_config/xp` was inspected in production, with permission. XP, levels and achievements were enabled, all users allowed, weekly limit 3000, zone Europe/Riga. No configuration writes were made.
+
+The composite `garage.first_car_full` task is retired at the user's request. It checked only the first garage car and required every field including tags; no new awards are generated and it is absent from the current catalog. Other first-car tasks total 175 XP. Existing ledger entries and previously earned XP remain intact.
+
+The admin target picker loads immediately, searches while typing (300 ms debounce), and shows five approved, non-deleted spots/events per page with Show more. Search runs over the full eligible collection before pagination, ignores case and accents, and stale responses cannot overwrite a newer query. Pending/rejected places cannot be used for visit rewards. Dates explicitly describe the eligible visit interval in the device time zone.
+
+Client package is 1.0.9 (5). Building an IPA alone does not update the installed app or publish it to TestFlight. Real-device authenticated GPS and actual TestFlight distribution remain separate from offline tests and unauthenticated production smoke checks.
+
+Country badge radius correction: `visit_country` previously awarded from country GPS alone despite the 100 m requirement shown in the achievement screen. It now requires a current visit to an approved, accessible spot within the same 100 m radius, using `recordSpotVisit` for authoritative validation (including event dates, group membership, GPS freshness and accuracy). GPS with no nearby eligible spot returns `visit_required` without awarding country XP. Regression cases cover 99.6 m, 100.4 m, 500 m, no spots and restricted/expired targets. Existing country awards are not revoked. This is a server-side correction; existing clients calling the updated backend require no rebuild for it.

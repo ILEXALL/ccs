@@ -131,3 +131,32 @@ test('campaign rejects non-overlapping event windows and extreme dates',async()=
   await assert.rejects(a.createReward('admin',{...campaign(),spotId:'e',endsAt:now+9999},now));
   await assert.rejects(a.createReward('admin',{...campaign(),startsAt:1e16,endsAt:1e16+1000},now));
 });
+
+test('admin target browser paginates all approved places and searches beyond first page', async () => {
+  const f = setup(), a = f.load('../lib/xp/admin-rewards.js');
+  for (let i = 0; i < 12; i++) f.rows.set(`spots/place${i}`, {status: 'approved', name: `Place ${String(i).padStart(2, '0')}`});
+  f.rows.set('spots/riga', {status: 'approved', name: 'Rīga Meet', isTemporary: true});
+  f.rows.set('spots/deleted', {status: 'approved', name: 'Deleted', deleted: true});
+  f.rows.set('spots/pending', {status: 'pending', name: 'Pending'});
+  const ids = [];
+  let offset = 0;
+  do {
+    const page = await a.targetOptions('admin', '', offset);
+    assert.ok(page.items.length <= 5);
+    ids.push(...page.items.map(item => item.id));
+    offset = page.nextOffset;
+  } while (offset !== null);
+  assert.equal(ids.length, 14);
+  assert.equal(new Set(ids).size, 14);
+  assert.ok(!ids.includes('deleted') && !ids.includes('pending'));
+  assert.deepEqual(JSON.parse(JSON.stringify((await a.targetOptions('admin', ' RIGA ')).items)), [{id: 'riga', name: 'Rīga Meet', event: true}]);
+  assert.equal((await a.targetOptions('admin', 'Place 11')).items[0].id, 'place11');
+  assert.equal((await a.targetOptions('admin', 'absent')).items.length, 0);
+});
+
+test('retired full car task is absent from both award evaluation and reward catalog', () => {
+  const f = setup();
+  const catalog = f.load('../lib/xp/rewards.js').rewardCatalog();
+  assert.ok(!catalog.some(item => item.id === 'garage.first_car_full'));
+  assert.equal(catalog.filter(item => item.category === 'garage_car').length, 4);
+});

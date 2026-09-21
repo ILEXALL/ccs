@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:intl/intl.dart';
 import 'package:flutter/material.dart';
 import 'package:uuid/uuid.dart';
@@ -223,6 +224,9 @@ class _RewardEditorState extends State<_RewardEditor> {
   final id = const Uuid().v4();
   Map? target;
   List<Map> targets = [];
+  int? nextOffset;
+  int searchGeneration = 0;
+  Timer? searchDebounce;
   DateTime start = DateTime.now();
   late DateTime end = start.add(const Duration(days: 7));
   bool saving = false, searching = false;
@@ -233,36 +237,65 @@ class _RewardEditorState extends State<_RewardEditor> {
       ? lv
       : en;
   @override
+  void initState() {
+    super.initState();
+    find();
+  }
+
+  void searchChanged(String _) {
+    searchDebounce?.cancel();
+    searchGeneration++;
+    searchDebounce = Timer(const Duration(milliseconds: 300), () => find());
+  }
+
+  @override
   void dispose() {
+    searchDebounce?.cancel();
     title.dispose();
     xp.dispose();
     search.dispose();
     super.dispose();
   }
 
-  Future<void> find() async {
+  Future<void> find({bool more = false}) async {
+    searchDebounce?.cancel();
+    final generation = ++searchGeneration;
+    final offset = more ? nextOffset : 0;
+    if (offset == null) return;
     setState(() {
       searching = true;
       error = null;
+      if (!more) {
+        targets = [];
+        nextOffset = null;
+      }
     });
     try {
       final result = await widget.request('admin_reward_targets', {
         'search': search.text,
+        'offset': offset,
       });
-      if (mounted)
+      if (mounted && generation == searchGeneration) {
         setState(() {
-          targets = (result['items'] as List).cast<Map>();
+          final items = (result['items'] as List).cast<Map>();
+          targets = more ? [...targets, ...items] : items;
+          nextOffset = (result['nextOffset'] as num?)?.toInt();
         });
+      }
     } catch (_) {
-      if (mounted)
+      if (mounted && generation == searchGeneration) {
         setState(() {
-          error = t('Search failed', 'Поиск не удался', 'Meklēšana neizdevās');
+          error = t(
+            'Could not load places. Retry search.',
+            'Не удалось загрузить места. Повтори поиск.',
+            'Neizdevās ielādēt vietas. Atkārto meklēšanu.',
+          );
         });
+      }
     } finally {
-      if (mounted)
-        setState(() {
-          searching = false;
-        });
+      if (mounted && generation == searchGeneration) {
+        setState(() => searching = false);
+      }
     }
   }
 
@@ -387,6 +420,7 @@ class _RewardEditorState extends State<_RewardEditor> {
             ),
             TextField(
               controller: search,
+              onChanged: searchChanged,
               onSubmitted: (_) => find(),
               decoration: InputDecoration(
                 labelText: t(
@@ -395,7 +429,7 @@ class _RewardEditorState extends State<_RewardEditor> {
                   'Meklēt pēc nosaukuma',
                 ),
                 suffixIcon: IconButton(
-                  onPressed: searching ? null : find,
+                  onPressed: searching ? null : () => find(),
                   icon: const Icon(Icons.search),
                 ),
               ),
@@ -418,15 +452,23 @@ class _RewardEditorState extends State<_RewardEditor> {
                 selected: target?['id'] == item['id'],
                 onTap: () => setState(() {
                   target = item;
-                  targets = [];
                 }),
+              ),
+            if (!searching && targets.isEmpty && error == null)
+              Text(
+                t('No places found', 'Места не найдены', 'Vietas nav atrastas'),
+              ),
+            if (nextOffset != null)
+              TextButton(
+                onPressed: searching ? null : () => find(more: true),
+                child: Text(t('Show more', 'Показать ещё', 'Rādīt vairāk')),
               ),
             const SizedBox(height: 16),
             Text(
               t(
-                'Dates use your device time zone',
-                'Даты указаны в часовом поясе устройства',
-                'Datumi ierīces laika joslā',
+                'XP is awarded for visits during this period. Dates use your device time zone',
+                'XP выдаётся за посещение в этот период. Даты указаны в часовом поясе устройства',
+                'XP piešķir par apmeklējumu šajā periodā. Datumi ierīces laika joslā',
               ),
             ),
             ListTile(

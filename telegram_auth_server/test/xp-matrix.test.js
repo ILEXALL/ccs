@@ -37,7 +37,6 @@ test('oracle: 192 first-car condition combinations', () => {
     if (count) expected['garage.first_car_photo'] = 50;
     if (length === 20) expected['garage.first_car_description'] = 50;
     if (count === 3) expected['garage.first_car_gallery'] = 25;
-    if (named && length === 20 && count && build && tags) expected['garage.first_car_full'] = 75;
     const car = { name: named ? 'Car' : '', description: 'x'.repeat(length),
       photoPath: photos[0] || '', photoPaths: photos.concat(photos),
       [alternate ? 'useType' : 'buildType']: build ? 'daily' : '', tags: tags ? ['daily'] : [] };

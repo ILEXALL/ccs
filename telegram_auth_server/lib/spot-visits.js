@@ -71,4 +71,4 @@ async function recordSpotVisit(db, userId, spotId, now = Date.now(), gpsFix = nu
     return {recorded: true, duplicate: false, dayKey, event: spot.isTemporary === true};
   });
 }
-module.exports = {recordSpotVisit, coordinates, distanceMeters, rigaDay};
+module.exports = {recordSpotVisit, coordinates, distanceMeters, rigaDay, VISIT_RADIUS_METERS};

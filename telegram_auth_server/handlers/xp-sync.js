@@ -124,7 +124,7 @@ async function syncSpot(actor, body) {
 
 const handlers = {
   admin_rewards: (actor) => adminRewards.listRewards(actor.uid),
-  admin_reward_targets: (actor, body) => adminRewards.targetOptions(actor.uid, body.search),
+  admin_reward_targets: (actor, body) => adminRewards.targetOptions(actor.uid, body.search, body.offset),
   admin_reward_create: (actor, body) => adminRewards.createReward(actor.uid, body),
   admin_reward_cancel: (actor, body) => adminRewards.cancelReward(actor.uid, body.id),
   location_check: async (actor, body) => ({accepted: await assessLocation(actor.uid, body)}),

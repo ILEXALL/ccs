@@ -31,13 +31,13 @@ do not silently redefine expectations to make a failing test pass.
 | garage.first_car_photo | 50 | At least one unique photo |
 | garage.first_car_description | 50 | Trimmed description length at least 20 |
 | garage.first_car_gallery | 25 | At least three unique photos |
-| garage.first_car_full | 75 | Name, description, photo, build/use type and tag present |
+| garage.first_car_full | retired | No new awards; historical XP is preserved |
 | spot.approved | 50 | Approved permanent spot with author |
 | spot.description | 15 | Same eligibility, trimmed description at least 20 |
 | spot.photo | 25 | Same eligibility, at least one unique photo |
 | spot.media_bundle | 10 | Same eligibility, three photos or a reel |
 
-Full profile = 250 XP; full first car = 250 XP; full permanent spot = 100 XP.
+Full profile = 250 XP; first car tasks = 175 XP; full permanent spot = 100 XP.
 Identical cover and gallery paths count as one photo, not two.
 
 ## Oracle invariants

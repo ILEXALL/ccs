@@ -114,6 +114,75 @@ void main() {
     });
   });
 
+  testWidgets(
+    'admin targets load immediately, paginate and search while typing',
+    (tester) async {
+      final calls = <Map<String, dynamic>>[];
+      Future<Map<String, dynamic>> request(
+        String action, [
+        Map<String, dynamic> extra = const {},
+      ]) async {
+        if (action != 'admin_reward_targets') return {'items': []};
+        calls.add(extra);
+        if (extra['search'] == 'Riga')
+          return {
+            'items': [
+              {'id': 'riga', 'name': 'Riga spot'},
+            ],
+          };
+        final offset = extra['offset'] as int;
+        return {
+          'items': List.generate(
+            5,
+            (i) => {'id': '${i + offset}', 'name': 'Spot ${i + offset}'},
+          ),
+          'nextOffset': offset == 0 ? 5 : null,
+        };
+      }
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: AdminRewardsScreen(language: 'en', request: request),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Add reward'));
+      await tester.pumpAndSettle();
+      expect(calls.single['search'], '');
+      expect(find.text('Spot 0'), findsOneWidget);
+      await tester.scrollUntilVisible(
+        find.text('Show more'),
+        200,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.drag(find.byType(ListView).last, const Offset(0, -120));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Show more'));
+      await tester.pumpAndSettle();
+      expect(calls.last['offset'], 5);
+      await tester.scrollUntilVisible(
+        find.text('Spot 9'),
+        200,
+        scrollable: find.byType(Scrollable).first,
+      );
+      expect(find.text('Spot 9'), findsOneWidget);
+      await tester.scrollUntilVisible(
+        find.widgetWithText(TextField, 'Search by name'),
+        -300,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.enterText(
+        find.widgetWithText(TextField, 'Search by name'),
+        'Riga',
+      );
+      await tester.pump(const Duration(milliseconds: 350));
+      await tester.pumpAndSettle();
+      expect(calls.last, {'search': 'Riga', 'offset': 0});
+      expect(find.text('Riga spot'), findsOneWidget);
+      expect(find.text('Spot 0'), findsNothing);
+    },
+  );
+
   testWidgets('admin can select target and submit a dated fixed XP reward', (
     tester,
   ) async {

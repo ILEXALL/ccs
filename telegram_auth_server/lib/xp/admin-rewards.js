@@ -9,12 +9,19 @@ async function listRewards(uid) {
   const docs = await db.collection('admin_rewards').get();
   return {items: docs.docs.map(d => ({...d.data(), id: d.id})).sort((a,b) => b.createdAt - a.createdAt)};
 }
-async function targetOptions(uid, search = '') {
+function normalizeSearch(value) {
+  return String(value || '').normalize('NFKD').replace(/\p{M}/gu, '').toLowerCase().trim();
+}
+async function targetOptions(uid, search = '', offset = 0) {
   await db.runTransaction(tx => requireAdmin(tx, uid));
-  const query = String(search).trim().toLowerCase().slice(0,100);
+  const query = normalizeSearch(search).slice(0, 100);
+  const start = Number.isSafeInteger(offset) && offset >= 0 ? offset : 0;
   const docs = await db.collection('spots').where('status', '==', 'approved').get();
-  return {items: docs.docs.filter(d => !d.data().deleted && (!query || String(d.data().name || '').toLowerCase().includes(query) || d.id === query))
-    .slice(0,50).map(d => ({id: d.id, name: String(d.data().name || d.id), event: d.data().isTemporary === true}))};
+  const items = docs.docs.filter(d => !d.data().deleted)
+    .map(d => ({id: d.id, name: String(d.data().name || d.id), event: d.data().isTemporary === true}))
+    .filter(item => !query || normalizeSearch(item.name).includes(query) || normalizeSearch(item.id) === query)
+    .sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
+  return {items: items.slice(start, start + 5), nextOffset: start + 5 < items.length ? start + 5 : null};
 }
 async function createReward(uid, input, now = Date.now()) {
   if (!validId(input.id) || !validId(input.spotId) || !Number.isInteger(input.xp) || input.xp < 1 || input.xp > 3000 ||

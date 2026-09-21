@@ -50,12 +50,6 @@ function evaluateFirstCarXp(userId, user) {
   const description = stringValue(firstCar.description);
   const photoCount = carPhotoCount(firstCar);
   const hasDescription = description.length >= MIN_CAR_DESCRIPTION_CHARS;
-  const hasBuildInfo = hasText(firstCar.buildType) || hasText(firstCar.useType);
-  const hasTags = Array.isArray(firstCar.tags)
-    ? firstCar.tags.some((tag) => hasText(tag))
-    : false;
-  const hasFullCard =
-    carName !== '' && hasDescription && photoCount >= 1 && hasBuildInfo && hasTags;
   const metadata = {
     userId,
     carName,
@@ -82,10 +76,6 @@ function evaluateFirstCarXp(userId, user) {
     awards.push(
       carAward(userId, 'garage.first_car_gallery', 'three_or_more_photos', 25, metadata),
     );
-  }
-
-  if (hasFullCard) {
-    awards.push(carAward(userId, 'garage.first_car_full', 'full_card', 75, metadata));
   }
 
   return awards;
