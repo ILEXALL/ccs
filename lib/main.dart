@@ -1,4 +1,4 @@
-import 'admin_rewards_screen.dart';
+﻿import 'admin_rewards_screen.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -29,6 +29,8 @@ import 'package:url_launcher/url_launcher.dart';
 import 'firebase_options.dart';
 import 'map_start_position.dart';
 import 'notification_freshness.dart';
+import 'in_flight_load.dart';
+import 'event_forum_description.dart';
 import 'reward_feedback.dart';
 import 'spot_presence_marker.dart';
 import 'achievements_screen.dart';
@@ -14505,7 +14507,9 @@ Future<void> checkGpsSpotVisits(Position position) async {
   for (final spot in candidates) {
     if (FirebaseAuth.instance.currentUser?.uid != user.uid) return;
     final key = '${user.uid}/${spot.id}';
-    if (now.difference(_creditedSpotVisits[key] ?? DateTime(1970)) < const Duration(minutes: 2) || !_spotVisitRequests.add(key))
+    if (now.difference(_creditedSpotVisits[key] ?? DateTime(1970)) <
+            const Duration(minutes: 2) ||
+        !_spotVisitRequests.add(key))
       continue;
     try {
       final token = await user.getIdToken();
@@ -20757,12 +20761,19 @@ Future<void> pruneOldNotificationCenterItems(
   }
 }
 
-Future<List<NotificationCenterItem>> loadNotificationCenterItems() async {
+final _notificationCenterLoads =
+    InFlightLoad<String, List<NotificationCenterItem>>();
+
+Future<List<NotificationCenterItem>> loadNotificationCenterItems() {
+  final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
+  return _notificationCenterLoads.run(uid, _loadNotificationCenterItems);
+}
+
+Future<List<NotificationCenterItem>> _loadNotificationCenterItems() async {
   final firebaseUser = FirebaseAuth.instance.currentUser;
   final items = <NotificationCenterItem>[];
 
   if (firebaseUser == null) {
-    notificationCenterUnreadCountsBySource.clear();
     notificationCenterUnreadCountsBySource.clear();
     notificationCenterUnreadCount.value = 0;
     return const [];
@@ -20885,6 +20896,9 @@ Future<List<NotificationCenterItem>> loadNotificationCenterItems() async {
     return second.createdAtMillis.compareTo(first.createdAtMillis);
   });
 
+  // A request started before logout must not update the next account's badge.
+  if (FirebaseAuth.instance.currentUser?.uid != firebaseUser.uid)
+    return const [];
   await pruneOldNotificationCenterItems(firebaseUser.uid, items);
 
   final realItems = items.where((item) => !item.projectNews).toList();
@@ -20905,6 +20919,8 @@ Future<List<NotificationCenterItem>> loadNotificationCenterItems() async {
     return second.createdAtMillis.compareTo(first.createdAtMillis);
   });
 
+  if (FirebaseAuth.instance.currentUser?.uid != firebaseUser.uid)
+    return const [];
   notificationCenterUnreadCount.value = visibleItems
       .where((item) => !item.read && !item.projectNews)
       .length;
@@ -22916,7 +22932,9 @@ class _MainScreenState extends State<_MainContentScreen>
     onlinePresenceRefreshTimer = Timer.periodic(const Duration(seconds: 90), (
       _,
     ) {
-      updateCurrentUserOnlinePresence(isOnline: true);
+      if (appIsForegroundForNotifications) {
+        updateCurrentUserOnlinePresence(isOnline: true);
+      }
     });
     // Keep general notification collections lazy, but admins/community
     // moderators need a live admin_notifications listener so review and
@@ -43289,9 +43307,6 @@ bool forumTopicIsVisibleNow(Map<String, dynamic> data) {
 
 String temporarySpotForumDescription(CarSpot spot) {
   final parts = <String>[];
-  if (spot.description.trim().isNotEmpty) {
-    parts.add(spot.description.trim());
-  }
   if (spot.cityCountry.trim().isNotEmpty) {
     parts.add('${trText('Location')}: ${spot.cityCountry.trim()}');
   }
@@ -43306,8 +43321,7 @@ String temporarySpotForumDescription(CarSpot spot) {
     );
   }
 
-  final text = parts.join('\n\n').trim();
-  return text.isEmpty ? 'Event.' : text;
+  return eventForumDescription(spot.description, parts);
 }
 
 Map<String, Object?> temporarySpotForumTopicData({
@@ -48635,29 +48649,32 @@ class _NewChatScreenState extends State<NewChatScreen>
                     borderRadius: BorderRadius.circular(18),
                     border: Border.all(color: Colors.white12),
                   ),
-                  child: SwitchListTile.adaptive(
-                    contentPadding: EdgeInsets.zero,
-                    value: groupIsPrivate,
-                    onChanged: isCreating
-                        ? null
-                        : (value) => setState(() => groupIsPrivate = value),
-                    activeColor: blue,
-                    title: const Text(
-                      'Private group',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w900,
+                  child: Material(
+                    color: Colors.transparent,
+                    child: SwitchListTile.adaptive(
+                      contentPadding: EdgeInsets.zero,
+                      value: groupIsPrivate,
+                      onChanged: isCreating
+                          ? null
+                          : (value) => setState(() => groupIsPrivate = value),
+                      activeColor: blue,
+                      title: const Text(
+                        'Private group',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w900,
+                        ),
                       ),
-                    ),
-                    subtitle: const Text(
-                      'Private groups require approval. Anyone can join a public group unless the owner has denied access.',
-                      style: TextStyle(color: Colors.white54),
-                    ),
-                    secondary: Icon(
-                      groupIsPrivate
-                          ? Icons.lock_outline
-                          : Icons.public_outlined,
-                      color: blue,
+                      subtitle: const Text(
+                        'Private groups require approval. Anyone can join a public group unless the owner has denied access.',
+                        style: TextStyle(color: Colors.white54),
+                      ),
+                      secondary: Icon(
+                        groupIsPrivate
+                            ? Icons.lock_outline
+                            : Icons.public_outlined,
+                        color: blue,
+                      ),
                     ),
                   ),
                 ),
@@ -49785,27 +49802,30 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen>
                 borderRadius: BorderRadius.circular(18),
                 border: Border.all(color: Colors.white12),
               ),
-              child: SwitchListTile.adaptive(
-                contentPadding: EdgeInsets.zero,
-                value: isPrivate,
-                onChanged: canEditGroupDetails && !isSaving
-                    ? (value) => setState(() => isPrivate = value)
-                    : null,
-                activeColor: blue,
-                title: const Text(
-                  'Private group',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w900,
+              child: Material(
+                color: Colors.transparent,
+                child: SwitchListTile.adaptive(
+                  contentPadding: EdgeInsets.zero,
+                  value: isPrivate,
+                  onChanged: canEditGroupDetails && !isSaving
+                      ? (value) => setState(() => isPrivate = value)
+                      : null,
+                  activeColor: blue,
+                  title: const Text(
+                    'Private group',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w900,
+                    ),
                   ),
-                ),
-                subtitle: const Text(
-                  'Private groups let only the owner or staff add members.',
-                  style: TextStyle(color: Colors.white54),
-                ),
-                secondary: Icon(
-                  isPrivate ? Icons.lock_outline : Icons.public_outlined,
-                  color: blue,
+                  subtitle: const Text(
+                    'Private groups let only the owner or staff add members.',
+                    style: TextStyle(color: Colors.white54),
+                  ),
+                  secondary: Icon(
+                    isPrivate ? Icons.lock_outline : Icons.public_outlined,
+                    color: blue,
+                  ),
                 ),
               ),
             ),
@@ -52343,9 +52363,12 @@ class XpTransactionData {
   bool get isPositive => status == 'confirmed' && amount > 0;
 
   String get title {
-    if (['weekly.completed', 'admin_reward.completed'].contains(action) && metadata['title'] is Map) {
+    if (['weekly.completed', 'admin_reward.completed'].contains(action) &&
+        metadata['title'] is Map) {
       final titles = metadata['title'] as Map;
-      return titles[appUiPreferences.language.name] as String? ?? titles['en'] as String? ?? xpTransactionActionLabel(action);
+      return titles[appUiPreferences.language.name] as String? ??
+          titles['en'] as String? ??
+          xpTransactionActionLabel(action);
     }
     if (action == 'achievement.unlock') {
       final parts = objectId.split('.');
@@ -52399,11 +52422,26 @@ String xpTransactionActionLabel(String action) {
         'Sasniegums iegūts',
       );
     case 'weekly.completed':
-      return achievementText(appUiPreferences.language.name, 'Weekly task completed', 'Задание недели выполнено', 'Nedēļas uzdevums izpildīts');
+      return achievementText(
+        appUiPreferences.language.name,
+        'Weekly task completed',
+        'Задание недели выполнено',
+        'Nedēļas uzdevums izpildīts',
+      );
     case 'admin_reward.completed':
-      return achievementText(appUiPreferences.language.name, 'Admin reward', 'Награда от администратора', 'Administratora atlīdzība');
+      return achievementText(
+        appUiPreferences.language.name,
+        'Admin reward',
+        'Награда от администратора',
+        'Administratora atlīdzība',
+      );
     case 'visit.weekly':
-      return achievementText(appUiPreferences.language.name, 'Weekly spot visit', 'Посещение спота за неделю', 'Vietas apmeklējums šonedēļ');
+      return achievementText(
+        appUiPreferences.language.name,
+        'Weekly spot visit',
+        'Посещение спота за неделю',
+        'Vietas apmeklējums šonedēļ',
+      );
     case 'event.attended':
       return 'Event attended';
     case 'profile.avatar':
@@ -52443,9 +52481,19 @@ String xpTransactionObjectTypeLabel(String objectType) {
   switch (objectType.trim().toLowerCase()) {
     case 'weekly_task':
     case 'weekly_visit':
-      return achievementText(appUiPreferences.language.name, 'Weekly reward', 'Недельная награда', 'Nedēļas atlīdzība');
+      return achievementText(
+        appUiPreferences.language.name,
+        'Weekly reward',
+        'Недельная награда',
+        'Nedēļas atlīdzība',
+      );
     case 'admin_reward':
-      return achievementText(appUiPreferences.language.name, 'Admin reward', 'Награда от администратора', 'Administratora atlīdzība');
+      return achievementText(
+        appUiPreferences.language.name,
+        'Admin reward',
+        'Награда от администратора',
+        'Administratora atlīdzība',
+      );
 
     case 'achievement':
       return achievementText(
@@ -54464,7 +54512,10 @@ class PublicUserProfileScreen extends StatelessWidget {
           ProfileInfoRow(
             location: localizedProfileLocation(profile.city, profile.country),
             cars: garageValue,
-            spots: CreatorSpotsBadge(uid: profile.uid, username: profile.username),
+            spots: CreatorSpotsBadge(
+              uid: profile.uid,
+              username: profile.username,
+            ),
           ),
           if (showActions || socialButtons.isNotEmpty) ...[
             const SizedBox(height: 14),
@@ -54714,28 +54765,31 @@ class PublicUserProfileScreen extends StatelessWidget {
                     : Colors.white12,
               ),
             ),
-            child: SwitchListTile.adaptive(
-              value: profile.verified,
-              activeThumbColor: blue,
-              secondary: Icon(
-                profile.verified
-                    ? Icons.verified_rounded
-                    : Icons.verified_outlined,
-                color: profile.verified ? blue : Colors.white54,
-              ),
-              title: Text(
-                profile.verified ? 'Verified user' : 'User not verified',
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w900,
+            child: Material(
+              color: Colors.transparent,
+              child: SwitchListTile.adaptive(
+                value: profile.verified,
+                activeThumbColor: blue,
+                secondary: Icon(
+                  profile.verified
+                      ? Icons.verified_rounded
+                      : Icons.verified_outlined,
+                  color: profile.verified ? blue : Colors.white54,
                 ),
+                title: Text(
+                  profile.verified ? 'Verified user' : 'User not verified',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                subtitle: const Text(
+                  'Allow this user to create and see verified-only spots.',
+                  style: TextStyle(color: Colors.white54),
+                ),
+                onChanged: (value) =>
+                    setProfileVerifiedStatus(context, profile, value),
               ),
-              subtitle: const Text(
-                'Allow this user to create and see verified-only spots.',
-                style: TextStyle(color: Colors.white54),
-              ),
-              onChanged: (value) =>
-                  setProfileVerifiedStatus(context, profile, value),
             ),
           ),
           const SizedBox(height: 12),
@@ -56160,7 +56214,10 @@ class _ProfileHeader extends StatelessWidget {
           ProfileInfoRow(
             location: localizedProfileLocation(profile.city, profile.country),
             cars: garageValue,
-            spots: CreatorSpotsBadge(uid: currentUser.uid, username: profile.username),
+            spots: CreatorSpotsBadge(
+              uid: currentUser.uid,
+              username: profile.username,
+            ),
           ),
           const SizedBox(height: 14),
           _CompactProfileSocialLinks(
@@ -56719,13 +56776,27 @@ class XpSummaryContent extends StatelessWidget {
                 builder: (_) => XpRewardsScreen(
                   onOpenSpot: (id) async {
                     try {
-                      final doc = await FirebaseFirestore.instance.collection('spots').doc(id).get();
+                      final doc = await FirebaseFirestore.instance
+                          .collection('spots')
+                          .doc(id)
+                          .get();
                       if (!context.mounted || !doc.exists) return;
                       final spot = CarSpot.fromFirestore(doc);
                       if (!canViewGroupSpot(spot)) return;
-                      Navigator.of(context).push(appPageRoute(builder: (_) => SpotDetailScreen(spot: spot)));
+                      Navigator.of(context).push(
+                        appPageRoute(
+                          builder: (_) => SpotDetailScreen(spot: spot),
+                        ),
+                      );
                     } catch (_) {
-                      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(trText('Spot is not available anymore.'))));
+                      if (context.mounted)
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text(
+                              trText('Spot is not available anymore.'),
+                            ),
+                          ),
+                        );
                     }
                   },
                   language: appUiPreferences.language.name,
@@ -57790,12 +57861,17 @@ class _CreatorSpotsBadgeState extends State<CreatorSpotsBadge>
                 ),
               ),
             );
-            if (mounted) setState(() => count = loadCount());
+            if (mounted) {
+              setState(() {
+                count = loadCount();
+              });
+            }
           },
           child: _MiniProfileInfoChip(
             icon: Icons.add_location_alt,
-            label:
-                snapshot.hasData ? profileCountLabel(snapshot.data!, spots: true) : '${snapshot.hasError ? '—' : '…'} ${trText('Spots')}',
+            label: snapshot.hasData
+                ? profileCountLabel(snapshot.data!, spots: true)
+                : '${snapshot.hasError ? '—' : '…'} ${trText('Spots')}',
           ),
         ),
       ),
@@ -57935,39 +58011,79 @@ class _CreatorSpotsScreenState extends State<CreatorSpotsScreen>
   );
 }
 
-String profileCountLabel(int count, {bool spots = false, AppLanguage? language}) {
+String profileCountLabel(
+  int count, {
+  bool spots = false,
+  AppLanguage? language,
+}) {
   final lang = language ?? appUiPreferences.language;
   final one = count % 10 == 1 && count % 100 != 11;
-  final few = count % 10 >= 2 && count % 10 <= 4 && (count % 100 < 12 || count % 100 > 14);
+  final few =
+      count % 10 >= 2 &&
+      count % 10 <= 4 &&
+      (count % 100 < 12 || count % 100 > 14);
   final noun = switch (lang) {
-    AppLanguage.en => spots ? (count == 1 ? 'spot' : 'spots') : (count == 1 ? 'car' : 'cars'),
-    AppLanguage.ru => spots ? (one ? 'спот' : few ? 'спота' : 'спотов') : (one ? 'машина' : few ? 'машины' : 'машин'),
+    AppLanguage.en =>
+      spots ? (count == 1 ? 'spot' : 'spots') : (count == 1 ? 'car' : 'cars'),
+    AppLanguage.ru =>
+      spots
+          ? (one
+                ? 'спот'
+                : few
+                ? 'спота'
+                : 'спотов')
+          : (one
+                ? 'машина'
+                : few
+                ? 'машины'
+                : 'машин'),
     AppLanguage.lv => spots ? (one ? 'vieta' : 'vietas') : 'auto',
   };
   return '$count $noun';
 }
 
-String localizedProfileLocation(String city, String country, {AppLanguage? language}) {
+String localizedProfileLocation(
+  String city,
+  String country, {
+  AppLanguage? language,
+}) {
   final lang = language ?? appUiPreferences.language;
   final cityName = ['riga', 'rīga', 'рига'].contains(city.trim().toLowerCase())
-      ? switch (lang) { AppLanguage.en => 'Riga', AppLanguage.ru => 'Рига', AppLanguage.lv => 'Rīga' }
+      ? switch (lang) {
+          AppLanguage.en => 'Riga',
+          AppLanguage.ru => 'Рига',
+          AppLanguage.lv => 'Rīga',
+        }
       : city.trim();
-  return [cityName, localizedCountryName(country, language: lang)]
-      .where((part) => part.isNotEmpty).join(', ');
+  return [
+    cityName,
+    localizedCountryName(country, language: lang),
+  ].where((part) => part.isNotEmpty).join(', ');
 }
 
 class ProfileInfoRow extends StatelessWidget {
   final String location;
   final String cars;
   final Widget spots;
-  const ProfileInfoRow({super.key, required this.location, required this.cars, required this.spots});
+  const ProfileInfoRow({
+    super.key,
+    required this.location,
+    required this.cars,
+    required this.spots,
+  });
 
   @override
   Widget build(BuildContext context) => Row(
     children: [
-      Flexible(flex: 4, child: _MiniProfileInfoChip(icon: Icons.location_on, label: location)),
+      Flexible(
+        flex: 4,
+        child: _MiniProfileInfoChip(icon: Icons.location_on, label: location),
+      ),
       const SizedBox(width: 5),
-      Flexible(flex: 3, child: _MiniProfileInfoChip(icon: Icons.directions_car, label: cars)),
+      Flexible(
+        flex: 3,
+        child: _MiniProfileInfoChip(icon: Icons.directions_car, label: cars),
+      ),
       const SizedBox(width: 5),
       Flexible(flex: 3, child: spots),
     ],
@@ -57992,10 +58108,20 @@ class _MiniProfileInfoChip extends StatelessWidget {
       children: [
         Icon(icon, color: blue, size: 16),
         const SizedBox(width: 4),
-        Flexible(child: Text(
-          label, maxLines: 1, overflow: TextOverflow.ellipsis, softWrap: false,
-          style: const TextStyle(color: Colors.white70, fontSize: 11, fontWeight: FontWeight.w800, height: 1.15),
-        )),
+        Flexible(
+          child: Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            softWrap: false,
+            style: const TextStyle(
+              color: Colors.white70,
+              fontSize: 11,
+              fontWeight: FontWeight.w800,
+              height: 1.15,
+            ),
+          ),
+        ),
       ],
     ),
   );
@@ -63332,12 +63458,27 @@ class _AdminReviewScreenState extends State<AdminReviewScreen>
               if (currentUser.role == UserRole.admin) ...[
                 _ProfileActionTile(
                   icon: Icons.card_giftcard,
-                  title: achievementText(appUiPreferences.language.name, 'Rewards', 'Награды', 'Atlīdzības'),
-                  subtitle: achievementText(appUiPreferences.language.name, 'Create bonus tasks', 'Создать дополнительные задания', 'Izveidot papildu uzdevumus'),
-                  onTap: () => Navigator.push(context, appPageRoute(builder: (_) => AdminRewardsScreen(
-                    language: appUiPreferences.language.name,
-                    request: xpScreenRequest,
-                  ))),
+                  title: achievementText(
+                    appUiPreferences.language.name,
+                    'Rewards',
+                    'Награды',
+                    'Atlīdzības',
+                  ),
+                  subtitle: achievementText(
+                    appUiPreferences.language.name,
+                    'Create bonus tasks',
+                    'Создать дополнительные задания',
+                    'Izveidot papildu uzdevumus',
+                  ),
+                  onTap: () => Navigator.push(
+                    context,
+                    appPageRoute(
+                      builder: (_) => AdminRewardsScreen(
+                        language: appUiPreferences.language.name,
+                        request: xpScreenRequest,
+                      ),
+                    ),
+                  ),
                 ),
                 const SizedBox(height: 10),
                 _ProfileActionTile(

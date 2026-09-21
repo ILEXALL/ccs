@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Firebase credentials/keysets are tied to this installation and Android Keystore. -->
+<full-backup-content>
+    <exclude domain="sharedpref" path="com.google.firebase.auth.api.crypto.W0RFRkFVTFRd+MTozMjU3MDkzMjQ2NzA6YW5kcm9pZDoxMjMzMTQ4NTQ5ZjZjNzg1Y2Y1MzJm.xml" />
+    <exclude domain="sharedpref" path="com.google.firebase.auth.api.Store.W0RFRkFVTFRd+MTozMjU3MDkzMjQ2NzA6YW5kcm9pZDoxMjMzMTQ4NTQ5ZjZjNzg1Y2Y1MzJm.xml" />
+    <exclude domain="sharedpref" path="com.google.firebase.appcheck.debug.store.W0RFRkFVTFRd+MTozMjU3MDkzMjQ2NzA6YW5kcm9pZDoxMjMzMTQ4NTQ5ZjZjNzg1Y2Y1MzJm.xml" />
+    <exclude domain="sharedpref" path="com.google.firebase.appcheck.store.W0RFRkFVTFRd+MTozMjU3MDkzMjQ2NzA6YW5kcm9pZDoxMjMzMTQ4NTQ5ZjZjNzg1Y2Y1MzJm.xml" />
+    <exclude domain="sharedpref" path="com.google.firebase.auth.internal.ProcessDeathHelper.xml" />
+</full-backup-content>
