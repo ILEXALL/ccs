@@ -1,4 +1,4 @@
-﻿import 'admin_rewards_screen.dart';
+import 'admin_rewards_screen.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -14505,9 +14505,7 @@ Future<void> checkGpsSpotVisits(Position position) async {
   for (final spot in candidates) {
     if (FirebaseAuth.instance.currentUser?.uid != user.uid) return;
     final key = '${user.uid}/${spot.id}';
-    if (now.difference(_creditedSpotVisits[key] ?? DateTime(1970)) <
-            const Duration(minutes: 2) ||
-        !_spotVisitRequests.add(key))
+    if (now.difference(_creditedSpotVisits[key] ?? DateTime(1970)) < const Duration(minutes: 2) || !_spotVisitRequests.add(key))
       continue;
     try {
       final token = await user.getIdToken();
@@ -52345,12 +52343,9 @@ class XpTransactionData {
   bool get isPositive => status == 'confirmed' && amount > 0;
 
   String get title {
-    if (['weekly.completed', 'admin_reward.completed'].contains(action) &&
-        metadata['title'] is Map) {
+    if (['weekly.completed', 'admin_reward.completed'].contains(action) && metadata['title'] is Map) {
       final titles = metadata['title'] as Map;
-      return titles[appUiPreferences.language.name] as String? ??
-          titles['en'] as String? ??
-          xpTransactionActionLabel(action);
+      return titles[appUiPreferences.language.name] as String? ?? titles['en'] as String? ?? xpTransactionActionLabel(action);
     }
     if (action == 'achievement.unlock') {
       final parts = objectId.split('.');
@@ -52404,26 +52399,11 @@ String xpTransactionActionLabel(String action) {
         'Sasniegums iegūts',
       );
     case 'weekly.completed':
-      return achievementText(
-        appUiPreferences.language.name,
-        'Weekly task completed',
-        'Задание недели выполнено',
-        'Nedēļas uzdevums izpildīts',
-      );
+      return achievementText(appUiPreferences.language.name, 'Weekly task completed', 'Задание недели выполнено', 'Nedēļas uzdevums izpildīts');
     case 'admin_reward.completed':
-      return achievementText(
-        appUiPreferences.language.name,
-        'Admin reward',
-        'Награда от администратора',
-        'Administratora atlīdzība',
-      );
+      return achievementText(appUiPreferences.language.name, 'Admin reward', 'Награда от администратора', 'Administratora atlīdzība');
     case 'visit.weekly':
-      return achievementText(
-        appUiPreferences.language.name,
-        'Weekly spot visit',
-        'Посещение спота за неделю',
-        'Vietas apmeklējums šonedēļ',
-      );
+      return achievementText(appUiPreferences.language.name, 'Weekly spot visit', 'Посещение спота за неделю', 'Vietas apmeklējums šonedēļ');
     case 'event.attended':
       return 'Event attended';
     case 'profile.avatar':
@@ -52463,19 +52443,9 @@ String xpTransactionObjectTypeLabel(String objectType) {
   switch (objectType.trim().toLowerCase()) {
     case 'weekly_task':
     case 'weekly_visit':
-      return achievementText(
-        appUiPreferences.language.name,
-        'Weekly reward',
-        'Недельная награда',
-        'Nedēļas atlīdzība',
-      );
+      return achievementText(appUiPreferences.language.name, 'Weekly reward', 'Недельная награда', 'Nedēļas atlīdzība');
     case 'admin_reward':
-      return achievementText(
-        appUiPreferences.language.name,
-        'Admin reward',
-        'Награда от администратора',
-        'Administratora atlīdzība',
-      );
+      return achievementText(appUiPreferences.language.name, 'Admin reward', 'Награда от администратора', 'Administratora atlīdzība');
 
     case 'achievement':
       return achievementText(
@@ -53206,13 +53176,7 @@ class _ProfileScreenState extends State<ProfileScreen>
     }
   }
 
-  String get garageValue {
-    if (cars.length == 1) {
-      return '1 car';
-    }
-
-    return '${cars.length} cars';
-  }
+  String get garageValue => profileCountLabel(cars.length);
 
   String get baseValue {
     final city = profile.city.trim();
@@ -54362,9 +54326,7 @@ class PublicUserProfileScreen extends StatelessWidget {
     final visibleGarageCount = profile.settings.showGarage
         ? profile.garage.length
         : 0;
-    final garageValue = visibleGarageCount == 1
-        ? '1 car'
-        : '$visibleGarageCount cars';
+    final garageValue = profileCountLabel(visibleGarageCount);
     final socialButtons = <Widget>[
       if (profile.settings.instagram.trim().isNotEmpty)
         _CompactSocialLinkButton(
@@ -54499,21 +54461,10 @@ class PublicUserProfileScreen extends StatelessWidget {
             ),
           ],
           const SizedBox(height: 9),
-          Wrap(
-            spacing: 6,
-            runSpacing: 6,
-            children: [
-              _MiniProfileInfoChip(
-                icon: Icons.location_on,
-                label: profile.cityCountry,
-                allowFullLabel: true,
-              ),
-              _MiniProfileInfoChip(
-                icon: Icons.directions_car,
-                label: garageValue,
-              ),
-              CreatorSpotsBadge(uid: profile.uid, username: profile.username),
-            ],
+          ProfileInfoRow(
+            location: localizedProfileLocation(profile.city, profile.country),
+            cars: garageValue,
+            spots: CreatorSpotsBadge(uid: profile.uid, username: profile.username),
           ),
           if (showActions || socialButtons.isNotEmpty) ...[
             const SizedBox(height: 14),
@@ -56199,33 +56150,17 @@ class _ProfileHeader extends StatelessWidget {
                       style: const TextStyle(color: Colors.white54),
                     ),
                     const SizedBox(height: 8),
-                    SizedBox(
-                      width: double.infinity,
-                      child: Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: [
-                          _MiniProfileInfoChip(
-                            icon: Icons.location_on,
-                            label: profile.cityCountry,
-                            allowFullLabel: true,
-                          ),
-                          _MiniProfileInfoChip(
-                            icon: Icons.directions_car,
-                            label: garageValue,
-                          ),
-                          CreatorSpotsBadge(
-                            uid: currentUser.uid,
-                            username: profile.username,
-                          ),
-                        ],
-                      ),
-                    ),
                   ],
                 ),
               ),
               FeaturedProfileAchievement(userId: currentUser.uid),
             ],
+          ),
+          const SizedBox(height: 8),
+          ProfileInfoRow(
+            location: localizedProfileLocation(profile.city, profile.country),
+            cars: garageValue,
+            spots: CreatorSpotsBadge(uid: currentUser.uid, username: profile.username),
           ),
           const SizedBox(height: 14),
           _CompactProfileSocialLinks(
@@ -56784,27 +56719,13 @@ class XpSummaryContent extends StatelessWidget {
                 builder: (_) => XpRewardsScreen(
                   onOpenSpot: (id) async {
                     try {
-                      final doc = await FirebaseFirestore.instance
-                          .collection('spots')
-                          .doc(id)
-                          .get();
+                      final doc = await FirebaseFirestore.instance.collection('spots').doc(id).get();
                       if (!context.mounted || !doc.exists) return;
                       final spot = CarSpot.fromFirestore(doc);
                       if (!canViewGroupSpot(spot)) return;
-                      Navigator.of(context).push(
-                        appPageRoute(
-                          builder: (_) => SpotDetailScreen(spot: spot),
-                        ),
-                      );
+                      Navigator.of(context).push(appPageRoute(builder: (_) => SpotDetailScreen(spot: spot)));
                     } catch (_) {
-                      if (context.mounted)
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: Text(
-                              trText('Spot is not available anymore.'),
-                            ),
-                          ),
-                        );
+                      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(trText('Spot is not available anymore.'))));
                     }
                   },
                   language: appUiPreferences.language.name,
@@ -57874,7 +57795,7 @@ class _CreatorSpotsBadgeState extends State<CreatorSpotsBadge>
           child: _MiniProfileInfoChip(
             icon: Icons.add_location_alt,
             label:
-                '${snapshot.hasError ? '—' : snapshot.data?.toString() ?? '…'} ${trText('Spots')}',
+                snapshot.hasData ? profileCountLabel(snapshot.data!, spots: true) : '${snapshot.hasError ? '—' : '…'} ${trText('Spots')}',
           ),
         ),
       ),
@@ -58014,67 +57935,69 @@ class _CreatorSpotsScreenState extends State<CreatorSpotsScreen>
   );
 }
 
+String profileCountLabel(int count, {bool spots = false, AppLanguage? language}) {
+  final lang = language ?? appUiPreferences.language;
+  final one = count % 10 == 1 && count % 100 != 11;
+  final few = count % 10 >= 2 && count % 10 <= 4 && (count % 100 < 12 || count % 100 > 14);
+  final noun = switch (lang) {
+    AppLanguage.en => spots ? (count == 1 ? 'spot' : 'spots') : (count == 1 ? 'car' : 'cars'),
+    AppLanguage.ru => spots ? (one ? 'спот' : few ? 'спота' : 'спотов') : (one ? 'машина' : few ? 'машины' : 'машин'),
+    AppLanguage.lv => spots ? (one ? 'vieta' : 'vietas') : 'auto',
+  };
+  return '$count $noun';
+}
+
+String localizedProfileLocation(String city, String country, {AppLanguage? language}) {
+  final lang = language ?? appUiPreferences.language;
+  final cityName = ['riga', 'rīga', 'рига'].contains(city.trim().toLowerCase())
+      ? switch (lang) { AppLanguage.en => 'Riga', AppLanguage.ru => 'Рига', AppLanguage.lv => 'Rīga' }
+      : city.trim();
+  return [cityName, localizedCountryName(country, language: lang)]
+      .where((part) => part.isNotEmpty).join(', ');
+}
+
+class ProfileInfoRow extends StatelessWidget {
+  final String location;
+  final String cars;
+  final Widget spots;
+  const ProfileInfoRow({super.key, required this.location, required this.cars, required this.spots});
+
+  @override
+  Widget build(BuildContext context) => Row(
+    children: [
+      Flexible(flex: 4, child: _MiniProfileInfoChip(icon: Icons.location_on, label: location)),
+      const SizedBox(width: 5),
+      Flexible(flex: 3, child: _MiniProfileInfoChip(icon: Icons.directions_car, label: cars)),
+      const SizedBox(width: 5),
+      Flexible(flex: 3, child: spots),
+    ],
+  );
+}
+
 class _MiniProfileInfoChip extends StatelessWidget {
   final IconData icon;
   final String label;
-  final bool allowFullLabel;
-
-  const _MiniProfileInfoChip({
-    required this.icon,
-    required this.label,
-    this.allowFullLabel = false,
-  });
+  const _MiniProfileInfoChip({required this.icon, required this.label});
 
   @override
-  Widget build(BuildContext context) => LayoutBuilder(
-    builder: (context, constraints) {
-      final availableLabelWidth = math.max(
-        0.0,
-        (constraints.hasBoundedWidth
-                ? constraints.maxWidth
-                : MediaQuery.sizeOf(context).width - 32) -
-            46,
-      );
-      final maxFullLabelWidth = availableLabelWidth;
-
-      return Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-        decoration: BoxDecoration(
-          color: blue.withValues(alpha: 0.10),
-          borderRadius: BorderRadius.circular(999),
-          border: Border.all(color: blue.withValues(alpha: 0.24)),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            Icon(icon, color: blue, size: 20),
-            const SizedBox(width: 6),
-            ConstrainedBox(
-              constraints: BoxConstraints(
-                maxWidth: allowFullLabel
-                    ? maxFullLabelWidth
-                    : math.min(100.0, availableLabelWidth),
-              ),
-              child: Text(
-                label,
-                maxLines: allowFullLabel ? null : 1,
-                overflow: allowFullLabel
-                    ? TextOverflow.visible
-                    : TextOverflow.ellipsis,
-                softWrap: allowFullLabel,
-                style: const TextStyle(
-                  color: Colors.white70,
-                  fontSize: 12.5,
-                  fontWeight: FontWeight.w800,
-                  height: 1.15,
-                ),
-              ),
-            ),
-          ],
-        ),
-      );
-    },
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 5),
+    decoration: BoxDecoration(
+      color: blue.withValues(alpha: 0.10),
+      borderRadius: BorderRadius.circular(999),
+      border: Border.all(color: blue.withValues(alpha: 0.24)),
+    ),
+    child: Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, color: blue, size: 16),
+        const SizedBox(width: 4),
+        Flexible(child: Text(
+          label, maxLines: 1, overflow: TextOverflow.ellipsis, softWrap: false,
+          style: const TextStyle(color: Colors.white70, fontSize: 11, fontWeight: FontWeight.w800, height: 1.15),
+        )),
+      ],
+    ),
   );
 }
 
@@ -63409,27 +63332,12 @@ class _AdminReviewScreenState extends State<AdminReviewScreen>
               if (currentUser.role == UserRole.admin) ...[
                 _ProfileActionTile(
                   icon: Icons.card_giftcard,
-                  title: achievementText(
-                    appUiPreferences.language.name,
-                    'Rewards',
-                    'Награды',
-                    'Atlīdzības',
-                  ),
-                  subtitle: achievementText(
-                    appUiPreferences.language.name,
-                    'Create bonus tasks',
-                    'Создать дополнительные задания',
-                    'Izveidot papildu uzdevumus',
-                  ),
-                  onTap: () => Navigator.push(
-                    context,
-                    appPageRoute(
-                      builder: (_) => AdminRewardsScreen(
-                        language: appUiPreferences.language.name,
-                        request: xpScreenRequest,
-                      ),
-                    ),
-                  ),
+                  title: achievementText(appUiPreferences.language.name, 'Rewards', 'Награды', 'Atlīdzības'),
+                  subtitle: achievementText(appUiPreferences.language.name, 'Create bonus tasks', 'Создать дополнительные задания', 'Izveidot papildu uzdevumus'),
+                  onTap: () => Navigator.push(context, appPageRoute(builder: (_) => AdminRewardsScreen(
+                    language: appUiPreferences.language.name,
+                    request: xpScreenRequest,
+                  ))),
                 ),
                 const SizedBox(height: 10),
                 _ProfileActionTile(
