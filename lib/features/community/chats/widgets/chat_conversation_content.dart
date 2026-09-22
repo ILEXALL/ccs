@@ -24,8 +24,6 @@ import 'package:ccs_app/features/community/chats/widgets/message_status.dart'
     show ChatMessageStatusGlyph;
 import 'package:ccs_app/features/friends/models/friend_user.dart'
     show FriendUserData;
-import 'package:ccs_app/features/moderation/data/regional_access.dart'
-    show currentUserCanModerateCountry;
 import 'package:ccs_app/shared/widgets/user_avatar.dart'
     show
         OnlineStatusBadge,
@@ -184,14 +182,6 @@ class ChatConversationContent implements ChatConversationContentActions {
     late final viewContext = host.context;
 
     final mine = message.senderUid == currentUid;
-    final canDeleteMessage =
-        host.widget.chat.isGroup &&
-        (currentUserCanModerateCountry(
-              host.widget.chat.countryCode,
-              community: true,
-            ) ||
-            host.widget.chat.ownerUid == currentUid ||
-            host.widget.chat.moderatorIds.contains(currentUid));
     final canActOnMessage =
         !host.controller.readOnly && !message.isLocalPending;
     final sender =

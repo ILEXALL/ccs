@@ -1,9 +1,15 @@
+import 'dart:convert';
+import '../../../core/cache/request_cache.dart';
 import 'dart:async';
 import 'dart:io';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart' hide Text;
 import 'package:ccs_app/core/config/app_config.dart' show xpSyncUrls;
 import 'package:ccs_app/core/network/json_http.dart' show postJsonToUrl;
+
+final _countCache = RequestCache<Map<String, dynamic>>(
+  ttl: const Duration(seconds: 60),
+);
 
 Future<void> syncXpWithServer(Map<String, Object?> body) async {
   final firebaseUser = FirebaseAuth.instance.currentUser;
@@ -27,6 +33,7 @@ Future<void> syncXpWithServer(Map<String, Object?> body) async {
         body,
         headers: {HttpHeaders.authorizationHeader: 'Bearer $idToken'},
       );
+      _countCache.clear();
       return;
     } catch (error, stack) {
       lastError = error;
@@ -44,6 +51,19 @@ Future<Map<String, dynamic>> xpScreenRequest(
   String action, [
   Map<String, dynamic> extra = const {},
 ]) async {
+  final user = FirebaseAuth.instance.currentUser;
+  if (user == null) throw StateError('Not signed in');
+  if (action == 'creator_spots') {
+    final key = jsonEncode([user.uid, action, extra]);
+    return _countCache.get(key, () => _xpScreenRequestUncached(action, extra));
+  }
+  return _xpScreenRequestUncached(action, extra);
+}
+
+Future<Map<String, dynamic>> _xpScreenRequestUncached(
+  String action,
+  Map<String, dynamic> extra,
+) async {
   final user = FirebaseAuth.instance.currentUser;
   if (user == null) throw StateError('Not signed in');
   final token = await user.getIdToken();

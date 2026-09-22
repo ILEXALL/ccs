@@ -102,54 +102,94 @@ void main() {
     },
   );
 
-  testWidgets('following resumes after browsing only with fresh moving GPS', (
-    tester,
-  ) async {
-    var now = DateTime(2026, 9, 22, 16);
-    final session = DrivingSession()
-      ..lastGpsUserLocation = const LatLng(56.95, 24.1)
-      ..lastGpsUserLocationAt = now;
-    final navigation = MapNavigationController(session, now: () => now);
-    await tester.pumpWidget(
-      MaterialApp(
-        home: FlutterMap(
-          mapController: session.mapController,
-          options: const MapOptions(initialCenter: LatLng(56.95, 24.1)),
-          children: const [],
+  testWidgets(
+    'exiting focus resets north once and never resumes automatically',
+    (tester) async {
+      var now = DateTime(2026, 9, 22, 16);
+      final session = DrivingSession()
+        ..lastGpsUserLocation = const LatLng(56.95, 24.1)
+        ..lastGpsUserLocationAt = now;
+      final navigation = MapNavigationController(session, now: () => now);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: FlutterMap(
+            mapController: session.mapController,
+            options: const MapOptions(initialCenter: LatLng(56.95, 24.1)),
+            children: const [],
+          ),
         ),
-      ),
-    );
-    session.currentMapZoom = 15;
-    navigation.pauseFollowForMapGesture();
-    expect(session.mapCenteredOnCurrentUser, isFalse);
-    now = now.add(const Duration(seconds: 4));
-    session.lastGpsUserLocationAt = now;
-    navigation.updatePredictedUserMarker();
-    expect(session.mapCenteredOnCurrentUser, isFalse);
-    now = now.add(const Duration(seconds: 4));
-    navigation.updatePredictedUserMarker();
-    expect(session.mapCenteredOnCurrentUser, isFalse, reason: 'stale GPS');
-    session.lastGpsUserLocationAt = now;
-    session.currentUserSpeedMetersPerSecond = 0;
-    navigation.updatePredictedUserMarker();
-    expect(session.mapCenteredOnCurrentUser, isFalse, reason: 'stopped');
-    session.currentUserSpeedMetersPerSecond = 10;
-    session.followExitGesture.pointerDown(1, following: false, zoom: 15);
-    navigation.updatePredictedUserMarker();
-    expect(
-      session.mapCenteredOnCurrentUser,
-      isFalse,
-      reason: 'finger still down',
-    );
-    session.followExitGesture.pointerUp(1);
-    session.routePreviewMode = true;
-    navigation.updatePredictedUserMarker();
-    expect(session.mapCenteredOnCurrentUser, isFalse, reason: 'route preview');
-    session.routePreviewMode = false;
-    navigation.updatePredictedUserMarker();
-    expect(session.mapCenteredOnCurrentUser, isTrue);
-    expect(session.mapController.camera.zoom, 15);
-    await tester.pumpWidget(const SizedBox());
-    session.mapController.dispose();
-  });
+      );
+      session.currentMapZoom = 15;
+      session.mapController.rotate(90);
+      session.followExitGesture.pointerDown(1, following: true, zoom: 15);
+      navigation.pauseFollowForMapGesture();
+      expect(session.mapCenteredOnCurrentUser, isFalse);
+      navigation.resetNorthAfterFocusExit();
+      expect(
+        session.mapController.camera.rotation,
+        90,
+        reason: 'reset waits for the active gesture to finish',
+      );
+      session.followExitGesture.pointerUp(1);
+      navigation.resetNorthAfterFocusExit();
+      expect(session.mapController.camera.rotation, 0);
+      expect(session.currentMapRotationDegrees, 0);
+      expect(session.northResetScheduled, isFalse);
+      now = now.add(const Duration(seconds: 4));
+      session.lastGpsUserLocationAt = now;
+      navigation.updatePredictedUserMarker();
+      expect(session.mapCenteredOnCurrentUser, isFalse);
+      now = now.add(const Duration(seconds: 4));
+      navigation.updatePredictedUserMarker();
+      expect(session.mapCenteredOnCurrentUser, isFalse, reason: 'stale GPS');
+      session.lastGpsUserLocationAt = now;
+      session.currentUserSpeedMetersPerSecond = 0;
+      navigation.updatePredictedUserMarker();
+      expect(session.mapCenteredOnCurrentUser, isFalse, reason: 'stopped');
+      session.currentUserSpeedMetersPerSecond = 10;
+      session.followExitGesture.pointerDown(1, following: false, zoom: 15);
+      navigation.updatePredictedUserMarker();
+      expect(
+        session.mapCenteredOnCurrentUser,
+        isFalse,
+        reason: 'finger still down',
+      );
+      session.followExitGesture.pointerUp(1);
+      session.routePreviewMode = true;
+      navigation.updatePredictedUserMarker();
+      expect(
+        session.mapCenteredOnCurrentUser,
+        isFalse,
+        reason: 'route preview',
+      );
+      session.routePreviewMode = false;
+      navigation.updatePredictedUserMarker();
+      expect(session.mapCenteredOnCurrentUser, isFalse);
+      expect(session.mapController.camera.rotation, 0);
+      // A later manual rotation must survive fresh GPS and more browsing.
+      session.mapController.rotate(32);
+      navigation.pauseFollowForMapGesture();
+      navigation.resetNorthAfterFocusExit();
+      now = now.add(const Duration(seconds: 30));
+      session.lastGpsUserLocationAt = now;
+      session.currentUserHeadingDegrees = 180;
+      navigation.updatePredictedUserMarker();
+      navigation.updateFollowCamera(const LatLng(57, 25), 180);
+      expect(session.mapController.camera.rotation, 32);
+      expect(session.mapCenteredOnCurrentUser, isFalse);
+      // Explicitly re-entering focus restores course-up navigation.
+      session.mapCenteredOnCurrentUser = true;
+      navigation.updatePredictedUserMarker();
+      expect(
+        normalizedRotationDegrees(
+          session.mapController.camera.rotation +
+              session.displayedNavigationHeading,
+        ),
+        closeTo(0, 0.001),
+      );
+      expect(session.mapController.camera.zoom, 15);
+      await tester.pumpWidget(const SizedBox());
+      session.mapController.dispose();
+    },
+  );
 }

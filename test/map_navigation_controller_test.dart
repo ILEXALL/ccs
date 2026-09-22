@@ -5,6 +5,12 @@ import 'package:latlong2/latlong.dart';
 
 class NavigationSession extends Fake implements MapSession {
   @override
+  bool mapCenteredOnCurrentUser = true;
+  @override
+  bool routePreviewMode = false;
+  @override
+  bool northResetScheduled = false;
+  @override
   double currentUserHeadingDegrees = 90;
   @override
   double smoothedUserHeadingDegrees = 90;

@@ -100,7 +100,8 @@ class _AdminSpotLocationReviewMapScreenState
       body: Stack(
         children: [
           ExclusiveMapGestures(
-            builder: (interactionOptions) => FlutterMap(
+            mapController: mapController,
+            builder: (interactionOptions, constraint) => FlutterMap(
               mapController: mapController,
               options: MapOptions(
                 initialCenter: spot.coordinates,
@@ -108,6 +109,7 @@ class _AdminSpotLocationReviewMapScreenState
                 minZoom: 4,
                 maxZoom: 18,
                 interactionOptions: interactionOptions,
+                cameraConstraint: constraint,
                 backgroundColor: mapStyle.backgroundColor,
               ),
               children: [

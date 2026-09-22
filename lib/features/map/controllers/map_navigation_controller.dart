@@ -36,17 +36,25 @@ import 'map_config.dart';
 class MapNavigationController implements MapNavigationActions {
   final MapSession host;
   final DateTime Function() _now;
-  DateTime? _resumeFollowingAt;
   MapNavigationController(this.host, {DateTime Function()? now})
     : _now = now ?? DateTime.now;
 
   @override
   void pauseFollowForMapGesture() {
-    if (host.mapCenteredOnCurrentUser || _resumeFollowingAt != null) {
-      _resumeFollowingAt = _now().add(const Duration(seconds: 5));
+    if (host.mapCenteredOnCurrentUser) {
+      host.northResetScheduled = true;
       host.navigationZoom = host.currentMapZoom;
     }
     host.mapCenteredOnCurrentUser = false;
+  }
+
+  @override
+  void resetNorthAfterFocusExit() {
+    if (!host.northResetScheduled || host.followExitGesture.isActive) return;
+    host.northResetScheduled = false;
+    if (host.mapCenteredOnCurrentUser) return;
+    host.currentMapRotationDegrees = 0;
+    if (host.isVisible && host.mapCameraReady) host.mapController.rotate(0);
   }
 
   @override
@@ -237,7 +245,6 @@ class MapNavigationController implements MapNavigationActions {
       return;
     }
 
-    _resumeFollowingAt = null;
     host.updateMap(() {
       host.routePreviewMode = true;
       host.routePreviewSpot = spot;
@@ -247,8 +254,9 @@ class MapNavigationController implements MapNavigationActions {
       host.selectedPoliceReport = null;
       host.selectedSosReport = null;
       host.selectedLiveLocation = null;
-      host.mapCenteredOnCurrentUser = false;
+      pauseFollowForMapGesture();
     });
+    resetNorthAfterFocusExit();
     fitRoutePreviewCamera();
 
     final position = await getMapUserPosition(showErrors: true);
@@ -304,7 +312,6 @@ class MapNavigationController implements MapNavigationActions {
     }
 
     host.lastHandledMapFocusRequestToken = request.token;
-    _resumeFollowingAt = null;
     CarSpot? matchingSpot;
     for (final spot in approvedPublicSpots()) {
       if (spot.id == request.spotId) {
@@ -328,11 +335,12 @@ class MapNavigationController implements MapNavigationActions {
         host.selectedPoliceReport = null;
         host.selectedSosReport = null;
         host.selectedLiveLocation = null;
-        host.mapCenteredOnCurrentUser = false;
+        pauseFollowForMapGesture();
         host.currentMapZoom = 16.4;
       });
     }
 
+    resetNorthAfterFocusExit();
     moveMapCamera(
       request.coordinates,
       16.4,
@@ -468,19 +476,7 @@ class MapNavigationController implements MapNavigationActions {
         .clamp(0.0, 70.0)
         .toDouble();
     final age = now.difference(gpsTime).inMilliseconds / 1000.0;
-    // Browsing temporarily releases the camera. Resume only with fresh moving
-    // GPS and after all fingers have left; a stopped car stays in browse mode.
-    if (_resumeFollowingAt != null &&
-        !now.isBefore(_resumeFollowingAt!) &&
-        !host.followExitGesture.isActive &&
-        !host.mapGestureInProgress &&
-        !host.routePreviewMode &&
-        speed >= mapGpsCourseMinSpeedMetersPerSecond &&
-        age >= 0 &&
-        age <= 3) {
-      _resumeFollowingAt = null;
-      host.updateMap(() => host.mapCenteredOnCurrentUser = true);
-    }
+    // Browsing stays unfocused until the user explicitly taps GPS again.
     // Brief bounded visual extrapolation only. Uploaded coordinates remain GPS fixes.
     final target = speed < 0.8
         ? gpsLocation
@@ -703,7 +699,10 @@ class MapNavigationController implements MapNavigationActions {
 
   @override
   void updateFollowCamera(LatLng location, double headingDegrees) {
-    if (!isValidLatLng(location) || !host.navigationZoom.isFinite) {
+    if (!host.mapCenteredOnCurrentUser ||
+        host.routePreviewMode ||
+        !isValidLatLng(location) ||
+        !host.navigationZoom.isFinite) {
       return;
     }
 
@@ -741,8 +740,6 @@ class MapNavigationController implements MapNavigationActions {
     if (host.isLocatingUser) {
       return;
     }
-
-    _resumeFollowingAt = null;
 
     host.updateMap(() {
       clearRoutePreviewMode();
@@ -789,6 +786,7 @@ class MapNavigationController implements MapNavigationActions {
       host.displayedNavigationHeading = heading;
       host.currentMapRotationDegrees = normalizedRotationDegrees(-heading);
       host.mapCenteredOnCurrentUser = true;
+      host.northResetScheduled = false;
       host.selectedSpot = null;
       host.selectedPoliceReport = null;
       host.selectedSosReport = null;

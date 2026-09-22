@@ -99,13 +99,19 @@ import UIKit
 
     systemNotificationsChannel?.setMethodCallHandler { call, result in
       switch call.method {
+      case "stopSound":
+        self.feedbackPlayer?.stop()
+        self.feedbackPlayer = nil
+        result(nil)
       case "playSound":
         let arguments = call.arguments as? [String: Any]
         let name = arguments?["sound"] as? String == "level" ? "level" : "bell"
         if let url = Bundle.main.url(forResource: name, withExtension: "mp3") {
           do {
             try AVAudioSession.sharedInstance().setCategory(.ambient, options: [.mixWithOthers])
+            try AVAudioSession.sharedInstance().setActive(true)
             self.feedbackPlayer = try AVAudioPlayer(contentsOf: url)
+            self.feedbackPlayer?.prepareToPlay()
             self.feedbackPlayer?.play()
           } catch { /* Audio must not interrupt the app. */ }
         }

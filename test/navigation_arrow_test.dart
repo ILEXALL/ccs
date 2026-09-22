@@ -104,7 +104,8 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         home: ExclusiveMapGestures(
-          builder: (interactionOptions) => FlutterMap(
+          mapController: controller,
+          builder: (interactionOptions, constraint) => FlutterMap(
             mapController: controller,
             options: MapOptions(
               initialCenter: LatLng(56.95, 24.1),
@@ -112,6 +113,7 @@ void main() {
               minZoom: 3,
               maxZoom: 18,
               interactionOptions: interactionOptions,
+              cameraConstraint: constraint,
             ),
             children: const [],
           ),

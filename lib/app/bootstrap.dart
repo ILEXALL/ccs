@@ -54,7 +54,7 @@ Future<void> bootstrap() async {
   notificationLaunchTime = DateTime.now();
   WidgetsFlutterBinding.ensureInitialized();
   startAppIconBadgeSync();
-  await warmUpAppMapBackground();
+  final backgroundReady = warmUpAppMapBackground();
   try {
     final packageInfo = await PackageInfo.fromPlatform();
     currentAppVersion = packageInfo.version;
@@ -62,8 +62,10 @@ Future<void> bootstrap() async {
     currentAppVersion = '';
     debugPrint('App version lookup failed: $error');
   }
-  await appUiPreferences.load();
-  await firestoreDebugTracker.loadPersisted();
+  await Future.wait([
+    appUiPreferences.load(),
+    firestoreDebugTracker.loadPersisted(),
+  ]);
 
   try {
     await Firebase.initializeApp(
@@ -95,8 +97,10 @@ Future<void> bootstrap() async {
     }
 
     rememberMeEnabled = await loadRememberMePreference();
-    await loadSpotCategoryFiltersPreference();
-    await loadSavedSpotsFromPrefs();
+    await Future.wait([
+      loadSpotCategoryFiltersPreference(),
+      loadSavedSpotsFromPrefs(),
+    ]);
 
     final appUser = await loadCurrentFirebaseUser();
     if (appUser != null) {
@@ -116,5 +120,6 @@ Future<void> bootstrap() async {
     rememberMeEnabled = false;
   }
 
+  await backgroundReady;
   runApp(const CCSApp());
 }

@@ -46,9 +46,17 @@ ui.Image? appMapBackgroundImage;
 Future<void> warmUpAppMapBackground() async {
   try {
     final bytes = await rootBundle.load(appMapBackgroundAsset);
-    final codec = await ui.instantiateImageCodec(bytes.buffer.asUint8List());
-    final frame = await codec.getNextFrame();
-    appMapBackgroundImage = frame.image;
+    final codec = await ui.instantiateImageCodec(
+      bytes.buffer.asUint8List(bytes.offsetInBytes, bytes.lengthInBytes),
+      targetWidth: 1440,
+      allowUpscaling: false,
+    );
+    try {
+      final frame = await codec.getNextFrame();
+      appMapBackgroundImage = frame.image;
+    } finally {
+      codec.dispose();
+    }
   } catch (_) {
     appMapBackgroundImage = null;
   }

@@ -235,6 +235,7 @@ abstract interface class MapLayersActions {
 
 abstract interface class MapNavigationActions {
   void pauseFollowForMapGesture();
+  void resetNorthAfterFocusExit();
   void scheduleAutomaticGpsRetry();
   Future<void> focusInitialMapOnCurrentLocation();
   void moveMapCamera(LatLng location, double zoom, {double? rotationDegrees});

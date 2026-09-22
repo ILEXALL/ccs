@@ -1,3 +1,4 @@
+import 'package:ccs_app/shared/models/user_role.dart' show UserRole;
 import 'dart:async';
 import 'dart:math' as math;
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -54,14 +55,23 @@ class GlobalChatController implements GlobalChatControllerActions {
   final GlobalChatViewState host;
   GlobalChatController(this.host);
 
+  String? _onlineListenerUserId;
+
   @override
   void updateOnlineUsersStream() {
-    host.onlineUsersStream = host.widget.isActive
-        ? usersCollection()
-              .where('isOnline', isEqualTo: true)
-              .limit(200)
-              .debugSnapshots('global chat: online users counter')
+    final uid =
+        host.widget.isActive &&
+            currentUser.role == UserRole.admin &&
+            currentUser.uid.isNotEmpty
+        ? currentUser.uid
         : null;
+    if (uid == _onlineListenerUserId) return;
+    _onlineListenerUserId = uid;
+    host.onlineUsersStream = uid == null
+        ? null
+        : usersCollection()
+              .where('isOnline', isEqualTo: true)
+              .debugSnapshots('global chat: admin live online users counter');
   }
 
   @override
@@ -231,6 +241,8 @@ class GlobalChatController implements GlobalChatControllerActions {
               scheduleGlobalChatScrollToLatest();
             }
             if (selectedCommunityCountryCode == 'LV' &&
+                !snapshot.metadata.isFromCache &&
+                snapshot.docs.length < activeGlobalChatQueryPageSize &&
                 !host.stateLegacyLatvianMessagesLoaded) {
               unawaited(loadLegacyLatvianGlobalMessages());
             }
@@ -301,6 +313,10 @@ class GlobalChatController implements GlobalChatControllerActions {
     }
 
     final position = host.globalChatScrollController.position;
+    if (position.maxScrollExtent - position.pixels <= 120 &&
+        !host.stateLegacyLatvianMessagesLoaded) {
+      unawaited(loadLegacyLatvianGlobalMessages());
+    }
     if (position.maxScrollExtent - position.pixels <= 120 &&
         host.stateHasMoreOlderGlobalMessages &&
         !host.stateIsLoadingOlderGlobalMessages &&

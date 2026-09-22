@@ -73,6 +73,11 @@ class MainActivity : FlutterActivity() {
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, notificationsChannelName)
             .setMethodCallHandler { call, result ->
                 when (call.method) {
+                    "stopSound" -> {
+                        feedbackPlayer?.release()
+                        feedbackPlayer = null
+                        result.success(null)
+                    }
                     "playSound" -> {
                         feedbackPlayer?.release()
                         val resource = if (call.argument<String>("sound") == "level") R.raw.level else R.raw.bell

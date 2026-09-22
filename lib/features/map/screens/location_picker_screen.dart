@@ -193,7 +193,8 @@ class _LocationPickerScreenState extends State<LocationPickerScreen>
           : Stack(
               children: [
                 ExclusiveMapGestures(
-                  builder: (interactionOptions) => FlutterMap(
+                  mapController: mapController,
+                  builder: (interactionOptions, constraint) => FlutterMap(
                     mapController: mapController,
                     options: MapOptions(
                       initialCenter: pickedLocation ?? defaultCenter,
@@ -201,6 +202,7 @@ class _LocationPickerScreenState extends State<LocationPickerScreen>
                       minZoom: 3,
                       maxZoom: 18,
                       interactionOptions: interactionOptions,
+                      cameraConstraint: constraint,
                       backgroundColor: mapStyle.backgroundColor,
                       onTap: (_, point) => unawaited(selectPin(point)),
                     ),

@@ -1,3 +1,4 @@
+import '../core/input/app_keyboard_dismissal.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart' hide Text;
 import 'package:ccs_app/features/progression/controllers/reward_feedback.dart';
@@ -30,7 +31,6 @@ class _CCSAppState extends State<CCSApp> {
     return AnimatedBuilder(
       animation: appUiPreferences,
       builder: (context, _) {
-        const lightTheme = false;
         final baseTheme = ThemeData.dark();
 
         return MaterialApp(
@@ -48,27 +48,23 @@ class _CCSAppState extends State<CCSApp> {
               scrolledUnderElevation: 0,
             ),
             textTheme: baseTheme.textTheme.apply(
-              bodyColor: lightTheme ? const Color(0xFF181C22) : Colors.white,
-              displayColor: lightTheme ? const Color(0xFF181C22) : Colors.white,
+              bodyColor: Colors.white,
+              displayColor: Colors.white,
             ),
-            iconTheme: IconThemeData(
-              color: lightTheme ? const Color(0xFF242A33) : Colors.white70,
-            ),
+            iconTheme: IconThemeData(color: Colors.white70),
             inputDecorationTheme: InputDecorationTheme(
-              labelStyle: TextStyle(
-                color: lightTheme ? Colors.black54 : Colors.white60,
-              ),
-              hintStyle: TextStyle(
-                color: lightTheme ? Colors.black38 : Colors.white24,
-              ),
+              labelStyle: TextStyle(color: Colors.white60),
+              hintStyle: TextStyle(color: Colors.white24),
             ),
           ),
           builder: (context, child) {
-            return MaintenanceModeGate(
-              child: BannedUserGate(
-                child: Stack(
-                  fit: StackFit.expand,
-                  children: [const AppMapBackground(), ?child],
+            return AppKeyboardDismissal(
+              child: MaintenanceModeGate(
+                child: BannedUserGate(
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [const AppMapBackground(), ?child],
+                  ),
                 ),
               ),
             );

@@ -401,6 +401,21 @@ class _MapScreenState extends State<MapScreen>
     super.dispose();
   }
 
+  void finishMapPointer(int pointer) {
+    followExitGesture.pointerUp(pointer);
+    scheduleNorthReset();
+  }
+
+  void scheduleNorthReset() {
+    if (followExitGesture.isActive || !northResetScheduled) return;
+    // Wait for the gesture wrapper to release its camera constraint first.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || followExitGesture.isActive || !northResetScheduled)
+        return;
+      navigation.resetNorthAfterFocusExit();
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final spot = selectedSpot;
@@ -418,7 +433,8 @@ class _MapScreenState extends State<MapScreen>
       body: Stack(
         children: [
           ExclusiveMapGestures(
-            builder: (interactionOptions) => FlutterMap(
+            mapController: mapController,
+            builder: (interactionOptions, constraint) => FlutterMap(
               mapController: mapController,
               options: MapOptions(
                 onMapReady: () {
@@ -432,7 +448,20 @@ class _MapScreenState extends State<MapScreen>
                 minZoom: 3,
                 maxZoom: 18,
                 interactionOptions: interactionOptions,
+                cameraConstraint: constraint,
                 backgroundColor: mapStyle.backgroundColor,
+                onMapEvent: (event) {
+                  // A rotation around the exact map centre may not emit a
+                  // position change, but it still exits GPS focus.
+                  if (event is MapEventRotateStart &&
+                      mapCenteredOnCurrentUser) {
+                    setState(() {
+                      navigation.pauseFollowForMapGesture();
+                      mapCameraChangedByUser = true;
+                    });
+                    scheduleNorthReset();
+                  }
+                },
                 onPointerDown: (event, _) {
                   followExitGesture.pointerDown(
                     event.pointer,
@@ -442,10 +471,8 @@ class _MapScreenState extends State<MapScreen>
                   // A tap (including on a marker) must not stop course-up
                   // following. Only an actual camera gesture below exits it.
                 },
-                onPointerUp: (event, _) =>
-                    followExitGesture.pointerUp(event.pointer),
-                onPointerCancel: (event, _) =>
-                    followExitGesture.pointerUp(event.pointer),
+                onPointerUp: (event, _) => finishMapPointer(event.pointer),
+                onPointerCancel: (event, _) => finishMapPointer(event.pointer),
                 onPositionChanged: (camera, hasGesture) {
                   if (!isValidLatLng(camera.center) || !camera.zoom.isFinite) {
                     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -457,18 +484,6 @@ class _MapScreenState extends State<MapScreen>
                   }
 
                   final nextZoom = camera.zoom.clamp(3.0, 18.0).toDouble();
-                  if (hasGesture &&
-                      followExitGesture.consumeZoomOut(nextZoom) &&
-                      camera.rotation != 0 &&
-                      !northResetScheduled) {
-                    northResetScheduled = true;
-                    WidgetsBinding.instance.addPostFrameCallback((_) {
-                      northResetScheduled = false;
-                      if (mounted && widget.isVisible && mapCameraReady) {
-                        mapController.rotate(0);
-                      }
-                    });
-                  }
                   final nextRotation = normalizedRotationDegrees(
                     camera.rotation,
                     fallback: currentMapRotationDegrees,
@@ -489,6 +504,7 @@ class _MapScreenState extends State<MapScreen>
                     currentMapRotationDegrees = nextRotation;
                     if (hasGesture) {
                       navigation.pauseFollowForMapGesture();
+                      scheduleNorthReset();
                       mapCameraChangedByUser = true;
                       mapGestureIdleTimer?.cancel();
                       mapGestureIdleTimer = Timer(

@@ -200,26 +200,6 @@ String temporarySpotForumTopicId(String spotId) {
   return 'temporary_spot_$spotId';
 }
 
-class _GroupForumDocument
-    implements QueryDocumentSnapshot<Map<String, dynamic>> {
-  final DocumentSnapshot<Map<String, dynamic>> document;
-  _GroupForumDocument(this.document);
-  @override
-  Map<String, dynamic> data() => document.data()!;
-  @override
-  String get id => document.id;
-  @override
-  bool get exists => document.exists;
-  @override
-  DocumentReference<Map<String, dynamic>> get reference => document.reference;
-  @override
-  SnapshotMetadata get metadata => document.metadata;
-  @override
-  dynamic get(Object field) => document.get(field);
-  @override
-  dynamic operator [](Object field) => document[field];
-}
-
 bool groupForumAccessible(Map<String, dynamic> data) =>
     data['visibility'] != 'group' ||
     currentUserCanModerateCommunityData(data) ||
@@ -590,7 +570,7 @@ Future<void> updateTemporarySpotForumTopicAfterSpotReview(
   }
 }
 
-Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
+Future<List<DocumentSnapshot<Map<String, dynamic>>>>
 loadRegionalForumTopicDocuments(
   CollectionReference<Map<String, dynamic>> collection,
   String debugLabel,
@@ -615,7 +595,9 @@ loadRegionalForumTopicDocuments(
         .where('countryCode', isEqualTo: selectedCode),
     '$debugLabel: regional',
   );
-  final byId = {for (final doc in regional) doc.id: doc};
+  final byId = <String, DocumentSnapshot<Map<String, dynamic>>>{
+    for (final doc in regional) doc.id: doc,
+  };
   if (selectedCode == 'LV') {
     final legacyRequest = _legacyLatvianForumTopicsSnapshotFuture ??= readPages(
       collection.where('visibility', isEqualTo: 'public'),
@@ -638,8 +620,9 @@ loadRegionalForumTopicDocuments(
       final doc = await collection
           .doc(temporarySpotForumTopicId(id))
           .get(const GetOptions(source: Source.server));
-      if (doc.exists && groupForumAccessible(doc.data()!))
-        byId[doc.id] = _GroupForumDocument(doc);
+      if (doc.exists && groupForumAccessible(doc.data()!)) {
+        byId[doc.id] = doc;
+      }
     } catch (_) {
       /* Membership may have changed during the load. */
     }

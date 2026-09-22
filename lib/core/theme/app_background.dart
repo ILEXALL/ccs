@@ -10,29 +10,31 @@ class AppMapBackground extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Stack(
-      fit: StackFit.expand,
-      children: [
-        ColoredBox(color: night),
-        CustomPaint(
-          painter: AppMapBackgroundPainter(appMapBackgroundImage),
-          child: const SizedBox.expand(),
-        ),
-        DecoratedBox(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: [
-                Colors.black.withValues(alpha: 0.36),
-                Colors.black.withValues(alpha: 0.18),
-                Colors.black.withValues(alpha: 0.42),
-              ],
+    return RepaintBoundary(
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          ColoredBox(color: night),
+          CustomPaint(
+            painter: AppMapBackgroundPainter(appMapBackgroundImage),
+            child: const SizedBox.expand(),
+          ),
+          DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  Colors.black.withValues(alpha: 0.36),
+                  Colors.black.withValues(alpha: 0.18),
+                  Colors.black.withValues(alpha: 0.42),
+                ],
+              ),
             ),
           ),
-        ),
-        ColoredBox(color: Colors.black.withValues(alpha: 0.02)),
-      ],
+          ColoredBox(color: Colors.black.withValues(alpha: 0.02)),
+        ],
+      ),
     );
   }
 }

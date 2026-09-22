@@ -1,3 +1,4 @@
+import 'package:ccs_app/shared/models/user_role.dart' show UserRole;
 import 'package:ccs_app/features/community/global_chat/controllers/global_chat_view_state.dart';
 import 'package:ccs_app/features/community/global_chat/widgets/global_chat_content.dart';
 import 'package:ccs_app/features/community/global_chat/controllers/global_chat_controller.dart';
@@ -14,7 +15,7 @@ import 'package:ccs_app/core/localization/app_language.dart'
 import 'package:ccs_app/core/localization/ccs_text.dart' show CcsText, trText;
 import 'package:ccs_app/core/theme/app_theme.dart' show blue;
 import 'package:ccs_app/features/auth/data/auth_state.dart'
-    show communityCountrySelection;
+    show communityCountrySelection, currentUser, currentUserProfileRevision;
 import 'package:ccs_app/features/community/chats/widgets/chat_photos.dart'
     show stagedChatPhotoPreview;
 import 'package:ccs_app/features/community/chats/widgets/mention_text_field.dart'
@@ -174,6 +175,7 @@ class _GlobalChatTabState extends State<GlobalChatTab>
       controller.handleCommunityCountryChanged,
     );
     globalChatScrollController.addListener(controller.onGlobalChatScroll);
+    currentUserProfileRevision.addListener(_handleOnlineCounterAccess);
     controller.updateOnlineUsersStream();
     controller.startGlobalMessagesListener();
     unawaited(controller.loadGlobalChatModeratorAccess());
@@ -187,8 +189,15 @@ class _GlobalChatTabState extends State<GlobalChatTab>
     }
   }
 
+  void _handleOnlineCounterAccess() {
+    if (!mounted) return;
+    controller.updateOnlineUsersStream();
+    setState(() {});
+  }
+
   @override
   void dispose() {
+    currentUserProfileRevision.removeListener(_handleOnlineCounterAccess);
     appUiPreferences.removeListener(controller.handleLanguageChanged);
     communityCountrySelection.removeListener(
       controller.handleCommunityCountryChanged,
@@ -252,17 +261,23 @@ class _GlobalChatTabState extends State<GlobalChatTab>
                   const Expanded(
                     child: CommunityCountrySelector(compact: true),
                   ),
-                  const SizedBox(width: 8),
-                  const Icon(Icons.circle, color: Colors.greenAccent, size: 9),
-                  const SizedBox(width: 6),
-                  CcsText(
-                    '$count ${trText('online').toLowerCase()}',
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w800,
-                      fontSize: 13,
+                  if (currentUser.role == UserRole.admin) ...[
+                    const SizedBox(width: 8),
+                    const Icon(
+                      Icons.circle,
+                      color: Colors.greenAccent,
+                      size: 9,
                     ),
-                  ),
+                    const SizedBox(width: 6),
+                    CcsText(
+                      '$count ${trText('online').toLowerCase()}',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w800,
+                        fontSize: 13,
+                      ),
+                    ),
+                  ],
                 ],
               ),
             );

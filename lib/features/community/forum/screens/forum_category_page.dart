@@ -56,7 +56,7 @@ class ForumCategoryPage extends StatefulWidget {
 class _ForumCategoryPageState extends State<ForumCategoryPage>
     with LanguageReactiveState {
   final searchController = TextEditingController();
-  final topics = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+  final topics = <DocumentSnapshot<Map<String, dynamic>>>[];
   bool isLoading = false;
   bool didLoadInitially = false;
   String searchQuery = '';
@@ -142,7 +142,7 @@ class _ForumCategoryPageState extends State<ForumCategoryPage>
 
       final docs =
           regionalDocs.where((doc) {
-            final data = doc.data();
+            final data = doc.data()!;
             return forumTopicIsVisibleNow(data) &&
                 (data['visibility'] == 'group' ||
                     communityContentCountryCode(data) ==
@@ -152,16 +152,16 @@ class _ForumCategoryPageState extends State<ForumCategoryPage>
                     ) ==
                     widget.categoryId;
           }).toList()..sort((a, b) {
-            final aPinned = a.data()['isPinned'] == true;
-            final bPinned = b.data()['isPinned'] == true;
+            final aPinned = a.data()!['isPinned'] == true;
+            final bPinned = b.data()!['isPinned'] == true;
             if (aPinned != bPinned) {
               return aPinned ? -1 : 1;
             }
             final aMillis = timestampMillisFromFirebase(
-              a.data()['lastReplyAt'],
+              a.data()!['lastReplyAt'],
             );
             final bMillis = timestampMillisFromFirebase(
-              b.data()['lastReplyAt'],
+              b.data()!['lastReplyAt'],
             );
             return bMillis.compareTo(aMillis);
           });
@@ -191,17 +191,17 @@ class _ForumCategoryPageState extends State<ForumCategoryPage>
     }
   }
 
-  List<QueryDocumentSnapshot<Map<String, dynamic>>> visibleTopics() {
+  List<DocumentSnapshot<Map<String, dynamic>>> visibleTopics() {
     final query = searchQuery.toLowerCase();
     final currentVisibleTopics = topics
-        .where((doc) => forumTopicIsVisibleNow(doc.data()))
+        .where((doc) => forumTopicIsVisibleNow(doc.data()!))
         .toList();
     if (query.isEmpty) {
       return currentVisibleTopics;
     }
 
     return currentVisibleTopics.where((doc) {
-      final data = doc.data();
+      final data = doc.data()!;
       final title = stringFromFirebase(data['title'], '').toLowerCase();
       final description = stringFromFirebase(
         data['description'],
@@ -253,8 +253,8 @@ class _ForumCategoryPageState extends State<ForumCategoryPage>
     );
   }
 
-  Widget topicCard(QueryDocumentSnapshot<Map<String, dynamic>> doc) {
-    final data = doc.data();
+  Widget topicCard(DocumentSnapshot<Map<String, dynamic>> doc) {
+    final data = doc.data()!;
     final title = stringFromFirebase(data['title'], trText('Untitled topic'));
     final description = stringFromFirebase(data['description'], '');
     final authorId = stringFromFirebase(data['authorId'], '');

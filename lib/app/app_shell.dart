@@ -68,6 +68,7 @@ import 'package:ccs_app/features/notifications/data/unread_notifications.dart'
     show
         scheduleNotificationCenterUnreadRefresh,
         startNotificationCenterUnreadWatcher;
+import 'package:ccs_app/features/progression/widgets/level_up_feedback_host.dart';
 import 'package:ccs_app/features/profile/screens/profile_screen.dart'
     show ProfileScreen;
 import 'package:ccs_app/features/spots/data/spot_feed_state.dart'
@@ -97,7 +98,12 @@ class MainScreen extends StatelessWidget {
             body: Center(child: CircularProgressIndicator()),
           )
         : ProfileRegionGate(
-            child: _MainContentScreen(initialIndex: initialIndex),
+            child: Builder(
+              builder: (_) => LevelUpFeedbackHost(
+                userId: FirebaseAuth.instance.currentUser?.uid ?? '',
+                child: _MainContentScreen(initialIndex: initialIndex),
+              ),
+            ),
           ),
   );
 }
