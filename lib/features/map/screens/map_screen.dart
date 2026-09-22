@@ -488,7 +488,7 @@ class _MapScreenState extends State<MapScreen>
                     currentMapZoom = nextZoom;
                     currentMapRotationDegrees = nextRotation;
                     if (hasGesture) {
-                      mapCenteredOnCurrentUser = false;
+                      navigation.pauseFollowForMapGesture();
                       mapCameraChangedByUser = true;
                       mapGestureIdleTimer?.cancel();
                       mapGestureIdleTimer = Timer(

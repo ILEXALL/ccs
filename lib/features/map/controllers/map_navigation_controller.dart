@@ -35,7 +35,19 @@ import 'map_config.dart';
 /// Coordinates navigation behavior using screen-owned state and lifecycle.
 class MapNavigationController implements MapNavigationActions {
   final MapSession host;
-  MapNavigationController(this.host);
+  final DateTime Function() _now;
+  DateTime? _resumeFollowingAt;
+  MapNavigationController(this.host, {DateTime Function()? now})
+    : _now = now ?? DateTime.now;
+
+  @override
+  void pauseFollowForMapGesture() {
+    if (host.mapCenteredOnCurrentUser || _resumeFollowingAt != null) {
+      _resumeFollowingAt = _now().add(const Duration(seconds: 5));
+      host.navigationZoom = host.currentMapZoom;
+    }
+    host.mapCenteredOnCurrentUser = false;
+  }
 
   @override
   void scheduleAutomaticGpsRetry() {
@@ -225,6 +237,7 @@ class MapNavigationController implements MapNavigationActions {
       return;
     }
 
+    _resumeFollowingAt = null;
     host.updateMap(() {
       host.routePreviewMode = true;
       host.routePreviewSpot = spot;
@@ -291,6 +304,7 @@ class MapNavigationController implements MapNavigationActions {
     }
 
     host.lastHandledMapFocusRequestToken = request.token;
+    _resumeFollowingAt = null;
     CarSpot? matchingSpot;
     for (final spot in approvedPublicSpots()) {
       if (spot.id == request.spotId) {
@@ -439,7 +453,7 @@ class MapNavigationController implements MapNavigationActions {
     final gpsTime = host.lastGpsUserLocationAt;
     if (gpsLocation == null || gpsTime == null || !isValidLatLng(gpsLocation))
       return;
-    final now = DateTime.now();
+    final now = _now();
     final dt = host.lastNavigationFrameAt == null
         ? 1 / 60
         : now.difference(host.lastNavigationFrameAt!).inMicroseconds / 1000000;
@@ -454,6 +468,19 @@ class MapNavigationController implements MapNavigationActions {
         .clamp(0.0, 70.0)
         .toDouble();
     final age = now.difference(gpsTime).inMilliseconds / 1000.0;
+    // Browsing temporarily releases the camera. Resume only with fresh moving
+    // GPS and after all fingers have left; a stopped car stays in browse mode.
+    if (_resumeFollowingAt != null &&
+        !now.isBefore(_resumeFollowingAt!) &&
+        !host.followExitGesture.isActive &&
+        !host.mapGestureInProgress &&
+        !host.routePreviewMode &&
+        speed >= mapGpsCourseMinSpeedMetersPerSecond &&
+        age >= 0 &&
+        age <= 3) {
+      _resumeFollowingAt = null;
+      host.updateMap(() => host.mapCenteredOnCurrentUser = true);
+    }
     // Brief bounded visual extrapolation only. Uploaded coordinates remain GPS fixes.
     final target = speed < 0.8
         ? gpsLocation
@@ -676,17 +703,34 @@ class MapNavigationController implements MapNavigationActions {
 
   @override
   void updateFollowCamera(LatLng location, double headingDegrees) {
-    if (!isValidLatLng(location)) {
+    if (!isValidLatLng(location) || !host.navigationZoom.isFinite) {
       return;
     }
 
-    // Match the camera to the same smoothed course rendered by the arrow.
-    // This keeps the arrow pointing up even between GPS updates during turns.
+    // The arrow stays screen-up in follow mode; rotate the road beneath it
+    // using the same interpolated course as the moving GPS marker.
     final course = normalizedHeadingDegrees(
       host.displayedNavigationHeading,
       fallback: headingDegrees,
     );
-    moveMapCamera(location, host.navigationZoom, rotationDegrees: -course);
+    final rotation = normalizedRotationDegrees(-course);
+    if (!host.isVisible || !host.mapCameraReady) {
+      moveMapCamera(location, host.navigationZoom, rotationDegrees: rotation);
+      return;
+    }
+
+    // Place the car below centre, leaving more of the road ahead visible.
+    // Rotate first: flutter_map interprets the move offset in camera space.
+    final controller = host.mapController;
+    controller.rotate(rotation);
+    controller.move(
+      location,
+      host.navigationZoom.clamp(3.0, 18.0).toDouble(),
+      offset: Offset(0, controller.camera.nonRotatedSize.height * 0.18),
+    );
+    host.currentMapCenter = controller.camera.center;
+    host.currentMapZoom = controller.camera.zoom;
+    host.currentMapRotationDegrees = rotation;
   }
 
   @override
@@ -697,6 +741,8 @@ class MapNavigationController implements MapNavigationActions {
     if (host.isLocatingUser) {
       return;
     }
+
+    _resumeFollowingAt = null;
 
     host.updateMap(() {
       clearRoutePreviewMode();

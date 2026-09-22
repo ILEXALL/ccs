@@ -94,6 +94,7 @@ class _NavigationArrowPainter extends CustomPainter {
 /// A north reset belongs only to the gesture that leaves GPS following.
 class FollowExitGesture {
   final Set<int> _pointers = {};
+  bool get isActive => _pointers.isNotEmpty;
   bool _canReset = false;
   double _startZoom = 0;
 

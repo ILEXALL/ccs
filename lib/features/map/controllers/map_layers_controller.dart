@@ -981,15 +981,16 @@ class MapLayersController implements MapLayersActions {
     final location = host.displayedUserLocation ?? host.currentUserLocation;
     if (location == null || !isValidLatLng(location)) return null;
     final size = navigationArrowSize(host.currentMapZoom);
+    final following = host.mapCenteredOnCurrentUser && !host.routePreviewMode;
     return Marker(
       point: location,
       width: size,
       height: size,
-      rotate: false,
+      rotate: following,
       child: Tooltip(
         message: trText('Your location'),
         child: NavigationArrow(
-          headingDegrees: host.displayedNavigationHeading,
+          headingDegrees: following ? 0 : host.displayedNavigationHeading,
           pulse: host.mapAlertPulseController.value,
         ),
       ),
