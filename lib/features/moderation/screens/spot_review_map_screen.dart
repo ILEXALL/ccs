@@ -4,8 +4,8 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:ccs_app/core/localization/ccs_text.dart' show CcsText;
 import 'package:ccs_app/core/theme/app_theme.dart' show blue, panelGlass;
-import 'package:ccs_app/features/map/controllers/map_interaction_options.dart'
-    show ccsMapInteractionOptions;
+import 'package:ccs_app/features/map/widgets/exclusive_map_gestures.dart'
+    show ExclusiveMapGestures;
 import 'package:ccs_app/features/map/models/map_style.dart'
     show
         CcsMapStyle,
@@ -99,20 +99,22 @@ class _AdminSpotLocationReviewMapScreenState
       backgroundColor: Colors.transparent,
       body: Stack(
         children: [
-          FlutterMap(
-            mapController: mapController,
-            options: MapOptions(
-              initialCenter: spot.coordinates,
-              initialZoom: 17,
-              minZoom: 4,
-              maxZoom: 18,
-              interactionOptions: ccsMapInteractionOptions,
-              backgroundColor: mapStyle.backgroundColor,
+          ExclusiveMapGestures(
+            builder: (interactionOptions) => FlutterMap(
+              mapController: mapController,
+              options: MapOptions(
+                initialCenter: spot.coordinates,
+                initialZoom: 17,
+                minZoom: 4,
+                maxZoom: 18,
+                interactionOptions: interactionOptions,
+                backgroundColor: mapStyle.backgroundColor,
+              ),
+              children: [
+                CcsSmoothMapTileLayer(mapStyle: mapStyle),
+                MarkerLayer(markers: [submittedPinMarker()]),
+              ],
             ),
-            children: [
-              CcsSmoothMapTileLayer(mapStyle: mapStyle),
-              MarkerLayer(markers: [submittedPinMarker()]),
-            ],
           ),
           SafeArea(
             child: Padding(

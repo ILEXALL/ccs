@@ -14,8 +14,8 @@ import 'package:ccs_app/core/config/app_config.dart' show maxSpotGalleryPhotos;
 import 'package:ccs_app/core/localization/ccs_text.dart'
     show CcsText, LanguageReactiveState, trText;
 import 'package:ccs_app/core/theme/app_theme.dart' show blue, panelGlass;
-import 'package:ccs_app/features/map/controllers/map_interaction_options.dart'
-    show ccsMapInteractionOptions;
+import 'package:ccs_app/features/map/widgets/exclusive_map_gestures.dart'
+    show ExclusiveMapGestures;
 import 'package:ccs_app/features/map/models/map_style.dart'
     show
         CcsMapStyle,
@@ -192,46 +192,48 @@ class _LocationPickerScreenState extends State<LocationPickerScreen>
           ? const Center(child: CircularProgressIndicator())
           : Stack(
               children: [
-                FlutterMap(
-                  mapController: mapController,
-                  options: MapOptions(
-                    initialCenter: pickedLocation ?? defaultCenter,
-                    initialZoom: defaultZoom,
-                    minZoom: 3,
-                    maxZoom: 18,
-                    interactionOptions: ccsMapInteractionOptions,
-                    backgroundColor: mapStyle.backgroundColor,
-                    onTap: (_, point) => unawaited(selectPin(point)),
-                  ),
-                  children: [
-                    CcsSmoothMapTileLayer(mapStyle: mapStyle),
-                    if (widget.restrictSpotRegions)
-                      IgnorePointer(
-                        child: PolygonLayer(
-                          polygons: [
-                            for (final outline in outlines)
-                              if (!spotCountryIsSupported(outline.code))
-                                Polygon(
-                                  points: outline.rings.first,
-                                  holePointsList: outline.rings
-                                      .skip(1)
-                                      .toList(),
-                                  color: Colors.red.withValues(alpha: 0.16),
-                                  borderColor: Colors.redAccent.withValues(
-                                    alpha: 0.6,
+                ExclusiveMapGestures(
+                  builder: (interactionOptions) => FlutterMap(
+                    mapController: mapController,
+                    options: MapOptions(
+                      initialCenter: pickedLocation ?? defaultCenter,
+                      initialZoom: defaultZoom,
+                      minZoom: 3,
+                      maxZoom: 18,
+                      interactionOptions: interactionOptions,
+                      backgroundColor: mapStyle.backgroundColor,
+                      onTap: (_, point) => unawaited(selectPin(point)),
+                    ),
+                    children: [
+                      CcsSmoothMapTileLayer(mapStyle: mapStyle),
+                      if (widget.restrictSpotRegions)
+                        IgnorePointer(
+                          child: PolygonLayer(
+                            polygons: [
+                              for (final outline in outlines)
+                                if (!spotCountryIsSupported(outline.code))
+                                  Polygon(
+                                    points: outline.rings.first,
+                                    holePointsList: outline.rings
+                                        .skip(1)
+                                        .toList(),
+                                    color: Colors.red.withValues(alpha: 0.16),
+                                    borderColor: Colors.redAccent.withValues(
+                                      alpha: 0.6,
+                                    ),
+                                    borderStrokeWidth: 1,
+                                    label: '×',
+                                    labelStyle: const TextStyle(
+                                      color: Colors.redAccent,
+                                      fontSize: 32,
+                                    ),
                                   ),
-                                  borderStrokeWidth: 1,
-                                  label: '×',
-                                  labelStyle: const TextStyle(
-                                    color: Colors.redAccent,
-                                    fontSize: 32,
-                                  ),
-                                ),
-                          ],
+                            ],
+                          ),
                         ),
-                      ),
-                    MarkerLayer(markers: markers),
-                  ],
+                      MarkerLayer(markers: markers),
+                    ],
+                  ),
                 ),
                 Positioned(
                   left: 16,

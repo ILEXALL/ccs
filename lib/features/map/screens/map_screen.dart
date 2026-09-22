@@ -25,8 +25,8 @@ import 'package:ccs_app/core/platform/platform_bridges.dart'
 import 'package:ccs_app/core/theme/app_theme.dart' show blue, panelGlass;
 import 'package:ccs_app/features/map/controllers/map_focus.dart'
     show mapFocusRequest;
-import 'package:ccs_app/features/map/controllers/map_interaction_options.dart'
-    show ccsMapInteractionOptions;
+import 'package:ccs_app/features/map/widgets/exclusive_map_gestures.dart'
+    show ExclusiveMapGestures;
 import 'package:ccs_app/features/map/models/live_location.dart'
     show LiveLocationData;
 import 'package:ccs_app/features/map/models/map_style.dart'
@@ -417,130 +417,132 @@ class _MapScreenState extends State<MapScreen>
       backgroundColor: Colors.transparent,
       body: Stack(
         children: [
-          FlutterMap(
-            mapController: mapController,
-            options: MapOptions(
-              onMapReady: () {
-                mapCameraReady = true;
-                if (widget.isVisible)
-                  unawaited(navigation.focusInitialMapOnCurrentLocation());
-              },
-              initialCenter: currentMapCenter,
-              initialZoom: currentMapZoom,
-              initialRotation: currentMapRotationDegrees,
-              minZoom: 3,
-              maxZoom: 18,
-              interactionOptions: ccsMapInteractionOptions,
-              backgroundColor: mapStyle.backgroundColor,
-              onPointerDown: (event, _) {
-                followExitGesture.pointerDown(
-                  event.pointer,
-                  following: mapCenteredOnCurrentUser,
-                  zoom: currentMapZoom,
-                );
-                mapCenteredOnCurrentUser = false;
-                mapCameraChangedByUser = true;
-              },
-              onPointerUp: (event, _) =>
-                  followExitGesture.pointerUp(event.pointer),
-              onPointerCancel: (event, _) =>
-                  followExitGesture.pointerUp(event.pointer),
-              onPositionChanged: (camera, hasGesture) {
-                if (!isValidLatLng(camera.center) || !camera.zoom.isFinite) {
-                  WidgetsBinding.instance.addPostFrameCallback((_) {
-                    if (mounted) {
-                      navigation.restoreMapCamera();
-                    }
-                  });
-                  return;
-                }
-
-                final nextZoom = camera.zoom.clamp(3.0, 18.0).toDouble();
-                if (hasGesture &&
-                    followExitGesture.consumeZoomOut(nextZoom) &&
-                    camera.rotation != 0 &&
-                    !northResetScheduled) {
-                  northResetScheduled = true;
-                  WidgetsBinding.instance.addPostFrameCallback((_) {
-                    northResetScheduled = false;
-                    if (mounted && widget.isVisible && mapCameraReady) {
-                      mapController.rotate(0);
-                    }
-                  });
-                }
-                final nextRotation = normalizedHeadingDegrees(
-                  camera.rotation,
-                  fallback: currentMapRotationDegrees,
-                );
-                final zoomChanged = (nextZoom - currentMapZoom).abs() >= 0.05;
-                final rotationChanged =
-                    (nextRotation - currentMapRotationDegrees).abs() >= 0.5;
-
-                if (zoomChanged || rotationChanged || hasGesture) {
-                  final now = DateTime.now();
-                  final allowUiRefresh =
-                      lastMapCameraUiUpdateAt == null ||
-                      now.difference(lastMapCameraUiUpdateAt!) >=
-                          const Duration(milliseconds: 90);
-
-                  currentMapCenter = camera.center;
-                  currentMapZoom = nextZoom;
-                  currentMapRotationDegrees = nextRotation;
-                  if (hasGesture) {
-                    mapCenteredOnCurrentUser = false;
-                    mapCameraChangedByUser = true;
-                    mapGestureIdleTimer?.cancel();
-                    mapGestureIdleTimer = Timer(
-                      const Duration(milliseconds: 320),
-                      () {
-                        if (!mounted || !mapGestureInProgress) {
-                          return;
-                        }
-                        setState(() => mapGestureInProgress = false);
-                      },
-                    );
-                  }
-
-                  if (allowUiRefresh) {
-                    lastMapCameraUiUpdateAt = now;
-                    setState(() {
-                      if (hasGesture) {
-                        mapGestureInProgress = true;
+          ExclusiveMapGestures(
+            builder: (interactionOptions) => FlutterMap(
+              mapController: mapController,
+              options: MapOptions(
+                onMapReady: () {
+                  mapCameraReady = true;
+                  if (widget.isVisible)
+                    unawaited(navigation.focusInitialMapOnCurrentLocation());
+                },
+                initialCenter: currentMapCenter,
+                initialZoom: currentMapZoom,
+                initialRotation: currentMapRotationDegrees,
+                minZoom: 3,
+                maxZoom: 18,
+                interactionOptions: interactionOptions,
+                backgroundColor: mapStyle.backgroundColor,
+                onPointerDown: (event, _) {
+                  followExitGesture.pointerDown(
+                    event.pointer,
+                    following: mapCenteredOnCurrentUser,
+                    zoom: currentMapZoom,
+                  );
+                  mapCenteredOnCurrentUser = false;
+                  mapCameraChangedByUser = true;
+                },
+                onPointerUp: (event, _) =>
+                    followExitGesture.pointerUp(event.pointer),
+                onPointerCancel: (event, _) =>
+                    followExitGesture.pointerUp(event.pointer),
+                onPositionChanged: (camera, hasGesture) {
+                  if (!isValidLatLng(camera.center) || !camera.zoom.isFinite) {
+                    WidgetsBinding.instance.addPostFrameCallback((_) {
+                      if (mounted) {
+                        navigation.restoreMapCamera();
                       }
                     });
-                  } else if (hasGesture && !mapGestureInProgress) {
-                    setState(() => mapGestureInProgress = true);
+                    return;
                   }
-                }
-              },
-              onTap: (_, _) => setState(() {
-                navigation.clearRoutePreviewMode();
-                selectedSpot = null;
-                selectedPoliceReport = null;
-                selectedSosReport = null;
-                selectedLiveLocation = null;
-              }),
-            ),
-            children: [
-              CcsSmoothMapTileLayer(mapStyle: mapStyle),
-              MarkerLayer(markers: layers.spotFogCloudMarkers),
-              MarkerLayer(markers: layers.allMapMarkers),
-              AnimatedBuilder(
-                animation: Listenable.merge([
-                  navigationMotionController,
-                  mapAlertPulseController,
-                ]),
-                builder: (context, _) {
-                  final marker = layers.currentUserMarker;
-                  return MarkerLayer(markers: [if (marker != null) marker]);
+
+                  final nextZoom = camera.zoom.clamp(3.0, 18.0).toDouble();
+                  if (hasGesture &&
+                      followExitGesture.consumeZoomOut(nextZoom) &&
+                      camera.rotation != 0 &&
+                      !northResetScheduled) {
+                    northResetScheduled = true;
+                    WidgetsBinding.instance.addPostFrameCallback((_) {
+                      northResetScheduled = false;
+                      if (mounted && widget.isVisible && mapCameraReady) {
+                        mapController.rotate(0);
+                      }
+                    });
+                  }
+                  final nextRotation = normalizedHeadingDegrees(
+                    camera.rotation,
+                    fallback: currentMapRotationDegrees,
+                  );
+                  final zoomChanged = (nextZoom - currentMapZoom).abs() >= 0.05;
+                  final rotationChanged =
+                      (nextRotation - currentMapRotationDegrees).abs() >= 0.5;
+
+                  if (zoomChanged || rotationChanged || hasGesture) {
+                    final now = DateTime.now();
+                    final allowUiRefresh =
+                        lastMapCameraUiUpdateAt == null ||
+                        now.difference(lastMapCameraUiUpdateAt!) >=
+                            const Duration(milliseconds: 90);
+
+                    currentMapCenter = camera.center;
+                    currentMapZoom = nextZoom;
+                    currentMapRotationDegrees = nextRotation;
+                    if (hasGesture) {
+                      mapCenteredOnCurrentUser = false;
+                      mapCameraChangedByUser = true;
+                      mapGestureIdleTimer?.cancel();
+                      mapGestureIdleTimer = Timer(
+                        const Duration(milliseconds: 320),
+                        () {
+                          if (!mounted || !mapGestureInProgress) {
+                            return;
+                          }
+                          setState(() => mapGestureInProgress = false);
+                        },
+                      );
+                    }
+
+                    if (allowUiRefresh) {
+                      lastMapCameraUiUpdateAt = now;
+                      setState(() {
+                        if (hasGesture) {
+                          mapGestureInProgress = true;
+                        }
+                      });
+                    } else if (hasGesture && !mapGestureInProgress) {
+                      setState(() => mapGestureInProgress = true);
+                    }
+                  }
                 },
+                onTap: (_, _) => setState(() {
+                  navigation.clearRoutePreviewMode();
+                  selectedSpot = null;
+                  selectedPoliceReport = null;
+                  selectedSosReport = null;
+                  selectedLiveLocation = null;
+                }),
               ),
-              RichAttributionWidget(
-                attributions: appearance.mapAttributions,
-                showFlutterMapAttribution: false,
-                popupBackgroundColor: panelGlass,
-              ),
-            ],
+              children: [
+                CcsSmoothMapTileLayer(mapStyle: mapStyle),
+                MarkerLayer(markers: layers.spotFogCloudMarkers),
+                MarkerLayer(markers: layers.allMapMarkers),
+                AnimatedBuilder(
+                  animation: Listenable.merge([
+                    navigationMotionController,
+                    mapAlertPulseController,
+                  ]),
+                  builder: (context, _) {
+                    final marker = layers.currentUserMarker;
+                    return MarkerLayer(markers: [if (marker != null) marker]);
+                  },
+                ),
+                RichAttributionWidget(
+                  attributions: appearance.mapAttributions,
+                  showFlutterMapAttribution: false,
+                  popupBackgroundColor: panelGlass,
+                ),
+              ],
+            ),
           ),
           SafeArea(
             child: Column(

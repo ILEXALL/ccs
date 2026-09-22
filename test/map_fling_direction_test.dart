@@ -1,6 +1,5 @@
-import 'package:ccs_app/features/map/controllers/map_interaction_options.dart'
-    as app
-    show ccsMapInteractionOptions;
+import 'package:ccs_app/features/map/widgets/exclusive_map_gestures.dart'
+    show ExclusiveMapGestures;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
@@ -25,15 +24,17 @@ void main() {
             home: SizedBox(
               width: 400,
               height: 600,
-              child: FlutterMap(
-                mapController: controller,
-                options: MapOptions(
-                  initialCenter: origin,
-                  initialZoom: 14,
-                  initialRotation: rotation,
-                  interactionOptions: app.ccsMapInteractionOptions,
+              child: ExclusiveMapGestures(
+                builder: (interactionOptions) => FlutterMap(
+                  mapController: controller,
+                  options: MapOptions(
+                    initialCenter: origin,
+                    initialZoom: 14,
+                    initialRotation: rotation,
+                    interactionOptions: interactionOptions,
+                  ),
+                  children: const [],
                 ),
-                children: const [],
               ),
             ),
           ),

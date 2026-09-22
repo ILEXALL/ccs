@@ -1,6 +1,5 @@
-import 'package:ccs_app/features/map/controllers/map_interaction_options.dart'
-    as app
-    show ccsMapInteractionOptions;
+import 'package:ccs_app/features/map/widgets/exclusive_map_gestures.dart'
+    show ExclusiveMapGestures;
 
 import 'dart:math' as math;
 
@@ -104,16 +103,18 @@ void main() {
     final controller = MapController();
     await tester.pumpWidget(
       MaterialApp(
-        home: FlutterMap(
-          mapController: controller,
-          options: const MapOptions(
-            initialCenter: LatLng(56.95, 24.1),
-            initialZoom: 12,
-            minZoom: 3,
-            maxZoom: 18,
-            interactionOptions: app.ccsMapInteractionOptions,
+        home: ExclusiveMapGestures(
+          builder: (interactionOptions) => FlutterMap(
+            mapController: controller,
+            options: MapOptions(
+              initialCenter: LatLng(56.95, 24.1),
+              initialZoom: 12,
+              minZoom: 3,
+              maxZoom: 18,
+              interactionOptions: interactionOptions,
+            ),
+            children: const [],
           ),
-          children: const [],
         ),
       ),
     );
@@ -127,13 +128,26 @@ void main() {
         const Offset(450, 300),
         pointer: 2,
       );
+      double? previousSpread;
       for (final spread in [80.0, 180.0, 240.0, 10.0, 2.0, 100.0, 1.0, 200.0]) {
+        final previousZoom = controller.camera.zoom;
         await left.moveTo(Offset(400 - spread, 300));
         await right.moveTo(Offset(400 + spread, 300));
         await tester.pump(const Duration(milliseconds: 16));
         expect(controller.camera.center.latitude.isFinite, isTrue);
         expect(controller.camera.center.longitude.isFinite, isTrue);
         expect(controller.camera.zoom.isFinite, isTrue);
+        // A negative scale correction used to turn a zoom-out into NaN (or
+        // clamp it to maximum zoom). Keep reversals going the intended way.
+        if (previousSpread != null) {
+          expect(
+            controller.camera.zoom,
+            spread < previousSpread
+                ? lessThanOrEqualTo(previousZoom + 0.001)
+                : greaterThanOrEqualTo(previousZoom - 0.001),
+          );
+        }
+        previousSpread = spread;
         expect(tester.takeException(), isNull);
       }
       await left.up();
