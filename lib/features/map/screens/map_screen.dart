@@ -19,7 +19,7 @@ import 'package:ccs_app/features/profile/navigation/profile_navigation.dart'
 import 'package:ccs_app/core/localization/ccs_text.dart'
     show LanguageReactiveState;
 import 'package:ccs_app/core/location/coordinates.dart'
-    show isValidLatLng, normalizedHeadingDegrees;
+    show isValidLatLng, normalizedRotationDegrees;
 import 'package:ccs_app/core/platform/platform_bridges.dart'
     show setScreenAwakeForMap;
 import 'package:ccs_app/core/theme/app_theme.dart' show blue, panelGlass;
@@ -439,8 +439,8 @@ class _MapScreenState extends State<MapScreen>
                     following: mapCenteredOnCurrentUser,
                     zoom: currentMapZoom,
                   );
-                  mapCenteredOnCurrentUser = false;
-                  mapCameraChangedByUser = true;
+                  // A tap (including on a marker) must not stop course-up
+                  // following. Only an actual camera gesture below exits it.
                 },
                 onPointerUp: (event, _) =>
                     followExitGesture.pointerUp(event.pointer),
@@ -469,7 +469,7 @@ class _MapScreenState extends State<MapScreen>
                       }
                     });
                   }
-                  final nextRotation = normalizedHeadingDegrees(
+                  final nextRotation = normalizedRotationDegrees(
                     camera.rotation,
                     fallback: currentMapRotationDegrees,
                   );

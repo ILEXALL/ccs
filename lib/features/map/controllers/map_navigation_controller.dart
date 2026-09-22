@@ -16,6 +16,7 @@ import 'package:ccs_app/core/location/coordinates.dart'
         isValidLatLng,
         lerpLatLng,
         normalizedHeadingDegrees,
+        normalizedRotationDegrees,
         projectLatLngMeters,
         safeLatLngFromPosition,
         usableLiveFix;
@@ -110,7 +111,7 @@ class MapNavigationController implements MapNavigationActions {
     }
 
     final safeZoom = zoom.clamp(3.0, 18.0).toDouble();
-    final safeRotation = normalizedHeadingDegrees(
+    final safeRotation = normalizedRotationDegrees(
       rotationDegrees ?? host.currentMapRotationDegrees,
     );
 
@@ -670,7 +671,7 @@ class MapNavigationController implements MapNavigationActions {
     final b = normalizedHeadingDegrees(to);
     final delta = ((b - a + 540) % 360) - 180;
 
-    return normalizedHeadingDegrees(a + delta * amount);
+    return normalizedRotationDegrees(a + delta * amount);
   }
 
   @override
@@ -740,7 +741,7 @@ class MapNavigationController implements MapNavigationActions {
           16.35; // Explicit GPS tap enters street-level following.
       host.currentMapZoom = host.navigationZoom;
       host.displayedNavigationHeading = heading;
-      host.currentMapRotationDegrees = normalizedHeadingDegrees(-heading);
+      host.currentMapRotationDegrees = normalizedRotationDegrees(-heading);
       host.mapCenteredOnCurrentUser = true;
       host.selectedSpot = null;
       host.selectedPoliceReport = null;

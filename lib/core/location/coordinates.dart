@@ -122,6 +122,11 @@ double normalizedHeadingDegrees(double value, {double fallback = 0}) {
   return normalized < 0 ? normalized + 360 : normalized;
 }
 
+/// Camera rotations and interpolated angles may legitimately be negative.
+/// GPS headings instead use negative values to signal an unavailable course.
+double normalizedRotationDegrees(double value, {double fallback = 0}) =>
+    (value.isFinite ? value : (fallback.isFinite ? fallback : 0)) % 360;
+
 double headingRadiansForMap(double headingDegrees, double mapRotationDegrees) {
   return (headingDegrees - mapRotationDegrees) * math.pi / 180;
 }

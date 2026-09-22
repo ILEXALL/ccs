@@ -26,6 +26,10 @@ class NavigationSession extends Fake implements MapSession {
   bool get isVisible => false;
   @override
   bool get mapCameraReady => false;
+  @override
+  double displayedNavigationHeading = 0;
+  @override
+  double navigationZoom = 16.35;
 }
 
 void main() {
@@ -33,6 +37,21 @@ void main() {
     final navigation = MapNavigationController(NavigationSession());
     expect(navigation.smoothHeadingDegrees(350, 10, 0.5), closeTo(0, 0.001));
     expect(navigation.smoothHeadingDegrees(10, 350, 0.5), closeTo(0, 0.001));
+    expect(navigation.smoothHeadingDegrees(10, 350, 0.75), closeTo(355, 0.001));
+  });
+
+  test('follow camera cancels the displayed course in every direction', () {
+    final session = NavigationSession();
+    final navigation = MapNavigationController(session);
+    for (final course in [0.0, 45.0, 90.0, 180.0, 270.0, 350.0, 359.0, 1.0]) {
+      session.displayedNavigationHeading = course;
+      navigation.updateFollowCamera(const LatLng(56, 24), course);
+      expect(
+        (session.currentMapRotationDegrees + course) % 360,
+        closeTo(0, 0.001),
+      );
+      expect(session.currentMapZoom, session.navigationZoom);
+    }
   });
 
   test('stationary GPS noise preserves the last course', () {
@@ -81,6 +100,8 @@ void main() {
       expect(session.currentMapZoom, 18);
       expect(session.currentMapRotationDegrees, 90);
       expect(session.defaultMapUsesSpots, false);
+      navigation.moveMapCamera(const LatLng(56, 24), 16, rotationDegrees: -90);
+      expect(session.currentMapRotationDegrees, 270);
       navigation.moveMapCamera(const LatLng(56, 24), 0);
       expect(session.currentMapZoom, 3);
     },
