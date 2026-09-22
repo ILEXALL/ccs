@@ -1,6 +1,12 @@
+import 'package:ccs_app/features/spots/models/creation_kind.dart'
+    as app
+    show CreationKind, showCreationMenu;
+import 'package:ccs_app/features/spots/screens/add_spot_screen.dart'
+    as app
+    show AddSpotScreen;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:ccs_app/main.dart' as app;
 
 void main() {
   testWidgets('creation menu separates permanent spots from events', (

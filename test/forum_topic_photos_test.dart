@@ -1,6 +1,12 @@
+import 'package:ccs_app/features/community/forum/data/forum_topics.dart'
+    as app
+    show createForumTopic, forumTopicPhotos;
+import 'package:ccs_app/shared/media/photo_gallery.dart'
+    as app
+    show SpotPhotoCarousel, SpotPhotoGalleryScreen;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:ccs_app/main.dart' as app;
 
 void main() {
   test('old topics have no gallery and malformed URLs are ignored', () {

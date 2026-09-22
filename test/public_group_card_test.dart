@@ -1,4 +1,16 @@
-import 'package:ccs_app/main.dart' as app;
+import 'package:ccs_app/core/localization/app_language.dart'
+    as app
+    show AppLanguage, appUiPreferences;
+import 'package:ccs_app/features/auth/data/auth_state.dart'
+    as app
+    show currentUserHomeCountryCode;
+import 'package:ccs_app/features/community/groups/data/group_repository.dart'
+    as app
+    show createGroupChat;
+import 'package:ccs_app/features/community/groups/screens/group_directory.dart'
+    as app
+    show PrivateGroupDirectory;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';

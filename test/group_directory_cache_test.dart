@@ -1,9 +1,21 @@
+import 'package:ccs_app/core/localization/app_language.dart'
+    as app
+    show AppLanguage, appUiPreferences;
+import 'package:ccs_app/features/auth/data/auth_state.dart'
+    as app
+    show currentUser, currentUserHomeCountryCode;
+import 'package:ccs_app/features/community/groups/data/group_directory_cache.dart'
+    as app
+    show GroupDirectoryCache;
+import 'package:ccs_app/features/community/groups/screens/group_directory.dart'
+    as app
+    show PrivateGroupDirectory;
+
 import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:ccs_app/main.dart' as app;
 
 Map<String, dynamic> directory(String name) => {
   'countryCode': app.currentUserHomeCountryCode(),

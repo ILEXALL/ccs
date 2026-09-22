@@ -1,7 +1,7 @@
 import 'support/preview_font.dart';
 import 'dart:io';
 import 'dart:ui' as ui;
-import 'package:ccs_app/achievements_screen.dart';
+import 'package:ccs_app/features/progression/screens/achievements_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
@@ -118,105 +118,104 @@ void main() {
   );
 
   for (final width in [320.0, 390.0, 430.0]) {
-    testWidgets(
-      'compact board separates countries and opens details at $width',
-      (tester) async {
-        tester.view.physicalSize = Size(width, 900);
-        tester.view.devicePixelRatio = 1;
-        addTearDown(tester.view.resetPhysicalSize);
-        addTearDown(tester.view.resetDevicePixelRatio);
-        final items = [
-          for (var i = 1; i <= 6; i++)
-            {
-              'id': 'spots.$i',
-              'category': 'spots',
-              'title': {'en': 'Permanent spots'},
-              'xp': 50,
-              'threshold': i,
-              'tier': 1,
-              'progress': 1,
-              'available': true,
-              'status': i == 1 ? 'confirmed' : 'locked',
-            },
+    testWidgets('compact board separates countries and opens details at $width', (
+      tester,
+    ) async {
+      tester.view.physicalSize = Size(width, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final items = [
+        for (var i = 1; i <= 6; i++)
           {
-            'id': 'tourist.LV',
-            'category': 'tourist',
-            'title': {'en': 'Latvia'},
-            'xp': 75,
-            'threshold': 1,
+            'id': 'spots.$i',
+            'category': 'spots',
+            'title': {'en': 'Permanent spots'},
+            'xp': 50,
+            'threshold': i,
             'tier': 1,
-            'progress': 0,
-            'available': false,
-            'status': 'locked',
-            'asset': 'assets/achievements/latvia.png',
+            'progress': 1,
+            'available': true,
+            'status': i == 1 ? 'confirmed' : 'locked',
           },
-        ];
-        await tester.pumpWidget(
-          MaterialApp(
-            theme: ThemeData.dark(),
-            home: AchievementsScreen(
-              language: 'en',
-              load: () async => {
-                'enabled': true,
-                'selectedId': 'spots.1',
-                'items': items,
-              },
-            ),
+        {
+          'id': 'tourist.LV',
+          'category': 'tourist',
+          'title': {'en': 'Latvia'},
+          'xp': 75,
+          'threshold': 1,
+          'tier': 1,
+          'progress': 0,
+          'available': false,
+          'status': 'locked',
+          'asset': 'assets/achievements/latvia.png',
+        },
+      ];
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: ThemeData.dark(),
+          home: AchievementsScreen(
+            language: 'en',
+            load: () async => {
+              'enabled': true,
+              'selectedId': 'spots.1',
+              'items': items,
+            },
           ),
-        );
+        ),
+      );
+      await tester.pumpAndSettle();
+      final main = find.byKey(const ValueKey('achievement-row-spots'));
+      final countries = find.byKey(
+        const ValueKey('achievement-board-countries'),
+      );
+      expect(
+        find.descendant(of: main, matching: find.byType(AchievementBadge)),
+        findsNWidgets(6),
+      );
+      expect(
+        tester.widget<SliverGrid>(countries).delegate.estimatedChildCount,
+        1,
+      );
+      expect(
+        find.descendant(of: main, matching: find.text('Latvia')),
+        findsNothing,
+      );
+      expect(
+        find.descendant(of: countries, matching: find.text('Latvia')),
+        findsOneWidget,
+      );
+      expect(find.text('Spots'), findsOneWidget);
+      expect(find.text('Countries'), findsOneWidget);
+      expect(find.text('Show on profile'), findsNothing);
+      expect(find.text('Remove from profile'), findsNothing);
+      for (final id in ['spots.1', 'spots.2', 'tourist.LV']) {
+        await tester.tap(find.byKey(ValueKey('achievement-tile-$id')));
         await tester.pumpAndSettle();
-        final main = find.byKey(const ValueKey('achievement-row-spots'));
-        final countries = find.byKey(
-          const ValueKey('achievement-board-countries'),
-        );
         expect(
-          find.descendant(of: main, matching: find.byType(AchievementBadge)),
-          findsNWidgets(6),
-        );
-        expect(
-          tester.widget<SliverGrid>(countries).delegate.estimatedChildCount,
-          1,
-        );
-        expect(
-          find.descendant(of: main, matching: find.text('Latvia')),
-          findsNothing,
-        );
-        expect(
-          find.descendant(of: countries, matching: find.text('Latvia')),
+          find.text(
+            id == 'tourist.LV'
+                ? 'Visit a spot shown on the CCS map in this country and stay within 100 m for 5 minutes with location enabled. Being in the country alone does not unlock this achievement.'
+                : '${id == 'spots.1' ? 1 : 2} approved permanent spots',
+          ),
           findsOneWidget,
         );
-        expect(find.text('Spots'), findsOneWidget);
-        expect(find.text('Countries'), findsOneWidget);
+        expect(
+          find.text(
+            id == 'spots.1'
+                ? 'Unlocked'
+                : id == 'spots.2'
+                ? '1 / 2'
+                : 'Not available yet',
+          ),
+          findsOneWidget,
+        );
         expect(find.text('Show on profile'), findsNothing);
-        expect(find.text('Remove from profile'), findsNothing);
-        for (final id in ['spots.1', 'spots.2', 'tourist.LV']) {
-          await tester.tap(find.byKey(ValueKey('achievement-tile-$id')));
-          await tester.pumpAndSettle();
-          expect(
-            find.text(
-              id == 'tourist.LV'
-                  ? 'Visit a spot shown on the CCS map in this country and stay within 100 m for 5 minutes with location enabled. Being in the country alone does not unlock this achievement.'
-                  : '${id == 'spots.1' ? 1 : 2} approved permanent spots',
-            ),
-            findsOneWidget,
-          );
-          expect(
-            find.text(
-              id == 'spots.1'
-                  ? 'Unlocked'
-                  : id == 'spots.2'
-                  ? '1 / 2'
-                  : 'Not available yet',
-            ),
-            findsOneWidget,
-          );
-          expect(find.text('Show on profile'), findsNothing);
-          await tester.tap(find.text('Close'));
-          await tester.pumpAndSettle();
-        }
-        expect(tester.takeException(), isNull);
-      },
-    );
+        await tester.tap(find.text('Close'));
+        await tester.pumpAndSettle();
+      }
+      expect(tester.takeException(), isNull);
+    });
   }
   testWidgets('achievement loading can retry after an error', (tester) async {
     var fail = true;
@@ -365,7 +364,10 @@ void main() {
         await tester.tap(find.byIcon(Icons.refresh));
         await tester.pumpAndSettle();
         expect(find.byType(ExpansionTile), findsOneWidget);
-        expect(find.byIcon(Icons.check_circle), findsNothing); // Completed first steps are collapsed.
+        expect(
+          find.byIcon(Icons.check_circle),
+          findsNothing,
+        ); // Completed first steps are collapsed.
         expect(tester.takeException(), isNull);
       },
     );

@@ -1,7 +1,19 @@
+import 'package:ccs_app/app/gates/maintenance_state.dart'
+    as app
+    show MaintenanceModeConfig, maintenanceModeConfig;
+import 'package:ccs_app/features/spots/data/spot_regions.dart'
+    as app
+    show
+        SpotLocationRegion,
+        loadSpotCountryOutlines,
+        lookupSpotLocationRegion,
+        spotCountryIsSupported,
+        unknownSpotRegionMessage,
+        unsupportedSpotRegionMessage;
+
 import 'package:geocoding/geocoding.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:ccs_app/main.dart' as app;
 
 class FakeGeocoder extends GeocodingPlatform {
   List<Placemark> places = [];

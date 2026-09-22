@@ -1,7 +1,14 @@
+import 'package:ccs_app/core/localization/app_language.dart'
+    as app
+    show AppLanguage, appUiPreferences;
+import 'package:ccs_app/core/localization/ccs_text.dart' as app show trText;
+import 'package:ccs_app/features/community/groups/screens/group_join_requests.dart'
+    as app
+    show GroupJoinRequestsScreen;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:ccs_app/main.dart' as app;
 
 void main() {
   setUp(() {

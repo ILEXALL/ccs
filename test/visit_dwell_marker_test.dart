@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:ccs_app/visit_dwell_marker.dart';
+import 'package:ccs_app/features/map/widgets/visit_dwell_marker.dart';
 
 void main() {
   test(

@@ -1,8 +1,26 @@
+import 'package:ccs_app/core/localization/app_language.dart'
+    as app
+    show AppLanguage, appUiPreferences;
+import 'package:ccs_app/core/localization/ccs_text.dart'
+    as app
+    show LanguageReactiveState, trText;
+import 'package:ccs_app/features/auth/data/auth_state.dart'
+    as app
+    show communityCountrySelection;
+import 'package:ccs_app/features/community/widgets/country_selector.dart'
+    as app
+    show CommunityCountrySelector;
+import 'package:ccs_app/shared/media/photo_processing.dart'
+    as app
+    show renderFramedPhoto;
+import 'package:ccs_app/shared/models/countries.dart'
+    as app
+    show localizedCountryName;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:ccs_app/main.dart' as app;
 
 class _DraftPage extends StatefulWidget {
   const _DraftPage();

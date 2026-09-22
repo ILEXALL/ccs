@@ -1,10 +1,30 @@
+import 'package:ccs_app/core/localization/app_language.dart'
+    as app
+    show AppLanguage, appUiPreferences;
+import 'package:ccs_app/features/progression/data/leaderboard.dart'
+    as app
+    show
+        XpLeaderboardPage,
+        XpLeaderboardPageExpired,
+        XpLeaderboardPageLoader,
+        XpLeaderboardPeriod;
+import 'package:ccs_app/features/progression/models/leaderboard_entry.dart'
+    as app
+    show XpLeaderboardEntry;
+import 'package:ccs_app/features/progression/screens/leaderboard_screen.dart'
+    as app
+    show XpLeaderboardScreen;
+import 'package:ccs_app/features/progression/widgets/leaderboard_widgets.dart'
+    as app
+    show XpLeaderboardPeriodSelector, XpLeaderboardTile;
+
 import 'dart:io';
 import 'dart:ui' as ui;
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'support/preview_font.dart';
 import 'dart:async';
-import 'package:ccs_app/main.dart' as app;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 

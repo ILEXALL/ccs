@@ -1,0 +1,1 @@
+enum AdminUserSortMode { recent, alphabetical }

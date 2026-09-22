@@ -1,6 +1,6 @@
 import 'dart:async';
-import 'package:ccs_app/startup_location.dart';
-import 'package:ccs_app/navigation_arrow.dart';
+import 'package:ccs_app/core/location/startup_location.dart';
+import 'package:ccs_app/features/map/widgets/navigation_arrow.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_test/flutter_test.dart';

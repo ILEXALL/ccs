@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:ccs_app/query_pages.dart';
+import 'package:ccs_app/core/firestore/query_pages.dart';
 
 void main() {
   for (final count in [0, 119, 120, 121, 360, 367]) {

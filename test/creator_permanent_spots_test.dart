@@ -1,5 +1,7 @@
+import 'package:ccs_app/features/progression/widgets/leaderboard_widgets.dart'
+    show qualifiesPermanentCreatedSpot;
+
 import 'package:flutter_test/flutter_test.dart';
-import 'package:ccs_app/main.dart';
 
 void main() {
   test('creator list eligibility matches permanent spot counter', () {

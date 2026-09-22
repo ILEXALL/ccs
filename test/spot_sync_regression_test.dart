@@ -1,6 +1,9 @@
+import 'package:ccs_app/features/auth/models/app_user_document.dart'
+    show appUserFromCurrentUserDocument;
+import 'package:ccs_app/features/spots/data/spot_state.dart' show demoSpots;
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:ccs_app/main.dart';
 
 // A test-only snapshot double keeps these regressions independent of Firebase.
 // ignore: subtype_of_sealed_class

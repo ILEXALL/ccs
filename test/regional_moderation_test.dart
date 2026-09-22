@@ -1,5 +1,19 @@
+import 'package:ccs_app/features/auth/data/auth_state.dart'
+    as app
+    show currentUser;
+import 'package:ccs_app/features/auth/models/app_user.dart' as app show AppUser;
+import 'package:ccs_app/features/moderation/data/regional_access.dart'
+    as app
+    show
+        currentUserCanManageProfileCountry,
+        currentUserCanModerateCountry,
+        moderationNotificationAllowed;
+import 'package:ccs_app/features/spots/data/spot_ownership.dart'
+    as app
+    show canTransferSpotOwnership;
+import 'package:ccs_app/shared/models/user_role.dart' as app show UserRole;
+
 import 'package:flutter_test/flutter_test.dart';
-import 'package:ccs_app/main.dart' as app;
 
 app.AppUser actor(
   app.UserRole role, {

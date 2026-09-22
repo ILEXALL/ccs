@@ -1,6 +1,20 @@
+import 'package:ccs_app/app/gates/maintenance_state.dart'
+    as app
+    show MaintenanceModeConfig, maintenanceModeConfig;
+import 'package:ccs_app/features/auth/data/auth_state.dart'
+    as app
+    show currentUser;
+import 'package:ccs_app/features/auth/models/app_user.dart' as app show AppUser;
+import 'package:ccs_app/features/spots/screens/add_spot_screen.dart'
+    as app
+    show AddSpotScreen;
+import 'package:ccs_app/features/spots/controllers/add_spot_view_state.dart'
+    as app
+    show AddSpotViewState;
+import 'package:ccs_app/shared/models/user_role.dart' as app show UserRole;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:ccs_app/main.dart' as app;
 
 void main() {
   testWidgets(
@@ -31,10 +45,11 @@ void main() {
         bannedCountryCodes: {'LV'},
       );
       await tester.pumpWidget(const MaterialApp(home: app.AddSpotScreen()));
-      final dynamic state = tester.state(find.byType(app.AddSpotScreen));
-      final Future<void> first = state.submitSpot();
+      final state =
+          tester.state(find.byType(app.AddSpotScreen)) as app.AddSpotViewState;
+      final Future<void> first = state.controller.submitSpot();
       expect(state.isSubmitting, isTrue);
-      await state.submitSpot();
+      await state.controller.submitSpot();
       await tester.pump(const Duration(milliseconds: 400));
       expect(find.byType(AlertDialog), findsOneWidget);
       Navigator.of(tester.element(find.byType(AlertDialog))).pop();

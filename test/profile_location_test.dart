@@ -1,8 +1,38 @@
+import 'package:ccs_app/app/gates/profile_region_gate.dart'
+    as app
+    show ProfileRegionGate;
+import 'package:ccs_app/features/auth/data/auth_state.dart'
+    as app
+    show
+        communityCountrySelection,
+        currentUser,
+        currentUserProfileRevision,
+        setCurrentUser;
+import 'package:ccs_app/features/auth/data/sign_in.dart'
+    as app
+    show profileLocationFromPlacemark;
+import 'package:ccs_app/features/auth/models/app_user.dart' as app show AppUser;
+import 'package:ccs_app/features/community/data/community_country.dart'
+    as app
+    show communityAuthorCountryCode, profileAuthorCountryCode;
+import 'package:ccs_app/features/community/widgets/country_selector.dart'
+    as app
+    show CommunityAvatarWithCountryFlag;
+import 'package:ccs_app/features/profile/models/profile_validation.dart'
+    as app
+    show profileRegionIsComplete;
+import 'package:ccs_app/features/profile/models/user_profile.dart'
+    as app
+    show UserProfileData;
+import 'package:ccs_app/features/profile/screens/edit_profile_screen.dart'
+    as app
+    show EditProfileScreen;
+import 'package:ccs_app/shared/models/user_role.dart' as app show UserRole;
+
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:geocoding/geocoding.dart';
-import 'package:ccs_app/main.dart' as app;
 
 void main() {
   test('first manual region selects its home community', () {

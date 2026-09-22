@@ -2,7 +2,7 @@ import 'dart:convert';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:ccs_app/in_app_badges.dart';
+import 'package:ccs_app/features/notifications/controllers/in_app_badges.dart';
 
 // Controller tests use empty summary streams and the real local persistence
 // path, without a Firebase app or network connection.

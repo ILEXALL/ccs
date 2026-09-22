@@ -1,6 +1,11 @@
+import 'package:ccs_app/features/auth/models/app_user.dart' as app show AppUser;
+import 'package:ccs_app/features/spots/data/spot_ownership.dart'
+    as app
+    show canTransferSpotOwnership, spotOwnershipTransferFields;
+import 'package:ccs_app/shared/models/user_role.dart' as app show UserRole;
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:ccs_app/main.dart' as app;
 
 app.AppUser actor(app.UserRole role, {bool banned = false}) => app.AppUser(
   uid: 'actor',

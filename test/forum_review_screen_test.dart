@@ -1,6 +1,17 @@
+import 'package:ccs_app/features/auth/data/auth_state.dart'
+    as app
+    show currentUser;
+import 'package:ccs_app/features/auth/models/app_user.dart' as app show AppUser;
+import 'package:ccs_app/features/moderation/data/forum_review_lease.dart'
+    as app
+    show ForumReviewLease;
+import 'package:ccs_app/features/moderation/screens/forum_moderation_screen.dart'
+    as app
+    show ForumModerationScreen;
+import 'package:ccs_app/shared/models/user_role.dart' as app show UserRole;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:ccs_app/main.dart' as app;
 
 void main() {
   final previous = app.currentUser;

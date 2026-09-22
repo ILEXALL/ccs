@@ -1,5 +1,5 @@
-import 'package:ccs_app/map_start_position.dart';
-import 'package:ccs_app/notification_freshness.dart';
+import 'package:ccs_app/features/map/controllers/map_start_position.dart';
+import 'package:ccs_app/features/notifications/models/notification_freshness.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:latlong2/latlong.dart';
 

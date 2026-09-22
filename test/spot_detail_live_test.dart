@@ -1,7 +1,14 @@
+import 'package:ccs_app/features/spots/models/car_spot.dart'
+    as app
+    show CarSpot;
+import 'package:ccs_app/features/spots/screens/spot_detail_screen.dart'
+    as app
+    show SpotDetailScreen;
+
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:ccs_app/main.dart' as app;
+
 import 'group_temporary_spots_test.dart' show event;
 
 void main() {

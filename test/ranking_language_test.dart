@@ -1,4 +1,17 @@
-import 'package:ccs_app/main.dart' as app;
+import 'package:ccs_app/core/localization/app_language.dart'
+    as app
+    show AppLanguage, appUiPreferences;
+import 'package:ccs_app/core/localization/ccs_text.dart' as app show trText;
+import 'package:ccs_app/features/progression/data/leaderboard.dart'
+    as app
+    show XpLeaderboardPage, XpLeaderboardPeriod, xpLeaderboardPeriodLabel;
+import 'package:ccs_app/features/progression/models/leaderboard_entry.dart'
+    as app
+    show XpLeaderboardEntry;
+import 'package:ccs_app/features/progression/screens/leaderboard_screen.dart'
+    as app
+    show XpLeaderboardScreen;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';

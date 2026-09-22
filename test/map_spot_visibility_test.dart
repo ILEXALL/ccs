@@ -1,6 +1,13 @@
+import 'package:ccs_app/features/spots/data/spot_filters.dart'
+    as app
+    show mapVisibleSpots, spotCategoryFilters, spotCountryFilters;
+import 'package:ccs_app/features/spots/models/spot_status.dart'
+    as app
+    show SpotStatus;
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:latlong2/latlong.dart';
-import 'package:ccs_app/main.dart' as app;
+
 import 'group_temporary_spots_test.dart' show event;
 
 void main() {

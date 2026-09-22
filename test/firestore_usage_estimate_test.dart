@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:ccs_app/firestore_usage_estimate.dart';
+import 'package:ccs_app/core/firestore/firestore_usage_estimate.dart';
 
 void main() {
   test(

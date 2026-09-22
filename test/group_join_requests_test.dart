@@ -1,6 +1,9 @@
+import 'package:ccs_app/features/community/groups/screens/group_join_requests.dart'
+    as app
+    show GroupJoinRequestsScreen;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:ccs_app/main.dart' as app;
 
 void main() {
   for (final decision in ['accepted', 'rejected']) {

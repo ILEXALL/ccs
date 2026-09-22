@@ -1,4 +1,13 @@
-import 'package:ccs_app/main.dart' as app;
+import 'package:ccs_app/core/localization/app_language.dart'
+    as app
+    show AppLanguage;
+import 'package:ccs_app/features/profile/widgets/profile_info.dart'
+    as app
+    show ProfileInfoRow;
+import 'package:ccs_app/features/spots/screens/creator_spots_screen.dart'
+    as app
+    show localizedProfileLocation, profileCountLabel;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -57,7 +66,9 @@ void main() {
                   cars: app.profileCountLabel(2, language: language),
                   spots: Text(
                     app.profileCountLabel(11, spots: true, language: language),
-                    maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 11),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontSize: 11),
                   ),
                 ),
               ),

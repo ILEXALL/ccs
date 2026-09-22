@@ -1,8 +1,15 @@
+import 'package:ccs_app/core/firestore/firestore_tracking.dart'
+    as app
+    show
+        ConfirmedFirestoreTransaction,
+        FirestoreDebugTransactionExtension,
+        FirestoreDebugWriteBatchExtension,
+        firestoreDebugTracker;
+
 import 'dart:async';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:ccs_app/main.dart' as app;
 
 class TestBatch extends Fake implements WriteBatch {
   final completion = Completer<void>();

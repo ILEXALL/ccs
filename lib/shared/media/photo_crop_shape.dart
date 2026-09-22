@@ -1,0 +1,1 @@
+enum PhotoCropShape { rectangle, circle }

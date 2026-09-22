@@ -1,7 +1,38 @@
+import 'package:ccs_app/features/community/chats/models/chat_thread.dart'
+    as app
+    show ChatThreadData;
+import 'package:ccs_app/features/community/chats/widgets/chat_thread_tile.dart'
+    as app
+    show GlobalSmallAvatar;
+import 'package:ccs_app/features/community/forum/data/forum_topics.dart'
+    as app
+    show temporarySpotForumTopicData;
+import 'package:ccs_app/features/community/groups/data/group_spot_access.dart'
+    as app
+    show memberSpotGroups;
+import 'package:ccs_app/features/community/groups/widgets/spot_group_labels.dart'
+    as app
+    show SpotGroupLabels;
+import 'package:ccs_app/features/events/widgets/upcoming_events.dart'
+    as app
+    show UpcomingTemporarySpotNewsCard;
+import 'package:ccs_app/features/spots/data/spot_cache.dart'
+    as app
+    show carSpotToLocalCacheData;
+import 'package:ccs_app/features/spots/models/car_spot.dart'
+    as app
+    show CarSpot;
+import 'package:ccs_app/features/spots/models/spot_status.dart'
+    as app
+    show SpotStatus;
+import 'package:ccs_app/features/spots/screens/add_spot_screen.dart'
+    as app
+    show AddSpotScreen;
+import 'package:ccs_app/shared/models/user_role.dart' as app show UserRole;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:latlong2/latlong.dart';
-import 'package:ccs_app/main.dart' as app;
 
 app.CarSpot event({String visibility = 'public'}) => app.CarSpot(
   id: 'event',

@@ -1,5 +1,5 @@
 import 'dart:async';
-import 'package:ccs_app/session_count_stream.dart';
+import 'package:ccs_app/core/firestore/session_count_stream.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {

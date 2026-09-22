@@ -1,7 +1,15 @@
+import 'package:ccs_app/app/app_shell.dart' as app show MainScreen;
+import 'package:ccs_app/features/notifications/data/badge_state.dart'
+    as app
+    show
+        activityChatTabIndex,
+        activitySectionForNavigation,
+        chatActivitySection;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:ccs_app/main.dart' as app;
-import 'package:ccs_app/in_app_badges.dart';
+
+import 'package:ccs_app/features/notifications/controllers/in_app_badges.dart';
 
 void main() {
   test('ranking tab has no chat unread section', () {

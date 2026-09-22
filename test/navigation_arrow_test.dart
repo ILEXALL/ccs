@@ -1,6 +1,10 @@
+import 'package:ccs_app/features/map/controllers/map_interaction_options.dart'
+    as app
+    show ccsMapInteractionOptions;
+
 import 'dart:math' as math;
-import 'package:ccs_app/main.dart' as app;
-import 'package:ccs_app/navigation_arrow.dart';
+
+import 'package:ccs_app/features/map/widgets/navigation_arrow.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_test/flutter_test.dart';

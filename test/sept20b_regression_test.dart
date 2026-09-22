@@ -1,6 +1,9 @@
-import 'package:ccs_app/main.dart' as app;
-import 'package:ccs_app/profile_city_picker.dart';
-import 'package:ccs_app/startup_logo.dart';
+import 'package:ccs_app/core/firestore/firestore_tracking.dart'
+    as app
+    show observedDocSnapshots;
+
+import 'package:ccs_app/features/profile/widgets/profile_city_picker.dart';
+import 'package:ccs_app/app/widgets/startup_logo.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';

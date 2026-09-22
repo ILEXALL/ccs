@@ -1,8 +1,30 @@
+import 'package:ccs_app/shared/widgets/app_bar_actions.dart'
+    as app
+    show ccsAppBarActions;
+import 'package:ccs_app/core/localization/app_language.dart'
+    as app
+    show AppLanguage, appUiPreferences;
+import 'package:ccs_app/features/auth/data/auth_state.dart'
+    as app
+    show currentUser;
+import 'package:ccs_app/features/progression/models/xp_stats.dart'
+    as app
+    show XpUserStats;
+import 'package:ccs_app/features/progression/widgets/leaderboard_action.dart'
+    as app
+    show CcsXpLeaderboardAction;
+import 'package:ccs_app/features/progression/widgets/xp_summary.dart'
+    as app
+    show XpSummaryContent;
+import 'package:ccs_app/features/spots/screens/submissions_screen.dart'
+    as app
+    show communityTab;
+
 import 'support/preview_font.dart';
 import 'dart:io';
 import 'dart:ui' as ui;
-import 'package:ccs_app/main.dart' as app;
-import 'package:ccs_app/achievements_screen.dart';
+
+import 'package:ccs_app/features/progression/screens/achievements_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
@@ -10,38 +32,81 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   for (final language in app.AppLanguage.values) {
-    testWidgets('other profile uses the same three XP actions ${language.name}', (tester) async {
-      app.appUiPreferences.language = language;
-      tester.view.physicalSize = const Size(320, 760);
-      tester.view.devicePixelRatio = 1;
-      addTearDown(tester.view.resetPhysicalSize);
-      addTearDown(tester.view.resetDevicePixelRatio);
-      await tester.pumpWidget(MaterialApp(home: Scaffold(body: Padding(
-        padding: const EdgeInsets.all(14),
-        child: app.XpSummaryContent(stats: app.XpUserStats.empty('other-person'),
-          loading: false, unavailable: false, onTap: () {}),
-      ))));
-      await tester.pumpAndSettle();
-      expect(find.byType(XpProfileActions), findsOneWidget);
-      final actions = tester.widget<XpProfileActions>(find.byType(XpProfileActions));
-      expect(actions.onAchievements, isNotNull);
-      expect(actions.onRewards, isNotNull);
-      expect(actions.onHistory, isNotNull);
-      expect(tester.takeException(), isNull);
-    });
+    testWidgets(
+      'other profile uses the same three XP actions ${language.name}',
+      (tester) async {
+        app.appUiPreferences.language = language;
+        tester.view.physicalSize = const Size(320, 760);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: Padding(
+                padding: const EdgeInsets.all(14),
+                child: app.XpSummaryContent(
+                  stats: app.XpUserStats.empty('other-person'),
+                  loading: false,
+                  unavailable: false,
+                  onTap: () {},
+                ),
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(find.byType(XpProfileActions), findsOneWidget);
+        final actions = tester.widget<XpProfileActions>(
+          find.byType(XpProfileActions),
+        );
+        expect(actions.onAchievements, isNotNull);
+        expect(actions.onRewards, isNotNull);
+        expect(actions.onHistory, isNotNull);
+        expect(tester.takeException(), isNull);
+      },
+    );
   }
-  testWidgets('all five community tabs fit and ranking opens at 320px', (tester) async {
+  testWidgets('all five community tabs fit and ranking opens at 320px', (
+    tester,
+  ) async {
     tester.view.physicalSize = const Size(320, 700);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
     final labels = ['Чаты', 'Группы', 'Глобальный', 'Форум', 'Рейтинг'];
-    await tester.pumpWidget(MaterialApp(home: DefaultTabController(length: 5,
-      child: Scaffold(body: Column(children: [TabBar(isScrollable: false,
-        labelPadding: const EdgeInsets.symmetric(horizontal: 2),
-        tabs: [for (final label in labels) app.communityTab(icon: const Icon(Icons.people), label: label)]),
-        Expanded(child: TabBarView(children: [for (var i = 0; i < 5; i++) Center(child: Text('page-$i'))])),
-      ])))));
+    await tester.pumpWidget(
+      MaterialApp(
+        home: DefaultTabController(
+          length: 5,
+          child: Scaffold(
+            body: Column(
+              children: [
+                TabBar(
+                  isScrollable: false,
+                  labelPadding: const EdgeInsets.symmetric(horizontal: 2),
+                  tabs: [
+                    for (final label in labels)
+                      app.communityTab(
+                        icon: const Icon(Icons.people),
+                        label: label,
+                      ),
+                  ],
+                ),
+                Expanded(
+                  child: TabBarView(
+                    children: [
+                      for (var i = 0; i < 5; i++)
+                        Center(child: Text('page-$i')),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
     await tester.pumpAndSettle();
     for (final label in labels) {
       final rect = tester.getRect(find.text(label));
@@ -73,9 +138,7 @@ void main() {
         await tester.runAsync(() async {
           final font = FontLoader('PreviewFont');
           font.addFont(
-            File(
-              previewFontPath,
-            ).readAsBytes().then(ByteData.sublistView),
+            File(previewFontPath).readAsBytes().then(ByteData.sublistView),
           );
           await font.load();
           final icons = FontLoader('MaterialIcons');

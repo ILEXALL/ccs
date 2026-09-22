@@ -1,6 +1,16 @@
+import 'package:ccs_app/features/community/chats/widgets/mention_text_field.dart'
+    as app
+    show FriendUserSearch;
+import 'package:ccs_app/features/friends/models/friend_user.dart'
+    as app
+    show FriendUserData;
+import 'package:ccs_app/features/friends/data/user_search.dart'
+    as app
+    show matchingFriendUsers;
+import 'package:ccs_app/shared/models/user_role.dart' as app show UserRole;
+
 import 'dart:async';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:ccs_app/main.dart' as app;
 
 app.FriendUserData user(
   String uid,

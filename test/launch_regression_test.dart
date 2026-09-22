@@ -1,6 +1,12 @@
+import 'package:ccs_app/features/spots/data/spot_sync.dart'
+    as app
+    show spotFeedServerSnapshotIsFresh;
+import 'package:ccs_app/features/spots/widgets/spot_filter_panel.dart'
+    as app
+    show spotFilterColumns;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:ccs_app/main.dart' as app;
 
 void main() {
   testWidgets('spot filters render and toggle without hidden ListTile ink', (

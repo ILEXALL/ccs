@@ -1,8 +1,15 @@
+import 'package:ccs_app/features/spots/screens/creator_spots_screen.dart'
+    as app
+    show CreatorSpotsScreen;
+import 'package:ccs_app/features/spots/widgets/creator_spots_badge.dart'
+    as app
+    show CreatorSpotsBadge;
+
 import 'dart:async';
-import 'package:ccs_app/main.dart' as app;
+
 import 'package:flutter/material.dart';
-import 'package:ccs_app/event_forum_description.dart';
-import 'package:ccs_app/in_flight_load.dart';
+import 'package:ccs_app/features/events/models/event_forum_description.dart';
+import 'package:ccs_app/core/network/in_flight_load.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
