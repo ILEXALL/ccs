@@ -9,6 +9,7 @@ const admin = process.env.CCS_TEST_DEPENDENCIES
   : require('firebase-admin');
 const {processDeletion} = require('../lib/account-deletion/worker');
 const {collectionPager} = require('../lib/account-deletion/list-page');
+const {runDeletionQueue} = require('../lib/account-deletion/queue');
 
 if (process.env.FIRESTORE_EMULATOR_HOST !== '127.0.0.1:18080') throw new Error('Only the local test emulator is permitted');
 const projectId = 'demo-ccs-tests';
@@ -26,6 +27,41 @@ async function seed(rows) {
   for (const [key, value] of Object.entries(rows)) await db.doc(key).set(value);
 }
 const auth = () => ({updateUser: async () => {}, revokeRefreshTokens: async () => {}, deleteUser: async () => {}});
+
+test('queue wraps fairly, retries failures, and records scheduler evidence', async () => {
+  await seed(Object.fromEntries(['a', 'b', 'c', 'd', 'e', 'f', 'g'].map(uid => [
+    `account_deletions/${uid}`, {status: 'queued'},
+  ])));
+  const attempts = [];
+  const runJob = async (ref, budget) => {
+    assert.equal(budget, 7000);
+    attempts.push(ref.id);
+    if (ref.id === 'a') throw Object.assign(new Error('synthetic failure'), {code: 'test'});
+  };
+  assert.equal((await runDeletionQueue({db, runJob})).ok, false);
+  assert.deepEqual(attempts, ['a', 'b', 'c', 'd', 'e']);
+  attempts.length = 0;
+  assert.equal((await runDeletionQueue({db, runJob})).ok, false);
+  assert.deepEqual(attempts, ['f', 'g', 'a', 'b', 'c']);
+  const state = (await db.doc('account_deletion_scheduler/round-robin').get()).data();
+  assert.equal(state.after, 'c');
+  assert.equal(state.lastAttempted, 5);
+  assert.equal(state.lastRunOk, false);
+  assert.equal(state.leaseUntil, 0);
+  assert.ok(state.lastFinishedAt >= state.lastStartedAt);
+});
+
+test('queue lease and total budget prevent overlapping and unbounded work', async () => {
+  const state = db.doc('account_deletion_scheduler/round-robin');
+  await state.set({leaseUntil: Date.now() + 60000});
+  assert.equal((await runDeletionQueue({db, runJob: () => assert.fail('lease held')})).busy, true);
+  await state.delete();
+  await seed({'account_deletions/a': {status: 'queued'}, 'account_deletions/b': {status: 'queued'}});
+  let clock = 1000;
+  const result = await runDeletionQueue({db, now: () => clock, runJob: async () => {clock += 35000;}});
+  assert.equal(result.attempted, 1);
+  assert.equal((await state.get()).data().after, 'a');
+});
 
 test('media cleanup waits for previously issued upload URLs to expire', async () => {
   const ref = db.doc('account_deletions/alice');
@@ -53,6 +89,9 @@ test('removes content and orphan descendants, scrubs old reply previews, keeps o
     'chats/group/messages/other': {senderUid: 'bob', text: 'keep', readByUserIds: ['alice', 'bob'], reactions: {alice: 'like'}},
     'chats/orphan/messages/mine': {senderUid: 'alice', text: 'erase'},
     'spots/spot1': {addedByUid: 'alice', name: 'erase'},
+    'spots/spot1/comments/bob': {userId: 'bob', text: 'reply to removed spot'},
+    'forum_topics/alice_topic': {userId: 'alice', text: 'erase topic'},
+    'forum_topics/alice_topic/replies/bob': {userId: 'bob', text: 'reply to removed topic'},
     'spot_reviews/other': {userId: 'bob', text: 'keep'},
   });
   const deletedPrefixes = [];
@@ -64,7 +103,8 @@ test('removes content and orphan descendants, scrubs old reply previews, keeps o
   }}, media: {deletePrefixPage: async prefix => {deletedPrefixes.push(prefix); return true;}}});
   assert.equal((await ref.get()).data().status, 'complete');
   assert.equal(authDeleted, true);
-  for (const key of ['users/alice', 'users/alice/legal_acceptances/v1', 'global_chat/mine', 'chats/orphan/messages/mine', 'spots/spot1']) {
+  for (const key of ['users/alice', 'users/alice/legal_acceptances/v1', 'global_chat/mine', 'chats/orphan/messages/mine', 'spots/spot1',
+    'spots/spot1/comments/bob', 'forum_topics/alice_topic', 'forum_topics/alice_topic/replies/bob']) {
     assert.equal((await db.doc(key).get()).exists, false, key);
   }
   assert.equal((await db.doc('users/bob').get()).data().name, 'Bob');

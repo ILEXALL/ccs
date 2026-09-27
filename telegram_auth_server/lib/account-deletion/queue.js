@@ -10,19 +10,26 @@ async function runDeletionQueue({db, runJob, now = Date.now, budgetMs = 35000}) 
     const snapshot = await tx.get(stateRef);
     const current = snapshot.data() || {};
     if ((current.leaseUntil || 0) > now()) return null;
-    tx.set(stateRef, {lease, leaseUntil: now() + 120000}, {merge: true});
+    tx.set(stateRef, {lease, leaseUntil: now() + 120000, lastStartedAt: now()}, {merge: true});
     return current;
   });
   if (!state) return {ok: true, busy: true};
   let failed = false;
+  let attempted = 0;
+  let finished = false;
   try {
     const query = db.collection('account_deletions')
       .where('status', 'in', ['queued', 'processing']).orderBy('__name__');
-    let jobs = await (state.after ? query.startAfter(state.after) : query).limit(5).get();
-    if (jobs.empty && state.after) jobs = await query.limit(5).get();
-    for (const job of jobs.docs) {
+    const page = await (state.after ? query.startAfter(state.after) : query).limit(5).get();
+    const jobs = [...page.docs];
+    if (jobs.length < 5 && state.after) {
+      const wrapped = await query.endAt(state.after).limit(5 - jobs.length).get();
+      jobs.push(...wrapped.docs);
+    }
+    for (const job of jobs) {
       const remaining = budgetMs - (now() - started);
       if (remaining < 1000) break;
+      attempted++;
       try {
         await runJob(job.ref, Math.min(7000, remaining));
       } catch (error) {
@@ -32,11 +39,15 @@ async function runDeletionQueue({db, runJob, now = Date.now, budgetMs = 35000}) 
       // Advance after failures too: retries resume on the next rotation.
       await stateRef.update({after: job.id});
     }
-    return {ok: !failed};
+    finished = true;
+    return {ok: !failed, attempted};
   } finally {
     await db.runTransaction(async tx => {
       const snapshot = await tx.get(stateRef);
-      if (snapshot.data()?.lease === lease) tx.update(stateRef, {leaseUntil: 0});
+      if (snapshot.data()?.lease === lease) tx.update(stateRef, {
+        leaseUntil: 0, lastFinishedAt: now(), lastDurationMs: now() - started,
+        lastAttempted: attempted, lastRunOk: finished && !failed,
+      });
     });
   }
 }

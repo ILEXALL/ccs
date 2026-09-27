@@ -59,7 +59,7 @@ function planDocument(path, data, account) {
     }
   }
   // Reply previews duplicate message text and photographs outside the source row.
-  if (replyWasDeleted || (username && data.replyToUsername === username)) {
+  if (replyWasDeleted || (!data.replyToMessageId && username && data.replyToUsername === username)) {
     for (const key of Object.keys(next).filter(key => key.startsWith('replyTo'))) next[key] = '';
     changed = true;
   }

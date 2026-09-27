@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const readline = require('node:readline/promises');
 
 const suites = {
-  accounts: {name: 'Account deletion', files: ['account-deletion.test.js'],
+  accounts: {name: 'Account deletion', files: ['account-deletion.test.js', 'account-deletion-storage.test.js'],
     gaps: ['Production storage and scheduler; run account-deletion.emulator.cjs for local integration checks']},
   xp: { name: 'XP', files: ['xp.test.js', 'xp-matrix.test.js', 'xp-adjustments.test.js', 'achievements.test.js', 'leaderboard-pages.test.js'],
     gaps: ['Правила Firebase, одновременные запросы, интерфейс и доставка пушей'] },
@@ -53,7 +53,11 @@ async function main() {
     process.exitCode = 2; return;
   }
   const chosen = selection === 'all' ? Object.values(suites) : [suites[selection]];
-  const files = [...new Set(chosen.flatMap((s) => s.files))].map((f) => path.join(__dirname, f));
+  const files = selection === 'all'
+    ? [__dirname, path.resolve(__dirname, '../lib')].flatMap(dir =>
+      fs.readdirSync(dir, {recursive: true}).filter(name => /\.test\.(js|cjs)$/.test(name)
+        && path.basename(name) !== 'emulator.test.js').map(name => path.join(dir, name)))
+    : [...new Set(chosen.flatMap((s) => s.files))].map((f) => path.join(__dirname, f));
   const args = ['--test', '--test-isolation=none', '--test-reporter=tap'];
   if (selection !== 'all' && suites[selection].pattern) args.push(`--test-name-pattern=${suites[selection].pattern}`);
   const result = spawnSync(process.execPath, [...args, ...files], { encoding: 'utf8', timeout: 120000, maxBuffer: 8 * 1024 * 1024 });

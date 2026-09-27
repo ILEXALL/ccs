@@ -36,12 +36,17 @@ beforeEach(async () => {
     'users/mod2': { role: 'moderator', moderatorCountryCodes: ['LV'] },
     'users/admin': { role: 'admin' }, 'users/banned': { role: 'user', banned: true },
   });
+  await seed(Object.fromEntries(['owner', 'other', 'mod', 'mod2', 'admin', 'banned'].map(uid => [
+    `users/${uid}/legal_acceptances/2026-09-24`,
+    {termsVersion: '2026-09-24', acceptedAt: Timestamp.fromMillis(1)},
+  ])));
 });
 after(async () => { if (env) await env.cleanup(); });
 
 test('[rules terms] consent is private, versioned, server-timed and immutable', async () => {
   const version = '2026-09-24';
   const path = `users/owner/legal_acceptances/${version}`;
+  await env.withSecurityRulesDisabled(context => deleteDoc(doc(context.firestore(), path)));
   const own = doc(client('owner'), path);
   const agreement = () => ({termsVersion: version, acceptedAt: serverTimestamp()});
   await assertFails(setDoc(doc(client('other'), path), agreement()));
@@ -69,6 +74,16 @@ test('[rules terms] consent is private, versioned, server-timed and immutable', 
   }));
   const afterRetry = await getDoc(own);
   assert.ok(first.data().acceptedAt.isEqual(afterRetry.data().acceptedAt));
+});
+
+test('[rules terms] old clients cannot publish until consent is saved', async () => {
+  const db = client('owner');
+  const path = 'users/owner/legal_acceptances/2026-09-24';
+  await env.withSecurityRulesDisabled(context => deleteDoc(doc(context.firestore(), path)));
+  await assertSucceeds(getDoc(doc(db, 'users/owner')));
+  await assertFails(setDoc(doc(db, 'spots/no-consent'), spot()));
+  await assertSucceeds(setDoc(doc(db, path), {termsVersion: '2026-09-24', acceptedAt: serverTimestamp()}));
+  await assertSucceeds(setDoc(doc(db, 'spots/with-consent'), spot()));
 });
 
 test('[rules XP config] achievement flag is optional, boolean and admin-only', async () => {
@@ -176,4 +191,28 @@ test('[rules groups] descriptions required and only actual non-banned members ca
   await assertFails(setDoc(doc(client('other'),'chats/new/messages/blocked'),msg('other')));
   await seed({'chats/new':{...group,memberIds:['owner'],memberUsernames:['owner'],description:'Group',bannedMemberIds:['other']}});
   await assertFails(updateDoc(doc(client('owner'),'chats/new'),{memberIds:['owner','other'],memberUsernames:['owner','other']}));
+});
+
+test('[rules moderation] bans and missing consent block direct/group message mutations', async () => {
+  const group = {isGroup: true, memberIds: ['owner', 'banned'], description: 'Test'};
+  const message = {senderUid: 'banned', senderUsername: 'banned', text: 'original'};
+  await seed({'chats/test': group, 'chats/test/messages/existing': message});
+  await assertFails(setDoc(doc(client('banned'), 'chats/test/messages/new'), message));
+  await assertFails(updateDoc(doc(client('banned'), 'chats/test/messages/existing'), {text: 'edited'}));
+  await env.withSecurityRulesDisabled(context => deleteDoc(doc(context.firestore(), 'users/owner/legal_acceptances/2026-09-24')));
+  await assertFails(setDoc(doc(client('owner'), 'chats/test/messages/no-consent'), {...message, senderUid: 'owner'}));
+  await assertFails(updateDoc(doc(client('owner'), 'chats/test'), {lastMessage: 'bypass'}));
+});
+
+test('[rules moderation] a block prevents direct sends and edits in both directions', async () => {
+  await seed({
+    'users/owner': {role: 'user', blockedUserIds: ['other']},
+    'chats/direct': {isGroup: false, memberIds: ['owner', 'other']},
+    'chats/direct/messages/owner': {senderUid: 'owner', senderUsername: 'owner', text: 'old'},
+    'chats/direct/messages/other': {senderUid: 'other', senderUsername: 'other', text: 'old'},
+  });
+  for (const uid of ['owner', 'other']) {
+    await assertFails(setDoc(doc(client(uid), `chats/direct/messages/new-${uid}`), {senderUid: uid, senderUsername: uid, text: 'new'}));
+    await assertFails(updateDoc(doc(client(uid), `chats/direct/messages/${uid}`), {text: 'edit'}));
+  }
 });

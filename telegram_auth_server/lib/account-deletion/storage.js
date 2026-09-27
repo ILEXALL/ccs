@@ -1,10 +1,10 @@
 const {S3Client, ListObjectsV2Command, DeleteObjectsCommand} = require('@aws-sdk/client-s3');
 
-function storageAdapter(env = process.env) {
+function storageAdapter(env = process.env, {client: suppliedClient} = {}) {
   for (const key of ['R2_ENDPOINT', 'R2_ACCESS_KEY_ID', 'R2_SECRET_ACCESS_KEY', 'R2_BUCKET_NAME']) {
     if (!env[key]) throw new Error(`Deletion storage configuration missing: ${key}`);
   }
-  const client = new S3Client({region: 'auto', endpoint: env.R2_ENDPOINT,
+  const client = suppliedClient || new S3Client({region: 'auto', endpoint: env.R2_ENDPOINT,
     credentials: {accessKeyId: env.R2_ACCESS_KEY_ID, secretAccessKey: env.R2_SECRET_ACCESS_KEY}});
   return {
     // Always restart at the prefix beginning: objects disappear after each batch.

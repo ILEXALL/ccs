@@ -72,3 +72,8 @@ test('removes shared references to deleted account media without erasing other u
 test('never scans or changes its own private queue and receipts', () => {
   assert.equal(planDocument('account_deletions/alice', {uid: 'alice'}, account).action, 'skip');
 });
+
+test('a reused username cannot erase a quote with a different source ID', () => {
+  assert.equal(planDocument('global_chat/reply', {userId: 'bob', replyToMessageId: 'other',
+    replyToUsername: 'alice_driver', replyToText: 'Keep this quote'}, account).action, 'skip');
+});

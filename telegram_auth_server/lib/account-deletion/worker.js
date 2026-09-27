@@ -109,9 +109,10 @@ async function processDeletion({db, auth, media, jobRef, listPage, now = Date.no
             ? jobRef.collection('references').doc(taskId(`${ref.parent.path}/${replyId}`)) : null;
           const replyWasDeleted = replyRef ? (await tx.get(replyRef)).exists : false;
           const account = {uid: jobRef.id, username: job.username || '', replyWasDeleted};
-          const plan = current.exists ? planDocument(ref.path, current.data(), account) : {action: 'skip'};
+          const plan = task.deleteTree ? {action: 'delete'} :
+            current.exists ? planDocument(ref.path, current.data(), account) : {action: 'skip'};
           for (const child of children) tx.set(jobRef.collection('tasks').doc(taskId(child.path)),
-            {kind: 'collection', path: child.path, after: ''});
+            {kind: 'collection', path: child.path, after: '', deleteTree: plan.action === 'delete'});
           if (plan.action === 'delete' && ref.parent.id === 'spots') {
             const prefix = `spots/${ref.id}/`;
             tx.set(jobRef.collection('tasks').doc(taskId(prefix)), {kind: 'media', path: prefix});
