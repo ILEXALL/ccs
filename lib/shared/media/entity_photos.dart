@@ -22,9 +22,10 @@ Future<String> uploadSpotPhoto({
   }
 
   final timestamp = DateTime.now().millisecondsSinceEpoch;
+  final uploader = safeR2Path(userId);
   final r2Path = photoIndex == 0
-      ? 'spots/$spotId/main.jpg'
-      : 'spots/$spotId/gallery/photo_${photoIndex + 1}_$timestamp.jpg';
+      ? 'spots/$spotId/users/$uploader/main_$timestamp.jpg'
+      : 'spots/$spotId/users/$uploader/gallery/photo_${photoIndex + 1}_$timestamp.jpg';
 
   return uploadImageToR2(
     r2Path: r2Path,

@@ -7,6 +7,10 @@ const {runDeletionQueue} = require('../lib/account-deletion/queue');
 const hash = value => createHash('sha256').update(value).digest('hex');
 const same = (a, b) => typeof a === 'string' && typeof b === 'string' &&
   Buffer.byteLength(a) === Buffer.byteLength(b) && timingSafeEqual(Buffer.from(a), Buffer.from(b));
+// The unauthenticated build-13 service can recreate removed objects. Retire it
+// and verify the migration before enabling deletion on the canonical service.
+const deletionEnabled = () => process.env.ACCOUNT_DELETION_ENABLED === 'true' &&
+  process.env.ACCOUNT_DELETION_LEGACY_UPLOADS_RETIRED === 'true';
 
 module.exports = async (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
@@ -15,7 +19,7 @@ module.exports = async (req, res) => {
       if (!process.env.CRON_SECRET || !same(req.headers.authorization, `Bearer ${process.env.CRON_SECRET}`)) {
         return res.status(401).json({error: 'Unauthorized'});
       }
-      if (process.env.ACCOUNT_DELETION_ENABLED !== 'true') {
+      if (!deletionEnabled()) {
         return res.status(503).json({error: 'Account deletion is temporarily unavailable'});
       }
       const media = storageAdapter();
@@ -33,7 +37,7 @@ module.exports = async (req, res) => {
     }
     // Fail closed until production storage, scheduler and verified deployment
     // have been configured. Never accept a request that has no working worker.
-    if (process.env.ACCOUNT_DELETION_ENABLED !== 'true' || !process.env.CRON_SECRET) {
+    if (!deletionEnabled() || !process.env.CRON_SECRET) {
       return res.status(503).json({error: 'Account deletion is temporarily unavailable'});
     }
     storageAdapter();

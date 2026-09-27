@@ -9,7 +9,8 @@ if (process.env.FIRESTORE_EMULATOR_HOST !== '127.0.0.1:18080') {
 const app = admin.initializeApp({projectId: 'demo-ccs-deletion-benchmark'});
 const db = app.firestore();
 async function main() {
-  const count = 1000;
+  const count = Number(process.argv[2] || 1000);
+  if (![1000, 10000].includes(count)) throw new Error('Choose a synthetic fixture of 1000 or 10000 documents');
   await fetch('http://127.0.0.1:18080/emulator/v1/projects/demo-ccs-deletion-benchmark/databases/(default)/documents', {method: 'DELETE'});
   for (let offset = 0; offset < count; offset += 250) {
     const batch = db.batch();
@@ -24,17 +25,17 @@ async function main() {
   const listPage = collectionPager({db});
   while ((await jobRef.get()).data().status !== 'complete' && durationsMs.length < 100) {
     const started = Date.now();
-    await processDeletion({db, listPage, jobRef, budgetMs: 7000, maxDocuments: 250,
+    await processDeletion({db, listPage, jobRef, budgetMs: 7000,
       auth: {updateUser: async () => {}, revokeRefreshTokens: async () => {}, deleteUser: async () => {}},
       media: {deletePrefixPage: async () => true}});
     durationsMs.push(Date.now() - started);
   }
   const report = {environment: 'local emulator; synthetic data and fake Auth/R2; not a production SLA',
-    documents: count, budgetMs: 7000, maxDocuments: 250, invocations: durationsMs.length,
+    documents: count, budgetMs: 7000, maxDocuments: 10000, invocations: durationsMs.length,
     durationsMs, completed: (await jobRef.get()).data().status === 'complete',
     remainingUnrelatedDocuments: (await db.collection('benchmark_rows').count().get()).data().count,
     checkedAt: new Date().toISOString()};
-  fs.writeFileSync('build/deletion-benchmark.json', JSON.stringify(report, null, 2));
+  fs.writeFileSync(`build/deletion-benchmark-${count}.json`, JSON.stringify(report, null, 2));
   console.log(JSON.stringify(report));
 }
 main().finally(() => app.delete()).catch(error => {console.error(error); process.exitCode = 1;});

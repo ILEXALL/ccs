@@ -26,12 +26,14 @@ async function runDeletionQueue({db, runJob, now = Date.now, budgetMs = 35000}) 
       const wrapped = await query.endAt(state.after).limit(5 - jobs.length).get();
       jobs.push(...wrapped.docs);
     }
-    for (const job of jobs) {
+    for (const [index, job] of jobs.entries()) {
       const remaining = budgetMs - (now() - started);
       if (remaining < 1000) break;
       attempted++;
       try {
-        await runJob(job.ref, Math.min(7000, remaining));
+        // A single queued account can use the available budget. Under load each
+        // remaining account keeps a fair slice; failures do not consume its slot.
+        await runJob(job.ref, Math.floor(remaining / (jobs.length - index)));
       } catch (error) {
         failed = true;
         console.error('Account deletion worker failed', error.code || 'internal');

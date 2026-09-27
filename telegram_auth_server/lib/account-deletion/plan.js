@@ -3,8 +3,38 @@ const ownedFields = ['uid', 'userId', 'senderUid', 'authorId', 'authorUid', 'add
 const relationFields = ['fromUid', 'toUid', 'targetUserId', 'reportedUid', 'reporterUid',
   'actorUserId', 'actorUid', 'sourceUserUid', 'recipientUid'];
 const sharedRoots = new Set(['users', 'chats', 'app_config', 'partners', 'admin_rewards']);
-const systemRoots = new Set(['account_deletions', 'account_deletion_receipts', 'account_deletion_scheduler']);
+const systemRoots = new Set(['account_deletions', 'account_deletion_receipts', 'account_deletion_scheduler', 'media_uploads']);
 const plain = value => value && Object.getPrototypeOf(value) === Object.prototype;
+
+function referencedSpotIds(value) {
+  const ids = new Set();
+  const visit = item => {
+    if (typeof item === 'string' && /^https?:/.test(item)) {
+      try {
+        const match = new URL(item).pathname.match(/^\/spots\/([A-Za-z0-9_-]+)\//);
+        if (match) ids.add(match[1]);
+      } catch (_) { /* Not a valid media URL. */ }
+    } else if (Array.isArray(item)) item.forEach(visit);
+    else if (plain(item)) Object.values(item).forEach(visit);
+  };
+  visit(value);
+  return [...ids];
+}
+
+function scrubMedia(data, uid, deletedSpotIds = new Set()) {
+  let changed = false;
+  const clean = value => {
+    if (typeof value === 'string' && /^(https?:|gs:)/.test(value) &&
+        ([uid, encodeURIComponent(uid)].some(id => value.includes(`/users/${id}/`) || value.includes(`/garage/${id}/`)) ||
+        referencedSpotIds(value).some(id => deletedSpotIds.has(id)))) {
+      changed = true; return '';
+    }
+    if (Array.isArray(value)) return value.map(clean);
+    if (plain(value)) return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, clean(item)]));
+    return value;
+  };
+  return {data: clean(data), changed};
+}
 
 const identityField = field => /(?:uid|uids|userId|userIds|memberIds|moderatorIds|friendIds|authorId)$/i.test(field);
 function containsUid(value, uid, field = '') {
@@ -64,17 +94,8 @@ function planDocument(path, data, account) {
     changed = true;
   }
   // Shared records may contain media originally uploaded by this account.
-  const cleanMedia = value => {
-    if (typeof value === 'string' && /^(https?:|gs:)/.test(value) &&
-        [uid, encodeURIComponent(uid)].some(id => value.includes(`/users/${id}/`) || value.includes(`/garage/${id}/`))) {
-      changed = true; return '';
-    }
-    if (Array.isArray(value)) return value.map(cleanMedia);
-    if (plain(value)) return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, cleanMedia(item)]));
-    return value;
-  };
-  const cleaned = cleanMedia(next);
-  return changed ? {action: 'replace', data: cleaned} : {action: 'skip'};
+  const cleaned = scrubMedia(next, uid);
+  return changed || cleaned.changed ? {action: 'replace', data: cleaned.data} : {action: 'skip'};
 }
 
-module.exports = {planDocument, systemRoots, containsUid};
+module.exports = {planDocument, systemRoots, containsUid, referencedSpotIds, scrubMedia};

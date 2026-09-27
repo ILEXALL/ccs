@@ -134,6 +134,24 @@ test('[rules spots] user creates pending spot but cannot self-approve or forge a
   await assertFails(setDoc(doc(env.unauthenticatedContext().firestore(), 'spots/anon'), spot()));
 });
 
+test('[rules uploads] reserved draft spot cannot be claimed by a different user', async () => {
+  await seed({'media_spot_reservations/draft': {uid: 'owner'}});
+  await assertFails(setDoc(doc(client('other'), 'spots/draft'), spot('other')));
+  await assertSucceeds(setDoc(doc(client('owner'), 'spots/draft'), spot()));
+});
+
+test('[rules deletion] new quotes cannot resurrect a deleting or missing source', async () => {
+  await seed({'chats/test': {isGroup: true, memberIds: ['owner', 'other']},
+    'chats/test/messages/source': {senderUid: 'owner', senderUsername: 'owner', text: 'source'}});
+  const quote = {senderUid: 'other', senderUsername: 'other', text: 'reply',
+    replyToMessageId: 'source', replyToText: 'source', replyToUsername: 'owner'};
+  await assertSucceeds(setDoc(doc(client('other'), 'chats/test/messages/before'), quote));
+  await seed({'account_deletions/owner': {status: 'queued'}});
+  await assertFails(setDoc(doc(client('other'), 'chats/test/messages/during'), quote));
+  await env.withSecurityRulesDisabled(context => deleteDoc(doc(context.firestore(), 'chats/test/messages/source')));
+  await assertFails(setDoc(doc(client('other'), 'chats/test/messages/after'), quote));
+});
+
 test('[rules moderation] regional moderator approves and admin rejects unlocked spots', async () => {
   await seed({ 'spots/a': spot(), 'spots/b': spot() });
   await assertSucceeds(updateDoc(doc(client('mod'), 'spots/a'), decision('mod')));

@@ -135,12 +135,16 @@ Future<void> putBytesToPresignedUrl({
   required String uploadUrl,
   required List<int> bytes,
   required String contentType,
+  String? cacheControl,
 }) async {
   final client = HttpClient();
 
   try {
     final request = await client.putUrl(Uri.parse(uploadUrl));
     request.headers.set(HttpHeaders.contentTypeHeader, contentType);
+    if (cacheControl != null && cacheControl.isNotEmpty) {
+      request.headers.set(HttpHeaders.cacheControlHeader, cacheControl);
+    }
     request.contentLength = bytes.length;
     request.add(bytes);
 
@@ -160,13 +164,14 @@ Future<String> uploadImageBytesToR2({
   required List<int> bytes,
   String contentType = 'image/jpeg',
 }) async {
+  final token = await FirebaseAuth.instance.currentUser?.getIdToken();
+  if (token == null || token.isEmpty) {
+    throw StateError('Sign in before uploading a photo.');
+  }
   final presignData = await postJsonToUrl(
     r2PresignUploadUrl,
     {'path': safeR2Path(r2Path), 'contentType': contentType},
-    headers: {
-      'Authorization':
-          'Bearer ${await FirebaseAuth.instance.currentUser?.getIdToken() ?? ''}',
-    },
+    headers: {'Authorization': 'Bearer $token'},
     logResponse: false,
   );
 
@@ -181,6 +186,7 @@ Future<String> uploadImageBytesToR2({
     uploadUrl: uploadUrl,
     bytes: bytes,
     contentType: contentType,
+    cacheControl: stringFromFirebase(presignData['cacheControl'], ''),
   );
 
   return publicUrl;

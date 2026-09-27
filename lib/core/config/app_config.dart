@@ -45,8 +45,9 @@ const xpLeaderboardUrls = <String>['$telegramAuthBaseUrl/api/xp-leaderboard'];
 
 const spotVisitUrl = '$telegramAuthBaseUrl/api/spot-visit';
 
-const r2PresignUploadUrl =
-    'https://ccs-telegram-auth-server.vercel.app/api/r2-presign-upload';
+// Keep old builds on their original host during migration. New uploads must
+// never fall back from this authenticated endpoint to the legacy service.
+const r2PresignUploadUrl = '$telegramAuthBaseUrl/api/r2-presign-upload';
 
 const int maxSpotGalleryPhotos = 4;
 

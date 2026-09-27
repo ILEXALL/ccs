@@ -1,5 +1,8 @@
 # CCS App Store release — 25 September 2026
 
+Latest local work and live-console checks: [27 September verification](RELEASE-VERIFICATION-2026-09-27.md).
+That report supersedes older untested-change notes below. Release remains blocked.
+
 ## Current release
 
 App Store Connect app 6778200005, version 1.0.9, uploaded build 13. Not submitted.

@@ -69,6 +69,15 @@ test('removes shared references to deleted account media without erasing other u
   assert.equal(result.data.photoUrl, 'https://media.example/users/bob/avatar.jpg');
 });
 
+test('removes a deleted editor photo from another users spot without deleting that spot', () => {
+  const result = planDocument('spots/bobs', {addedByUid: 'bob',
+    photoUrl: 'https://media.example/spots/bobs/users/alice/main_1.jpg',
+    gallery: ['https://media.example/spots/bobs/users/bob/main_2.jpg']}, account);
+  assert.equal(result.action, 'replace');
+  assert.equal(result.data.photoUrl, '');
+  assert.equal(result.data.gallery.length, 1);
+});
+
 test('never scans or changes its own private queue and receipts', () => {
   assert.equal(planDocument('account_deletions/alice', {uid: 'alice'}, account).action, 'skip');
 });

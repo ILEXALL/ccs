@@ -35,3 +35,16 @@ test('R2 network failure remains retryable instead of claiming completion', asyn
   await assert.rejects(media.deletePrefixPage('spots/synthetic/'), /unavailable/);
   assert.throws(() => storageAdapter({}), /configuration missing/);
 });
+
+test('indexed media cleanup deletes the exact object and retains partial failures', async () => {
+  const inputs = [];
+  const media = storageAdapter(env, {client: {send: async command => {
+    inputs.push(command.input); return inputs.length === 1 ? {Errors: [{Code: 'AccessDenied'}]} : {};
+  }}});
+  await assert.rejects(media.deleteObject('spots/draft/gallery/photo.jpg'), /could not be deleted/);
+  await media.deleteObject('spots/draft/gallery/photo.jpg');
+  assert.deepEqual(inputs[1].Delete.Objects, [{Key: 'spots/draft/gallery/photo.jpg'}]);
+  for (const key of ['spots/', 'spots/a/../b', 'spots/a//b', 'spots/a/']) {
+    await assert.rejects(media.deleteObject(key), /Unsafe storage key/);
+  }
+});

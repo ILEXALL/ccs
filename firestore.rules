@@ -232,10 +232,21 @@ service cloud.firestore {
         );
     }
 
-    function isActiveUser() {
+    function isActiveAccount() {
       return isSignedIn()
         && currentUserData().get('deleted', false) != true
         && isNotBanned();
+    }
+
+    function hasAcceptedCurrentTerms() {
+      return exists(/databases/$(database)/documents/users/$(currentUid())/legal_acceptances/2026-09-24);
+    }
+
+    function isActiveUser() {
+      // Keep reads and account bootstrap available so returning users can reach
+      // the agreement screen. Community mutations require recorded consent.
+      return isActiveAccount()
+        && (request.method in ['get', 'list'] || hasAcceptedCurrentTerms());
     }
 
     function isAdmin() {
@@ -1772,7 +1783,7 @@ service cloud.firestore {
       allow create: if isOwner(userId) && validNewUser(userId);
       allow update: if (
         isOwner(userId)
-        && isActiveUser()
+        && isActiveAccount()
         && userProtectedFieldsUnchanged()
         && selfUsernameValidOrUnchanged()
         && validRegionalLiveLocationPresence()
@@ -1868,7 +1879,7 @@ service cloud.firestore {
       allow read: if isSignedIn();
       allow create: if isSignedIn()
         && validUsernameReservation(usernameKey);
-      allow update: if isActiveUser()
+      allow update: if isActiveAccount()
         && resource.data.uid == currentUid()
         && validUsernameReservation(usernameKey)
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
@@ -1977,6 +1988,8 @@ service cloud.firestore {
     match /spots/{spotId} {
       allow read: if canReadSpot();
       allow create: if isActiveUser()
+        && (!exists(/databases/$(database)/documents/media_spot_reservations/$(spotId))
+          || get(/databases/$(database)/documents/media_spot_reservations/$(spotId)).data.uid == currentUid())
         && spotCreationRegionAllowed(request.resource.data)
         && validSpotAudience(request.resource.data)
         && validNewSpot();
@@ -2385,6 +2398,33 @@ service cloud.firestore {
         && resource.data.blockerUid == currentUid();
     }
 
+    function replyAuthorAvailable(data) {
+      let uid = data.get('senderUid', data.get('userId', ''));
+      return uid is string && uid != ''
+        && !exists(/databases/$(database)/documents/account_deletions/$(uid));
+    }
+
+    function chatReplyAllowed(chatId) {
+      let id = request.resource.data.get('replyToMessageId', '');
+      return id == '' || (id is string
+        && exists(/databases/$(database)/documents/chats/$(chatId)/messages/$(id))
+        && replyAuthorAvailable(get(/databases/$(database)/documents/chats/$(chatId)/messages/$(id)).data));
+    }
+
+    function globalReplyAllowed() {
+      let id = request.resource.data.get('replyToMessageId', '');
+      return id == '' || (id is string
+        && exists(/databases/$(database)/documents/global_chat/$(id))
+        && replyAuthorAvailable(get(/databases/$(database)/documents/global_chat/$(id)).data));
+    }
+
+    function forumReplyAllowed(topicId) {
+      let id = request.resource.data.get('replyToMessageId', '');
+      return id == '' || (id is string
+        && exists(/databases/$(database)/documents/forum_topics/$(topicId)/replies/$(id))
+        && replyAuthorAvailable(get(/databases/$(database)/documents/forum_topics/$(topicId)/replies/$(id)).data));
+    }
+
     match /chats/{chatId} {
       allow get: if isSignedIn()
         && (
@@ -2415,7 +2455,7 @@ service cloud.firestore {
           request.resource.data.get('isGroup', false) == true
           || !directMemberIdsBlocked(request.resource.data.memberIds)
         );
-      allow update: if isSignedIn()
+      allow update: if isActiveUser()
         && (
           (
             currentUid() in resource.data.memberIds
@@ -2464,7 +2504,9 @@ service cloud.firestore {
       match /messages/{messageId} {
         allow read: if isChatMember(chatId)
           || (chatData(chatId).get('isGroup', false) == true && canModerateGroup(chatId));
-        allow create: if isChatMember(chatId)
+        allow create: if isActiveUser()
+          && chatReplyAllowed(chatId)
+          && isChatMember(chatId)
           && !directChatBlocked(chatId)
           && request.resource.data.senderUid == currentUid()
           && request.resource.data.senderUsername is string
@@ -2489,7 +2531,9 @@ service cloud.firestore {
               && request.resource.data.imageUrl.size() <= 1500
             )
           );
-        allow update: if isChatMember(chatId)
+        allow update: if isActiveUser()
+          && isChatMember(chatId)
+          && !directChatBlocked(chatId)
           && (
             (
               resource.data.senderUid == currentUid()
@@ -2513,6 +2557,7 @@ service cloud.firestore {
     match /global_chat/{messageId} {
       allow read: if isActiveUser();
       allow create: if isActiveUser()
+        && globalReplyAllowed()
         && request.resource.data.keys().hasOnly([
           'userId',
           'countryCode',
@@ -2845,6 +2890,7 @@ service cloud.firestore {
           && spotAudienceAllowed(forumTopicData(topicId));
 
         allow create: if isActiveUser() && spotAudienceAllowed(forumTopicData(topicId))
+          && forumReplyAllowed(topicId)
           && request.resource.data.userId == currentUid()
           && (
             (
@@ -2891,14 +2937,14 @@ service cloud.firestore {
           )
           && request.resource.data.timestamp == request.time;
 
-        allow update: if messageReactionUpdateOnly()
+        allow update: if forumReplyAllowed(topicId) && (messageReactionUpdateOnly()
           || canModerateCommunity(forumTopicData(topicId))
           || (forumTopicData(topicId).authorId == currentUid()
             && (!isModerator() || canModerateCommunity(forumTopicData(topicId))))
           || (
             isActiveUser()
             && resource.data.userId == currentUid()
-          );
+          ));
 
         allow delete: if canModerateCommunity(forumTopicData(topicId))
           || (forumTopicData(topicId).authorId == currentUid()

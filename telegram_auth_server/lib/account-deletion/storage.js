@@ -7,6 +7,13 @@ function storageAdapter(env = process.env, {client: suppliedClient} = {}) {
   const client = suppliedClient || new S3Client({region: 'auto', endpoint: env.R2_ENDPOINT,
     credentials: {accessKeyId: env.R2_ACCESS_KEY_ID, secretAccessKey: env.R2_SECRET_ACCESS_KEY}});
   return {
+    async deleteObject(key) {
+      if (typeof key !== 'string' || !/^(users|garage|spots)\/[A-Za-z0-9_-]+\/[A-Za-z0-9_./-]+$/.test(key) ||
+          key.split('/').some(part => !part || part === '.' || part === '..')) throw new Error('Unsafe storage key');
+      const result = await client.send(new DeleteObjectsCommand({Bucket: env.R2_BUCKET_NAME,
+        Delete: {Objects: [{Key: key}], Quiet: true}}));
+      if (result.Errors?.length) throw new Error('Some media objects could not be deleted');
+    },
     // Always restart at the prefix beginning: objects disappear after each batch.
     async deletePrefixPage(prefix) {
       if (!/^(users|garage|spots)\/[A-Za-z0-9_-]+\/$/.test(prefix)) throw new Error('Unsafe storage prefix');
