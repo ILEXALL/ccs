@@ -588,6 +588,33 @@ Future<AppUser> signInWithTelegramAndSaveUser({
   return currentUser;
 }
 
+Future<AppUser> signInWithEmailAndSaveUser(
+  String email,
+  String password,
+) async {
+  final credential = await FirebaseAuth.instance.signInWithEmailAndPassword(
+    email: email.trim(),
+    password: password,
+  );
+  final user = credential.user;
+  if (user == null) throw StateError('Sign-in did not return an account.');
+  try {
+    setCurrentUser(await saveFirebaseUser(user, provider: 'password'));
+    await initializeSpotCountryFiltersForUser(currentUser);
+    startCurrentUserDocumentWatcher();
+    if (!currentUser.banActive) {
+      startFirebaseSpotSync();
+      unawaited(startCurrentUserLikedSpotsSync());
+      unawaited(initializePushNotificationsForCurrentUser());
+      startNotificationCenterUnreadWatcher();
+    }
+    return currentUser;
+  } catch (_) {
+    await FirebaseAuth.instance.signOut();
+    rethrow;
+  }
+}
+
 Future<AppUser> signInWithGoogleAndSaveUser({
   NewUserNicknameRequester? requestNewUserNickname,
 }) async {

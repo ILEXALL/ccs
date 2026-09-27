@@ -11,7 +11,7 @@ module.exports = async (req, res) => {
   try {
     const header = req.headers.authorization || '';
     if (!header.startsWith('Bearer ')) return res.status(401).json({ok: false});
-    token = await admin.auth().verifyIdToken(header.slice(7));
+    token = await admin.auth().verifyIdToken(header.slice(7), true);
   } catch (_) { return res.status(401).json({ok: false}); }
   try {
     const stored = req.body?.gpsFix ? null : (await db.collection('live_locations').doc(token.uid).get()).data();

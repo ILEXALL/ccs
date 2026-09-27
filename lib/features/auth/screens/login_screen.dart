@@ -1,5 +1,8 @@
 import 'package:ccs_app/features/auth/navigation/auth_pages.dart';
 import 'dart:async';
+import 'package:ccs_app/features/auth/widgets/account_deletion_widgets.dart';
+import 'package:ccs_app/features/auth/widgets/email_sign_in_dialog.dart';
+import 'package:ccs_app/features/auth/widgets/legal_documents.dart';
 import 'dart:io';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart' hide Text;
@@ -16,6 +19,7 @@ import 'package:ccs_app/features/auth/data/auth_state.dart'
 import 'package:ccs_app/features/auth/data/sign_in.dart'
     show
         isTransientFirebaseAuthNetworkError,
+        signInWithEmailAndSaveUser,
         signInWithGoogleAndSaveUser,
         signInWithTelegramAndSaveUser;
 import 'package:ccs_app/features/auth/data/usernames.dart'
@@ -332,6 +336,27 @@ class _LoginScreenState extends State<LoginScreen>
     }
   }
 
+  Future<void> loginWithEmail() async {
+    setState(() => signingProvider = 'email');
+    try {
+      final success = await showDialog<bool>(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => EmailSignInDialog(
+          signIn: (email, password) async {
+            await signInWithEmailAndSaveUser(email, password);
+          },
+        ),
+      );
+      if (success != true) return;
+      await saveRememberMePreference(rememberMe);
+      if (!mounted || currentUser.banActive) return;
+      Navigator.pushReplacement(context, appPageRoute(builder: signedInPage));
+    } finally {
+      if (mounted) setState(() => signingProvider = null);
+    }
+  }
+
   Future<void> loginWithTelegram() async {
     setState(() => signingProvider = 'telegram');
 
@@ -451,10 +476,15 @@ class _LoginScreenState extends State<LoginScreen>
                   animation: loginTermsSlide,
                   fadeAnimation: loginTermsFade,
                   travel: 52,
-                  child: const CcsText(
-                    'By continuing, you agree to our Terms & Privacy Policy',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(color: Colors.white38, fontSize: 12),
+                  child: Column(
+                    children: [
+                      const AccountDeletionStatus(),
+                      TextButton(
+                        onPressed: isSigningIn ? null : loginWithEmail,
+                        child: const CcsText('Sign in with email'),
+                      ),
+                      const LegalDocumentLinks(),
+                    ],
                   ),
                 ),
               ],

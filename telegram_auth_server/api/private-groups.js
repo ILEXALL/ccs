@@ -34,7 +34,7 @@ module.exports = async function handler(req, res) {
     const bearer = req.headers.authorization || '';
     if (!bearer.startsWith('Bearer ')) fail(401, 'Sign in first.');
     let token;
-    try { token = await admin.auth().verifyIdToken(bearer.slice(7)); }
+    try { token = await admin.auth().verifyIdToken(bearer.slice(7), true); }
     catch { fail(401, 'Sign in again.'); }
     const uid = token.uid;
     const actorDoc = await db.collection('users').doc(uid).get();

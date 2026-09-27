@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:ccs_app/app/gates/terms_acceptance_gate.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart' hide Text;
@@ -97,11 +98,14 @@ class MainScreen extends StatelessWidget {
             backgroundColor: Colors.black,
             body: Center(child: CircularProgressIndicator()),
           )
-        : ProfileRegionGate(
-            child: Builder(
-              builder: (_) => LevelUpFeedbackHost(
-                userId: FirebaseAuth.instance.currentUser?.uid ?? '',
-                child: _MainContentScreen(initialIndex: initialIndex),
+        : TermsAcceptanceGate(
+            key: ValueKey(FirebaseAuth.instance.currentUser?.uid),
+            child: ProfileRegionGate(
+              child: Builder(
+                builder: (_) => LevelUpFeedbackHost(
+                  userId: FirebaseAuth.instance.currentUser?.uid ?? '',
+                  child: _MainContentScreen(initialIndex: initialIndex),
+                ),
               ),
             ),
           ),

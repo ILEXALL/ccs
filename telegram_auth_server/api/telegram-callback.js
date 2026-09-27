@@ -38,6 +38,16 @@ module.exports = async (request, response) => {
       auth_date: String(request.query.auth_date ?? ''),
     };
     const uid = `telegram_${telegram.id}`;
+    const deletionRef = db.collection('account_deletions').doc(uid);
+    const deletion = (await deletionRef.get()).data();
+    if (deletion) {
+      if (deletion.status !== 'complete' || Date.now() - deletion.completedAt < 3600000) {
+        return response.status(403).send('Account deletion is processing. Please try again later.');
+      }
+      // Old Firebase ID tokens have expired. A new registration may now use
+      // Telegram's deterministic UID without restoring any previous data.
+      await deletionRef.delete();
+    }
     const firebaseToken = await admin.auth().createCustomToken(uid, {
       provider: 'telegram',
       telegramId: telegram.id,

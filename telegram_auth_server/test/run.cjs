@@ -4,6 +4,8 @@ const fs = require('node:fs');
 const readline = require('node:readline/promises');
 
 const suites = {
+  accounts: {name: 'Account deletion', files: ['account-deletion.test.js'],
+    gaps: ['Production storage and scheduler; run account-deletion.emulator.cjs for local integration checks']},
   xp: { name: 'XP', files: ['xp.test.js', 'xp-matrix.test.js', 'xp-adjustments.test.js', 'achievements.test.js', 'leaderboard-pages.test.js'],
     gaps: ['Правила Firebase, одновременные запросы, интерфейс и доставка пушей'] },
   profiles: { name: 'Profiles', files: ['workflows.test.js'], pattern: '\\[profiles\\]',

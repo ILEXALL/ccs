@@ -1,7 +1,7 @@
 const { test, before, beforeEach, after } = require('node:test');
 const assert = require('node:assert/strict');
 const { initializeTestEnvironment, assertSucceeds, assertFails } = require('@firebase/rules-unit-testing');
-const { doc, setDoc, getDoc, updateDoc, Timestamp, serverTimestamp, setLogLevel } = require('firebase/firestore');
+const { doc, setDoc, getDoc, updateDoc, deleteDoc, runTransaction, Timestamp, serverTimestamp, setLogLevel } = require('firebase/firestore');
 
 if (process.env.FIRESTORE_EMULATOR_HOST !== '127.0.0.1:18080') {
   throw new Error('Tests require the local CCS emulator at 127.0.0.1:18080');
@@ -38,6 +38,38 @@ beforeEach(async () => {
   });
 });
 after(async () => { if (env) await env.cleanup(); });
+
+test('[rules terms] consent is private, versioned, server-timed and immutable', async () => {
+  const version = '2026-09-24';
+  const path = `users/owner/legal_acceptances/${version}`;
+  const own = doc(client('owner'), path);
+  const agreement = () => ({termsVersion: version, acceptedAt: serverTimestamp()});
+  await assertFails(setDoc(doc(client('other'), path), agreement()));
+  await assertFails(setDoc(own, {...agreement(), acceptedAt: Timestamp.fromMillis(0)}));
+  await assertFails(setDoc(own, {...agreement(), unexpected: true}));
+  await assertFails(setDoc(doc(client('owner'), 'users/owner/legal_acceptances/unknown'), {
+    termsVersion: 'unknown', acceptedAt: serverTimestamp(),
+  }));
+  await assertSucceeds(setDoc(own, agreement()));
+  const first = await assertSucceeds(getDoc(own));
+  assert.equal(first.data().termsVersion, version);
+  assert.ok(first.data().acceptedAt instanceof Timestamp);
+  for (const context of [client('other'), client('admin'), env.unauthenticatedContext().firestore()]) {
+    await assertFails(getDoc(doc(context, path)));
+  }
+  await assertFails(updateDoc(own, {acceptedAt: serverTimestamp()}));
+  await assertFails(deleteDoc(own));
+  // A retry reads the existing record, without replacing its original timestamp.
+  const db = client('owner');
+  await assertSucceeds(runTransaction(db, async transaction => {
+    const ref = doc(db, path);
+    const existing = await transaction.get(ref);
+    if (existing.data()?.termsVersion === version) return;
+    transaction.set(ref, agreement());
+  }));
+  const afterRetry = await getDoc(own);
+  assert.ok(first.data().acceptedAt.isEqual(afterRetry.data().acceptedAt));
+});
 
 test('[rules XP config] achievement flag is optional, boolean and admin-only', async () => {
   const config = {levels_enabled: true, xp_awards_enabled: true, weeklyLimit: 3000,

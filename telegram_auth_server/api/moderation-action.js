@@ -82,7 +82,7 @@ async function authenticatedUser(req) {
     return null;
   }
 
-  return admin.auth().verifyIdToken(authorization.slice('Bearer '.length));
+  return admin.auth().verifyIdToken(authorization.slice('Bearer '.length), true);
 }
 
 async function actorContext(req) {
