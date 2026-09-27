@@ -1,6 +1,10 @@
 {
   "rewrites": [
     {
+      "source": "/api/account-deletion",
+      "destination": "/api/community?endpoint=account-deletion"
+    },
+    {
       "source": "/api/xp-sync",
       "destination": "/api/community?endpoint=xp-sync"
     },
@@ -12,5 +16,16 @@
       "source": "/api/spot-visit",
       "destination": "/api/community?endpoint=spot-visit"
     }
-  ]
+  ],
+  "crons": [
+    {
+      "path": "/api/account-deletion",
+      "schedule": "0 3 * * *"
+    }
+  ],
+  "functions": {
+    "api/community.js": {
+      "maxDuration": 60
+    }
+  }
 }

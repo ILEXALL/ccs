@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
@@ -159,10 +160,15 @@ Future<String> uploadImageBytesToR2({
   required List<int> bytes,
   String contentType = 'image/jpeg',
 }) async {
-  final presignData = await postJsonToUrl(r2PresignUploadUrl, {
-    'path': safeR2Path(r2Path),
-    'contentType': contentType,
-  });
+  final presignData = await postJsonToUrl(
+    r2PresignUploadUrl,
+    {'path': safeR2Path(r2Path), 'contentType': contentType},
+    headers: {
+      'Authorization':
+          'Bearer ${await FirebaseAuth.instance.currentUser?.getIdToken() ?? ''}',
+    },
+    logResponse: false,
+  );
 
   final uploadUrl = stringFromFirebase(presignData['uploadUrl'], '');
   final publicUrl = stringFromFirebase(presignData['publicUrl'], '');

@@ -8,7 +8,8 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     function isSignedIn() {
-      return request.auth != null;
+      return request.auth != null
+        && !exists(/databases/$(database)/documents/account_deletions/$(request.auth.uid));
     }
 
     function currentUid() {
@@ -1757,6 +1758,16 @@ service cloud.firestore {
     }
 
     match /users/{userId} {
+      match /legal_acceptances/{version} {
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId)
+          && version == '2026-09-24'
+          && request.resource.data.keys().hasOnly(['termsVersion', 'acceptedAt'])
+          && request.resource.data.termsVersion == version
+          && request.resource.data.acceptedAt == request.time;
+        // Acceptance history cannot be rewritten by a client.
+        allow update, delete: if false;
+      }
       allow read: if isSignedIn();
       allow create: if isOwner(userId) && validNewUser(userId);
       allow update: if (

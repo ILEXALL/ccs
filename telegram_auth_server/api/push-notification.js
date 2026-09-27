@@ -434,7 +434,7 @@ async function authenticatedUser(request) {
     return null;
   }
 
-  return admin.auth().verifyIdToken(authorization.slice('Bearer '.length));
+  return admin.auth().verifyIdToken(authorization.slice('Bearer '.length), true);
 }
 
 function timestampMillis(value) {

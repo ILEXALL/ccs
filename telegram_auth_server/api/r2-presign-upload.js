@@ -1,5 +1,6 @@
 import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+import firebase from '../lib/firebase-admin.js';
 
 const allowedPrefixes = ["spots/", "users/", "garage/"];
 const allowedContentTypes = ["image/jpeg", "image/png", "image/webp"];
@@ -18,6 +19,14 @@ export default async function handler(req, res) {
   }
 
   try {
+    const bearer = req.headers.authorization || '';
+    if (!bearer.startsWith('Bearer ')) return res.status(401).json({error: 'Sign in required'});
+    let token;
+    try { token = await firebase.admin.auth().verifyIdToken(bearer.slice(7), true); }
+    catch (_) { return res.status(401).json({error: 'Sign in required'}); }
+    if ((await firebase.db.collection('account_deletions').doc(token.uid).get()).exists) {
+      return res.status(403).json({error: 'Account deletion in progress'});
+    }
     const path = cleanPath(req.body?.path);
     const contentType = String(req.body?.contentType || "").trim();
     const cacheControl = String(
@@ -30,6 +39,19 @@ export default async function handler(req, res) {
 
     if (!allowedPrefixes.some((prefix) => path.startsWith(prefix))) {
       return res.status(400).json({ error: "Invalid upload path" });
+    }
+    const [root, owner] = path.split('/');
+    if (['users', 'garage'].includes(root) && owner !== token.uid) {
+      return res.status(403).json({error: 'Upload path belongs to another account'});
+    }
+    if (root === 'spots') {
+      const [spot, actor] = await Promise.all([
+        firebase.db.collection('spots').doc(owner).get(),
+        firebase.db.collection('users').doc(token.uid).get(),
+      ]);
+      if (spot.exists && spot.data().addedByUid !== token.uid && spot.data().ownerUid !== token.uid && actor.data()?.role !== 'admin') {
+        return res.status(403).json({error: 'No permission to upload to this spot'});
+      }
     }
 
     if (!allowedContentTypes.includes(contentType)) {

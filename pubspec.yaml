@@ -53,6 +53,7 @@ flutter:
   uses-material-design: true
 
   assets:
+    - assets/legal/terms.txt
     - assets/icon.png
     - assets/cities/
     - assets/country_outlines.json

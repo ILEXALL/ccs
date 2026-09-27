@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'package:ccs_app/features/auth/widgets/account_deletion_widgets.dart';
+import 'package:ccs_app/features/auth/widgets/legal_documents.dart';
 import 'package:flutter/material.dart' hide Text;
 import 'package:ccs_app/core/localization/ccs_text.dart' show CcsText, trText;
 import 'package:ccs_app/core/theme/app_theme.dart'
@@ -153,6 +155,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
       body: ListView(
         padding: const EdgeInsets.fromLTRB(12, 18, 12, 28),
         children: [
+          const LegalDocumentLinks(),
+          const DeleteAccountTile(),
           AddSpotSection(
             title: 'Notifications',
             children: [

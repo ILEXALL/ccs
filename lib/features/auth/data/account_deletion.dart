@@ -1,0 +1,83 @@
+import 'dart:math';
+import 'package:ccs_app/core/config/app_config.dart' show telegramAuthBaseUrl;
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:ccs_app/core/network/json_http.dart';
+import 'package:ccs_app/features/auth/data/session_lifecycle.dart';
+
+const accountDeletionUrl = '$telegramAuthBaseUrl/api/account-deletion';
+const deletionReceiptKey = 'ccs.accountDeletionReceipt';
+const deletionReceiptOwnerKey = 'ccs.accountDeletionReceiptOwner';
+
+Future<String?> accountDeletionStatus() async {
+  final prefs = await SharedPreferences.getInstance();
+  final receipt = prefs.getString(deletionReceiptKey);
+  if (receipt == null) return null;
+  final result = await postJsonToUrl(accountDeletionUrl, {
+    'action': 'status',
+    'receipt': receipt,
+  }, logResponse: false).timeout(const Duration(seconds: 20));
+  return result['status'] as String?;
+}
+
+Future<void> dismissDeletionReceipt() async {
+  final prefs = await SharedPreferences.getInstance();
+  await prefs.remove(deletionReceiptKey);
+  await prefs.remove(deletionReceiptOwnerKey);
+}
+
+Future<void> requestAccountDeletion() async {
+  final user = FirebaseAuth.instance.currentUser;
+  if (user == null) {
+    throw StateError('Sign in again before deleting your account.');
+  }
+  final prefs = await SharedPreferences.getInstance();
+  final sameAccount = prefs.getString(deletionReceiptOwnerKey) == user.uid;
+  final existingReceipt = sameAccount
+      ? prefs.getString(deletionReceiptKey)
+      : null;
+  // Recover an accepted request before refreshing a now-disabled account token.
+  if (existingReceipt != null) {
+    final status = await accountDeletionStatus();
+    if (status == 'processing' || status == 'complete') {
+      await signOutCurrentAccount();
+      return;
+    }
+  }
+  final token = await user.getIdTokenResult(true);
+  final authTime = token.authTime;
+  if (authTime == null ||
+      DateTime.now().difference(authTime) > const Duration(minutes: 5)) {
+    throw StateError(
+      'For your security, sign out and sign in again, then return here to delete your account.',
+    );
+  }
+  final random = Random.secure();
+  final receipt =
+      existingReceipt ??
+      List.generate(
+        32,
+        (_) => random.nextInt(256).toRadixString(16).padLeft(2, '0'),
+      ).join();
+  // Persist before sending: a lost response must not lose the status receipt.
+  // Clear the old pair first so a crash cannot attach its receipt to another UID.
+  await prefs.remove(deletionReceiptKey);
+  await prefs.setString(deletionReceiptOwnerKey, user.uid);
+  await prefs.setString(deletionReceiptKey, receipt);
+  try {
+    await postJsonToUrl(
+      accountDeletionUrl,
+      {'confirmation': 'DELETE', 'receipt': receipt},
+      headers: {'Authorization': 'Bearer ${token.token}'},
+      logResponse: false,
+    ).timeout(const Duration(seconds: 30));
+  } catch (_) {
+    final status = await accountDeletionStatus();
+    if (status != 'processing' && status != 'complete') {
+      throw StateError(
+        'Could not confirm the deletion request. Check your connection and retry.',
+      );
+    }
+  }
+  await signOutCurrentAccount();
+}

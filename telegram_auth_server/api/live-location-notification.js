@@ -312,7 +312,7 @@ module.exports = async function liveLocationNotificationHandler(req, res) {
       return;
     }
 
-    const decodedToken = await getAuth().verifyIdToken(token);
+    const decodedToken = await getAuth().verifyIdToken(token, true);
     const senderUid = String(decodedToken.uid || '').trim();
     if (!senderUid) {
       res.status(401).json({ ok: false, error: 'Invalid Firebase user.' });
