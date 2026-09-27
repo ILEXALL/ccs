@@ -233,9 +233,11 @@ service cloud.firestore {
     }
 
     function isActiveAccount() {
+      let data = currentUserData();
       return isSignedIn()
-        && currentUserData().get('deleted', false) != true
-        && isNotBanned();
+        && data.get('deleted', false) != true
+        && (data.get('banned', false) != true
+          || (data.get('bannedUntil', null) is timestamp && data.bannedUntil < request.time));
     }
 
     function hasAcceptedCurrentTerms() {
@@ -259,7 +261,7 @@ service cloud.firestore {
     }
 
     function isStaff() {
-      return isAdmin() || isModerator();
+      return isActiveUser() && currentUserData().get('role', 'user') in ['admin', 'moderator'];
     }
 
     function isGlobalModerator() {
@@ -335,14 +337,20 @@ service cloud.firestore {
     }
 
     function canModerateCountry(code) {
-      return isAdmin() || (isModerator() && validCommunityCountryCode(code)
-        && code in currentUserData().get('moderatorCountryCodes', []));
+      let actor = currentUserData();
+      return isActiveUser() && (actor.get('role', 'user') == 'admin'
+        || (actor.get('role', 'user') == 'moderator' && validCommunityCountryCode(code)
+          && code in actor.get('moderatorCountryCodes', [])));
     }
 
     function canModerateCommunity(data) {
       let code = data.get('countryCode', 'LV');
-      return isAdmin() || (isGlobalModerator() && validCommunityCountryCode(code)
-        && code in currentUserData().get('moderatorCountryCodes', []));
+      let actor = currentUserData();
+      return isActiveUser() && (actor.get('role', 'user') == 'admin'
+        || ((actor.get('role', 'user') == 'moderator'
+            || actor.get('globalChatModerator', false) == true
+            || actor.get('globalModerator', false) == true)
+          && validCommunityCountryCode(code) && code in actor.get('moderatorCountryCodes', [])));
     }
 
     function canModerateUser(userId) {
@@ -790,7 +798,7 @@ service cloud.firestore {
 
     function spotAudienceAllowed(data) {
       return data.get('visibility', 'public') == 'public'
-        || isAdmin() || canModerateRecord(data) || hasSpotGroupAccess(data, currentUid());
+        || canModerateRecord(data) || hasSpotGroupAccess(data, currentUid());
     }
 
     function validSpotAudience(data) {
@@ -1987,7 +1995,9 @@ service cloud.firestore {
 
     match /spots/{spotId} {
       allow read: if canReadSpot();
-      allow create: if isActiveUser()
+      // Group creation uses the server transaction to support all eight groups.
+      allow create: if request.resource.data.get('visibility', 'public') == 'public'
+        && isActiveUser()
         && (!exists(/databases/$(database)/documents/media_spot_reservations/$(spotId))
           || get(/databases/$(database)/documents/media_spot_reservations/$(spotId)).data.uid == currentUid())
         && spotCreationRegionAllowed(request.resource.data)

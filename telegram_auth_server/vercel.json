@@ -1,6 +1,10 @@
 {
   "rewrites": [
     {
+      "source": "/api/group-spot-create",
+      "destination": "/api/community?endpoint=group-spot-create"
+    },
+    {
       "source": "/api/account-deletion",
       "destination": "/api/community?endpoint=account-deletion"
     },

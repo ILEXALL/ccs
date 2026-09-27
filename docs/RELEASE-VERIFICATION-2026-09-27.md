@@ -4,11 +4,11 @@ Status: not ready for production deployment or submission. Server fixes have bee
 deployed to a preview; this is not evidence that production deletion, Apple login,
 or the replacement iOS build works.
 
-## Preview deployment — 27 September 2026
+## Earlier preview deployment — 27 September 2026
 
 - Git branch `codex/release-server-verification`, commit `81f7906` contains the
-  server changes and tests below. Flutter, rules, CI and release-document changes
-  remain local.
+  first server changes. The later `fec6545` preview below supersedes it;
+  neither deployed production or Firebase rules.
 - Vercel deployment `dpl_4dCURLqJYW1hHNU1L9EpxJgjKgHS` is Ready in Preview:
   https://vercel.com/ccs-projects1/ccs/4dCURLqJYW1hHNU1L9EpxJgjKgHS
 - Host: https://ccs-kaf1eisgt-ccs-projects1.vercel.app
@@ -20,6 +20,36 @@ or the replacement iOS build works.
   fails closed. No destructive worker or R2 operation was exercised; daily production
   scheduling, actual deletion completion and upload compatibility remain unverified.
 - No production promotion or Firebase rules deployment was performed.
+
+## Subsequent preview and group-creation migration
+
+Commit `fec6545` deployed successfully to
+https://ccs-k10bfdnq9-ccs-projects1.vercel.app
+(`dpl_3VqZxnLwxNY9t1NsNCKYT7MGVWuD`). Live checks confirmed disabled deletion
+(503), authenticated upload enforcement (401 without a token), and Firebase
+connectivity (200/unknown for a synthetic deletion receipt).
+
+The user chose to preserve sharing to eight groups by moving creation to the server.
+The new `/api/group-spot-create` route shares the existing community function.
+It atomically creates the spot, canonical forum topic and up to eight group links,
+checking consent, deletion status, bans, country restrictions, every membership,
+photo namespace/reservation and moderation permission. Repeated identical requests
+for the same spot ID are idempotent. The replacement Flutter client uses this route;
+new rules reject direct group-spot creation. Do not deploy these rules while build
+13 clients still need to create group spots. Public spot creation remains direct.
+
+Rule helpers now avoid repeated role/auth evaluation that exceeded the expression
+budget in automatic-topic updates. Emulator fixtures explicitly seed consent and
+reset isolated demo projects between runs.
+
+Validation: 254 offline server tests, 102 emulator checks and 286 Flutter tests.
+Emulator checks cover eight-group atomic creation, concurrent duplicate requests,
+full rollback on an existing topic, regional moderation, denial without consent or
+membership, deletion tombstones, bans, foreign uploads, expiry and a ninth group.
+Reading as a member only of the eighth group also passes. Targeted Flutter analysis
+reports no issues. Real authenticated uploads, native iOS flows and production
+scheduling remain unverified. These changes are preview-only until the coordinated
+migration; they do not authorize enabling deletion.
 
 ## Implemented and checked locally
 
@@ -241,8 +271,8 @@ Preview deployment uses the dedicated Git branch. Production remains unchanged.
    do not recreate/reset the account merely because the original Mac file is absent.
 5. Coordinate rollout: build 13 cannot call the protected upload endpoint. Keep
    authentication intact, prepare the replacement client, and decide the old-build
-   expiry/minimum-version rollout before changing production. The app still targets
-   the legacy upload host; verify and coordinate both hosts before enabling deletion.
+   expiry/minimum-version rollout before changing production. The replacement source now targets
+   the authenticated canonical host; build 13 retains the legacy host.
 6. Deploy consent rules before distributing the new client, then verified backend
    configuration with deletion disabled. Verify storage and actual daily scheduling,
    then enable deletion. Update the already published legal pages only after that.

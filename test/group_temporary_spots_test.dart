@@ -1,3 +1,5 @@
+import 'dart:convert';
+import 'package:ccs_app/features/spots/data/group_spot_creation.dart';
 import 'package:ccs_app/features/community/chats/models/chat_thread.dart'
     as app
     show ChatThreadData;
@@ -34,39 +36,61 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:latlong2/latlong.dart';
 
-app.CarSpot event({String visibility = 'public'}) => app.CarSpot(
-  id: 'event',
-  name: 'Event',
-  cityCountry: 'Riga, Latvia',
-  countryCode: 'LV',
-  coordinates: const LatLng(56.95, 24.1),
-  description: 'Description',
-  categories: const ['Meet'],
-  photoUrl: '',
-  reelLink: '',
-  bestTime: '',
-  parking: '',
-  roadQuality: '',
-  lowCarFriendly: false,
-  policeRisk: '',
-  traffic: '',
-  lighting: '',
-  crowd: '',
-  addedBy: 'Creator',
-  addedByUid: 'creator',
-  status: app.SpotStatus.approved,
-  isTemporary: true,
-  startsAtMillis: 2000000000000,
-  expiresAtMillis: 2000003600000,
-  visibility: visibility,
-  sharedGroupIds: visibility == 'group' ? ['g'] : [],
-  sharedGroups: visibility == 'group'
-      ? [
-          {'id': 'g', 'name': 'Night Drivers', 'avatarUrl': ''},
-        ]
-      : [],
-);
+app.CarSpot event({String visibility = 'public', List<String>? groupIds}) =>
+    app.CarSpot(
+      id: 'event',
+      name: 'Event',
+      cityCountry: 'Riga, Latvia',
+      countryCode: 'LV',
+      coordinates: const LatLng(56.95, 24.1),
+      description: 'Description',
+      categories: const ['Meet'],
+      photoUrl: '',
+      reelLink: '',
+      bestTime: '',
+      parking: '',
+      roadQuality: '',
+      lowCarFriendly: false,
+      policeRisk: '',
+      traffic: '',
+      lighting: '',
+      crowd: '',
+      addedBy: 'Creator',
+      addedByUid: 'creator',
+      status: app.SpotStatus.approved,
+      isTemporary: true,
+      startsAtMillis: 2000000000000,
+      expiresAtMillis: 2000003600000,
+      visibility: visibility,
+      sharedGroupIds: visibility == 'group' ? (groupIds ?? ['g']) : [],
+      sharedGroups: visibility == 'group'
+          ? [
+              {'id': 'g', 'name': 'Night Drivers', 'avatarUrl': ''},
+            ]
+          : [],
+    );
 void main() {
+  test(
+    'group creation request carries JSON timestamps and all eight groups',
+    () {
+      final spot = event(
+        visibility: 'group',
+        groupIds: List.generate(8, (index) => 'g$index'),
+      );
+      final body =
+          jsonDecode(jsonEncode(groupSpotCreationBody(spot)))
+              as Map<String, dynamic>;
+      final data = body['spot'] as Map<String, dynamic>;
+      expect(body['spotId'], 'event');
+      expect(data['startsAt'], spot.startsAtMillis);
+      expect(data['expiresAt'], spot.expiresAtMillis);
+      expect(data['showOnMapAt'], isNull);
+      expect(data['sharedGroupIds'], hasLength(8));
+      expect(data['coordinates'], isNull);
+      expect(data['updatedAt'], isNull);
+      expect(data['lowCarFriendly'], false);
+    },
+  );
   testWidgets(
     'Upcoming uses cyan group styling and group metadata only for group events',
     (tester) async {

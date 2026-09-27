@@ -19,8 +19,10 @@ async function request(path, uid, method='GET', obj) {
   const masks=obj?Object.keys(obj).map(k=>'updateMask.fieldPaths='+encodeURIComponent(k)).join('&'):'';
   return fetch(`${base}/${path}${masks?'?'+masks:''}`,{method,headers:{authorization:'Bearer '+(uid==='owner'?'owner':token(uid)),'content-type':'application/json'},body:obj?JSON.stringify({fields:fields(obj)}):undefined});
 }
-async function seed(path,obj) {const res=await request(path,'owner','PATCH',obj);assert.equal(res.status,200,await res.text());}
+async function seed(path,obj) {const res=await request(path,'owner','PATCH',obj);assert.equal(res.status,200,await res.text());if(/^users\/[^/]+$/.test(path))await seed(path+'/legal_acceptances/2026-09-24',{termsVersion:'2026-09-24'});}
 test.before(async()=>{
+  const reset=await fetch(`http://${host}/emulator/v1/projects/${project}/databases/(default)/documents`,{method:'DELETE'});
+  assert.equal(reset.status,200,await reset.text());
   const rulesPath=require('node:path').resolve(__dirname, '../../firestore.rules');
   const rules=await fetch(`http://${host}/emulator/v1/projects/${project}:securityRules`,{method:'PUT',headers:{'content-type':'application/json'},body:JSON.stringify({rules:{files:[{name:'firestore.rules',content:fs.readFileSync(rulesPath,'utf8')}]}})});
   assert.equal(rules.status,200,await rules.text());
@@ -169,7 +171,7 @@ test('group spots and forum enforce membership and exclude public queries', asyn
   assert.equal(query.status,200,await query.text());
 });
 
-test('group creation rejects nonmembers and creates spot/forum together', async()=>{
+test('direct group creation is denied; clients must use the server', async()=>{
   const uid='groupCreator';await seed('users/'+uid,{uid,role:'user',country:'Latvia',banned:false,deleted:false,verified:false});
   await seed('chats/creatorGroup',{isGroup:true,memberIds:[uid]});
   await seed('chats/foreignGroup',{isGroup:true,memberIds:['someoneElse']});
@@ -180,7 +182,7 @@ test('group creation rejects nonmembers and creates spot/forum together', async(
   const allGroups=Array.from({length:8},(_,i)=>'maxGroup'+i);
   for(const id of allGroups) await seed('chats/'+id,{isGroup:true,memberIds:[uid]});
   let maxResult=await request('spots/maxGroups'+Date.now(),uid,'PATCH',{...spot,sharedGroupIds:allGroups});
-  assert.equal(maxResult.status,200,await maxResult.text());
+  assert.equal(maxResult.status,403,await maxResult.text());
   const starts={timestampValue:new Date(Date.now()+3600000).toISOString()},ends={timestampValue:new Date(Date.now()+7200000).toISOString()};
   const topic={title:spot.name,countryCode:'LV',authorCountryCode:'LV',country:'Latvia',category:'Meets',categoryId:'meets_events',description:'Group event',avatarUrl:spot.photoUrl,authorId:uid,authorName:'Creator',repliesCount:0,isPinned:false,status:'pending',rejectionReason:null,reviewedBy:null,reviewedAt:null,visibility:'group',sharedGroupIds:['creatorGroup'],sharedGroups:[],source:'temporary_spot',isSpotTopic:true,spotId,temporarySpotId:spotId};
   const docPath=path=>`projects/${project}/databases/(default)/documents/${path}`;
@@ -188,14 +190,14 @@ test('group creation rejects nonmembers and creates spot/forum together', async(
     {update:{name:docPath('chats/creatorGroup/spot_links/'+spotId),fields:fields({spotId,authorUid:uid,published:false})}},
     {update:{name:docPath('forum_topics/temporary_spot_'+spotId),fields:{...fields(topic),temporarySpotStartsAt:starts,temporarySpotExpiresAt:ends,autoExpiresAt:ends}},updateTransforms:[{fieldPath:'createdAt',setToServerValue:'REQUEST_TIME'},{fieldPath:'lastReplyAt',setToServerValue:'REQUEST_TIME'}]}];
   res=await fetch(base+':commit',{method:'POST',headers:{authorization:'Bearer '+token(uid),'content-type':'application/json'},body:JSON.stringify({writes})});
-  assert.equal(res.status,200,await res.text());
+  assert.equal(res.status,403,await res.text());
   const eightId=spotId+'eight';
   const eightTopic={...topic,spotId:eightId,temporarySpotId:eightId,sharedGroupIds:allGroups};
   const eightWrites=[{update:{name:docPath('spots/'+eightId),fields:{...fields({...spot,sharedGroupIds:allGroups}),startsAt:starts,expiresAt:ends}}},
     ...allGroups.map(groupId=>({update:{name:docPath(`chats/${groupId}/spot_links/${eightId}`),fields:fields({spotId:eightId,authorUid:uid,published:false})}})),
     {update:{name:docPath('forum_topics/temporary_spot_'+eightId),fields:{...fields(eightTopic),temporarySpotStartsAt:starts,temporarySpotExpiresAt:ends,autoExpiresAt:ends}},updateTransforms:[{fieldPath:'createdAt',setToServerValue:'REQUEST_TIME'},{fieldPath:'lastReplyAt',setToServerValue:'REQUEST_TIME'}]}];
   res=await fetch(base+':commit',{method:'POST',headers:{authorization:'Bearer '+token(uid),'content-type':'application/json'},body:JSON.stringify({writes:eightWrites})});
-  assert.equal(res.status,200,await res.text());
+  assert.equal(res.status,403,await res.text());
 });
 
 test('forum review decisions and country locks cannot be bypassed by clients', async()=>{

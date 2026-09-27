@@ -28,6 +28,97 @@ async function seed(rows) {
 }
 const auth = () => ({updateUser: async () => {}, revokeRefreshTokens: async () => {}, deleteUser: async () => {}});
 
+async function groupCreationFixture() {
+  const {TERMS_VERSION} = require('../lib/media-uploads');
+  const groups = Array.from({length: 8}, (_, i) => `group${i}`);
+  await seed({'users/alice': {username: 'Alice', role: 'user', country: 'Latvia'},
+    [`users/alice/legal_acceptances/${TERMS_VERSION}`]: {termsVersion: TERMS_VERSION},
+    'media_spot_reservations/event': {uid: 'alice'},
+    ...Object.fromEntries(groups.map(id => [`chats/${id}`, {isGroup: true, memberIds: ['alice'], name: id}]))});
+  const photo = 'https://media.example/spots/event/users/alice/main.jpg';
+  return {db, firestore: admin.firestore, uid: 'alice', publicBaseUrl: 'https://media.example',
+    body: {spotId: 'event', topicDescription: 'Meet', spot: {
+      name: 'Meet', cityCountry: 'Riga, Latvia', countryCode: 'LV', categories: ['Meet'],
+      lat: 56.95, lng: 24.1, startsAt: Date.now() + 3600000, expiresAt: Date.now() + 7200000,
+      showOnMapAt: null, lowCarFriendly: false, photoUrl: photo, photoUrls: [photo],
+      visibility: 'group', isTemporary: true, sharedGroupIds: groups, status: 'pending',
+      addedByUid: 'forged', authorId: 'forged', likeCount: 999,
+    }}};
+}
+
+test('server atomically creates a spot, topic and all eight links, and handles a lost response', async () => {
+  const {createGroupSpot} = require('../lib/group-spot-create');
+  const input = await groupCreationFixture();
+  const results = await Promise.all([createGroupSpot(input), createGroupSpot(input)]);
+  assert.deepEqual(results, [{spotId: 'event', status: 'pending'}, {spotId: 'event', status: 'pending'}]);
+  const spot = (await db.doc('spots/event').get()).data();
+  assert.equal(spot.addedByUid, 'alice');
+  assert.equal(spot.likeCount, 0);
+  assert.equal(spot.lowCarFriendly, false);
+  assert.equal(spot.showOnMapAt, null);
+  assert.equal(spot.sharedGroups.length, 8);
+  const topic = (await db.doc('forum_topics/temporary_spot_event').get()).data();
+  assert.equal(topic.authorId, 'alice');
+  assert.equal(topic.status, 'pending');
+  // Membership in only the last group must still permit reading the event.
+  const {TERMS_VERSION} = require('../lib/media-uploads');
+  await seed({'users/bob': {role: 'user', country: 'Latvia'},
+    [`users/bob/legal_acceptances/${TERMS_VERSION}`]: {termsVersion: TERMS_VERSION}});
+  await db.doc('chats/group7').update({memberIds: ['alice', 'bob']});
+  await db.doc('spots/event').update({status: 'approved'});
+  await assertSucceeds(getDoc(doc(env.authenticatedContext('bob').firestore(), 'spots/event')));
+  for (const group of input.body.spot.sharedGroupIds) {
+    assert.deepEqual((await db.doc(`chats/${group}/spot_links/event`).get()).data(),
+      {spotId: 'event', authorUid: 'alice', published: false});
+  }
+  input.body.spot.name = 'Changed';
+  await assert.rejects(createGroupSpot(input), {status: 409});
+});
+
+test('failed topic creation rolls back the spot and links', async () => {
+  const {createGroupSpot} = require('../lib/group-spot-create');
+  const input = await groupCreationFixture();
+  await db.doc('forum_topics/temporary_spot_event').set({authorId: 'bob'});
+  await assert.rejects(createGroupSpot(input));
+  assert.equal((await db.doc('spots/event').get()).exists, false);
+  assert.equal((await db.collectionGroup('spot_links').get()).empty, true);
+  assert.equal((await db.doc('forum_topics/temporary_spot_event').get()).data().authorId, 'bob');
+});
+
+test('regional moderators can publish in their own country', async () => {
+  const {createGroupSpot} = require('../lib/group-spot-create');
+  const input = await groupCreationFixture();
+  await db.doc('users/alice').update({role: 'moderator', moderatorCountryCodes: ['LV']});
+  input.body.spot.status = 'approved';
+  input.body.spot.showOnMapAt = input.body.spot.startsAt - 3600000;
+  await createGroupSpot(input);
+  assert.equal((await db.doc('forum_topics/temporary_spot_event').get()).data().status, 'approved');
+  assert.equal((await db.doc('chats/group7/spot_links/event').get()).data().published, true);
+});
+
+for (const scenario of ['consent', 'deletion', 'ban', 'membership', 'group-ban', 'reservation', 'region', 'approval', 'photo', 'expiry', 'ninth-group']) {
+  test(`group creation rejects ${scenario} without partial writes`, async () => {
+    const {createGroupSpot} = require('../lib/group-spot-create');
+    const input = await groupCreationFixture();
+    const {TERMS_VERSION} = require('../lib/media-uploads');
+    if (scenario === 'consent') await db.doc(`users/alice/legal_acceptances/${TERMS_VERSION}`).delete();
+    if (scenario === 'deletion') await db.doc('account_deletions/alice').set({status: 'queued'});
+    if (scenario === 'ban') await db.doc('users/alice').update({banned: true});
+    if (scenario === 'membership') await db.doc('chats/group7').update({memberIds: []});
+    if (scenario === 'group-ban') await db.doc('chats/group7').update({bannedMemberIds: ['alice']});
+    if (scenario === 'reservation') await db.doc('media_spot_reservations/event').update({uid: 'bob'});
+    if (scenario === 'region') await db.doc('app_config/main').set({bannedCountryCodes: ['LV']});
+    if (scenario === 'approval') input.body.spot.status = 'approved';
+    if (scenario === 'photo') input.body.spot.photoUrls[0] = input.body.spot.photoUrl = 'https://media.example/spots/event/users/bob/main.jpg';
+    if (scenario === 'expiry') input.body.spot.expiresAt = Date.now() - 1;
+    if (scenario === 'ninth-group') input.body.spot.sharedGroupIds.push('group8');
+    await assert.rejects(createGroupSpot(input), error => [400, 403].includes(error.status));
+    assert.equal((await db.doc('spots/event').get()).exists, false);
+    assert.equal((await db.doc('forum_topics/temporary_spot_event').get()).exists, false);
+    assert.equal((await db.collectionGroup('spot_links').get()).empty, true);
+  });
+}
+
 test('queue wraps fairly, retries failures, and records scheduler evidence', async () => {
   await seed(Object.fromEntries(['a', 'b', 'c', 'd', 'e', 'f', 'g'].map(uid => [
     `account_deletions/${uid}`, {status: 'queued'},
