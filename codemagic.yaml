@@ -9,6 +9,7 @@ workflows:
 
     environment:
       flutter: stable
+      node: 22
       xcode: latest
       cocoapods: default
       ios_signing:
@@ -26,6 +27,19 @@ workflows:
         script: |
           cd ios
           pod install
+
+      - name: Validate Flutter release
+        script: |
+          set -e
+          flutter analyze --no-fatal-infos --no-fatal-warnings
+          flutter test
+
+      - name: Validate server
+        script: |
+          set -e
+          cd telegram_auth_server
+          npm ci
+          npm test
 
       - name: Set up iOS code signing
         script: |

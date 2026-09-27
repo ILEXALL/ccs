@@ -44,6 +44,20 @@ Future<void> requestAccountDeletion() async {
       return;
     }
   }
+  // Apple's grant must be revoked as part of deletion, including accounts
+  // originally created with Google/Telegram and subsequently linked to Apple.
+  if (user.providerData.any((provider) => provider.providerId == 'apple.com')) {
+    final credential = await user.reauthenticateWithProvider(
+      AppleAuthProvider(),
+    );
+    final code = credential.additionalUserInfo?.authorizationCode;
+    if (code == null || code.isEmpty) {
+      throw StateError(
+        'Apple did not authorize account deletion. Please retry.',
+      );
+    }
+    await FirebaseAuth.instance.revokeTokenWithAuthorizationCode(code);
+  }
   final token = await user.getIdTokenResult(true);
   final authTime = token.authTime;
   if (authTime == null ||

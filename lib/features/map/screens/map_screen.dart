@@ -552,10 +552,27 @@ class _MapScreenState extends State<MapScreen>
                     return MarkerLayer(markers: [if (marker != null) marker]);
                   },
                 ),
-                RichAttributionWidget(
-                  attributions: appearance.mapAttributions,
-                  showFlutterMapAttribution: false,
-                  popupBackgroundColor: panelGlass,
+                SafeArea(
+                  child: Align(
+                    alignment: Alignment.bottomRight,
+                    child: Container(
+                      color: panelGlass,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 4,
+                        vertical: 2,
+                      ),
+                      child: DefaultTextStyle(
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 11,
+                        ),
+                        child: Wrap(
+                          spacing: 8,
+                          children: appearance.mapAttributions,
+                        ),
+                      ),
+                    ),
+                  ),
                 ),
               ],
             ),

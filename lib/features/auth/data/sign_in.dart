@@ -315,7 +315,7 @@ Future<AppUser> saveFirebaseUser(
     'showGarage': settings.showGarage,
     'garage': garage.map((car) => car.toFirebase()).toList(),
     'provider': effectiveProvider,
-    'telegramUsername': telegramUsername,
+    'telegramUsername': telegramUsername ?? data?['telegramUsername'],
     'deviceIds': FieldValue.arrayUnion(appDeviceIds),
     'lastDeviceId': appDeviceId,
     'lastDevicePlatform': Platform.operatingSystem,
@@ -586,6 +586,44 @@ Future<AppUser> signInWithTelegramAndSaveUser({
     startNotificationCenterUnreadWatcher();
   }
   return currentUser;
+}
+
+Future<AppUser> signInWithAppleAndSaveUser({
+  NewUserNicknameRequester? requestNewUserNickname,
+}) async {
+  final result = await FirebaseAuth.instance.signInWithProvider(
+    AppleAuthProvider()
+      ..addScope('email')
+      ..addScope('name'),
+  );
+  final user = result.user;
+  if (user == null) throw StateError('Apple did not return an account.');
+  try {
+    final nickname = await usernameOverrideForNewFirebaseUser(
+      firebaseUser: user,
+      fallbackUsername: makeUsernameFromFirebaseUser(user),
+      requestNewUserNickname: requestNewUserNickname,
+    );
+    setCurrentUser(
+      await saveFirebaseUser(
+        user,
+        provider: 'apple',
+        usernameOverride: nickname,
+      ),
+    );
+    await initializeSpotCountryFiltersForUser(currentUser);
+    startCurrentUserDocumentWatcher();
+    if (!currentUser.banActive) {
+      startFirebaseSpotSync();
+      unawaited(startCurrentUserLikedSpotsSync());
+      unawaited(initializePushNotificationsForCurrentUser());
+      startNotificationCenterUnreadWatcher();
+    }
+    return currentUser;
+  } catch (_) {
+    await FirebaseAuth.instance.signOut();
+    rethrow;
+  }
 }
 
 Future<AppUser> signInWithEmailAndSaveUser(

@@ -1,4 +1,5 @@
-import 'package:ccs_app/app/app_shell.dart' as app show MainScreen;
+import 'package:ccs_app/app/gates/terms_acceptance_gate.dart';
+import 'package:ccs_app/app/gates/profile_region_gate.dart';
 import 'package:ccs_app/features/notifications/data/badge_state.dart'
     as app
     show
@@ -22,10 +23,18 @@ void main() {
     app.activityChatTabIndex = 4;
     expect(app.activitySectionForNavigation(3), isNull);
   });
-  testWidgets('main navigation stays locked until profile region is complete', (
+  testWidgets('accepted terms still require profile region before navigation', (
     tester,
   ) async {
-    await tester.pumpWidget(const MaterialApp(home: app.MainScreen()));
+    await tester.pumpWidget(
+      MaterialApp(
+        home: TermsAcceptanceGate(
+          loadAcceptance: () async => true,
+          child: const ProfileRegionGate(child: Text('Explore')),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
     expect(find.text('Set your region'), findsOneWidget);
     expect(find.text('Explore'), findsNothing);
     expect(find.text('Save and continue'), findsOneWidget);

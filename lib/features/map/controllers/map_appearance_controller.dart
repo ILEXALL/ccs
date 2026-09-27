@@ -131,7 +131,7 @@ class MapAppearanceController implements MapAppearanceActions {
         'CARTO',
         onTap: () => unawaited(
           launchUrl(
-            Uri.parse('https://carto.com/basemaps'),
+            Uri.parse('https://carto.com/attribution/'),
             mode: LaunchMode.externalApplication,
           ),
         ),

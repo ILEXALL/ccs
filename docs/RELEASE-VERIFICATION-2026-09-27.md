@@ -4,6 +4,19 @@ Status: not ready for production deployment or submission. Server fixes have bee
 deployed to a preview; this is not evidence that production deletion, Apple login,
 or the replacement iOS build works.
 
+## Production rules rollback — 27 September, 18:42 local time
+
+The user manually published the replacement rules at 18:31, then explicitly asked
+to restore the preceding version to keep build 13 working. Restored the immediately
+previous console version (20 September, 21:33), capturing all 2,907 numbered lines
+from the history editor and verifying the staged text matched before publication.
+Firebase confirmed successful publication at 18:42 and warned propagation can take
+up to a minute. Backup: `build/firestore-restored-2026-09-20.rules`; confirmation:
+`build/firestore-rules-restored.png`. Repository `firestore.rules` remains the new
+release candidate; do not deploy it again until the coordinated migration. No
+Vercel production changes, deletion activation or data deletion occurred during
+this rollback. Build-13 device flows have not been retested after restoration.
+
 ## Earlier preview deployment — 27 September 2026
 
 - Git branch `codex/release-server-verification`, commit `81f7906` contains the
@@ -22,6 +35,13 @@ or the replacement iOS build works.
 - No production promotion or Firebase rules deployment was performed.
 
 ## Subsequent preview and group-creation migration
+
+Latest verified deployment: commit `06dfedf`, Vercel
+`dpl_DhDQAaSLtnTaM693h7Ze42KpbDpT`, Ready in Preview:
+https://ccs-kyign6knd-ccs-projects1.vercel.app . Live empty POST checks returned
+401 for group creation, 401 for uploads and 503 for disabled account deletion.
+All three returned `Cache-Control: no-store`. No records or files were created by
+these checks. Production hosts, deployed Firebase rules and build 13 are unchanged.
 
 Commit `fec6545` deployed successfully to
 https://ccs-k10bfdnq9-ccs-projects1.vercel.app
