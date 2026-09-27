@@ -3,7 +3,7 @@ const ownedFields = ['uid', 'userId', 'senderUid', 'authorId', 'authorUid', 'add
 const relationFields = ['fromUid', 'toUid', 'targetUserId', 'reportedUid', 'reporterUid',
   'actorUserId', 'actorUid', 'sourceUserUid', 'recipientUid'];
 const sharedRoots = new Set(['users', 'chats', 'app_config', 'partners', 'admin_rewards']);
-const systemRoots = new Set(['account_deletions', 'account_deletion_receipts']);
+const systemRoots = new Set(['account_deletions', 'account_deletion_receipts', 'account_deletion_scheduler']);
 const plain = value => value && Object.getPrototypeOf(value) === Object.prototype;
 
 const identityField = field => /(?:uid|uids|userId|userIds|memberIds|moderatorIds|friendIds|authorId)$/i.test(field);

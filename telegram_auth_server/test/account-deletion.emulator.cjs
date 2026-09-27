@@ -126,6 +126,34 @@ test('small worker budgets resume across page boundaries without skipping docume
   assert.ok(remaining.docs.every(doc => doc.data().userId === 'bob'));
 });
 
+test('reply index resumes after source deletion and checks the current reply target', async () => {
+  const ref = db.doc('account_deletions/alice');
+  await seed({
+    [ref.path]: {status: 'queued', username: 'new_alice', receiptHash: 'receipt'},
+    'users/alice': {deleted: true},
+    'global_chat/a_preview': {userId: 'bob', text: 'keep', replyToMessageId: 'z_mine', replyToUsername: 'old_alice', replyToText: 'erase'},
+    'global_chat/b_retarget': {userId: 'bob', text: 'keep', replyToMessageId: 'z_mine', replyToUsername: 'old_alice', replyToText: 'erase'},
+    'global_chat/z_mine': {userId: 'alice', text: 'erase'},
+    'global_chat/zz_other': {userId: 'bob', text: 'other'},
+  });
+  const advance = () => processDeletion({db, listPage, jobRef: ref, auth: auth(), maxDocuments: 1,
+    media: {deletePrefixPage: async () => true}});
+  let calls = 0;
+  while ((await db.doc('global_chat/z_mine').get()).exists && calls++ < 100) await advance();
+  assert.equal((await db.doc('global_chat/z_mine').get()).exists, false);
+  assert.equal((await ref.collection('reply_checks').get()).size, 2);
+  // A different user can change a reply between the scan and its deferred check.
+  await db.doc('global_chat/b_retarget').update({replyToMessageId: 'zz_other', replyToUsername: 'bob', replyToText: 'other'});
+  while ((await ref.get()).data().status !== 'complete' && calls++ < 150) await advance();
+  assert.equal((await ref.get()).data().status, 'complete');
+  const preview = (await db.doc('global_chat/a_preview').get()).data();
+  assert.equal(preview.text, 'keep');
+  assert.equal(preview.replyToText, '');
+  assert.equal((await db.doc('global_chat/b_retarget').get()).data().replyToText, 'other');
+  assert.equal((await ref.collection('reply_checks').get()).empty, true);
+  assert.equal((await ref.collection('references').get()).empty, true);
+});
+
 test('request derives account from fresh authenticated token and receipt exposes only status', async () => {
   const {createHash} = require('node:crypto');
   const module = {exports: {}};
@@ -143,6 +171,7 @@ test('request derives account from fresh authenticated token and receipt exposes
       if (name.endsWith('/storage')) return {storageAdapter: () => ({})};
       if (name.endsWith('/worker')) return {};
       if (name.endsWith('/list-page')) return {};
+      if (name.endsWith('/queue')) return {};
       throw Error('Unexpected dependency');
     },
   };

@@ -3,6 +3,7 @@ const {admin, db} = require('../lib/firebase-admin');
 const {processDeletion} = require('../lib/account-deletion/worker');
 const {storageAdapter} = require('../lib/account-deletion/storage');
 const {collectionPager} = require('../lib/account-deletion/list-page');
+const {runDeletionQueue} = require('../lib/account-deletion/queue');
 const hash = value => createHash('sha256').update(value).digest('hex');
 const same = (a, b) => typeof a === 'string' && typeof b === 'string' &&
   Buffer.byteLength(a) === Buffer.byteLength(b) && timingSafeEqual(Buffer.from(a), Buffer.from(b));
@@ -14,23 +15,14 @@ module.exports = async (req, res) => {
       if (!process.env.CRON_SECRET || !same(req.headers.authorization, `Bearer ${process.env.CRON_SECRET}`)) {
         return res.status(401).json({error: 'Unauthorized'});
       }
+      if (process.env.ACCOUNT_DELETION_ENABLED !== 'true') {
+        return res.status(503).json({error: 'Account deletion is temporarily unavailable'});
+      }
       const media = storageAdapter();
       const listPage = collectionPager({db, credential: admin.app().options.credential});
-      const jobs = await db.collection('account_deletions').where('status', 'in', ['queued', 'processing']).limit(5).get();
-      const started = Date.now();
-      let failed = false;
-      for (const job of jobs.docs) {
-        if (Date.now() - started > 35000) break;
-        try {
-          await processDeletion({db, auth: admin.auth(), media, listPage, jobRef: job.ref,
-            budgetMs: Math.max(1000, 35000 - (Date.now() - started))});
-        } catch (error) {
-          // A failing account must not stop every other job in this batch.
-          failed = true;
-          console.error('Account deletion worker failed', error.code || 'internal');
-        }
-      }
-      return res.status(failed ? 503 : 200).json({ok: !failed});
+      const result = await runDeletionQueue({db, runJob: (jobRef, budgetMs) =>
+        processDeletion({db, auth: admin.auth(), media, listPage, jobRef, budgetMs})});
+      return res.status(result.ok ? 200 : 503).json(result);
     }
     if (req.method !== 'POST') return res.status(405).json({error: 'Method not allowed'});
     if (req.body?.action === 'status') {

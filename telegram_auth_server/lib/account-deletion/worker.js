@@ -40,20 +40,43 @@ async function processDeletion({db, auth, media, jobRef, listPage, now = Date.no
     while (now() - started < budgetMs && processed < maxDocuments) {
       const tasks = await jobRef.collection('tasks').orderBy('__name__').limit(1).get();
       if (tasks.empty) {
-        if (!job.secondPass) {
-          const roots = await db.listCollections();
-          for (const root of roots.filter(ref => !systemRoots.has(ref.id))) {
-            await jobRef.collection('tasks').doc(taskId(root.path)).set({kind: 'collection', path: root.path, after: ''});
-          }
-          await jobRef.update({secondPass: true});
-          job = {...job, secondPass: true};
+        // A reply may have been scanned before its source message. Keep only
+        // its path during the scan, then resolve against the deleted-message
+        // index. There is no need to traverse the whole database a second time.
+        const replies = await jobRef.collection('reply_checks').orderBy('__name__').limit(1).get();
+        if (!replies.empty) {
+          const check = replies.docs[0];
+          await db.runTransaction(async tx => {
+            const ref = db.doc(check.data().path);
+            const current = await tx.get(ref);
+            const replyId = current.data()?.replyToMessageId;
+            const source = typeof replyId === 'string' && replyId && !replyId.includes('/')
+              ? jobRef.collection('references').doc(taskId(`${ref.parent.path}/${replyId}`)) : null;
+            const deleted = source ? (await tx.get(source)).exists : false;
+            if (current.exists && deleted) {
+              const data = {...current.data()};
+              for (const key of Object.keys(data).filter(key => key.startsWith('replyTo'))) data[key] = '';
+              tx.set(ref, data);
+            }
+            tx.delete(check.ref);
+          });
+          processed++;
+          continue;
+        }
+        // Bound index cleanup too; do not spend the entire function duration
+        // recursively deleting a large temporary reference collection.
+        const references = await jobRef.collection('references').limit(Math.min(25, maxDocuments - processed)).get();
+        if (!references.empty) {
+          const batch = db.batch();
+          for (const reference of references.docs) batch.delete(reference.ref);
+          await batch.commit();
+          processed += references.size;
           continue;
         }
         // Authentication deletion is last, so a failure does not lose ownership.
         try { await auth.deleteUser(jobRef.id); }
         catch (error) { if (error.code !== 'auth/user-not-found') throw error; }
         await db.recursiveDelete(db.collection('users').doc(jobRef.id));
-        await db.recursiveDelete(jobRef.collection('references'));
         const batch = db.batch();
         batch.set(db.collection('account_deletion_receipts').doc(job.receiptHash),
           {status: 'complete', completedAt: now()});
@@ -95,6 +118,9 @@ async function processDeletion({db, auth, media, jobRef, listPage, now = Date.no
           }
           if (plan.action === 'delete' && ['messages', 'global_chat', 'replies'].includes(ref.parent.id)) {
             tx.set(jobRef.collection('references').doc(taskId(ref.path)), {deleted: true});
+          }
+          if (replyRef && !replyWasDeleted && plan.action !== 'delete') {
+            tx.set(jobRef.collection('reply_checks').doc(taskId(ref.path)), {path: ref.path});
           }
           // Keep the disabled profile until all work finishes; legacy backend
           // checks also see deleted=true while queues drain.
