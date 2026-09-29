@@ -648,7 +648,7 @@ class AchievementBadge extends StatelessWidget {
       child: ClipPath(
         clipper: _CountryShieldClipper(),
         child: Image.asset(
-          item['asset'] as String,
+          (item['asset'] as String).replaceAll('.png', '.webp'),
           fit: BoxFit.contain,
           cacheHeight: (displayHeight * MediaQuery.devicePixelRatioOf(context))
               .ceil(),

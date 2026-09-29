@@ -59,7 +59,7 @@ abstract interface class ForumTopicControllerActions {
   void groupMembershipChanged();
   bool get canPostInForumTopic;
   Future<void> loadCommunityModerationAccess();
-  Future<void> attachPhoto();
+  Future<void> attachPhoto({bool useCamera = false});
   Future<void> sendReply();
   Future<void> toggleTopicPinned(bool isPinned);
   Future<void> editTopicHeader(Map<String, dynamic> topic);

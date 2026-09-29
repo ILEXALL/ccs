@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 /// Keeps the icon horizontally centred within the marker, with a separate
 /// people button. The map marker alignment positions the visible pin tip.
 class SpotPresenceMarker extends StatelessWidget {
-  static const double sideSpace = 50;
+  final double iconSize;
 
   final Widget marker;
   final VoidCallback onSpotTap;
@@ -14,6 +14,7 @@ class SpotPresenceMarker extends StatelessWidget {
     required this.marker,
     required this.onSpotTap,
     this.peopleButton,
+    this.iconSize = 64,
   });
 
   @override
@@ -25,19 +26,20 @@ class SpotPresenceMarker extends StatelessWidget {
     );
     if (peopleButton == null) return spot;
 
-    // Reserve equal space on both sides so the map coordinate stays beneath
-    // the original icon. The button stays inside the marker's hit-test bounds.
-    return Stack(
-      children: [
-        Positioned.fill(left: sideSpace, right: sideSpace, child: spot),
-        Positioned(
-          right: 0,
-          top: 0,
-          bottom: 0,
-          width: sideSpace,
-          child: Center(child: peopleButton),
-        ),
-      ],
+    return LayoutBuilder(
+      builder: (context, bounds) => Stack(
+        children: [
+          Positioned.fill(child: spot),
+          Positioned(
+            left: (bounds.maxWidth + iconSize * 0.5) / 2 - 12,
+            top: ((bounds.maxHeight - iconSize * 0.75) / 2 - 8).clamp(
+              0.0,
+              bounds.maxHeight,
+            ),
+            child: peopleButton!,
+          ),
+        ],
+      ),
     );
   }
 }

@@ -3,7 +3,6 @@ import 'package:flutter/material.dart' hide Text;
 import 'package:ccs_app/core/localization/app_language.dart'
     show AppLanguage, appUiPreferences;
 import 'package:ccs_app/core/localization/ccs_text.dart' show CcsText;
-import 'package:ccs_app/core/theme/app_theme.dart' show blue;
 import 'package:ccs_app/features/auth/data/usernames.dart' show displayUsername;
 import 'package:ccs_app/features/map/models/live_location.dart'
     show LiveLocationData;
@@ -28,36 +27,40 @@ class SpotPresenceCount extends StatelessWidget {
     child: Semantics(
       button: true,
       label: spotPeopleLabel(count),
-      child: InkWell(
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
         onTap: onTap,
-        customBorder: const CircleBorder(),
-        child: Container(
-          width: 46,
-          height: 46,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            color: blue,
-            border: Border.all(color: Colors.white70, width: 2),
-            boxShadow: const [BoxShadow(color: Colors.black38, blurRadius: 6)],
-          ),
-          padding: const EdgeInsets.all(5),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Icon(Icons.people_alt, size: 13, color: Colors.white),
-              Expanded(
-                child: FittedBox(
-                  child: CcsText(
-                    count > 999 ? '999+' : '$count',
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w900,
-                      color: Colors.white,
-                      fontSize: 16,
-                    ),
+        child: Padding(
+          padding: const EdgeInsets.all(6),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+            decoration: BoxDecoration(
+              color: const Color(0xff182431),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: Colors.white70, width: 1),
+              boxShadow: const [
+                BoxShadow(color: Colors.black38, blurRadius: 4),
+              ],
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(
+                  Icons.people_alt_rounded,
+                  size: 11,
+                  color: Colors.white,
+                ),
+                const SizedBox(width: 3),
+                CcsText(
+                  count > 99 ? '99+' : '$count',
+                  style: const TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w800,
+                    color: Colors.white,
                   ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),

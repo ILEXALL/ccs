@@ -4,12 +4,13 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   testWidgets(
-    'iOS outside tap, drag and Done dismiss without breaking editing',
+    'iOS toolbar reserves space above the keyboard and leaves send tappable',
     (tester) async {
       final focus = FocusNode();
       final controller = TextEditingController();
       addTearDown(controller.dispose);
       addTearDown(focus.dispose);
+      var sends = 0;
       await tester.pumpWidget(
         MaterialApp(
           theme: ThemeData(platform: TargetPlatform.iOS),
@@ -20,11 +21,21 @@ void main() {
             child: AppKeyboardDismissal(child: child!),
           ),
           home: Scaffold(
-            body: ListView(
+            body: Column(
               children: [
-                TextField(focusNode: focus, controller: controller),
-                const SizedBox(height: 100, child: Text('Outside')),
-                const SizedBox(height: 1200),
+                Expanded(
+                  child: ListView(
+                    children: [
+                      TextField(focusNode: focus, controller: controller),
+                      const SizedBox(height: 100, child: Text('Outside')),
+                      const SizedBox(height: 1200),
+                    ],
+                  ),
+                ),
+                TextButton(
+                  onPressed: () => sends++,
+                  child: const Text('Send message'),
+                ),
               ],
             ),
           ),
@@ -34,6 +45,12 @@ void main() {
       await tester.pump();
       await tester.enterText(find.byType(TextField), 'keep this');
       expect(focus.hasFocus, isTrue);
+      expect(
+        tester.getRect(find.text('Send message')).bottom,
+        lessThan(tester.getRect(find.text('Done')).top),
+      );
+      await tester.tap(find.text('Send message'));
+      expect(sends, 1);
       await tester.tap(find.text('Outside'));
       await tester.pump();
       expect(focus.hasFocus, isFalse);

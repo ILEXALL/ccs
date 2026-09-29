@@ -17,7 +17,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   testWidgets(
-    'public directory card offers direct joining, member count and public icon',
+    'directory card opens full details before offering join or monitoring',
     (tester) async {
       SharedPreferences.setMockInitialValues({});
       app.appUiPreferences.language = app.AppLanguage.en;
@@ -55,10 +55,16 @@ void main() {
       );
       await tester.pumpAndSettle();
       expect(find.text('Public group'), findsOneWidget);
+      expect(find.text('Members: 12'), findsNothing);
+      expect(find.text('Drive together'), findsNothing);
+      expect(find.text('Join group'), findsNothing);
+      await tester.tap(find.text('Public Drivers'));
+      await tester.pumpAndSettle();
+      expect(find.text('Drive together'), findsOneWidget);
       expect(find.text('Members: 12'), findsOneWidget);
       expect(find.text('Join group'), findsOneWidget);
       expect(find.text('Request to join'), findsNothing);
-      expect(find.text('Monitor (read only)'), findsNothing);
+      expect(find.text('Monitor (read only)'), findsOneWidget);
       expect(find.byIcon(Icons.lock_outline_rounded), findsNothing);
       expect(tester.takeException(), isNull);
     },

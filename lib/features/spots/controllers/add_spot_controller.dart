@@ -46,7 +46,7 @@ import 'package:ccs_app/features/notifications/data/event_notifications.dart'
 import 'package:ccs_app/features/notifications/data/moderation_notifications.dart'
     show createAdminSpotReviewNotification;
 import 'package:ccs_app/features/notifications/data/spot_notifications.dart'
-    show createNewSpotNotificationForUsers, sendNewSpotPushToEligibleUsers;
+    show sendNewSpotPushToEligibleUsers;
 import 'package:ccs_app/features/progression/data/xp_api.dart'
     show syncXpWithServer;
 import 'package:ccs_app/features/spots/data/creation_guard.dart'
@@ -1125,7 +1125,6 @@ class AddSpotController implements AddSpotControllerActions {
       upsertSpotIntoLocalImmediateCache(savedNewSpot);
 
       if (canCreateApprovedSpot) {
-        await createNewSpotNotificationForUsers(savedNewSpot);
         await notifyAllUsersIfTemporarySpotIsToday(savedNewSpot);
 
         await sendNewSpotPushToEligibleUsers(savedNewSpot);

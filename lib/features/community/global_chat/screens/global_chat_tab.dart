@@ -422,6 +422,23 @@ class _GlobalChatTabState extends State<GlobalChatTab>
                   Row(
                     children: [
                       IconButton(
+                        tooltip: trText('Take photo'),
+                        onPressed:
+                            isUploadingPhotoAttachment ||
+                                pendingPhotoAttachmentPath != null
+                            ? null
+                            : () => controller.attachPhoto(useCamera: true),
+                        constraints: const BoxConstraints.tightFor(
+                          width: 38,
+                          height: 40,
+                        ),
+                        padding: EdgeInsets.zero,
+                        icon: const Icon(
+                          Icons.photo_camera_outlined,
+                          color: blue,
+                        ),
+                      ),
+                      IconButton(
                         tooltip: trText('Photo'),
                         onPressed: isUploadingPhotoAttachment
                             ? null
@@ -436,7 +453,7 @@ class _GlobalChatTabState extends State<GlobalChatTab>
                         icon: Icon(
                           isUploadingPhotoAttachment
                               ? Icons.hourglass_top
-                              : Icons.photo_camera_outlined,
+                              : Icons.photo_library_outlined,
                         ),
                       ),
                       const SizedBox(width: 4),

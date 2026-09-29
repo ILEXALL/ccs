@@ -5,7 +5,7 @@ import UserNotifications
 import UIKit
 
 @main
-@objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate, PHPickerViewControllerDelegate, UIAdaptivePresentationControllerDelegate {
+@objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate, PHPickerViewControllerDelegate, UIImagePickerControllerDelegate, UINavigationControllerDelegate, UIAdaptivePresentationControllerDelegate {
   private var feedbackPlayer: AVAudioPlayer?
   private var photoPickerChannel: FlutterMethodChannel?
   private var deviceIdentityChannel: FlutterMethodChannel?
@@ -41,6 +41,10 @@ import UIKit
 
     photoPickerChannel?.setMethodCallHandler { [weak self] call, result in
       switch call.method {
+      case "takePhoto":
+        DispatchQueue.main.async {
+          self?.openCamera(result: result)
+        }
       case "pickPhoto":
         DispatchQueue.main.async {
           self?.openPhotoPicker(result: result)
@@ -221,6 +225,51 @@ import UIKit
 
     UIApplication.shared.applicationIconBadgeNumber = count
     result(nil)
+  }
+
+  private func openCamera(result: @escaping FlutterResult) {
+    guard pendingPhotoResult == nil else {
+      result(FlutterError(code: "picker_busy", message: "Photo picker is already open.", details: nil))
+      return
+    }
+    guard UIImagePickerController.isSourceTypeAvailable(.camera) else {
+      result(FlutterError(code: "camera_unavailable", message: "Camera is not available on this device.", details: nil))
+      return
+    }
+    pendingPhotoResult = result
+    AVCaptureDevice.requestAccess(for: .video) { [weak self] allowed in
+      DispatchQueue.main.async {
+        guard let self = self else { return }
+        guard allowed, let presenter = self.topViewController() else {
+          self.completePhotoPicker(with: FlutterError(code: "camera_denied", message: "Allow camera access in Settings to take a photo.", details: nil))
+          return
+        }
+        let picker = UIImagePickerController()
+        picker.sourceType = .camera
+        picker.cameraCaptureMode = .photo
+        picker.delegate = self
+        picker.modalPresentationStyle = .fullScreen
+        presenter.present(picker, animated: true)
+      }
+    }
+  }
+
+  func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
+    picker.dismiss(animated: true) { self.completePhotoPicker(with: nil) }
+  }
+
+  func imagePickerController(_ picker: UIImagePickerController,
+    didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]) {
+    var value: Any?
+    do {
+      guard let image = info[.originalImage] as? UIImage else {
+        throw NSError(domain: "CCSCamera", code: 1)
+      }
+      value = try writePickedImageToTemporaryJpeg(image)
+    } catch {
+      value = FlutterError(code: "camera_save_failed", message: "Could not save camera photo.", details: nil)
+    }
+    picker.dismiss(animated: true) { self.completePhotoPicker(with: value) }
   }
 
   private func openPhotoPicker(result: @escaping FlutterResult) {

@@ -45,3 +45,13 @@ test('three paid spots per day, seven per week, no backlog for forty same-day vi
  const awards=[...f.rows.values()].filter(r=>r.action==='visit.weekly');
  assert.equal(awards.length,3);assert.equal(awards.reduce((n,r)=>n+r.amount,0),150);
 });
+
+test('already visited flag suppresses repeat UI without bypassing new task dwell', async () => {
+ const f=setup();
+ for(let t=0;t<=300000;t+=30000) await sample(f,now+t);
+ await sample(f,now+400000,'s',fix(now+400000,57));
+ const result=await sample(f,now+430000);
+ assert.equal(result.alreadyVisited,true);
+ assert.equal(result.recorded,false);
+ assert.equal(result.elapsedMs,0);
+});

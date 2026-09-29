@@ -28,24 +28,36 @@ class AppKeyboardDismissal extends StatelessWidget {
         child: Stack(
           fit: StackFit.expand,
           children: [
-            child,
+            MediaQuery(
+              data: MediaQuery.of(context).copyWith(
+                viewInsets: MediaQuery.viewInsetsOf(
+                  context,
+                ).copyWith(bottom: keyboard + (ios && keyboard > 0 ? 48 : 0)),
+              ),
+              child: child,
+            ),
             if (ios && keyboard > 0)
               Positioned(
-                right: 12,
-                bottom: keyboard + 8,
+                left: 0,
+                right: 0,
+                height: 48,
+                bottom: keyboard,
                 child: Material(
                   color: const Color(0xFF20242C),
                   elevation: 2,
                   borderRadius: BorderRadius.circular(10),
-                  child: TextButton.icon(
-                    onPressed: () =>
-                        FocusManager.instance.primaryFocus?.unfocus(),
-                    icon: const Icon(Icons.keyboard_hide_outlined, size: 20),
-                    label: Text(switch (appUiPreferences.language) {
-                      AppLanguage.en => 'Done',
-                      AppLanguage.ru => 'Готово',
-                      AppLanguage.lv => 'Gatavs',
-                    }),
+                  child: Align(
+                    alignment: Alignment.centerRight,
+                    child: TextButton.icon(
+                      onPressed: () =>
+                          FocusManager.instance.primaryFocus?.unfocus(),
+                      icon: const Icon(Icons.keyboard_hide_outlined, size: 20),
+                      label: Text(switch (appUiPreferences.language) {
+                        AppLanguage.en => 'Done',
+                        AppLanguage.ru => 'Готово',
+                        AppLanguage.lv => 'Gatavs',
+                      }),
+                    ),
                   ),
                 ),
               ),

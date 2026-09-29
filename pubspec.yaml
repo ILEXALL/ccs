@@ -59,7 +59,33 @@ flutter:
     - assets/country_outlines.json
     - assets/bg.png
     - assets/bg_map.png
-    - assets/achievements/
+    - assets/achievements/austria.webp
+    - assets/achievements/belgium.webp
+    - assets/achievements/bulgaria.webp
+    - assets/achievements/croatia.webp
+    - assets/achievements/cyprus.webp
+    - assets/achievements/czechia.webp
+    - assets/achievements/denmark.webp
+    - assets/achievements/estonia.webp
+    - assets/achievements/finland.webp
+    - assets/achievements/france.webp
+    - assets/achievements/germany.webp
+    - assets/achievements/greece.webp
+    - assets/achievements/hungary.webp
+    - assets/achievements/ireland.webp
+    - assets/achievements/italy.webp
+    - assets/achievements/latvia.webp
+    - assets/achievements/lithuania.webp
+    - assets/achievements/luxembourg.webp
+    - assets/achievements/malta.webp
+    - assets/achievements/netherlands.webp
+    - assets/achievements/poland.webp
+    - assets/achievements/portugal.webp
+    - assets/achievements/romania.webp
+    - assets/achievements/slovakia.webp
+    - assets/achievements/slovenia.webp
+    - assets/achievements/spain.webp
+    - assets/achievements/sweden.webp
     - assets/xp_wheels/
     - assets/spot_icons/
     - assets/user_cars/

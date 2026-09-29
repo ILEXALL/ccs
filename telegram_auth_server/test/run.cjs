@@ -18,7 +18,7 @@ const suites = {
     gaps: ['Отправка и получение сообщений, вложения, обновления и пуши'] },
   access: { name: 'Access', files: ['workflows.test.js'], pattern: '\\[access\\]',
     gaps: ['Настоящий вход, истечение токенов и правила Firebase'] },
-  notifications: { name: 'Notifications', files: ['xp.test.js'], pattern: 'notification',
+  notifications: { name: 'Notifications', files: ['xp.test.js', 'spot-notification-dispatch.test.cjs'],
     gaps: ['Доставка пушей на телефон, локализация и уведомления вне XP'] },
 };
 

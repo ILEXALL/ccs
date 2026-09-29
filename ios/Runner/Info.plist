@@ -96,5 +96,7 @@
 			</array>
 		</dict>
 	</array>
+	<key>NSCameraUsageDescription</key>
+	<string>Take photos to share in CCS chats.</string>
 </dict>
 </plist>

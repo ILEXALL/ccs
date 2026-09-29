@@ -16,8 +16,6 @@ import 'package:ccs_app/features/community/chats/screens/chat_conversation_scree
     show ChatConversationScreen;
 import 'package:ccs_app/features/community/groups/data/group_api.dart'
     show privateGroupAction;
-import 'package:ccs_app/features/community/chats/widgets/chat_thread_tile.dart'
-    show ChatThreadTile;
 import 'package:ccs_app/features/community/data/community_country.dart'
     show communityText;
 import 'package:ccs_app/features/community/groups/data/group_directory_cache.dart'
@@ -157,22 +155,26 @@ class _PrivateGroupDirectoryState extends State<PrivateGroupDirectory>
     directory = loadDirectory();
   });
 
-  Future<void> openGroup(Map<String, dynamic> group) async {
+  Future<void> openGroup(
+    Map<String, dynamic> group, {
+    bool join = false,
+  }) async {
     final id = group['id'] as String;
     if (!busy.add(id)) return;
     setState(() {});
     try {
-      if (group['isPrivate'] == false &&
+      if ((join || group['canMonitor'] != true) &&
+          group['isPrivate'] == false &&
           group['isMember'] != true &&
           group['isBlocked'] != true) {
         await (widget.requestAction ?? privateGroupAction)({
           'action': 'join',
           'chatId': id,
         });
-        group = {...group, 'isMember': true};
+        group['isMember'] = true;
         refresh();
       }
-      if (group['isMember'] == true || group['canMonitor'] == true) {
+      if (group['isMember'] == true || (!join && group['canMonitor'] == true)) {
         final doc = await chatsCollection()
             .doc(id)
             .get(const GetOptions(source: Source.server));
@@ -229,7 +231,7 @@ class _PrivateGroupDirectoryState extends State<PrivateGroupDirectory>
           ),
         );
         if (!mounted || confirmed != true) return;
-        final result = await privateGroupAction({
+        final result = await (widget.requestAction ?? privateGroupAction)({
           'action': 'request',
           'chatId': id,
         });
@@ -255,14 +257,55 @@ class _PrivateGroupDirectoryState extends State<PrivateGroupDirectory>
     }
   }
 
-  Widget groupCard(Map<String, dynamic> group, String label) {
+  Future<void> showGroupInfo(Map<String, dynamic> group) async {
+    await Navigator.push(
+      context,
+      appPageRoute(
+        builder: (context) => StatefulBuilder(
+          builder: (context, updateDetail) => Scaffold(
+            appBar: AppBar(title: CcsText(trText('Group info'))),
+            body: SingleChildScrollView(
+              padding: const EdgeInsets.all(20),
+              child: groupCard(
+                group,
+                groupActionLabel(group),
+                detail: true,
+                onChanged: () {
+                  if (context.mounted) updateDetail(() {});
+                },
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    if (mounted) refresh();
+  }
+
+  String groupActionLabel(Map<String, dynamic> group) {
+    if (group['isMember'] == true) return 'Open group';
+    if (group['isBlocked'] == true) return 'Request rejected';
+    if (group['isPrivate'] == false) return 'Join group';
+    return switch (group['requestStatus'] ?? '') {
+      'pending' => 'Request pending',
+      'rejected' => 'Request rejected',
+      'accepted' => 'Request already used',
+      _ => 'Request to join',
+    };
+  }
+
+  Widget groupCard(
+    Map<String, dynamic> group,
+    String label, {
+    bool detail = false,
+    VoidCallback? onChanged,
+  }) {
     final id = group['id'] as String;
     final member = group['isMember'] == true;
-    final monitor =
-        !member && group['canMonitor'] == true && group['isPrivate'] != false;
+    final monitor = !member && group['canMonitor'] == true;
     final status = group['requestStatus'] ?? '';
     final isBusy = busy.contains(id);
-    final canOpen = member || monitor;
+    final canOpen = member;
     final canRequest =
         !canOpen &&
         group['isBlocked'] != true &&
@@ -274,6 +317,63 @@ class _PrivateGroupDirectoryState extends State<PrivateGroupDirectory>
       size: 58,
       icon: Icons.groups_rounded,
     );
+
+    if (!detail) {
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 12),
+        child: Material(
+          color: panelGlass,
+          borderRadius: BorderRadius.circular(20),
+          clipBehavior: Clip.antiAlias,
+          child: InkWell(
+            onTap: () => showGroupInfo(group),
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Row(
+                children: [
+                  ClipOval(
+                    child: isNetworkUrl(photoUrl)
+                        ? Image.network(
+                            photoUrl,
+                            width: 58,
+                            height: 58,
+                            fit: BoxFit.cover,
+                            errorBuilder: (_, _, _) => fallback,
+                          )
+                        : fallback,
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        CcsText(
+                          stringFromFirebase(group['name'], 'Group chat'),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 17,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        const SizedBox(height: 5),
+                        CcsText(
+                          groupVisibilityLabel(group['isPrivate'] != false),
+                          style: const TextStyle(
+                            color: Colors.white60,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+    }
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
@@ -364,8 +464,6 @@ class _PrivateGroupDirectoryState extends State<PrivateGroupDirectory>
                             const SizedBox(height: 6),
                             CcsText(
                               description,
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
                               style: const TextStyle(
                                 color: Colors.white60,
                                 fontSize: 12,
@@ -389,7 +487,14 @@ class _PrivateGroupDirectoryState extends State<PrivateGroupDirectory>
                 children: [
                   if (canOpen || canRequest)
                     FilledButton.icon(
-                      onPressed: isBusy ? null : () => openGroup(group),
+                      onPressed: isBusy
+                          ? null
+                          : () async {
+                              final operation = openGroup(group, join: true);
+                              onChanged?.call();
+                              await operation;
+                              onChanged?.call();
+                            },
                       style: FilledButton.styleFrom(
                         backgroundColor: canRequest
                             ? blue
@@ -416,9 +521,7 @@ class _PrivateGroupDirectoryState extends State<PrivateGroupDirectory>
                               child: CircularProgressIndicator(strokeWidth: 2),
                             )
                           : Icon(
-                              monitor
-                                  ? Icons.visibility_outlined
-                                  : member
+                              member
                                   ? Icons.arrow_forward_rounded
                                   : Icons.person_add_alt_1_rounded,
                               size: canRequest ? 14 : 16,
@@ -459,6 +562,19 @@ class _PrivateGroupDirectoryState extends State<PrivateGroupDirectory>
                           ),
                         ],
                       ),
+                    ),
+                  if (monitor)
+                    TextButton.icon(
+                      onPressed: isBusy
+                          ? null
+                          : () async {
+                              final operation = openGroup(group);
+                              onChanged?.call();
+                              await operation;
+                              onChanged?.call();
+                            },
+                      icon: const Icon(Icons.visibility_outlined),
+                      label: CcsText(trText('Monitor (read only)')),
                     ),
                   if (group['isOwner'] == true)
                     TextButton.icon(
@@ -587,42 +703,23 @@ class _PrivateGroupDirectoryState extends State<PrivateGroupDirectory>
                   icon: const Icon(Icons.refresh, size: 16),
                   label: CcsText(trText('Showing saved groups. Tap to retry.')),
                 ),
-              if (publicChats.isNotEmpty) ...[
-                for (final chat in publicChats)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 10),
-                    child: ChatThreadTile(
-                      chat: chat,
-                      currentUid: widget.currentUid,
-                      unreadCount: widget.unreadCountsByChatId[chat.id] ?? 0,
-                    ),
-                  ),
-              ],
-              for (final group in groups.where(
-                (group) => !publicChats.any((chat) => chat.id == group['id']),
+              for (final chat in publicChats.where(
+                (chat) => !groups.any((group) => group['id'] == chat.id),
               ))
-                Builder(
-                  builder: (context) {
-                    final member = group['isMember'] == true;
-                    final monitor = !member && group['canMonitor'] == true;
-                    final status = group['requestStatus'] ?? '';
-                    final label = member
-                        ? 'Open group'
-                        : group['isBlocked'] == true
-                        ? 'Request rejected'
-                        : group['isPrivate'] == false
-                        ? 'Join group'
-                        : monitor
-                        ? 'Monitor (read only)'
-                        : switch (status) {
-                            'pending' => 'Request pending',
-                            'rejected' => 'Request rejected',
-                            'accepted' => 'Request already used',
-                            _ => 'Request to join',
-                          };
-                    return groupCard(group, label);
-                  },
-                ),
+                groupCard({
+                  'id': chat.id,
+                  'name': chat.name,
+                  'description': chat.description,
+                  'photoUrl': chat.photoUrl.isNotEmpty
+                      ? chat.photoUrl
+                      : chat.avatarUrl,
+                  'isPrivate': chat.isPrivate,
+                  'isMember': chat.memberIds.contains(widget.currentUid),
+                  'isOwner': chat.isOwner(widget.currentUid),
+                  'memberCount': chat.memberIds.length,
+                }, 'Open group'),
+              for (final group in groups)
+                groupCard(group, groupActionLabel(group)),
             ],
           );
         },

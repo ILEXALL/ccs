@@ -112,6 +112,9 @@ class _TermsAcceptanceGateState extends State<TermsAcceptanceGate> {
 
   @override
   Widget build(BuildContext context) {
+    if (loading) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
     if (accepted) return widget.child;
     return PopScope(
       canPop: false,

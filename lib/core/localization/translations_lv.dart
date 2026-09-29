@@ -604,6 +604,7 @@ const latvianTranslations = <String, String>{
   'Get closer to this police mark before confirming it.':
       'Piebrauciet tuvāk policijas atzīmei, lai to apstiprinātu.',
   'Grant verified status': 'Piešķirt verificētu statusu',
+  'Take photo': 'Uzņemt foto',
   'Group info': 'Grupas informācija',
   'Incoming requests': 'Saņemtie pieprasījumi',
   'Live location sharing is on for 1 hour.':

@@ -497,14 +497,11 @@ class MapLayersController implements MapLayersActions {
             ? spotIconTipAlignment(
                 asset: spotIconAssetPathForSpot(spot, mapStyle: host.mapStyle),
                 iconSize: markerVisualSize,
-                markerWidth:
-                    markerWidth +
-                    (showPeople ? SpotPresenceMarker.sideSpace * 2 : 0),
+                markerWidth: markerWidth,
                 markerHeight: markerHeight,
               )
             : Alignment.center,
-        width:
-            markerWidth + (showPeople ? SpotPresenceMarker.sideSpace * 2 : 0),
+        width: markerWidth,
         height: markerHeight,
         rotate: true,
         child: IgnorePointer(
@@ -512,6 +509,7 @@ class MapLayersController implements MapLayersActions {
           child: Opacity(
             opacity: visibilityOpacity,
             child: SpotPresenceMarker(
+              iconSize: markerVisualSize,
               onSpotTap: () {
                 host.updateMap(() {
                   host.selectedSpot = spot;
@@ -523,6 +521,7 @@ class MapLayersController implements MapLayersActions {
               marker: ValueListenableBuilder<VisitDwellProgress?>(
                 valueListenable: visitDwellProgress,
                 builder: (context, progress, child) => VisitDwellMarker(
+                  diameter: markerVisualSize * (showFullIcons ? 0.78 : 1.0) + 4,
                   progress:
                       progress?.userId ==
                               FirebaseAuth.instance.currentUser?.uid &&

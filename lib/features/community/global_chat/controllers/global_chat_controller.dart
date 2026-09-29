@@ -758,7 +758,7 @@ class GlobalChatController implements GlobalChatControllerActions {
   }
 
   @override
-  Future<void> attachPhoto() async {
+  Future<void> attachPhoto({bool useCamera = false}) async {
     // Keep the borrowed BuildContext tied to the screen lifecycle.
     late final viewContext = host.context;
 
@@ -772,8 +772,13 @@ class GlobalChatController implements GlobalChatControllerActions {
 
     host.updateView(() => host.isUploadingPhotoAttachment = true);
 
+    var captured = false;
     try {
-      final path = await pickPhotoFromPhone(viewContext, cropPhoto: false);
+      final path = await pickPhotoFromPhone(
+        viewContext,
+        cropPhoto: false,
+        useCamera: useCamera,
+      );
 
       if (!(host.mounted && viewContext.mounted) ||
           path == null ||
@@ -782,6 +787,7 @@ class GlobalChatController implements GlobalChatControllerActions {
       }
 
       host.updateView(() => host.pendingPhotoAttachmentPath = path);
+      captured = useCamera;
     } catch (error) {
       if ((host.mounted && viewContext.mounted)) {
         ScaffoldMessenger.of(viewContext).showSnackBar(
@@ -802,6 +808,7 @@ class GlobalChatController implements GlobalChatControllerActions {
         host.updateView(() => host.isUploadingPhotoAttachment = false);
       }
     }
+    if (captured && host.mounted) await sendMessage();
   }
 
   @override

@@ -97,7 +97,7 @@ abstract interface class ChatConversationControllerActions {
   bool isNearLatestMessage();
   void scheduleScrollToLatestMessage();
   void updateChatScrollForMessages(int messageCount);
-  Future<void> attachPhoto();
+  Future<void> attachPhoto({bool useCamera = false});
   Future<void> sendMessage();
   Future<void> shareLiveLocation();
   String? otherUserId(String currentUid);

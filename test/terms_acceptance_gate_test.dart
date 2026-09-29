@@ -18,6 +18,19 @@ void main() {
     ),
   );
 
+  testWidgets('saved acceptance check never flashes the consent form', (
+    tester,
+  ) async {
+    final pending = Completer<bool>();
+    await tester.pumpWidget(app(load: () => pending.future, save: () async {}));
+    expect(find.text('Community rules and your content'), findsNothing);
+    expect(find.text('Community content'), findsNothing);
+    pending.complete(true);
+    await tester.pumpAndSettle();
+    expect(find.text('Community content'), findsOneWidget);
+    expect(find.text('Community rules and your content'), findsNothing);
+  });
+
   testWidgets('Requires explicit agreement and server save before entry', (
     tester,
   ) async {

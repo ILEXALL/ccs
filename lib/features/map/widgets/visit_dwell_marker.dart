@@ -29,11 +29,13 @@ class VisitDwellMarker extends StatefulWidget {
   final Widget child;
   final VisitDwellProgress? progress;
   final String label;
+  final double diameter;
   const VisitDwellMarker({
     super.key,
     required this.child,
     required this.progress,
     required this.label,
+    this.diameter = 48,
   });
   @override
   State<VisitDwellMarker> createState() => _VisitDwellMarkerState();
@@ -55,10 +57,11 @@ class _VisitDwellMarkerState extends State<VisitDwellMarker> {
 
   void updateTimer() {
     timer?.cancel();
-    if (widget.progress != null)
+    if (widget.progress != null && !widget.progress!.completed) {
       timer = Timer.periodic(const Duration(seconds: 1), (_) {
         if (mounted) setState(() {});
       });
+    }
   }
 
   @override
@@ -71,34 +74,25 @@ class _VisitDwellMarkerState extends State<VisitDwellMarker> {
   Widget build(BuildContext context) {
     final progress = widget.progress;
     if (progress == null ||
-        DateTime.now().difference(progress.receivedAt).inSeconds > 60)
+        progress.completed ||
+        DateTime.now().difference(progress.receivedAt).inSeconds > 60) {
       return widget.child;
+    }
     return Stack(
       alignment: Alignment.center,
       children: [
         widget.child,
-        Positioned.fill(
-          child: IgnorePointer(
-            child: Padding(
-              padding: const EdgeInsets.all(2),
-              child: FittedBox(
-                child: SizedBox(
-                  width: 48,
-                  height: 48,
-                  child: Semantics(
-                    label: widget.label,
-                    value:
-                        '${(progress.fraction(DateTime.now()) * 100).floor()}%',
-                    child: CircularProgressIndicator(
-                      value: progress.fraction(DateTime.now()),
-                      strokeWidth: 3,
-                      color: progress.completed
-                          ? Colors.greenAccent
-                          : Colors.cyanAccent,
-                      backgroundColor: Colors.black38,
-                    ),
-                  ),
-                ),
+        IgnorePointer(
+          child: SizedBox(
+            width: widget.diameter,
+            height: widget.diameter,
+            child: Semantics(
+              label: widget.label,
+              child: CircularProgressIndicator(
+                value: progress.fraction(DateTime.now()),
+                strokeWidth: 2,
+                color: Colors.cyanAccent,
+                backgroundColor: Colors.black38,
               ),
             ),
           ),

@@ -79,7 +79,7 @@ async function recordSpotVisit(db, userId, spotId, now = Date.now(), gpsFix = nu
     const progress = {spotId, elapsedMs, requiredMs: DWELL_MS};
     if (elapsedMs < DWELL_MS) {
       tx.set(sessionRef, state);
-      return {recorded: false, status: 'dwelling', ...progress};
+      return {recorded: false, status: 'dwelling', alreadyVisited: existing.exists, ...progress};
     }
     const writeTaskVisit = await prepareTaskVisit(db, tx, userId, spotId, spot, now, dayKey, !existing.exists, candidates);
     tx.set(sessionRef, state);

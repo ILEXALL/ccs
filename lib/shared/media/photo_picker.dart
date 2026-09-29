@@ -14,9 +14,12 @@ Future<String?> pickPhotoFromPhone(
   double cropAspectRatio = 1,
   PhotoCropShape cropShape = PhotoCropShape.rectangle,
   bool cropPhoto = true,
+  bool useCamera = false,
 }) async {
   try {
-    final path = await photoPickerChannel.invokeMethod<String>('pickPhoto');
+    final path = await photoPickerChannel.invokeMethod<String>(
+      useCamera ? 'takePhoto' : 'pickPhoto',
+    );
 
     if (!context.mounted || path == null || path.trim().isEmpty || !cropPhoto) {
       return path;

@@ -29,7 +29,7 @@ void main() {
     },
   );
   testWidgets(
-    'dwell ring keeps spot tappable and only server completion makes it green',
+    'dwell ring keeps spot tappable and disappears on server completion',
     (tester) async {
       var taps = 0;
       Future<void> render(bool completed) async {
@@ -75,14 +75,9 @@ void main() {
       await tester.tap(find.byType(VisitDwellMarker));
       expect(taps, 1);
       await render(true);
-      expect(
-        tester
-            .widget<CircularProgressIndicator>(
-              find.byType(CircularProgressIndicator),
-            )
-            .color,
-        Colors.greenAccent,
-      );
+      expect(find.byType(CircularProgressIndicator), findsNothing);
+      await tester.pump(const Duration(seconds: 10));
+      expect(find.byType(CircularProgressIndicator), findsNothing);
       await tester.pumpWidget(const SizedBox());
     },
   );

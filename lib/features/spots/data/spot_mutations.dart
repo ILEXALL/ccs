@@ -18,12 +18,7 @@ import 'package:ccs_app/features/notifications/data/moderation_notifications.dar
 import 'package:ccs_app/features/notifications/data/push_events.dart'
     show sendPushNotificationEvent;
 import 'package:ccs_app/features/notifications/data/spot_notifications.dart'
-    show
-        createNewSpotNotificationForUsers,
-        createSpotReviewUpdateNotification,
-        sendNewSpotPushToEligibleUsers;
-import 'package:ccs_app/features/spots/models/spot_owner.dart'
-    show spotNotificationOwnerUid;
+    show createSpotReviewUpdateNotification;
 import 'package:ccs_app/features/progression/data/xp_api.dart'
     show syncXpWithServer;
 import 'package:ccs_app/features/spots/data/saved_spots.dart'
@@ -123,10 +118,7 @@ Future<void> updateSpotStatus(
   }
 
   if (statusChanged && status == SpotStatus.approved) {
-    await createNewSpotNotificationForUsers(updatedSpot);
     await notifyAllUsersIfTemporarySpotIsToday(updatedSpot);
-
-    await sendNewSpotPushToEligibleUsers(updatedSpot);
   }
 
   if (statusChanged &&
@@ -140,11 +132,10 @@ Future<void> updateSpotStatus(
   if (statusChanged &&
       spot.id.isNotEmpty &&
       (status == SpotStatus.approved || status == SpotStatus.rejected)) {
-    final ownerUid = spotNotificationOwnerUid(updatedSpot);
+    // This event also publishes the approved spot to eligible users. The
+    // owner's review preference must not gate that separate audience.
     await sendPushNotificationEvent({
       'type': 'spot_decision',
-      'preferenceKey': 'reviewNotifications',
-      if (ownerUid.isNotEmpty) 'recipientUserIds': [ownerUid],
       'spotId': spot.id,
       'status': spotStatusName(status),
       if (cleanRejectionReason.isNotEmpty)

@@ -102,7 +102,7 @@ abstract interface class GlobalChatControllerActions {
   Future<void> showEditGlobalMessageDialog(
     QueryDocumentSnapshot<Map<String, dynamic>> doc,
   );
-  Future<void> attachPhoto();
+  Future<void> attachPhoto({bool useCamera = false});
   Duration localGlobalChatSendCooldownRemaining();
   void showGlobalChatSpamWarning(Duration remaining);
   Future<int> writeGlobalChatMessageWithCooldown({

@@ -11,6 +11,8 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
+import android.provider.MediaStore
+import androidx.core.content.FileProvider
 import android.provider.Settings
 import android.view.WindowManager
 import io.flutter.embedding.android.FlutterActivity
@@ -28,6 +30,8 @@ class MainActivity : FlutterActivity() {
     private val appBadgeChannelName = "ccs/app_badge"
     private val notificationChannelId = "ccs_updates_bell_v2"
     private var feedbackPlayer: MediaPlayer? = null
+    private val cameraRequestCode = 7002
+    private var cameraPhotoFile: File? = null
     private val pickPhotoRequestCode = 7001
     private var pendingPhotoResult: MethodChannel.Result? = null
 
@@ -38,6 +42,7 @@ class MainActivity : FlutterActivity() {
             .setMethodCallHandler { call, result ->
                 when (call.method) {
                     "pickPhoto" -> openPhotoPicker(result)
+                    "takePhoto" -> openCamera(result)
                     else -> result.notImplemented()
                 }
             }
@@ -251,9 +256,47 @@ class MainActivity : FlutterActivity() {
         )
     }
 
+    private fun openCamera(result: MethodChannel.Result) {
+        if (pendingPhotoResult != null) {
+            result.error("picker_busy", "Photo picker is already open.", null)
+            return
+        }
+        try {
+            val directory = File(cacheDir, "camera").apply { mkdirs() }
+            val file = File.createTempFile("capture_", ".jpg", directory)
+            cameraPhotoFile = file
+            val uri = FileProvider.getUriForFile(this, packageName + ".camera", file)
+            val intent = Intent(MediaStore.ACTION_IMAGE_CAPTURE).apply {
+                putExtra(MediaStore.EXTRA_OUTPUT, uri)
+                clipData = android.content.ClipData.newRawUri("Camera photo", uri)
+                addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION or Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            pendingPhotoResult = result
+            startActivityForResult(intent, cameraRequestCode)
+        } catch (error: Exception) {
+            pendingPhotoResult = null
+            cameraPhotoFile?.delete()
+            cameraPhotoFile = null
+            result.error("camera_unavailable", "Could not open camera: " + error.message, null)
+        }
+    }
+
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
 
+        if (requestCode == cameraRequestCode) {
+            val result = pendingPhotoResult
+            val file = cameraPhotoFile
+            pendingPhotoResult = null
+            cameraPhotoFile = null
+            if (resultCode == Activity.RESULT_OK && file != null && file.length() > 0) {
+                result?.success(file.absolutePath)
+            } else {
+                file?.delete()
+                result?.success(null)
+            }
+            return
+        }
         if (requestCode != pickPhotoRequestCode) {
             return
         }

@@ -607,6 +607,7 @@ const russianTranslations = <String, String>{
   'Get closer to this police mark before confirming it.':
       'Подъедьте ближе к отметке полиции, чтобы подтвердить её.',
   'Grant verified status': 'Назначить проверенный статус',
+  'Take photo': 'Сделать фото',
   'Group info': 'Информация о группе',
   'Incoming requests': 'Входящие заявки',
   'Live location sharing is on for 1 hour.':

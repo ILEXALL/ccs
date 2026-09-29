@@ -15,7 +15,7 @@ void main() {
             body: Center(
               child: SizedBox(
                 key: boundsKey,
-                width: 122 + (count > 0 ? SpotPresenceMarker.sideSpace * 2 : 0),
+                width: 122,
                 height: 112,
                 child: SpotPresenceMarker(
                   marker: const SizedBox.expand(
@@ -50,7 +50,11 @@ void main() {
         final button = find.byType(InkWell);
         expect(
           tester.getRect(button).left,
-          greaterThan(tester.getRect(marker).right),
+          greaterThan(tester.getCenter(marker).dx),
+        );
+        expect(
+          tester.getRect(button).top,
+          lessThan(tester.getCenter(marker).dy),
         );
         await tester.tap(button);
         expect(peopleTaps, 1);
