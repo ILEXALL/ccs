@@ -1,4 +1,5 @@
 import 'dart:math';
+import 'package:ccs_app/features/auth/data/deletion_authorization.dart';
 import 'package:ccs_app/core/config/app_config.dart' show telegramAuthBaseUrl;
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -44,14 +45,10 @@ Future<void> requestAccountDeletion() async {
       return;
     }
   }
-  final token = await user.getIdTokenResult(true);
-  final authTime = token.authTime;
-  if (authTime == null ||
-      DateTime.now().difference(authTime) > const Duration(minutes: 5)) {
-    throw StateError(
-      'For your security, sign out and sign in again, then return here to delete your account.',
-    );
-  }
+  final token = await authorizeAccountDeletion(
+    auth: FirebaseAuth.instance,
+    user: user,
+  );
   final random = Random.secure();
   final receipt =
       existingReceipt ??
@@ -68,7 +65,7 @@ Future<void> requestAccountDeletion() async {
     await postJsonToUrl(
       accountDeletionUrl,
       {'confirmation': 'DELETE', 'receipt': receipt},
-      headers: {'Authorization': 'Bearer ${token.token}'},
+      headers: {'Authorization': 'Bearer $token'},
       logResponse: false,
     ).timeout(const Duration(seconds: 30));
   } catch (_) {

@@ -1,5 +1,8 @@
 import 'package:ccs_app/features/auth/navigation/auth_pages.dart';
 import 'dart:async';
+import 'package:flutter/foundation.dart'
+    show defaultTargetPlatform, TargetPlatform;
+import 'package:ccs_app/features/auth/widgets/apple_sign_in_button.dart';
 import 'package:ccs_app/features/auth/widgets/account_deletion_widgets.dart';
 import 'package:ccs_app/features/auth/widgets/email_sign_in_dialog.dart';
 import 'package:ccs_app/features/auth/widgets/legal_documents.dart';
@@ -19,6 +22,7 @@ import 'package:ccs_app/features/auth/data/auth_state.dart'
 import 'package:ccs_app/features/auth/data/sign_in.dart'
     show
         isTransientFirebaseAuthNetworkError,
+        signInWithAppleAndSaveUser,
         signInWithEmailAndSaveUser,
         signInWithGoogleAndSaveUser,
         signInWithTelegramAndSaveUser;
@@ -294,6 +298,30 @@ class _LoginScreenState extends State<LoginScreen>
     return selected;
   }
 
+  Future<void> loginWithApple() async {
+    if (isSigningIn) return;
+    setState(() => signingProvider = 'apple');
+    try {
+      await signInWithAppleAndSaveUser(
+        requestNewUserNickname: requestInitialNickname,
+      );
+      await saveRememberMePreference(rememberMe);
+      if (!mounted || currentUser.banActive) return;
+      Navigator.pushReplacement(context, appPageRoute(builder: signedInPage));
+    } catch (error) {
+      if (!mounted) return;
+      if (error is FirebaseAuthException &&
+          (error.code == 'canceled' || error.code == 'web-context-canceled')) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: CcsText(loginErrorText('Apple', error))),
+      );
+    } finally {
+      if (mounted) setState(() => signingProvider = null);
+    }
+  }
+
   Future<void> loginWithGoogle() async {
     setState(() => signingProvider = 'google');
 
@@ -412,82 +440,105 @@ class _LoginScreenState extends State<LoginScreen>
             Image.asset('assets/bg.png', fit: BoxFit.cover),
             Container(color: Colors.black.withValues(alpha: 0.42)),
           ],
-          Padding(
-            padding: const EdgeInsets.all(28),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                SplashIntroItem(
-                  animation: loginLogoSlide,
-                  fadeAnimation: loginLogoFade,
-                  travel: 112,
-                  child: const CcsWordmark(width: 213),
-                ),
-                const SizedBox(height: 14),
-                SplashIntroItem(
-                  animation: loginSubtitleSlide,
-                  fadeAnimation: loginSubtitleFade,
-                  travel: 100,
-                  child: const CcsText(
-                    'COMMUNITY CAR SPOTS',
-                    style: TextStyle(letterSpacing: 3, color: Colors.white70),
+          SafeArea(
+            child: LayoutBuilder(
+              builder: (context, constraints) => SingleChildScrollView(
+                padding: const EdgeInsets.all(28),
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(
+                    minHeight: (constraints.maxHeight - 56).clamp(
+                      0,
+                      double.infinity,
+                    ),
                   ),
-                ),
-                const SizedBox(height: 60),
-                SplashIntroItem(
-                  animation: loginGoogleSlide,
-                  fadeAnimation: loginGoogleFade,
-                  travel: 88,
-                  child: loginButton(
-                    signingProvider == 'google'
-                        ? 'Signing in with Google...'
-                        : 'Continue with Google',
-                    Icons.g_mobiledata,
-                    Colors.red,
-                    isSigningIn ? null : loginWithGoogle,
-                  ),
-                ),
-                SplashIntroItem(
-                  animation: loginTelegramSlide,
-                  fadeAnimation: loginTelegramFade,
-                  travel: 76,
-                  child: loginButton(
-                    signingProvider == 'telegram'
-                        ? 'Signing in with Telegram...'
-                        : 'Continue with Telegram',
-                    Icons.send,
-                    blue,
-                    isSigningIn ? null : loginWithTelegram,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                SplashIntroItem(
-                  animation: loginRememberSlide,
-                  fadeAnimation: loginRememberFade,
-                  travel: 64,
-                  child: _RememberMeRow(
-                    value: rememberMe,
-                    enabled: !isSigningIn,
-                    onChanged: (value) => setState(() => rememberMe = value),
-                  ),
-                ),
-                const SizedBox(height: 28),
-                SplashIntroItem(
-                  animation: loginTermsSlide,
-                  fadeAnimation: loginTermsFade,
-                  travel: 52,
                   child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      const AccountDeletionStatus(),
-                      TextButton(
-                        onPressed: isSigningIn ? null : loginWithEmail,
-                        child: const CcsText('Sign in with email'),
+                      SplashIntroItem(
+                        animation: loginLogoSlide,
+                        fadeAnimation: loginLogoFade,
+                        travel: 112,
+                        child: const CcsWordmark(width: 213),
                       ),
-                      const LegalDocumentLinks(),
+                      const SizedBox(height: 14),
+                      SplashIntroItem(
+                        animation: loginSubtitleSlide,
+                        fadeAnimation: loginSubtitleFade,
+                        travel: 100,
+                        child: const CcsText(
+                          'COMMUNITY CAR SPOTS',
+                          style: TextStyle(
+                            letterSpacing: 3,
+                            color: Colors.white70,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 60),
+                      if (defaultTargetPlatform == TargetPlatform.iOS)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 14),
+                          child: AppleSignInButton(
+                            onPressed: isSigningIn ? null : loginWithApple,
+                          ),
+                        ),
+                      SplashIntroItem(
+                        animation: loginGoogleSlide,
+                        fadeAnimation: loginGoogleFade,
+                        travel: 88,
+                        child: loginButton(
+                          signingProvider == 'google'
+                              ? 'Signing in with Google...'
+                              : 'Continue with Google',
+                          Icons.g_mobiledata,
+                          Colors.red,
+                          isSigningIn ? null : loginWithGoogle,
+                        ),
+                      ),
+                      SplashIntroItem(
+                        animation: loginTelegramSlide,
+                        fadeAnimation: loginTelegramFade,
+                        travel: 76,
+                        child: loginButton(
+                          signingProvider == 'telegram'
+                              ? 'Signing in with Telegram...'
+                              : 'Continue with Telegram',
+                          Icons.send,
+                          blue,
+                          isSigningIn ? null : loginWithTelegram,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      SplashIntroItem(
+                        animation: loginRememberSlide,
+                        fadeAnimation: loginRememberFade,
+                        travel: 64,
+                        child: _RememberMeRow(
+                          value: rememberMe,
+                          enabled: !isSigningIn,
+                          onChanged: (value) =>
+                              setState(() => rememberMe = value),
+                        ),
+                      ),
+                      const SizedBox(height: 28),
+                      SplashIntroItem(
+                        animation: loginTermsSlide,
+                        fadeAnimation: loginTermsFade,
+                        travel: 52,
+                        child: Column(
+                          children: [
+                            const AccountDeletionStatus(),
+                            TextButton(
+                              onPressed: isSigningIn ? null : loginWithEmail,
+                              child: const CcsText('Sign in with email'),
+                            ),
+                            const LegalDocumentLinks(),
+                          ],
+                        ),
+                      ),
                     ],
                   ),
                 ),
-              ],
+              ),
             ),
           ),
         ],

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:ccs_app/features/auth/data/account_deletion.dart';
 
 class DeleteAccountTile extends StatefulWidget {
@@ -42,6 +43,10 @@ class _DeleteAccountTileState extends State<DeleteAccountTile> {
     try {
       await widget.requestDeletion();
     } catch (error) {
+      if (error is FirebaseAuthException &&
+          (error.code == 'canceled' || error.code == 'web-context-canceled')) {
+        return;
+      }
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
