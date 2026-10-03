@@ -2,6 +2,16 @@
 
 ## October 3 deletion investigation (latest)
 
+Public rollout requested by user October 3 after successful iOS submission.
+Pre-activation inspection at approximately 17:36 Kyiv found `hoedeadlov` still
+`processing`: requested 17:12:01, latest progress 17:35:24, 1,910 documents
+processed. Scheduled calls at 17:20, 17:25, 17:30 and 17:35 all returned HTTP 200.
+Public deletion was NOT enabled: successful request acceptance is not complete
+cleanup verification. Keep the worker running for this accepted request; verify
+completion and independent Auth/Firestore/media absence before public activation.
+The user's public-rollout authorization is recorded; no repeated permission
+question is needed for that rollout once its verification gates pass.
+
 - Corrected iOS tester username: `hoedeadlov`. No deletion job exists for
   this account at inspection time. The reported generic connection message
   does not establish the underlying iOS failure; device build/timing remain unknown.
