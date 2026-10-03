@@ -1,5 +1,32 @@
 # CCS App Store release — 25 September 2026
 
+## October 3 deletion investigation (latest)
+
+- Corrected iOS tester username: `hoedeadlov`. No deletion job exists for
+  this account at inspection time. The reported generic connection message
+  does not establish the underlying iOS failure; device build/timing remain unknown.
+- Public deletion is still disabled. After the old job completed, the user
+  explicitly authorized `hoedeadlov` as the sole allowed test account. Do not
+  treat Apple deletion as verified or enable public deletion yet.
+- Earlier disposable account `pro100_bro2` now has job status `complete`,
+  completed October 2 at 03:25:04 Kyiv, about 3 hours 3 minutes after request.
+  This is a job-state observation, not an independent full data/R2 audit or SLA.
+- The XP rollout lost a deployment-only test UID, causing scheduler HTTP 503.
+  Restored the original UID as a production project environment variable and
+  redeployed, then switched to the approved iOS test account in deployment
+  `dpl_CaQTZarBLsctccNgMRu8GuZ8hPun` on `ccs-wine.vercel.app`.
+  Also restored the previously audited storage bucket and allow-missing settings
+  as production project variables after their omission caused HTTP 500.
+  The normal 16:45 Kyiv scheduler run succeeded: `lastRunOk=true`, `attempted=0`,
+  `pending=false`. No test deletion had been requested yet.
+- Local deletion errors now distinguish network, timeout, malformed response,
+  Firebase confirmation/revocation and known server rejection failures without
+  exposing raw exception messages. Cancellation handling includes additional
+  cancellation codes. All 23 focused Apple/deletion tests pass; targeted analysis
+  is clean. These changes require a new mobile build and real iOS testing.
+
+Historical setup notes below are chronological and may have been superseded.
+
 October 3 console update: saved and re-opened Apple App ID G6BV2G5633
 (`lv.ilexall.ccs`, team N7BDW56D69); Sign In with Apple is checked, enabled as
 primary App ID. Push Notifications remains enabled. Apple warned that profiles

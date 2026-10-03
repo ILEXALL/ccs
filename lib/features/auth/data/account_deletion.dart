@@ -1,3 +1,5 @@
+import 'dart:async';
+import 'dart:io';
 import 'dart:math';
 import 'package:ccs_app/features/auth/data/deletion_authorization.dart';
 import 'package:ccs_app/core/config/app_config.dart' show telegramAuthBaseUrl;
@@ -83,6 +85,31 @@ Future<void> requestAccountDeletion() async {
 }
 
 String accountDeletionErrorText(Object error) {
+  if (error is StateError) return error.message.toString();
+  if (error is FirebaseAuthException) {
+    switch (error.code) {
+      case 'requires-recent-login':
+      case 'user-token-expired':
+      case 'invalid-user-token':
+        return 'Sign out and sign in again, then retry deleting your account.';
+      case 'network-request-failed':
+        return 'Account confirmation could not reach Firebase. Check your connection and retry.';
+      default:
+        return 'Account confirmation or Apple access revocation failed (${error.code}). Please retry or contact support.';
+    }
+  }
+  if (error is TimeoutException) {
+    return 'The deletion server took too long to respond. Your request may already have been received. Retry to check it safely.';
+  }
+  if (error is SocketException) {
+    return 'Could not connect to the deletion server. Check your connection and retry.';
+  }
+  if (error is HandshakeException) {
+    return 'A secure connection to the deletion server could not be established. Please retry on another network.';
+  }
+  if (error is FormatException) {
+    return 'The deletion server returned an unreadable response. Your deletion has not been confirmed. Please retry.';
+  }
   if (error is JsonHttpException) {
     switch (error.statusCode) {
       case 401:

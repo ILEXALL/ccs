@@ -44,18 +44,18 @@ class _DeleteAccountTileState extends State<DeleteAccountTile> {
       await widget.requestDeletion();
     } catch (error) {
       if (error is FirebaseAuthException &&
-          (error.code == 'canceled' || error.code == 'web-context-canceled')) {
+          const {
+            'canceled',
+            'cancelled',
+            'user-cancelled',
+            'web-context-canceled',
+            'web-context-cancelled',
+          }.contains(error.code)) {
         return;
       }
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              error is StateError
-                  ? error.message.toString()
-                  : 'Could not request deletion. Please retry.',
-            ),
-          ),
+          SnackBar(content: Text(accountDeletionErrorText(error))),
         );
       }
     } finally {
