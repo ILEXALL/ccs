@@ -180,6 +180,11 @@ class AdminUsersContent implements AdminUsersContentActions {
                 ),
               if (currentUser.role == UserRole.admin && canManage) ...[
                 const PopupMenuDivider(),
+                if (!user.banned && !user.deleted)
+                  PopupMenuItem(
+                    value: 'award_xp',
+                    child: CcsText(trText('Award XP')),
+                  ),
                 if (user.role == UserRole.user)
                   PopupMenuItem(
                     value: 'make_moderator',

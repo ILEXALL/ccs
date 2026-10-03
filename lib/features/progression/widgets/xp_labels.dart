@@ -20,6 +20,7 @@ String xpTransactionActionLabel(String action) {
         'Задание недели выполнено',
         'Nedēļas uzdevums izpildīts',
       );
+    case 'admin.grant':
     case 'admin_reward.completed':
       return achievementText(
         appUiPreferences.language.name,

@@ -491,6 +491,7 @@ const latvianTranslations = <String, String>{
   'Make group moderator': 'Iecelt par grupas moderatoru',
   'Remove group moderator': 'Noņemt grupas moderatoru',
   'Make community moderator': 'Iecelt par kopienas moderatoru',
+  'Award XP': 'Piešķirt XP',
   'Remove community moderator': 'Noņemt kopienas moderatoru',
   'Community moderator assigned.': 'Kopienas moderators piešķirts.',
   'Community moderator removed.': 'Kopienas moderators noņemts.',

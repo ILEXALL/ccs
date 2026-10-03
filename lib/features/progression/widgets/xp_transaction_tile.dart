@@ -69,13 +69,22 @@ class XpTransactionTile extends StatelessWidget {
                       label: transaction.statusLabel,
                       color: statusColor,
                     ),
-                    if (reasonLabel.isNotEmpty)
+                    if (reasonLabel.isNotEmpty &&
+                        transaction.action != 'admin.grant')
                       _XpHistoryBadge(
                         label: reasonLabel,
                         color: Colors.orangeAccent,
                       ),
                   ],
                 ),
+                if (reasonLabel.isNotEmpty &&
+                    transaction.action == 'admin.grant') ...[
+                  const SizedBox(height: 7),
+                  CcsText(
+                    reasonLabel,
+                    style: const TextStyle(color: Colors.white70),
+                  ),
+                ],
                 if (createdAtLabel.isNotEmpty) ...[
                   const SizedBox(height: 7),
                   CcsText(

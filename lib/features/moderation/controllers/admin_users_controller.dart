@@ -1,4 +1,7 @@
 import 'package:ccs_app/features/moderation/models/admin_user_sort.dart';
+import 'package:ccs_app/features/moderation/screens/admin_xp_grant_screen.dart';
+import 'package:ccs_app/features/progression/data/xp_api.dart'
+    show xpScreenRequest;
 import 'dart:async';
 import 'dart:math' as math;
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -853,6 +856,24 @@ class AdminUsersController implements AdminUsersControllerActions {
     String action,
   ) {
     switch (action) {
+      case 'award_xp':
+        if (currentUser.role != UserRole.admin ||
+            !canShowManagementActions(user) ||
+            user.banned ||
+            user.deleted) {
+          return;
+        }
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => AdminXpGrantScreen(
+              request: xpScreenRequest,
+              selectedUsername: user.username,
+              selectedUserId: user.uid,
+            ),
+          ),
+        );
+        break;
       case 'open':
         openUserProfile(
           context,

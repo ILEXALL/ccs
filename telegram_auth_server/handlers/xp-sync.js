@@ -1,4 +1,5 @@
 const adminRewards = require('../lib/xp/admin-rewards');
+const {grantXp, grantTarget, grantRequest} = require('../lib/xp/admin-grants');
 const {syncWeeklyTasks} = require('../lib/xp/weekly-tasks');
 const {assessLocation} = require('../lib/location-integrity');
 const { admin, db } = require('../lib/firebase-admin');
@@ -123,6 +124,8 @@ async function syncSpot(actor, body) {
 }
 
 const handlers = {
+  admin_xp_grant_target: (actor, body) => grantRequest(grantTarget, actor.uid, body),
+  admin_xp_grant: (actor, body) => grantRequest(grantXp, actor.uid, body),
   reset_spot_visit: async actor => {
     await db.runTransaction(async tx => tx.delete(db.collection('spot_visit_sessions').doc(actor.uid)));
     return {reset: true};

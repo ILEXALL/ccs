@@ -491,6 +491,7 @@ const russianTranslations = <String, String>{
   'Make group moderator': 'Сделать модератором группы',
   'Remove group moderator': 'Убрать модератора группы',
   'Make community moderator': 'Сделать модератором сообщества',
+  'Award XP': 'Начислить XP',
   'Remove community moderator': 'Убрать модератора сообщества',
   'Community moderator assigned.': 'Модератор сообщества назначен.',
   'Community moderator removed.': 'Модератор сообщества снят.',

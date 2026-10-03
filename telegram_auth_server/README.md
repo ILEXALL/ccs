@@ -79,3 +79,35 @@ Keep both flags disabled during deployment. For tester-only rollout, add Firebas
 Auth user IDs to `enabledUserIds`. Use `["*"]` only when XP should be available
 to everyone. Enable both flags only after the Vercel route and Firestore
 rules/indexes are deployed.
+# Manual admin XP awards
+
+The mobile Admin → Users → user three-dot menu → **Award XP** opens the form
+with that recipient selected. Enter 1–3000 XP and a required reason (up to 500 characters); verify the
+recipient and confirm. The reason is visible in the recipient's XP history and
+the admin audit record. This is a lifetime XP adjustment and does not consume
+weekly earning capacity or affect weekly rankings. No push message is sent.
+
+`admin_xp_grant_target` resolves the recipient with an authenticated admin check.
+`admin_xp_grant` requires the verified `userId`, `username`, `amount`, `reason`,
+and stable `requestId`. Authority, recipient identity and deletion status are
+checked within the transaction. Self-awards and blocked/deleted recipients are
+rejected. Balance, level, ledger and audit commit together; existing revoke/
+restore handling supports these awards. Mobile pending requests are retained
+per admin account across restarts; retry after an uncertain result instead of
+creating another award. Explicit validation failures permit correction.
+
+Server deployed on 3 October 2026: `dpl_EGLoqVrtPR2Zu3cjfKUnpRn7i8Lz`,
+`https://ccs-dsrbptk2g-ccs-projects1.vercel.app`, serving
+`https://ccs-wine.vercel.app`. Live unauthenticated requests return HTTP 401.
+Deployment used the previous production snapshot plus `handlers/xp-sync.js`
+and `lib/xp/admin-grants.js`; account-deletion worker/config were preserved.
+Rollback deployment: `ccs-naufkvwph-ccs-projects1.vercel.app`.
+The mobile app still needs rebuilding to expose the new control.
+No Firestore rules changes are required. The new UI has widget coverage but
+still needs a real-device check after deployment. The one-off Eugene_e34 award
+was already applied through Cloud Shell and must not be repeated as a smoke test.
+
+Tests: `node --test --test-isolation=none test/admin-grants.test.js`;
+with the local demo emulator at 127.0.0.1:18080, run
+`node --test --test-isolation=none test/admin-grants.emulator.cjs` with
+`FIRESTORE_EMULATOR_HOST=127.0.0.1:18080`.
