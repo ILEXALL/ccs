@@ -17,6 +17,8 @@ import 'package:ccs_app/features/auth/data/auth_state.dart'
     show currentUser, maintenanceAccessRevision;
 import 'package:ccs_app/features/auth/data/session_lifecycle.dart'
     show signOutCurrentAccount;
+import 'package:ccs_app/features/auth/widgets/account_deletion_widgets.dart'
+    show DeleteAccountTile;
 import 'package:ccs_app/shared/models/user_role.dart' show UserRole;
 import 'package:ccs_app/shared/utils/date_formatting.dart'
     show formatShortDateTime;
@@ -222,6 +224,7 @@ class _BannedUserScreenState extends State<BannedUserScreen>
                           ),
                         ),
                       ),
+                      const DeleteAccountTile(),
                     ],
                   ),
                 ),

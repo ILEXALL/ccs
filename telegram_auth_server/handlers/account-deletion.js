@@ -4,6 +4,7 @@ const {processDeletion} = require('../lib/account-deletion/worker');
 const {storageAdapter} = require('../lib/account-deletion/storage');
 const {collectionPager} = require('../lib/account-deletion/list-page');
 const {runDeletionQueue} = require('../lib/account-deletion/queue');
+const {deletionScope} = require('../lib/account-deletion/scope');
 const hash = value => createHash('sha256').update(value).digest('hex');
 const same = (a, b) => typeof a === 'string' && typeof b === 'string' &&
   Buffer.byteLength(a) === Buffer.byteLength(b) && timingSafeEqual(Buffer.from(a), Buffer.from(b));
@@ -11,16 +12,25 @@ const same = (a, b) => typeof a === 'string' && typeof b === 'string' &&
 module.exports = async (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
   try {
+    const scope = deletionScope(process.env);
     if (req.method === 'GET') {
-      if (!process.env.CRON_SECRET || !same(req.headers.authorization, `Bearer ${process.env.CRON_SECRET}`)) {
+      const secrets = [process.env.CRON_SECRET, process.env.ACCOUNT_DELETION_WORKER_SECRET].filter(Boolean);
+      if (!secrets.some(secret => same(req.headers.authorization, `Bearer ${secret}`))) {
         return res.status(401).json({error: 'Unauthorized'});
       }
-      if (process.env.ACCOUNT_DELETION_ENABLED !== 'true') {
+      // A read-only connection check must never advance jobs or update worker
+      // health: successful diagnostics are not evidence that cleanup is running.
+      if (req.query?.action === 'verify') {
+        const media = storageAdapter(process.env, {firebaseStorage: admin.storage()});
+        const checks = await media.verifyAccess();
+        return res.status(checks.ok ? 200 : 503).json({mode: 'verify', ...checks});
+      }
+      if (!scope.enabled) {
         return res.status(503).json({error: 'Account deletion is temporarily unavailable'});
       }
-      const media = storageAdapter();
+      const media = storageAdapter(process.env, {firebaseStorage: admin.storage()});
       const listPage = collectionPager({db, credential: admin.app().options.credential});
-      const result = await runDeletionQueue({db, runJob: (jobRef, budgetMs) =>
+      const result = await runDeletionQueue({db, onlyUid: scope.onlyUid, runJob: (jobRef, budgetMs) =>
         processDeletion({db, auth: admin.auth(), media, listPage, jobRef, budgetMs})});
       return res.status(result.ok ? 200 : 503).json(result);
     }
@@ -33,17 +43,27 @@ module.exports = async (req, res) => {
     }
     // Fail closed until production storage, scheduler and verified deployment
     // have been configured. Never accept a request that has no working worker.
-    if (process.env.ACCOUNT_DELETION_ENABLED !== 'true' || !process.env.CRON_SECRET) {
+    if (!scope.enabled || !process.env.CRON_SECRET) {
       return res.status(503).json({error: 'Account deletion is temporarily unavailable'});
     }
-    storageAdapter();
+    storageAdapter(process.env, {firebaseStorage: admin.storage()});
     const header = req.headers.authorization || '';
     if (!header.startsWith('Bearer ')) return res.status(401).json({error: 'Sign in required'});
     let token;
     try { token = await admin.auth().verifyIdToken(header.slice(7), true); }
     catch (_) { return res.status(401).json({error: 'Sign in again before deleting your account'}); }
+    if (scope.onlyUid !== null && token.uid !== scope.onlyUid) {
+      return res.status(503).json({error: 'Account deletion is temporarily unavailable'});
+    }
     if (!token.auth_time || Date.now() / 1000 - token.auth_time > 300) {
       return res.status(401).json({error: 'Sign in again before deleting your account'});
+    }
+    // Do not accept new destructive requests when the frequent scheduler is
+    // offline. The daily cron still retries already-accepted jobs.
+    const scheduler = (await db.collection('account_deletion_scheduler').doc(scope.stateId).get()).data();
+    if (!scheduler?.lastFinishedAt || scheduler.lastRunOk !== true ||
+        Date.now() - scheduler.lastFinishedAt > 15 * 60 * 1000) {
+      return res.status(503).json({error: 'Account deletion is temporarily unavailable. Please try again later.'});
     }
     if (req.body?.confirmation !== 'DELETE') return res.status(400).json({error: 'Confirmation required'});
     if (!/^[A-Za-z0-9_-]{1,128}$/.test(token.uid)) return res.status(400).json({error: 'Unsupported account identifier'});

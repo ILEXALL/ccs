@@ -75,13 +75,26 @@ class _DeleteAccountTileState extends State<DeleteAccountTile> {
 }
 
 class AccountDeletionStatus extends StatefulWidget {
-  const AccountDeletionStatus({super.key});
+  final Future<String?> Function() loadStatus;
+  const AccountDeletionStatus({
+    super.key,
+    this.loadStatus = accountDeletionStatus,
+  });
   @override
   State<AccountDeletionStatus> createState() => _AccountDeletionStatusState();
 }
 
 class _AccountDeletionStatusState extends State<AccountDeletionStatus> {
-  late Future<String?> status = accountDeletionStatus();
+  late Future<String?> status = loadStatus();
+  bool refreshed = false;
+  Future<String?> loadStatus() {
+    final request = Future<String?>.sync(widget.loadStatus);
+    // Observe immediate failures before FutureBuilder subscribes next frame.
+    // The original future still delivers the error to its retry UI.
+    request.then<void>((_) {}, onError: (Object _, StackTrace _) {});
+    return request;
+  }
+
   @override
   Widget build(BuildContext context) => FutureBuilder<String?>(
     future: status,
@@ -91,6 +104,7 @@ class _AccountDeletionStatusState extends State<AccountDeletionStatus> {
         return const SizedBox.shrink();
       }
       final complete = snapshot.data == 'complete';
+      final checking = snapshot.connectionState == ConnectionState.waiting;
       return Column(
         children: [
           Text(
@@ -98,15 +112,30 @@ class _AccountDeletionStatusState extends State<AccountDeletionStatus> {
                 ? 'Your account and associated data have been deleted.'
                 : snapshot.hasError
                 ? 'Could not check deletion status.'
+                : refreshed && !checking
+                ? 'Status checked: deletion is still processing. It continues automatically; you can close the app.'
                 : 'Your account deletion is processing automatically.',
             textAlign: TextAlign.center,
           ),
           TextButton(
-            onPressed: () async {
-              if (complete) await dismissDeletionReceipt();
-              if (mounted) setState(() => status = accountDeletionStatus());
-            },
-            child: Text(complete ? 'Dismiss' : 'Check deletion status'),
+            onPressed: checking
+                ? null
+                : () async {
+                    if (complete) await dismissDeletionReceipt();
+                    if (mounted) {
+                      setState(() {
+                        refreshed = true;
+                        status = loadStatus();
+                      });
+                    }
+                  },
+            child: Text(
+              checking
+                  ? 'Checking…'
+                  : complete
+                  ? 'Dismiss'
+                  : 'Check deletion status',
+            ),
           ),
         ],
       );

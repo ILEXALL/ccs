@@ -9,6 +9,7 @@ const admin = process.env.CCS_TEST_DEPENDENCIES
   : require('firebase-admin');
 const {processDeletion} = require('../lib/account-deletion/worker');
 const {collectionPager} = require('../lib/account-deletion/list-page');
+const {runDeletionQueue} = require('../lib/account-deletion/queue');
 
 if (process.env.FIRESTORE_EMULATOR_HOST !== '127.0.0.1:18080') throw new Error('Only the local test emulator is permitted');
 const projectId = 'demo-ccs-tests';
@@ -27,6 +28,163 @@ async function seed(rows) {
 }
 const auth = () => ({updateUser: async () => {}, revokeRefreshTokens: async () => {}, deleteUser: async () => {}});
 
+test('restricted queue processes only its account and leaves public health and metadata alone', async () => {
+  const {deletionScope} = require('../lib/account-deletion/scope');
+  await seed({
+    'account_deletions/alice': {status: 'queued'},
+    'account_deletions/bob': {status: 'queued'},
+    'account_deletions/old': {status: 'complete', completedAt: 1},
+    'account_deletion_receipts/old': {status: 'complete', completedAt: 1},
+    'account_deletion_scheduler/round-robin': {lastRunOk: false, sentinel: 'unchanged'},
+  });
+  const seen = [];
+  const result = await runDeletionQueue({db, onlyUid: 'alice', runJob: async ref => {
+    seen.push(ref.id); await ref.update({status: 'complete'});
+  }});
+  assert.deepEqual(seen, ['alice']);
+  assert.equal(result.pending, false);
+  assert.equal((await db.doc('account_deletions/bob').get()).data().status, 'queued');
+  assert.equal((await db.doc('account_deletions/old').get()).exists, true);
+  assert.equal((await db.doc('account_deletion_receipts/old').get()).exists, true);
+  assert.deepEqual((await db.doc('account_deletion_scheduler/round-robin').get()).data(), {lastRunOk: false, sentinel: 'unchanged'});
+  const scope = deletionScope({ACCOUNT_DELETION_TEST_UID: 'alice'});
+  assert.equal((await db.doc(`account_deletion_scheduler/${scope.stateId}`).get()).data().lastRunOk, true);
+  const empty = await runDeletionQueue({db, onlyUid: 'alice', runJob: async () => assert.fail('completed test must not run')});
+  assert.equal(empty.attempted, 0);
+});
+
+test('queue rotates past failed and unfinished jobs and records scheduler health', async () => {
+  for (const id of ['a', 'b', 'c', 'd', 'e', 'f']) {
+    await db.doc(`account_deletions/${id}`).set({status: 'queued'});
+  }
+  const calls = [];
+  const runJob = async ref => {calls.push(ref.id); if (ref.id === 'a') throw new Error('test storage failure');};
+  const first = await runDeletionQueue({db, runJob});
+  assert.equal(first.ok, false);
+  assert.equal(first.attempted, 5);
+  assert.equal(first.pending, true);
+  await runDeletionQueue({db, runJob});
+  assert.deepEqual(calls, ['a', 'b', 'c', 'd', 'e', 'f']);
+  const state = (await db.doc('account_deletion_scheduler/round-robin').get()).data();
+  assert.equal(state.after, 'f');
+  assert.equal(state.lastRunOk, true);
+  assert.equal(state.leaseUntil, 0);
+  assert.ok(state.lastFinishedAt >= state.lastStartedAt);
+});
+
+test('overlapping scheduler runs do not process the same queue', async () => {
+  await db.doc('account_deletion_scheduler/round-robin').set({leaseUntil: Date.now() + 60000});
+  const result = await runDeletionQueue({db, runJob: async () => assert.fail('duplicate worker')});
+  assert.equal(result.busy, true);
+});
+
+test('one waiting job receives the available budget and five jobs share it', async () => {
+  await seed({'account_deletions/a': {status: 'queued'}});
+  const budgets = [];
+  await runDeletionQueue({db, now: () => 1000, runJob: async (_, budget) => budgets.push(budget)});
+  assert.deepEqual(budgets, [35000]);
+  for (const id of ['b', 'c', 'd', 'e']) await db.doc(`account_deletions/${id}`).set({status: 'queued'});
+  await db.doc('account_deletion_scheduler/round-robin').update({after: ''});
+  let time = 2000;
+  budgets.length = 0;
+  await runDeletionQueue({db, now: () => time, runJob: async (_, budget) => {budgets.push(budget); time += budget;}});
+  assert.deepEqual(budgets, [7000, 7000, 7000, 7000, 7000]);
+});
+
+test('a failed batch commits neither deletions nor its cursor and resumes safely', async t => {
+  const {createHash} = require('node:crypto');
+  const ref = db.doc('account_deletions/alice');
+  const task = ref.collection('tasks').doc(createHash('sha256').update('global_chat').digest('hex'));
+  const paths = Array.from({length: 12}, (_, i) => `global_chat/m${i}`);
+  await seed({[ref.path]: {status: 'processing', initialized: true, receiptHash: 'receipt'},
+    [task.path]: {kind: 'collection', path: 'global_chat', pendingPaths: paths, lastPage: true}});
+  for (const [i, path] of paths.entries()) await db.doc(path).set({userId: i % 2 ? 'bob' : 'alice'});
+  const original = db.runTransaction.bind(db);
+  const mock = t.mock.method(db, 'runTransaction', (callback, ...options) => original(async tx => {
+    const update = tx.update.bind(tx);
+    tx.update = (target, ...args) => {
+      if (target.path === task.path) throw new Error('injected batch failure');
+      return update(target, ...args);
+    };
+    return callback(tx);
+  }, ...options));
+  await assert.rejects(processDeletion({db, listPage, jobRef: ref, auth: auth(), media: {}}), /injected batch failure/);
+  mock.mock.restore();
+  assert.equal((await db.collection('global_chat').get()).size, 12);
+  assert.deepEqual((await task.get()).data().pendingPaths, paths);
+  assert.equal((await ref.get()).data().leaseUntil, 0);
+  await processDeletion({db, listPage, jobRef: ref, auth: auth(), media: {}, budgetMs: 100000});
+  assert.equal((await ref.get()).data().status, 'complete');
+  const survivors = await db.collection('global_chat').get();
+  assert.equal(survivors.size, 6);
+  assert.ok(survivors.docs.every(doc => doc.data().userId === 'bob'));
+});
+
+test('completed UID tombstones and expired anonymous receipts are eventually removed', async () => {
+  const now = Date.now();
+  await seed({
+    'account_deletions/old': {status: 'complete', completedAt: now - 3600001},
+    'account_deletions/recent': {status: 'complete', completedAt: now - 1000},
+    'account_deletion_receipts/old': {status: 'complete', completedAt: now - 31 * 86400000},
+    'account_deletion_receipts/recent': {status: 'complete', completedAt: now},
+    'account_deletion_scheduler/round-robin': {after: 'old'},
+  });
+  await runDeletionQueue({db, now: () => now, runJob: async () => assert.fail('no pending work')});
+  assert.equal((await db.doc('account_deletions/old').get()).exists, false);
+  assert.equal((await db.doc('account_deletions/recent').get()).exists, true);
+  assert.equal((await db.doc('account_deletion_receipts/old').get()).exists, false);
+  assert.equal((await db.doc('account_deletion_receipts/recent').get()).exists, true);
+  assert.equal((await db.doc('account_deletion_scheduler/round-robin').get()).data().after, '');
+});
+
+test('deleted containers leave no orphan descendants, including missing intermediate documents', async () => {
+  const ref = db.doc('account_deletions/alice');
+  await seed({
+    [ref.path]: {status: 'queued', receiptHash: 'receipt'},
+    'users/alice': {deleted: true},
+    'forum_topics/mine': {authorId: 'alice'},
+    'forum_topics/mine/replies/bob': {userId: 'bob', text: 'reply'},
+    'forum_topics/mine/replies/missing/reactions/bob': {value: 'like'},
+    'chats/empty': {memberIds: ['alice'], ownerUid: 'alice'},
+    'chats/empty/messages/system': {text: 'old personal content'},
+    'forum_topics/other': {authorId: 'bob'},
+    'forum_topics/other/replies/bob': {userId: 'bob', text: 'keep'},
+  });
+  let calls = 0;
+  while ((await ref.get()).data().status !== 'complete' && calls++ < 100) {
+    await processDeletion({db, listPage, jobRef: ref, auth: auth(), maxDocuments: 3,
+      media: {deletePrefixPage: async () => true}});
+  }
+  assert.equal((await ref.get()).data().status, 'complete');
+  for (const path of ['forum_topics/mine/replies/bob', 'forum_topics/mine/replies/missing/reactions/bob',
+    'chats/empty', 'chats/empty/messages/system']) assert.equal((await db.doc(path).get()).exists, false, path);
+  assert.equal((await db.doc('forum_topics/other/replies/bob').get()).data().text, 'keep');
+});
+
+test('deletion removes copied spot notifications and group links scanned before the spot', async () => {
+  const ref = db.doc('account_deletions/alice');
+  await seed({
+    [ref.path]: {status: 'queued', receiptHash: 'receipt'},
+    'spots/mine': {addedByUid: 'alice', name: 'personal name'},
+    'spots/other': {addedByUid: 'bob'},
+    'user_notifications/copied': {userId: 'bob', body: 'personal name', data: {spotId: 'mine'}},
+    'chats/shared/spot_links/mine': {spotId: 'mine', spotName: 'personal name'},
+    'spot_reviews/review': {userId: 'bob', spotId: 'mine', spotName: 'personal name'},
+    'user_notifications/keep': {userId: 'bob', data: {spotId: 'other'}},
+  });
+  let calls = 0;
+  while ((await ref.get()).data().status !== 'complete' && calls++ < 100) {
+    await processDeletion({db, listPage, jobRef: ref, auth: auth(), maxDocuments: 2,
+      media: {deletePrefixPage: async () => true}});
+  }
+  assert.equal((await ref.get()).data().status, 'complete');
+  for (const path of ['user_notifications/copied', 'chats/shared/spot_links/mine', 'spot_reviews/review']) {
+    assert.equal((await db.doc(path).get()).exists, false, path);
+  }
+  assert.equal((await db.doc('user_notifications/keep').get()).exists, true);
+  assert.equal((await ref.collection('content_checks').get()).empty, true);
+});
+
 test('media cleanup waits for previously issued upload URLs to expire', async () => {
   const ref = db.doc('account_deletions/alice');
   const requestedAt = Date.now();
@@ -36,6 +194,86 @@ test('media cleanup waits for previously issued upload URLs to expire', async ()
     media: {deletePrefixPage: async () => assert.fail('Media deleted too early')}});
   assert.equal((await ref.get()).data().status, 'queued');
   assert.equal((await ref.get()).data().initialized, undefined);
+});
+
+test('large scan pages resume mid-page and discover orphan descendants without skipping other users', async () => {
+  const ref = db.doc('account_deletions/alice');
+  await seed({[ref.path]: {status: 'queued', receiptHash: 'receipt'}});
+  const writer = db.bulkWriter();
+  for (let i = 0; i < 130; i++) {
+    const id = `m${String(i).padStart(3, '0')}`;
+    writer.set(db.doc(`global_chat/${id}`), {userId: i % 2 ? 'bob' : 'alice', text: id});
+  }
+  writer.set(db.doc('global_chat/m065/reactions/alice'), {uid: 'alice'});
+  writer.set(db.doc('global_chat/m065/reactions/bob'), {uid: 'bob'});
+  writer.set(db.doc('global_chat/missing/reactions/alice'), {uid: 'alice'});
+  await writer.close();
+  let calls = 0;
+  while ((await ref.get()).data().status !== 'complete' && calls++ < 30) {
+    await processDeletion({db, listPage, jobRef: ref, auth: auth(), maxDocuments: 31,
+      media: {deletePrefixPage: async () => true}});
+  }
+  assert.equal((await ref.get()).data().status, 'complete');
+  const remaining = await db.collection('global_chat').get();
+  assert.equal(remaining.size, 65);
+  assert.ok(remaining.docs.every(doc => doc.data().userId === 'bob' && doc.data().text === doc.id));
+  assert.equal((await db.doc('global_chat/m065/reactions/alice').get()).exists, false);
+  assert.equal((await db.doc('global_chat/missing/reactions/alice').get()).exists, false);
+  assert.equal((await db.doc('global_chat/m065/reactions/bob').get()).exists, true);
+});
+
+test('indexed history cleanup paginates owned rows, removes actor copies, and does not scan unrelated history', async () => {
+  const ref = db.doc('account_deletions/alice');
+  await seed({[ref.path]: {status: 'queued', receiptHash: 'receipt'},
+    'user_notifications/actor': {userId: 'bob', actorUserId: 'alice'},
+    'user_notifications/nested': {userId: 'bob', data: {senderUid: 'alice'}},
+    'user_notifications/keep': {userId: 'bob', actorUserId: 'carol'},
+    'push_deliveries/keep': {userId: 'bob'}});
+  for (let i = 0; i < 57; i++) {
+    await db.doc(`user_notifications/m${i}`).set({userId: 'alice'});
+    await db.doc(`push_deliveries/m${i}`).set({userId: 'alice'});
+  }
+  const guardedPager = (path, token) => {
+    assert.ok(!['user_notifications', 'push_deliveries'].includes(path), 'large collections must use indexes');
+    return listPage(path, token);
+  };
+  let calls = 0;
+  while ((await ref.get()).data().status !== 'complete' && calls++ < 100) {
+    await processDeletion({db, listPage: guardedPager, jobRef: ref, auth: auth(), maxDocuments: 7,
+      media: {deletePrefixPage: async () => true}});
+  }
+  assert.equal((await ref.get()).data().status, 'complete');
+  assert.deepEqual((await db.collection('user_notifications').get()).docs.map(doc => doc.id), ['keep']);
+  assert.deepEqual((await db.collection('push_deliveries').get()).docs.map(doc => doc.id), ['keep']);
+});
+
+test('old jobs with hashed content references retain the safe notification fallback', async () => {
+  const {createHash} = require('node:crypto');
+  const ref = db.doc('account_deletions/alice');
+  const hash = path => createHash('sha256').update(path).digest('hex');
+  await seed({[ref.path]: {initialized: true, status: 'processing', receiptHash: 'receipt'},
+    [`${ref.path}/tasks/${hash('user_notifications')}`]: {kind: 'collection', path: 'user_notifications'},
+    [`${ref.path}/references/${hash('spots/gone')}`]: {deleted: true},
+    'user_notifications/copy': {userId: 'bob', data: {spotId: 'gone'}},
+    'user_notifications/keep': {userId: 'bob', data: {spotId: 'keep'}}});
+  await processDeletion({db, listPage, jobRef: ref, auth: auth(), budgetMs: 100000, media: {}});
+  assert.equal((await db.doc('user_notifications/copy').get()).exists, false);
+  assert.equal((await db.doc('user_notifications/keep').get()).exists, true);
+  assert.equal((await ref.get()).data().status, 'complete');
+});
+
+test('indexed chat preview cleanup checks both chat and message IDs', async () => {
+  const ref = db.doc('account_deletions/alice');
+  await seed({[ref.path]: {status: 'queued', receiptHash: 'receipt'},
+    'chats/one/messages/same': {senderUid: 'alice', text: 'erase'},
+    'chats/two/messages/same': {senderUid: 'bob', text: 'keep'},
+    'user_notifications/copied': {userId: 'bob', body: 'erase', data: {chatId: 'one', messageId: 'same'}},
+    'user_notifications/keep': {userId: 'bob', body: 'keep', data: {chatId: 'two', messageId: 'same'}}});
+  await processDeletion({db, listPage, jobRef: ref, auth: auth(), budgetMs: 100000,
+    media: {deletePrefixPage: async () => true}});
+  assert.equal((await ref.get()).data().status, 'complete');
+  assert.equal((await db.doc('user_notifications/copied').get()).exists, false);
+  assert.equal((await db.doc('user_notifications/keep').get()).data().body, 'keep');
 });
 
 test('removes content and orphan descendants, scrubs old reply previews, keeps other members', async () => {
@@ -97,6 +335,22 @@ test('an active worker lease prevents duplicate work', async () => {
   const ref = db.doc('account_deletions/alice');
   await ref.set({status: 'processing', leaseUntil: Date.now() + 60000});
   await processDeletion({db, listPage, jobRef: ref, auth: {updateUser: async () => assert.fail('must not run')}, media: {}});
+});
+
+test('empty deleted-source index clears only temporary deferred checks in bounded batches', async () => {
+  const ref = db.doc('account_deletions/alice');
+  await seed({[ref.path]: {initialized: true, indexedReferences: true, status: 'processing', receiptHash: 'receipt'},
+    'global_chat/other': {userId: 'bob', text: 'keep', replyToText: 'keep'},
+    [`${ref.path}/reply_checks/a`]: {path: 'global_chat/other'},
+    [`${ref.path}/reply_checks/b`]: {path: 'global_chat/other'},
+    [`${ref.path}/content_checks/a`]: {path: 'global_chat/other'}});
+  await processDeletion({db, listPage, jobRef: ref, auth: auth(), maxDocuments: 2, media: {}});
+  assert.equal((await ref.collection('reply_checks').get()).empty, true);
+  assert.equal((await ref.collection('content_checks').get()).size, 1);
+  assert.equal((await ref.get()).data().status, 'processing');
+  await processDeletion({db, listPage, jobRef: ref, auth: auth(), media: {}});
+  assert.equal((await ref.get()).data().status, 'complete');
+  assert.deepEqual((await db.doc('global_chat/other').get()).data(), {userId: 'bob', text: 'keep', replyToText: 'keep'});
 });
 
 test('queued deletion immediately blocks old client tokens and queue access', async () => {
@@ -163,7 +417,8 @@ test('request derives account from fresh authenticated token and receipt exposes
     module, Buffer, Date, console, process: {env: {ACCOUNT_DELETION_ENABLED: 'true', CRON_SECRET: 'local-test-only'}},
     require: name => {
       if (name === 'node:crypto') return require(name);
-      if (name.endsWith('/firebase-admin')) return {db, admin: {firestore: admin.firestore, auth: () => ({
+      if (name.endsWith('/scope')) return require('../lib/account-deletion/scope');
+      if (name.endsWith('/firebase-admin')) return {db, admin: {storage: () => ({}), firestore: admin.firestore, auth: () => ({
         verifyIdToken: async (_, revoked) => {assert.equal(revoked, true); return token;},
         updateUser: async (uid, fields) => {calls.push(['disable', uid, fields.disabled]);},
         revokeRefreshTokens: async uid => {calls.push(['revoke', uid]);},
@@ -184,6 +439,8 @@ test('request derives account from fresh authenticated token and receipt exposes
   }
   const receipt = 'a'.repeat(64);
   await seed({'users/alice': {username: 'alice'}, 'users/bob': {username: 'bob'}});
+  assert.equal((await request({receipt, confirmation: 'DELETE'})).code, 503);
+  await db.doc('account_deletion_scheduler/round-robin').set({lastFinishedAt: Date.now(), lastRunOk: true});
   assert.equal((await request({receipt, confirmation: 'no'})).code, 400);
   token.auth_time -= 1000;
   assert.equal((await request({receipt, confirmation: 'DELETE'})).code, 401);
@@ -196,4 +453,13 @@ test('request derives account from fresh authenticated token and receipt exposes
   assert.equal(status.data.status, 'processing');
   assert.deepEqual(Object.keys(status.data), ['status']);
   assert.equal((await db.doc(`account_deletion_receipts/${createHash('sha256').update(receipt).digest('hex')}`).get()).exists, true);
+  context.process.env.ACCOUNT_DELETION_ENABLED = 'false';
+  context.process.env.ACCOUNT_DELETION_TEST_UID = 'bob';
+  assert.equal((await request({receipt, confirmation: 'DELETE', uid: 'bob'})).code, 503);
+  context.process.env.ACCOUNT_DELETION_TEST_UID = 'alice';
+  assert.equal((await request({receipt, confirmation: 'DELETE'})).code, 503);
+  const {deletionScope} = require('../lib/account-deletion/scope');
+  await db.doc(`account_deletion_scheduler/${deletionScope(context.process.env).stateId}`)
+    .set({lastFinishedAt: Date.now(), lastRunOk: true});
+  assert.equal((await request({receipt, confirmation: 'DELETE'})).code, 202);
 });

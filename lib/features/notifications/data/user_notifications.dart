@@ -21,6 +21,7 @@ Future<bool> userNotificationPreferenceEnabled(
   try {
     final snapshot = await usersCollection().doc(userId).debugGet();
     final data = snapshot.data() ?? const <String, dynamic>{};
+    if (!snapshot.exists || data['deleted'] == true) return false;
     final nestedSettings = mapFromFirebase(data['settings']);
 
     if (data[settingName] is bool) {
@@ -35,6 +36,9 @@ Future<bool> userNotificationPreferenceEnabled(
       'Could not read notification setting $settingName for $userId: $error',
     );
     debugPrint('$stack');
+    // A failed lookup must not recreate notifications for an account whose
+    // deletion is in progress. The server can retry delivery independently.
+    return false;
   }
 
   // Missing settings are treated as enabled. This matches the app default.

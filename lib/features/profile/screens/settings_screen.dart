@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:ccs_app/features/auth/widgets/apple_account_tile.dart';
 import 'package:ccs_app/features/auth/widgets/account_deletion_widgets.dart';
 import 'package:ccs_app/features/auth/widgets/legal_documents.dart';
 import 'package:flutter/material.dart' hide Text;
@@ -156,6 +157,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         padding: const EdgeInsets.fromLTRB(12, 18, 12, 28),
         children: [
           const LegalDocumentLinks(),
+          const AppleAccountTile(),
           const DeleteAccountTile(),
           AddSpotSection(
             title: 'Notifications',

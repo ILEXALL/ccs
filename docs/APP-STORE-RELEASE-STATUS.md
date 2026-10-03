@@ -1,5 +1,156 @@
 # CCS App Store release — 25 September 2026
 
+October 3 console update: saved and re-opened Apple App ID G6BV2G5633
+(`lv.ilexall.ccs`, team N7BDW56D69); Sign In with Apple is checked, enabled as
+primary App ID. Push Notifications remains enabled. Apple warned that profiles
+using this App ID must be regenerated for future builds. Firebase Apple provider was saved after explicit approval. The provider table verifies Apple Enabled alongside unchanged Google, Email/Password and Anonymous Enabled. No user accounts were migrated or merged. Services ID/code-flow fields
+remain blank; credential configuration and real-device validation remain pending.
+
+October 3 Services ID update: registered `lv.ilexall.ccs.auth` (CCS Firebase
+Authentication), then saved its Sign in with Apple configuration after explicit
+approval. Primary App ID is `N7BDW56D69.lv.ilexall.ccs`; domain is
+`ccsv1-63537.firebaseapp.com`, return URL is
+`https://ccsv1-63537.firebaseapp.com/__/auth/handler`.
+Prepared a new key named CCS Firebase Apple Sign In with only Sign in with Apple
+enabled for the primary App ID. User completed registration; Key ID is
+`8LPHNLCCP3`. Clicked Download at user request; Apple shows Downloaded, but the
+browser download event timed out without returning a saved path. No matching file
+was found in the user's standard Downloads directory. Confirm the file's local
+save location with the user before proceeding. Firebase private-key entry is
+still pending; no key contents were read or printed.
+Existing APNs key V92Q9VF4PM (CCS Firebase Push) was not modified.
+## Sign in with Apple implementation — 2 October 2026
+
+Local implementation added; not released or verified on Apple hardware:
+
+- iOS login uses Firebase's native Apple provider (nonce/exchange handled by the
+  installed SDK), then existing nickname/profile/consent routing. Relay email is
+  not suggested as a public nickname. Failed profile setup signs out.
+- Settings offers explicit consent to link Apple to the currently authenticated
+  Firebase UID, including existing Google/Telegram accounts. No custom email
+  matching or automatic merging. Credential collisions preserve the session and
+  explain the conflict. Existing Telegram username metadata is preserved.
+- Login layout scrolls on small screens; Apple entitlement added to Runner.
+- Confirmed deletion reauthenticates Apple-linked users and revokes Apple access
+  before queuing deletion; missing codes and revocation failures stop submission.
+  Non-Apple accounts and already-accepted receipt recovery keep their old flow.
+- Seven authentication unit tests pass; eight existing deletion/consent tests
+  pass; one small-iPhone layout test passes. Targeted Dart analysis is clean.
+  These tests mock authentication; they do not verify Apple's real OAuth service.
+
+Firebase console was inspected: Apple provider is NOT configured. The Apple
+Developer identifiers tab is open at sign-in, awaiting the user's login. No live
+provider, capability, rules, backend, or scheduler settings were changed.
+
+Remaining setup/validation: enable Sign in with Apple for `lv.ilexall.ccs` in the
+Apple Developer account, configure Firebase Apple provider/code flow credentials
+as required for revocation, refresh iOS provisioning, and test on iPhone/iPad.
+Test new signup (including Hide My Email), returning login, cancelled sheet,
+existing Google and Telegram linking with unchanged UID/data, collision handling,
+and account deletion/revocation. Verify deletion of an Apple-linked account from
+Android too: native Apple authorization-code retrieval has only been implemented
+and documented for Apple platforms; cross-platform OAuth/revocation configuration
+remains a release blocker. Never claim end-to-end Apple readiness from unit tests.
+
+References: https://firebase.google.com/docs/auth/flutter/federated-auth#apple
+and https://developer.apple.com/app-store/review/guidelines/#login-services.
+
+## Latest verified account-deletion status — 1 October 2026
+
+October 2 follow-up: the user rebuilt/installed the Android app and confirmed the
+status/Dismiss fix works. They authorized a fresh scheduler-only deletion test.
+New disposable account: `pro100_bro2`, UID `MLlXb8PO8Yfkx2rcS6g7g6kL7mE2`.
+Read-only baseline at 00:16:25 Kyiv: Auth enabled, profile present, one legal
+acceptance, one R2 users-prefix file and one garage-prefix file, no deletion job.
+Canonical deployment is now dpl_BNmyEUBDMEpqzcHhP9sgAs9HX5aS,
+https://ccs-naufkvwph-ccs-projects1.vercel.app, with public deletion false and only
+this test UID enabled. Cloudflare ENABLED=true / VERIFY_ONLY=false was verified
+around 00:19 Kyiv. Its normal cron succeeded at 00:20:14 Kyiv (lastRunOk=true,
+lastFinishedAt=1790889614763); an independent read at 00:20:59 confirmed fresh
+health and no deletion request yet. The user can now sign out/in and delete the
+test account. No manual worker invocation in this test.
+The user confirmed the in-app deletion request. Read-only diagnostic at 00:22:54
+Kyiv confirmed jobStatus=queued, requestedAt=1790889726045 (00:22:06 Kyiv), with
+lastRunOk=true from the 00:20 cron. No manual worker calls were made. The six-minute
+cooldown ends at 00:28:06; the first eligible scheduled batch should be around
+00:30 Kyiv. Completion time and post-deletion data/media absence remain unverified.
+The diagnostic build ccs-mqvqign76-ccs-projects1.vercel.app was not promoted;
+its expected missing-public-output error occurs after the read-only diagnostic.
+Scheduler-only progress check at 00:36:08 Kyiv: job processing,
+documentsProcessed=975, lastProgressAt=1790890536520 (00:35:36), scheduler
+lastRunOk=true and lastFinishedAt=1790890537070 (00:35:37). This confirms automatic
+progress after approximately 14 minutes since request, not a stalled UI.
+975 is the worker's documents-processed counter, not a count of this user's
+records deleted or a completion percentage. Remaining full-database traversal
+still needs timing/performance evaluation; no completion estimate established.
+Read-only diagnostic: ccs-6cbdl53kj-ccs-projects1.vercel.app (not promoted).
+October 2, 01:07 Kyiv: normal cron still progresses, lastRunOk=true at 01:05:37,
+documentsProcessed=4060. Read-only verification found currentRoot=xp_transactions,
+with many other roots still pending. Auth is disabled but exists; profile and both
+R2 files still exist, so this is NOT complete. No worker invocation or production
+code change was made during the timing test.
+
+Prepared LOCAL scan optimization (not deployed): collection pages 25 -> 100 and
+transaction groups 10 -> 25. Pending-path persistence preserves mid-page resume.
+Added a 130-document integration case with interrupted pages, orphan descendants
+and other-user preservation. All 21 emulator integration/rules tests and 25 offline
+account tests pass. Sequential local benchmark, mocked Auth/storage, 2,000 unrelated
++ 50 owned messages: baseline 9,667ms / 84 pages; candidate 3,679ms / 22 pages.
+Both take three invocations due the unchanged 1,000-document cap; emulator speed
+must not be treated as production deletion latency. Baseline implementation saved
+in the local Temp ccs-deletion-benchmark-baseline-20261002 directory; benchmark now
+accepts CCS_DELETION_BENCHMARK_IMPLEMENTATION for reproducible comparisons.
+Do not replace the deployed baseline during this scheduler-only timing test.
+The remaining full scan (including XP history) still requires relationship-index
+coverage/audit before public activation; batching alone does not solve scaling.
+The previous deployment/disabled state described below is historical. Receipt
+and tombstone expiry need a separate check because restricted test mode skips
+global metadata purging. Public activation is not yet authorized by verification.
+
+The real disposable account `pro100_bro` completed deletion at 23:37:50 Kyiv.
+Independent checks confirm Firebase Auth and profile absence, no profile
+subcollections, username reservation removed, no owned XP transactions,
+push-delivery records or user notifications, both R2 user/garage prefixes empty,
+and all worker subcollections empty. The anonymous receipt reports `complete`.
+At 23:40:36 Kyiv the exact test queue marker and hashed test scheduler state were
+also removed and verified absent, after over 65 minutes had elapsed since Auth
+was observed disabled. The anonymous completion receipt was preserved. This
+manual test cleanup does not establish ordinary scheduled metadata expiry.
+This was an assisted diagnostic run with deployments and extra worker invocations;
+its 65m40s request-to-completion duration is NOT a normal-operation SLA.
+
+Current live deployment: dpl_4Bkm6ZwuA8X3QCcWyFasopmbogrW,
+ccs-eoucfpwo4-ccs-projects1.vercel.app, assigned to ccs-wine.vercel.app.
+Public deletion is disabled, the temporary test UID override is empty, and a new
+request probe returns 503. Cloudflare ENABLED=false and VERIFY_ONLY=false.
+The latest fixes are deployed, but they have NOT been enabled for public use.
+No APK was built and no Firestore rules were deployed in this verification step.
+
+Validated changes: batched atomic scanning, fair use of available worker time,
+indexed cleanup of the two dominant history collections, copied chat/spot/topic
+notification cleanup, and bulk removal of temporary deferred checks when no
+source content was deleted. 25 offline tests, 20 emulator integration/rules tests,
+and two status-refresh widget tests pass; targeted Dart analysis is clean.
+The client now visibly confirms refresh activity; this needs the user's next build.
+
+Before public activation: audit remaining legacy notification/media schemas and
+all writers that could recreate deleted content, reduce/measure remaining scans
+under ordinary scheduled operation and backlog, verify receipt/marker expiry,
+and only then publish deletion timelines in the app and public documents.
+Existing release notes below are chronological history, not all current state.
+
+October 2 status-button diagnosis: the installed build kept showing processing
+after successful HTTP 200 status requests. A read-only receipt check found exactly
+one receipt, complete at the verified test timestamp; no processing receipts.
+The old client used `setState(() => status = accountDeletionStatus())`, returning
+a Future from the callback. Flutter's debug assertion throws before markNeedsBuild,
+leaving the previous FutureBuilder result visible. The already-updated local
+widget uses a synchronous block callback and passes refresh/completion/error tests
+and Dart analysis. The user must rebuild/install to get the permanent client fix.
+Force-closing/reopening the existing app recreates the initial status query and
+can display completion without using the faulty refresh callback. Preserve app
+data/the receipt; no further Vercel or rules deployment is needed for this UI fix.
+
 ## Current release
 
 App Store Connect app 6778200005, version 1.0.9, uploaded build 13. Not submitted.
@@ -226,3 +377,317 @@ Added an emulator regression case for deferred reply cleanup across interruption
 including retargeting a reply before cleanup, and adapted the handler test dependency
 stub for the new queue module. Tests were authored but NOT run, as requested.
 No deployment or deletion activation was performed.
+
+## Account deletion audit — 1 October 2026
+
+The public build is in use. Do not replace its upload endpoint, change the R2
+bucket, deploy the entire pending server/rules migration, or enable deletion
+without a compatible rollout and an end-to-end test. Free hosting remains a
+user requirement. Apple requirements were checked against:
+https://developer.apple.com/support/offering-account-deletion-in-your-app/
+
+Implemented locally in this audit:
+
+- Deleted Firestore containers now propagate deletion to descendants, including
+  children below missing intermediate documents. Empty groups are removed;
+  groups with remaining members retain those members and transfer ownership.
+- Copied spot notifications, reviews and group links are checked against the
+  deleted-content reference index after scanning. Existing deferred quote cleanup
+  still checks the current source, preserving replies retargeted to other content.
+- Encoded Firebase Storage photo URLs are scrubbed, and legacy reviewer UID fields
+  are included in reference cleanup.
+- Storage cleanup now requires both R2 and Firebase Storage. It enumerates legacy
+  Firebase object generations and propagates permission/partial-delete failures.
+  New required backend configuration: FIREBASE_STORAGE_BUCKET, expected project
+  bucket ccsv1-63537.firebasestorage.app. This has NOT been verified against live
+  storage or its soft-delete/retention settings.
+- New spot photos use users/{uploaderUid}/spot_photos/{spotId}/... so uploads remain
+  attributable even when the spot save fails. Existing spots/{spotId}/ objects
+  still need the corresponding ownership records; unknown legacy/orphan ownership
+  has NOT been audited. No existing objects were moved or deleted.
+- Banned users and users declining updated terms can reach Delete account.
+  Notification preference checks refuse missing/deleting recipients and fail
+  closed on lookup errors.
+- Queue fairness, lease recovery and scheduler health are recorded/tested. New
+  requests require a successful worker run within 15 minutes. Completed UID
+  tombstones are eligible for cleanup after one hour, anonymous completion
+  receipts after 30 days, and idle queue cursors no longer retain a UID.
+
+Validation:
+
+- 18 offline deletion/storage/scheduler tests passed.
+- 13 Firestore emulator integration/rules tests passed (demo-ccs-tests only).
+- 9 Flutter account/consent widget tests passed; targeted Dart analysis is clean.
+- Reproducible benchmark: `node telegram_auth_server/test/account-deletion.benchmark.cjs`
+  with FIRESTORE_EMULATOR_HOST=127.0.0.1:18080. Separate demo-only database, 2,000
+  unrelated and 50 owned synthetic messages, mocked Auth/storage: 10 batches,
+  66.316 seconds active elapsed time. This implies ten daily invocations versus
+  roughly 50 minutes at a five-minute cadence for that fixture with no backlog.
+  It is NOT a production SLA or a measurement of production storage/network speed.
+
+Cloudflare preparation:
+
+- Created only the new ccs-account-deletion-scheduler Worker in account
+  77cd306e2d923f8e921fcdd0544c2e03. Scheduled handler source deployed (initial
+  code version 000444ad); public HTTP handler verified to return 404.
+- Five-minute cron configured, but ENABLED=false. No database/storage bindings
+  and no deletion requests sent by this Worker.
+- Separate ACCOUNT_DELETION_WORKER_SECRET is supported by the backend alongside
+  the existing CRON_SECRET. After explicit user approval, the same newly generated
+  credential was saved as an encrypted Cloudflare production secret and a Vercel
+  CCS Production Secret environment variable. Both saves were verified in their
+  dashboards. Vercel requires a new deployment before that value takes effect;
+  no live redeployment or scheduler activation was performed in this step.
+- Existing Cloudflare services, bucket, object permissions, domains and upload
+  configuration were not changed. No paid plan or subscription was enabled.
+
+Remaining release gates (do not describe deletion as ready yet):
+
+Isolated Vercel verification: deployment dpl_HoNjKHK9h6Y7NoHggfuh5apinDhM at
+https://ccs-phj6w2em5-ccs-projects1.vercel.app is ready, with deletion explicitly
+disabled and no cron configured. It was assembled from the verified production
+manifest plus deletion changes, rather than deploying the entire working tree.
+An authenticated CLI smoke check returned 503 for a deletion request and 200 with
+status unknown for a synthetic receipt. No real account was queued. The live
+https://ccs-wine.vercel.app domain was checked afterward and still resolved to
+the previous deployment dpl_5FTSDQNgK4nZ4UZSHDMuH23w8jTP. This isolated deployment
+has not been promoted to the live app domain.
+
+After saving the approved scheduler secret, redeployed the same isolated source
+with Production environment configuration: dpl_4wGam8WDbaQZXd25jS9ndyMFeD9e,
+https://ccs-55mb7r0qv-ccs-projects1.vercel.app (READY). Explicit deletion=false
+and Firebase bucket overrides were retained. Ready-deployment smoke checks:
+unauthenticated GET returned 401; POST returned 503 deletion unavailable.
+Post-deployment inspection again resolved ccs-wine.vercel.app to
+dpl_5FTSDQNgK4nZ4UZSHDMuH23w8jTP. Successful scheduler authentication and an
+actual Cloudflare-to-backend invocation are NOT yet verified; the Worker remains
+disabled and still targets the live domain, not this isolated deployment.
+
+Subsequent verification rollout (supersedes the domain state above):
+- Added authenticated GET action=verify, which only lists one object per storage
+  provider and reads Firebase bucket retention metadata. It never advances the
+  queue or records worker health. Responses contain capability flags and retention
+  durations only, not filenames or provider error messages.
+- Tests prove verification cannot use queue/Auth/database dependencies and does
+  not log object names or upstream errors. Four new offline cases pass (22 offline
+  tests total; 44 across the previously run emulator and Flutter suites).
+- Published dpl_J3eUgVHF1uBrpAkqrKxtXJye1Dw4 to ccs-wine.vercel.app with
+  ACCOUNT_DELETION_ENABLED=false. Existing production handlers were compared with
+  the retained production baseline and unchanged; community routing and vercel.json
+  changed only to add deletion support. Prior rollback target is
+  ccs-h6835jsxn-ccs-projects1.vercel.app.
+- Live unauthenticated verification GET returns 401, deletion POST returns 503,
+  Telegram status without a session returns its expected 400 and XP sync without
+  a token returns its expected 401. No user data was written by these probes.
+- Cloudflare has read-only VERIFY_ONLY support. ENABLED remains false. Its cron
+  history confirms five-minute invocations; successful disabled no-op events are
+  not proof of backend authentication or storage access.
+- The first verification cron at 21:50 Kyiv time exposed a Cloudflare runtime
+  incompatibility with redirect=error. Changed it to redirect=manual with explicit
+  rejection of non-success responses, including 302; credentials are never forwarded
+  to redirect destinations. Fixed Worker code version: 276b7881.
+- The currently published verification deployment has no Vercel backup cron.
+  Configure and verify that backup as part of activation, not while deletion is off.
+- The 21:55 Kyiv scheduled invocation authenticated successfully and reported
+  r2List=true, firebaseList=false, firebaseMetadata=false. This verified the
+  actual Cloudflare-to-Vercel secret connection and R2 listing capability.
+- Investigated Firebase in the console: Storage shows Get started. Google Cloud
+  bucket inventory for ccsv1-63537 has no live buckets and explicitly no soft-deleted
+  buckets. The bucket name in Firebase configuration is not proof of a provisioned
+  legacy bucket. No storage service, billing plan or permissions were changed.
+- Added FIREBASE_STORAGE_ALLOW_MISSING=true as an explicit audited deployment
+  override. Only provider code 404 is tolerated; 403 and all other failures remain
+  fatal. Verification distinguishes firebaseAbsent from successful listing.
+  New regression test passes; offline total is 23, combined historical total 45.
+- At 22:00:13 Kyiv time, an actual scheduled invocation succeeded: mode=verify,
+  ok=true, r2List=true, firebaseAbsent=true. Worker version 8477c8cb; backend
+  dpl_8TmKwvgwjkZjFKdkgyrkvhmV2w9R, ccs-e1ggtqoox-ccs-projects1.vercel.app,
+  now assigned to ccs-wine.vercel.app. Final public deletion POST still returns503.
+  VERIFY_ONLY was then returned to false; ENABLED remains false. No user account,
+  Firestore document or storage object was deleted in these live checks.
+- FIREBASE_STORAGE_BUCKET and FIREBASE_STORAGE_ALLOW_MISSING are deployment
+  overrides, not saved project-wide variables. Preserve the audited configuration
+  explicitly in a future rollout. Read/list access is proven; object deletion,
+  complete account cleanup and device end-to-end flow still need disposable tests.
+
+1. Connect the scheduler credential, deploy a verified compatible backend, then
+   confirm authenticated scheduled invocations and the daily backup in live logs.
+2. Measure production dataset/queue size and Firestore operations. A whole-database
+   scan remains: there is no complete persistent ownership index. Frequent scheduling
+   addresses delay but does not remove scan cost or guarantee free-tier capacity.
+3. Finish auditing legacy/orphan R2 media ownership and public-media caching.
+   R2 deletion has passed the disposable live test below. This Firebase project
+   has no live or soft-deleted Storage buckets; missing-bucket behavior is verified.
+4. Verify all deployed writers and rules prevent new references/copies to deleting
+   accounts after the scan has passed. The old backend and public clients still
+   exist; local recipient checks alone cannot provide this guarantee.
+5. Test loss of request response and the complete in-app flow on devices. Real
+   Auth removal and interrupted-batch recovery passed the synthetic live test below.
+6. Sign in with Apple is absent from the current auth implementation. When added,
+   its token revocation must be integrated into deletion before App Store release.
+7. Set user-facing completion/retention timelines from verified operational results,
+   then update the published Terms and Privacy Policy. No new timing promise has
+   been published and account deletion remains disabled for public users.
+
+## Disposable live deletion test — 1 October 2026
+
+User explicitly requested this test. Ran the real worker and storage adapter from
+a one-off Vercel build with existing Production credentials and deletion disabled.
+No HTTP test endpoint was created. The real Firestore pager was replaced by an
+explicit fixture-path list: no full database scan was run, and only newly created
+synthetic users/private chat records were eligible for mutation. Auth and media
+adapters rejected any UID or prefix outside the test account. No real user's
+profile, chat or file was included.
+
+Run ID: 2d6ead6f6a5d47e3aced6071. Test source:
+telegram_auth_server/test/account-deletion.live.cjs.
+
+Live result: PASS, seven batches, 18,874 ms active elapsed time:
+- Synthetic Firebase Auth account deleted; its profile and private child data gone.
+- Owned chat message removed; the other synthetic user's reply retained with its
+  quoted content cleared. Chat membership transferred to the control account.
+- Two real R2 objects (users/ and garage/ prefixes) removed. Control Auth account,
+  control profile and control R2 object were verified intact before fixture cleanup.
+- Deliberately interrupted the first media batch. Lease was released, Auth remained
+  disabled and present, and subsequent batches resumed and completed successfully.
+- Completion receipt was written and temporary task/reference indexes were empty.
+
+Afterward all control fixtures were cleaned up. An independent read-only build
+confirmed absence of both Auth accounts, all eight tracked document paths, all
+three R2 objects and every test-job subcollection. These fixture receipts/tombstones
+were removed explicitly as test cleanup, not by shortening production retention.
+
+Evidence in Vercel build logs:
+- dpl_Dh1WmqPGunkGUdz3mJ11NsnZsuSe: CCS_DELETION_LIVE_TEST ok=true and cleanup ok=true.
+- dpl_5Z22PwQbqukZrdKk7cyt1swfQs5f: CCS_DELETION_FIXTURE_ABSENCE ok=true.
+Both one-off builds show deployment Error because they produced no public website
+output directory AFTER their test scripts passed. Neither was published to the app
+domain. Live domain still resolves to dpl_8TmKwvgwjkZjFKdkgyrkvhmV2w9R and deletion
+POST still returns503. No APK was built.
+
+Limits: this proves real Auth/Firestore/R2 integration for these fixtures, not an
+end-to-end in-app request, full production scan throughput, all legacy spot-media
+ownership, cache expiry, or permission coverage of every deployed writer. The
+19-second fixture result is NOT a public deletion SLA. Keep public deletion off
+until the remaining gates above pass.
+
+## Device test preparation — pro100_bro
+
+The user created a disposable account and identified it by username. An exact,
+read-only Firestore lookup found one matching profile and an active Auth account.
+Pinned ACCOUNT_DELETION_TEST_UID to that resolved UID as a deployment override;
+the username is not an authorization mechanism. ACCOUNT_DELETION_ENABLED remains
+false. Requests from other authenticated UIDs are rejected even if their request
+body supplies the test UID or username.
+
+Added scope.js and restricted runDeletionQueue(onlyUid): it reads only the target
+job, uses separate hashed scheduler health/lease state, and skips global receipt
+and tombstone purging. This limits queue selection, not the worker's traversal:
+after the user's confirmation the current worker still scans production collections
+for references belonging to that one UID. Full-scan cost/latency is still a release
+gate, and the live synthetic benchmark must not be used as its SLA.
+
+Validation: 25 offline checks and 14 emulator tests passed, including other-account
+rejection, separate health requirements, unchanged public scheduler state and
+untouched unrelated queue entries/expired metadata. Previously run Flutter tests
+remain 9. No client changes or APK build in this step.
+
+Deployment dpl_4podvCmx63XyN47aNSySwrFbBkpk at ccs-mun7p78u5-ccs-projects1.vercel.app
+is ready and assigned to ccs-wine.vercel.app. Cloudflare ENABLED=true now invokes
+this restricted backend; VERIFY_ONLY=false. This does NOT enable public deletion.
+Unauthenticated request and scheduler probes both return401.
+
+Before-deletion baseline from read-only build dpl_H4nU1o68bkVF4EHuyEfgbmezXMh1:
+profile/Auth exist, Auth not disabled, avatar configured, users/{uid}/ contains one
+object, garage/{uid}/ contains one object (neither listing truncated), and there
+is no deletion request. The user's app confirmation is still required. After this
+test, remove the test-only scheduler state and disable the temporary gate/scheduler;
+keep the completion receipt available for the app's confirmation before retiring it.
+
+Readiness verified at 22:30:13 Kyiv time: actual Cloudflare scheduled invocation
+returned ok=true, busy=false, attempted=0, pending=false. Worker configuration
+version 2c3c0805. The scoped scheduler health is now fresh and the account has not
+been queued or deleted. The user can sign out/in for recent authentication and
+confirm deletion inside the app. Keep the receipt and app installation until
+completion has been checked. No additional APK is required for this server change.
+
+Device confirmation received October 1 at 22:32:09 Kyiv: request queued, profile
+marked deleted and Auth disabled. The user subsequently confirmed the processing
+message and status button ARE visible (the earlier missing-UI report was corrected).
+Read-only verification deployment dpl_3gigdmT5BUPieonhA1VuW3pvyX6t observed
+processing after the 22:40 and 22:45 cron runs, lastRunOk=true, 43 queued tasks,
+first root xp_transactions. Auth/profile still exist; completion and media removal
+are NOT verified. A successful cron run is not evidence of deletion completion.
+The six-minute upload cooldown is a minimum before work begins, not an SLA.
+The full scan and seven-second per-job slice remain a release performance blocker.
+Do not disable the scheduler while this confirmed deletion is unfinished.
+
+Client status refresh now shows Checking… with the button disabled during the
+request, and an explicit still-processing result after a successful refresh.
+This fixes the apparent unresponsive button; it does not accelerate server work.
+The change requires the user's next app build (no APK built here).
+
+October 1, 22:55 Kyiv performance update: deployed dpl_3PFMybezEaAU8iuQQimaNgdrVMmN
+(ccs-qryt7gnfp-ccs-projects1.vercel.app), verified ccs-wine.vercel.app resolves to it.
+Only deletion worker/queue files changed relative to the isolated production stage;
+ACCOUNT_DELETION_ENABLED=false and the same single test UID are retained.
+Worker now reads/commits up to ten documents together, enumerates their child
+collections concurrently, and commits its cursor atomically with deletions. The
+per-invocation cap is 1,000 documents. Queue divides the 35-second window among
+available jobs, so a lone job no longer wastes four of five slots. Added progress
+time/document counters. Existing saved tasks remain compatible.
+
+Validation: 25 offline checks and 16 emulator checks passed, including a new
+failed-batch rollback/resumption test and fair time allocation test. Same local
+2,050-message fixture completed in 9.891 seconds active time / three capped
+invocations (previous measurement 66.316 seconds / ten invocations). This is still
+not a production SLA. Two Flutter refresh/error-retry widget tests passed and
+targeted Dart analysis is clean. Production completion remains to be verified;
+there is still no comprehensive ownership index or validated public timeline.
+
+October 1, 23:20 Kyiv: production aggregate counts exposed the dominant scan cost:
+343,600 root documents, including 200,691 push_deliveries and 128,326
+user_notifications. The bounded manual run stopped after 20 worker invocations;
+it did not complete deletion. The garage prefix was empty; avatar prefix still
+contained one object. Do not present this as a successful completed deletion.
+
+Deployed indexed cleanup in dpl_4St4qcSzAqKmMYrKiz5HdiUXpVzw
+(ccs-d1o9fxf4b-ccs-projects1.vercel.app), assigned to ccs-wine.vercel.app with the
+same test-only UID restriction. It uses existing single-field equality indexes
+for delivery recipients and notification identity fields, including nested data
+fields. Deleting spots/topics/messages schedules targeted copied-notification
+cleanup. Chat message copies check both chat and message ID to avoid collisions.
+Old jobs with unconvertible hashed references retain the full notification scan
+rather than skipping copied content. No rules/index definition deployment needed.
+19 emulator tests and 25 offline tests pass, including indexed pagination,
+preservation of unrelated recipients, legacy fallback and chat-ID collision checks.
+This removes the two dominant scans, not every scan or every legacy-schema audit.
+Production verification is ongoing. The temporary test configuration is retained
+until the accepted deletion completes; public deletion remains disabled.
+
+Final verification and retirement (supersedes the preceding in-progress notes):
+worker shortcut for an empty deleted-source index passed 20 integration tests and
+was deployed as dpl_HAVpQif2jeMnjWRtzrVUQMouXgg3. Account deletion completed at
+23:37:50 Kyiv. Diagnostic build dpl_5dbEFC9KdxkSZvbgW3xLxuhyCjHa logged the
+complete receipt plus independent Auth/profile/username/subcollection/R2/owned
+history absence checks. dpl_EwhLDcRfnPueLpSSWcSQBaugCdc9 repeated the checks and
+removed only the completed test's marker and scheduler state at 23:40:36, after
+the observed token-expiry safety window. It preserved the anonymous receipt.
+These unpromoted diagnostic builds intentionally have no public output directory;
+their final Vercel build Error is not an application deployment failure. Judge
+their explicit verification markers, not the outer build state.
+
+Live backend was then retired to dpl_4Bkm6ZwuA8X3QCcWyFasopmbogrW (same fixes,
+ACCOUNT_DELETION_ENABLED=false, empty ACCOUNT_DELETION_TEST_UID). Canonical alias
+updated; unauthenticated new-request probe returns 503 as expected. Cloudflare
+ENABLED=false and VERIFY_ONLY=false were verified in its settings. No existing
+bucket, billing plan, general backend endpoint, app build, or Firestore rule
+configuration was changed during this test. Source changes remain uncommitted.
+
+
+
+
+
+
+
+

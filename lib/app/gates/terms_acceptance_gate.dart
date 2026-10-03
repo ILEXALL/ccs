@@ -1,6 +1,8 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:ccs_app/features/auth/widgets/account_deletion_widgets.dart'
+    show DeleteAccountTile;
 import 'package:ccs_app/features/auth/data/session_lifecycle.dart'
     show signOutCurrentAccount;
 import 'package:ccs_app/features/auth/widgets/legal_documents.dart';
@@ -184,6 +186,7 @@ class _TermsAcceptanceGateState extends State<TermsAcceptanceGate> {
                             },
                       child: const Text('Sign out'),
                     ),
+                    if (!saving) const DeleteAccountTile(),
                   ],
                 ),
               ),
