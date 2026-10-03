@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'package:ccs_app/features/auth/data/apple_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart' hide Text;
@@ -315,7 +316,7 @@ Future<AppUser> saveFirebaseUser(
     'showGarage': settings.showGarage,
     'garage': garage.map((car) => car.toFirebase()).toList(),
     'provider': effectiveProvider,
-    'telegramUsername': telegramUsername,
+    'telegramUsername': telegramUsername ?? data?['telegramUsername'],
     'deviceIds': FieldValue.arrayUnion(appDeviceIds),
     'lastDeviceId': appDeviceId,
     'lastDevicePlatform': Platform.operatingSystem,
@@ -673,4 +674,45 @@ Future<AppUser> signInWithGoogleAndSaveUser({
     startNotificationCenterUnreadWatcher();
   }
   return currentUser;
+}
+
+Future<AppUser> signInWithAppleAndSaveUser({
+  NewUserNicknameRequester? requestNewUserNickname,
+}) async {
+  if (!firebaseReady) {
+    throw StateError('Firebase is unavailable. Please retry.');
+  }
+  final session = FirebaseAuth.instance;
+  final credential = await session.signInWithProvider(appleAuthProvider());
+  final user = credential.user;
+  if (user == null) {
+    throw StateError('Apple sign-in did not return an account.');
+  }
+  try {
+    final nickname = await usernameOverrideForNewFirebaseUser(
+      firebaseUser: user,
+      // Never suggest the random Hide My Email relay address as a public name.
+      fallbackUsername: 'ccs_driver',
+      requestNewUserNickname: requestNewUserNickname,
+    );
+    setCurrentUser(
+      await saveFirebaseUser(
+        user,
+        provider: 'apple',
+        usernameOverride: nickname,
+      ),
+    );
+    await initializeSpotCountryFiltersForUser(currentUser);
+    startCurrentUserDocumentWatcher();
+    if (!currentUser.banActive) {
+      startFirebaseSpotSync();
+      unawaited(startCurrentUserLikedSpotsSync());
+      unawaited(initializePushNotificationsForCurrentUser());
+      startNotificationCenterUnreadWatcher();
+    }
+    return currentUser;
+  } catch (_) {
+    await session.signOut();
+    rethrow;
+  }
 }

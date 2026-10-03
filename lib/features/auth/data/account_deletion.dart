@@ -1,4 +1,5 @@
 import 'dart:math';
+import 'package:ccs_app/features/auth/data/apple_auth.dart';
 import 'package:ccs_app/core/config/app_config.dart' show telegramAuthBaseUrl;
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -44,6 +45,7 @@ Future<void> requestAccountDeletion() async {
       return;
     }
   }
+  await revokeAppleForAccountDeletion();
   final token = await user.getIdTokenResult(true);
   final authTime = token.authTime;
   if (authTime == null ||

@@ -6,7 +6,8 @@ const sharedRoots = new Set(['users', 'chats', 'app_config', 'partners', 'admin_
 const systemRoots = new Set(['account_deletions', 'account_deletion_receipts', 'account_deletion_scheduler']);
 const plain = value => value && Object.getPrototypeOf(value) === Object.prototype;
 
-const identityField = field => /(?:uid|uids|userId|userIds|memberIds|moderatorIds|friendIds|authorId)$/i.test(field);
+const identityField = field => /(?:uid|uids|userId|userIds|memberIds|moderatorIds|friendIds|authorId)$/i.test(field)
+  || ['reviewedBy', 'createdBy', 'updatedBy', 'deletedBy'].includes(field);
 function containsUid(value, uid, field = '') {
   if (value === uid) return identityField(field);
   if (Array.isArray(value)) return value.some(item => containsUid(item, uid, field));
@@ -53,6 +54,7 @@ function planDocument(path, data, account) {
         next[field] = indexes.map(index => data[field]?.[index] || '');
       }
       if (data.ownerUid === uid) next.ownerUid = next.memberIds[0] || '';
+      if (!next.memberIds.length) return {action: 'delete'};
     }
     if (data.lastSenderUid === uid) {
       next.lastMessage = ''; next.lastSenderUid = ''; next.lastSenderUsername = '';
@@ -65,9 +67,13 @@ function planDocument(path, data, account) {
   }
   // Shared records may contain media originally uploaded by this account.
   const cleanMedia = value => {
-    if (typeof value === 'string' && /^(https?:|gs:)/.test(value) &&
-        [uid, encodeURIComponent(uid)].some(id => value.includes(`/users/${id}/`) || value.includes(`/garage/${id}/`))) {
-      changed = true; return '';
+    if (typeof value === 'string' && /^(https?:|gs:)/.test(value)) {
+      // Firebase download URLs encode the whole object path, including slashes.
+      let decoded = value;
+      try { decoded = decodeURIComponent(value); } catch (_) { /* malformed legacy URL */ }
+      if (decoded.includes(`/users/${uid}/`) || decoded.includes(`/garage/${uid}/`)) {
+        changed = true; return '';
+      }
     }
     if (Array.isArray(value)) return value.map(cleanMedia);
     if (plain(value)) return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, cleanMedia(item)]));
@@ -77,4 +83,25 @@ function planDocument(path, data, account) {
   return changed ? {action: 'replace', data: cleaned} : {action: 'skip'};
 }
 
-module.exports = {planDocument, systemRoots, containsUid};
+// These rows are copies/links to content, not independent conversations.
+function contentReferencePaths(path, data) {
+  const root = path.split('/')[0], collection = path.split('/').at(-2);
+  if (!root.endsWith('_notifications') && !['spot_reviews', 'spot_likes', 'spot_review_locks',
+    'forum_publications'].includes(root) && collection !== 'spot_links') return [];
+  const refs = new Set();
+  const add = (root, id) => {
+    if (typeof id === 'string' && id && !id.includes('/')) refs.add(`${root}/${id}`);
+  };
+  for (const value of [data, plain(data.data) ? data.data : {}]) {
+    add('spots', value.spotId);
+    add('forum_topics', value.topicId);
+    if (typeof value.chatId === 'string' && value.chatId && !value.chatId.includes('/') &&
+        typeof value.messageId === 'string' && value.messageId && !value.messageId.includes('/')) {
+      refs.add(`chats/${value.chatId}/messages/${value.messageId}`);
+    }
+  }
+  if (collection === 'spot_links' || root === 'spot_review_locks') add('spots', path.split('/').at(-1));
+  return [...refs];
+}
+
+module.exports = {planDocument, systemRoots, containsUid, contentReferencePaths};

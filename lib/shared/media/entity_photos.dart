@@ -22,9 +22,11 @@ Future<String> uploadSpotPhoto({
   }
 
   final timestamp = DateTime.now().millisecondsSinceEpoch;
-  final r2Path = photoIndex == 0
-      ? 'spots/$spotId/main.jpg'
-      : 'spots/$spotId/gallery/photo_${photoIndex + 1}_$timestamp.jpg';
+  // Keep ownership in the object key even when the spot write fails or a
+  // moderator later removes its Firestore document. Account deletion can then
+  // remove every upload without relying on a surviving spot document.
+  final r2Path =
+      'users/${safeR2Path(userId)}/spot_photos/${safeR2Path(spotId)}/photo_${photoIndex + 1}_$timestamp.jpg';
 
   return uploadImageToR2(
     r2Path: r2Path,

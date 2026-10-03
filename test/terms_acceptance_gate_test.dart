@@ -47,6 +47,7 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(find.text('Community content'), findsNothing);
+    expect(find.text('Delete account'), findsOneWidget);
     await tester.tap(find.text('Agree and continue'));
     expect(calls, 0);
     await tester.tap(find.byKey(const ValueKey('accept-terms-checkbox')));

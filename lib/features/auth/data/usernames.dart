@@ -74,6 +74,7 @@ String providerNameForFirebaseUser(User user) {
   if (providerIds.contains('google.com')) {
     return 'google';
   }
+  if (providerIds.contains('apple.com')) return 'apple';
 
   return providerIds.isEmpty ? 'firebase' : providerIds.first;
 }

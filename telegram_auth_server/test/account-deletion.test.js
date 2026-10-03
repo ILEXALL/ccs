@@ -72,3 +72,22 @@ test('removes shared references to deleted account media without erasing other u
 test('never scans or changes its own private queue and receipts', () => {
   assert.equal(planDocument('account_deletions/alice', {uid: 'alice'}, account).action, 'skip');
 });
+
+test('encoded Firebase Storage references are scrubbed without changing other accounts', () => {
+  const result = planDocument('users/bob', {uid: 'bob',
+    copiedPhoto: 'https://firebasestorage.googleapis.com/v0/b/bucket/o/users%2Falice%2Favatar.jpg?alt=media',
+    photoUrl: 'https://media.example/users/alice_other/avatar.jpg'}, account);
+  assert.equal(result.data.copiedPhoto, '');
+  assert.equal(result.data.photoUrl, 'https://media.example/users/alice_other/avatar.jpg');
+});
+
+test('an empty group is deleted; a remaining member retains the group', () => {
+  assert.equal(planDocument('chats/g', {memberIds: ['alice'], ownerUid: 'alice'}, account).action, 'delete');
+  assert.equal(planDocument('chats/g', {memberIds: ['alice', 'bob'], ownerUid: 'alice'}, account).data.ownerUid, 'bob');
+});
+
+test('legacy reviewer UID is removed from content that belongs to another user', () => {
+  const result = planDocument('forum_topics/t', {authorId: 'bob', reviewedBy: 'alice', title: 'keep'}, account);
+  assert.equal(result.data.reviewedBy, '');
+  assert.equal(result.data.title, 'keep');
+});

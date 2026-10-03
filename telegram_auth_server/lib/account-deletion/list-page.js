@@ -5,7 +5,10 @@ function collectionPager({db, credential, emulatorHost = process.env.FIRESTORE_E
   return async (collectionPath, pageToken = '') => {
     const origin = emulatorHost ? `http://${emulatorHost}` : 'https://firestore.googleapis.com';
     const url = new URL(`${origin}/v1/projects/${db.projectId}/databases/(default)/documents/${collectionPath.split('/').map(encodeURIComponent).join('/')}`);
-    url.searchParams.set('pageSize', '25');
+    // Persist the page cursor separately from its pending paths, so a larger
+    // page saves REST round trips without increasing transaction size or
+    // skipping unfinished documents when a worker runs out of time.
+    url.searchParams.set('pageSize', '100');
     url.searchParams.set('showMissing', 'true');
     if (pageToken) url.searchParams.set('pageToken', pageToken);
     const headers = emulatorHost ? {Authorization: 'Bearer owner'} : {Authorization: `Bearer ${(await credential.getAccessToken()).access_token}`};
