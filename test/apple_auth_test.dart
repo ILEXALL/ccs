@@ -22,7 +22,8 @@ class TestUser extends Fake implements User {
   TestUser(this.uid, {this.apple = false});
   @override
   final String uid;
-  final bool apple;
+  bool apple;
+  bool persistLink = true;
   int links = 0, reloads = 0, reauths = 0;
   Object? linkError;
   String? code = 'test-authorization-code';
@@ -38,6 +39,7 @@ class TestUser extends Fake implements User {
     expect(provider.providerId, 'apple.com');
     links++;
     if (linkError != null) throw linkError!;
+    if (persistLink) apple = true;
     return TestCredential(this);
   }
 
@@ -80,10 +82,31 @@ void main() {
         await connectAppleToCurrentAccount(auth: auth);
         expect(auth.currentUser?.uid, uid);
         expect(user.links, 1);
-        expect(user.reloads, 1);
+        expect(user.reloads, 2);
       },
     );
   }
+  test(
+    'a successful SDK response without a persisted provider is not success',
+    () async {
+      final user = TestUser('original')..persistLink = false;
+      await expectLater(
+        connectAppleToCurrentAccount(auth: TestAuth(user)),
+        throwsStateError,
+      );
+    },
+  );
+  test('a different displayed profile prevents linking', () async {
+    final user = TestUser('apple-account');
+    await expectLater(
+      connectAppleToCurrentAccount(
+        auth: TestAuth(user),
+        expectedUid: 'main-profile',
+      ),
+      throwsStateError,
+    );
+    expect(user.links, 0);
+  });
   test('credential collision leaves the existing account signed in', () async {
     final user = TestUser('original')
       ..linkError = FirebaseAuthException(code: 'credential-already-in-use');
@@ -93,7 +116,7 @@ void main() {
       throwsA(isA<FirebaseAuthException>()),
     );
     expect(auth.currentUser?.uid, 'original');
-    expect(user.reloads, 0);
+    expect(user.reloads, 1);
   });
   test('requires an existing session and does not relink Apple', () async {
     await expectLater(

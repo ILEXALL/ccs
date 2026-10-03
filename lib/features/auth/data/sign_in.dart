@@ -616,50 +616,6 @@ Future<AppUser> signInWithEmailAndSaveUser(
   }
 }
 
-Future<AppUser> signInWithAppleAndSaveUser({
-  NewUserNicknameRequester? requestNewUserNickname,
-}) async {
-  if (!Platform.isIOS) {
-    throw UnsupportedError('Apple sign-in is currently available on iOS.');
-  }
-  if (!firebaseReady) {
-    throw StateError('Firebase did not initialize on this device.');
-  }
-
-  final provider = AppleAuthProvider()
-    ..addScope('email')
-    ..addScope('name');
-  final credential = await FirebaseAuth.instance.signInWithProvider(provider);
-  try {
-    final user = credential.user;
-    if (user == null) throw StateError('Sign-in did not return an account.');
-    final username = await usernameOverrideForNewFirebaseUser(
-      firebaseUser: user,
-      fallbackUsername: makeUsernameFromFirebaseUser(user),
-      requestNewUserNickname: requestNewUserNickname,
-    );
-    setCurrentUser(
-      await saveFirebaseUser(
-        user,
-        provider: 'apple',
-        usernameOverride: username,
-      ),
-    );
-    await initializeSpotCountryFiltersForUser(currentUser);
-    startCurrentUserDocumentWatcher();
-    if (!currentUser.banActive) {
-      startFirebaseSpotSync();
-      unawaited(startCurrentUserLikedSpotsSync());
-      unawaited(initializePushNotificationsForCurrentUser());
-      startNotificationCenterUnreadWatcher();
-    }
-    return currentUser;
-  } catch (_) {
-    await FirebaseAuth.instance.signOut();
-    rethrow;
-  }
-}
-
 Future<AppUser> signInWithGoogleAndSaveUser({
   NewUserNicknameRequester? requestNewUserNickname,
 }) async {

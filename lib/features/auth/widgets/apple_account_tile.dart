@@ -1,4 +1,5 @@
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:ccs_app/features/auth/data/auth_state.dart' show currentUser;
 import 'package:flutter/material.dart';
 import 'package:ccs_app/features/auth/data/apple_auth.dart';
 
@@ -13,6 +14,8 @@ class _AppleAccountTileState extends State<AppleAccountTile> {
   bool busy = false;
 
   Future<void> connect() async {
+    if (busy) return;
+    final expectedUid = currentUser.uid;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -37,7 +40,7 @@ class _AppleAccountTileState extends State<AppleAccountTile> {
     if (confirmed != true || !mounted) return;
     setState(() => busy = true);
     try {
-      await connectAppleToCurrentAccount();
+      await connectAppleToCurrentAccount(expectedUid: expectedUid);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -61,7 +64,7 @@ class _AppleAccountTileState extends State<AppleAccountTile> {
     if (!appleSignInAvailable) return const SizedBox.shrink();
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return const SizedBox.shrink();
-    final linked = hasAppleProvider(user);
+    final linked = user.uid == currentUser.uid && hasAppleProvider(user);
     return ListTile(
       leading: const Icon(Icons.apple),
       title: Text(linked ? 'Apple connected' : 'Connect Apple'),
