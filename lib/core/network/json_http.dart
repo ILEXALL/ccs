@@ -3,6 +3,14 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart' hide Text;
 
+/// Structured HTTP failure; callers can handle status without exposing bodies.
+class JsonHttpException implements Exception {
+  final int statusCode;
+  const JsonHttpException(this.statusCode);
+  @override
+  String toString() => 'Request failed ($statusCode).';
+}
+
 Future<Map<String, dynamic>> getJsonFromUrl(
   String url, {
   Map<String, String> headers = const {},
@@ -59,7 +67,7 @@ Future<Map<String, dynamic>> postJsonToUrl(
     }
 
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw Exception('Request failed ${response.statusCode}: $responseBody');
+      throw JsonHttpException(response.statusCode);
     }
 
     final decoded = jsonDecode(responseBody);

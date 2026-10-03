@@ -13,18 +13,38 @@ AppleAuthProvider appleAuthProvider() => AppleAuthProvider()
 
 // Firebase's native provider flow handles Apple's nonce and credential exchange.
 // Linking must use the authenticated user, never email or a new sign-in result.
-Future<void> connectAppleToCurrentAccount({FirebaseAuth? auth}) async {
+Future<void> connectAppleToCurrentAccount({
+  FirebaseAuth? auth,
+  String? expectedUid,
+}) async {
   final session = auth ?? FirebaseAuth.instance;
   final user = session.currentUser;
   if (user == null) {
     throw StateError('Sign in to your existing CCS account first.');
   }
-  if (hasAppleProvider(user)) return;
-  final result = await user.linkWithProvider(appleAuthProvider());
+  final uid = user.uid;
+  if (expectedUid != null && expectedUid != uid) {
+    throw StateError(
+      'Your session does not match this profile. Sign out and sign in again.',
+    );
+  }
+  await user.reload();
+  final refreshed = session.currentUser;
+  if (refreshed == null || refreshed.uid != uid) {
+    throw StateError('Your account changed. Sign in again before continuing.');
+  }
+  if (hasAppleProvider(refreshed)) return;
+  final result = await refreshed.linkWithProvider(appleAuthProvider());
   if (result.user?.uid != user.uid || session.currentUser?.uid != user.uid) {
     throw StateError('Your account changed. Sign in again before continuing.');
   }
-  await user.reload();
+  await result.user!.reload();
+  final linked = session.currentUser;
+  if (linked == null || linked.uid != uid || !hasAppleProvider(linked)) {
+    throw StateError(
+      'Apple connection was not confirmed. Sign in again and retry.',
+    );
+  }
 }
 
 // Called only after the user confirms account deletion. Keep authorization
@@ -54,6 +74,7 @@ bool appleAuthWasCancelled(Object error) =>
     }.contains(error.code);
 
 String appleAuthErrorText(Object error) {
+  if (error is StateError) return error.message.toString();
   if (error is FirebaseAuthException) {
     switch (error.code) {
       case 'account-exists-with-different-credential':

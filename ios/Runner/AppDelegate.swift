@@ -1,4 +1,5 @@
 import AVFoundation
+import AuthenticationServices
 import Flutter
 import PhotosUI
 import UserNotifications
@@ -26,6 +27,10 @@ import UIKit
 
   func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
     GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
+    engineBridge.applicationRegistrar.register(
+      CCSAppleSignInButtonFactory(messenger: engineBridge.applicationRegistrar.messenger()),
+      withId: "ccs/apple_sign_in_button"
+    )
     UNUserNotificationCenter.current().delegate = self
     registerPhotoPickerChannel(messenger: engineBridge.applicationRegistrar.messenger())
     registerDeviceIdentityChannel(messenger: engineBridge.applicationRegistrar.messenger())
@@ -478,4 +483,52 @@ import UIKit
 
     return viewController
   }
+}
+
+private final class CCSAppleSignInButtonFactory: NSObject, FlutterPlatformViewFactory {
+  private let messenger: FlutterBinaryMessenger
+
+  init(messenger: FlutterBinaryMessenger) {
+    self.messenger = messenger
+    super.init()
+  }
+
+  func createArgsCodec() -> FlutterMessageCodec & NSObjectProtocol {
+    FlutterStandardMessageCodec.sharedInstance()
+  }
+
+  func create(withFrame frame: CGRect, viewIdentifier viewId: Int64, arguments args: Any?) -> FlutterPlatformView {
+    CCSAppleSignInButton(frame: frame, viewId: viewId, arguments: args, messenger: messenger)
+  }
+}
+
+private final class CCSAppleSignInButton: NSObject, FlutterPlatformView {
+  private let button = ASAuthorizationAppleIDButton(type: .continue, style: .white)
+  private let channel: FlutterMethodChannel
+
+  init(frame: CGRect, viewId: Int64, arguments: Any?, messenger: FlutterBinaryMessenger) {
+    channel = FlutterMethodChannel(name: "ccs/apple_sign_in_button/\(viewId)", binaryMessenger: messenger)
+    super.init()
+    button.frame = frame
+    button.cornerRadius = 16
+    button.isEnabled = (arguments as? [String: Any])?["enabled"] as? Bool ?? true
+    button.addTarget(self, action: #selector(pressed), for: .touchUpInside)
+    channel.setMethodCallHandler { [weak self] call, result in
+      guard call.method == "setEnabled", let enabled = call.arguments as? Bool else {
+        result(FlutterMethodNotImplemented)
+        return
+      }
+      self?.button.isEnabled = enabled
+      result(nil)
+    }
+  }
+
+  @objc private func pressed() {
+    guard button.isEnabled else { return }
+    channel.invokeMethod("pressed", arguments: nil)
+  }
+
+  func view() -> UIView { button }
+
+  deinit { channel.setMethodCallHandler(nil) }
 }
