@@ -96,22 +96,32 @@ restore handling supports these awards. Mobile pending requests are retained
 per admin account across restarts; retry after an uncertain result instead of
 creating another award. Explicit validation failures permit correction.
 
-Server redeployed on 3 October 2026: `dpl_CaQTZarBLsctccNgMRu8GuZ8hPun`,
-`https://ccs-hol4oajnc-ccs-projects1.vercel.app`, serving
+Server redeployed on 4 October 2026: `dpl_HLhaa87Ay6HxDASvDXoW1e8aACTo`,
+`https://ccs-ev1xu2qn4-ccs-projects1.vercel.app`, serving
 `https://ccs-wine.vercel.app`. Live unauthenticated requests return HTTP 401.
 Deployment used the previous production snapshot plus `handlers/xp-sync.js`
 and `lib/xp/admin-grants.js`; account-deletion worker source was preserved.
 The earlier XP deployment omitted a deployment-only deletion test UID and
 caused scheduler HTTP 503 responses. Restored that same test UID as the
 production project variable `ACCOUNT_DELETION_TEST_UID` and redeployed;
-public deletion remains disabled. After confirming the old test job complete,
+public deletion remained disabled during testing. After confirming the old test job complete,
 the user authorized switching the sole test account to `hoedeadlov` for iOS
 testing. Also restored the previously audited `FIREBASE_STORAGE_BUCKET` and
 `FIREBASE_STORAGE_ALLOW_MISSING=true` as production project variables; their
 omission caused HTTP 500 after the scope was restored. The normal October 3
 16:45 Kyiv run is verified in the scoped scheduler record: `lastRunOk=true`,
 `attempted=0`, `pending=false`. This verifies scheduling, not iOS deletion yet.
-Rollback deployment: `ccs-naufkvwph-ccs-projects1.vercel.app`.
+October 4: the approved read-only verification confirmed the iOS test account's
+Auth/profile/username and checked related rows absent, zero profile child
+collections, no remaining job work rows, and empty avatar/garage R2 prefixes.
+`ACCOUNT_DELETION_ENABLED=true` now takes precedence over the retained test UID;
+all authenticated users can request their own deletion once shared scheduler
+health is fresh. Shared health was verified at October 4 23:00 Kyiv:
+`lastRunOk=true`, no pending jobs, lease released. Five-minute Cloudflare calls continue; Vercel daily backup
+`0 3 * * *` is configured (03:00 UTC; its first actual daily run is not yet verified).
+Roll back new-request availability by restoring the prior test-only deployment
+`ccs-hol4oajnc-ccs-projects1.vercel.app` only when no public deletion jobs are
+pending; otherwise preserve processing of accepted jobs during incident recovery.
 The mobile app still needs rebuilding to expose the new control.
 No Firestore rules changes are required. The new UI has widget coverage but
 still needs a real-device check after deployment. The one-off Eugene_e34 award

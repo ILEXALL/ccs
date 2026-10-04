@@ -1,6 +1,69 @@
 # CCS App Store release — 25 September 2026
 
-## October 3 deletion investigation (latest)
+## October 4 optional free globe prototype
+
+October 5 UI refinement: the globe is embedded within the existing Map tab,
+keeping the real app navigation visible and Map selected. Share live is at the
+top right, style/filter/alert controls at bottom left, and globe/follow at right.
+Controls have 36px visual surfaces and at least 48px tap targets. The old map
+remains mounted for the existing session/controllers; globe data updates pause
+when another tab is selected. Three native-widget layout/interaction tests cover
+portrait, landscape, sharing callbacks and preview cards with navigation visible.
+Physical-device verification is still needed; no APK was built.
+
+Map screen now offers **Try globe** on Android/iOS. This is an optional preview,
+not a replacement for the production map: MapLibre GL JS 5.6.2 is bundled with
+its license and rendered by the official Flutter WebView plugin. OpenFreeMap
+provides Positron (light) and Dark vector basemaps; attribution remains visible. No account/key,
+Firebase schema migration, backend deployment or new database subscription.
+Existing filtered spots, permitted live locations and current GPS are passed
+locally as GeoJSON once per second when changed. Tapping a spot/person opens
+the existing card over the globe without popping the route. Follow mode, globe
+overview, live-sharing toggle, filters and add-alert controls are provided.
+Sharing retains its existing state; opening the preview never enables sharing.
+The self marker reuses the standard navigation-arrow painter and current heading.
+Style switches restore icons/data and preserve the camera. Both category artwork
+variants are bundled locally. Active alerts and their existing cards are available.
+
+The globe reuses the standard map's category PNG artwork, category colors,
+event/closed styling and 11.25 zoom threshold between dots and full icons.
+All eligible filtered spots are retained without clustering or icon collision hiding.
+Artwork is resized to 128px at runtime before transfer to the local WebView.
+People counters and XP rings still require migration from the standard map.
+It requires a new mobile build; no APK/IPA was built here. Desktop browser globe
+rendering/attribution and light/dark switching verified, five renderer tests and
+five spot style/visibility tests pass. Dart analysis has no errors/warnings (map-screen style
+infos remain). Native WebView asset loading, gestures, background/resume, live
+tracking, battery/memory and iPhone/iPad performance still require device tests
+before including this feature in the App Store release. Recheck privacy
+disclosures for the map provider; do not describe this prototype as release-ready.
+
+## October 4 public deletion rollout
+
+User approved public activation and explicitly approved read-only production
+verification using existing Firebase/R2 credentials with absence/count results
+in private Vercel logs. Diagnostic `dpl_B89egvP3TZLkEv9wYcnjNTupPQoQ`
+verified `hoedeadlov`: Auth absent; profile, username, XP stats, live location and
+presence absent; no profile child collections or deletion work rows; sampled
+indexed ownership queries empty; both users/ and garage/ R2 prefixes empty with
+no truncation; legacy Firebase Storage bucket absent (404). This checks those
+paths, not every possible historical schema. Diagnostic deliberately exited 1
+after printing its result to prevent publishing any endpoint or changing aliases.
+
+The iOS request completed October 3 at 20:15:04 Kyiv, 3h 3m 2s after its
+17:12:01 request. This single-account measurement is not a guaranteed maximum
+under concurrent load. Twenty-five offline deletion/security/storage tests pass.
+Public activation is deployed as `dpl_HLhaa87Ay6HxDASvDXoW1e8aACTo`
+(`ccs-ev1xu2qn4-ccs-projects1.vercel.app`) on `ccs-wine.vercel.app`.
+`ACCOUNT_DELETION_ENABLED=true`; the retained test UID is ignored in public mode.
+The shared `round-robin` worker completed its normal October 4 23:00 Kyiv run:
+`lastRunOk=true`, `attempted=0`, `pending=false`, lease released. Unauthenticated
+deletion and XP probes both return 401. No user accounts were submitted by these
+checks. Five-minute Cloudflare scheduling continues, and Vercel's daily backup
+at 03:00 UTC is configured; its first actual daily execution remains unverified.
+No app rebuild or Firestore rules change is required for this activation.
+
+## October 3 deletion investigation (historical)
 
 Public rollout requested by user October 3 after successful iOS submission.
 Pre-activation inspection at approximately 17:36 Kyiv found `hoedeadlov` still

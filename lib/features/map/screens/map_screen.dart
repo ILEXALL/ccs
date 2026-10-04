@@ -1,4 +1,6 @@
 import '../controllers/map_session.dart';
+import 'globe_preview_screen.dart';
+import '../models/globe_spot_style.dart';
 import '../controllers/map_appearance_controller.dart';
 import '../controllers/map_layers_controller.dart';
 import '../controllers/map_navigation_controller.dart';
@@ -17,7 +19,7 @@ import 'package:ccs_app/features/map/widgets/navigation_arrow.dart';
 import 'package:ccs_app/features/profile/navigation/profile_navigation.dart'
     show openUserProfile;
 import 'package:ccs_app/core/localization/ccs_text.dart'
-    show LanguageReactiveState;
+    show LanguageReactiveState, CcsText;
 import 'package:ccs_app/core/location/coordinates.dart'
     show isValidLatLng, normalizedRotationDegrees;
 import 'package:ccs_app/core/platform/platform_bridges.dart'
@@ -406,6 +408,146 @@ class _MapScreenState extends State<MapScreen>
     scheduleNorthReset();
   }
 
+  bool globeOpen = false;
+
+  void openGlobePreview() => setState(() => globeOpen = true);
+
+  Widget buildGlobePreview() => GlobePreviewScreen(
+    isVisible: widget.isVisible,
+    onBack: () => setState(() => globeOpen = false),
+    isSharing: isSharingLiveLocation,
+    sharingBusy: isTogglingLiveLocation,
+    onShareChanged: sharing.toggleLiveLocationSharing,
+    onFilter: appearance.showMapCategoryFilterSheet,
+    onAddReport: appearance.showAddMapReportSheet,
+    onLocate: () async {
+      await navigation.moveToCurrentLocation();
+    },
+    cardBuilder: (cardContext, kind, id) {
+      if (kind == 'spot') {
+        for (final spot in layers.visibleSpots) {
+          if (spot.id == id)
+            return SpotMapCard(
+              spot: spot,
+              peopleCount: presence.peopleAtSpot(spot).length,
+              onPeople: () => presence.showSpotPeople(spot),
+              onOpen: () => appearance.openSpotDetails(spot),
+            );
+        }
+      } else if (kind == 'live') {
+        for (final location in liveLocations) {
+          if (location.uid == id &&
+              presence.liveLocationShouldStayVisibleOnMap(location))
+            return LiveLocationMapCard(
+              location: location,
+              isFriend: presence.liveLocationIsFriend(location),
+              onOpen: () => openUserProfile(
+                cardContext,
+                uid: location.uid,
+                fallbackUsername: location.username,
+              ),
+              onRoute: () =>
+                  navigation.openWazeRouteToLatLng(location.coordinates),
+            );
+        }
+      }
+      if (kind == 'police') {
+        for (final report in layers.visiblePoliceReports) {
+          if (report.id == id)
+            return PoliceReportMapCard(
+              report: report,
+              isBusy: isVotingPoliceReport,
+              canVote: police.canVotePoliceReportFromCurrentMapLocation(report),
+              voteHint: police.policeReportVoteHint(report),
+              onStillThere: () =>
+                  police.votePoliceReport(report, stillThere: true),
+              onNotThere: () =>
+                  police.votePoliceReport(report, stillThere: false),
+              onDelete: report.uid == FirebaseAuth.instance.currentUser?.uid
+                  ? () => police.removePoliceReport(report)
+                  : null,
+            );
+        }
+      } else if (kind == 'sos') {
+        for (final report in layers.visibleSosReports) {
+          if (report.id == id)
+            return SosReportMapCard(
+              report: report,
+              isOwnReport: report.uid == FirebaseAuth.instance.currentUser?.uid,
+              onOpenProfile: () => openUserProfile(
+                cardContext,
+                uid: report.uid,
+                fallbackUsername: report.username,
+              ),
+              onMessage: () => sos.openSosMessage(report),
+              onRoute: () =>
+                  navigation.openWazeRouteToLatLng(report.coordinates),
+              onDelete: report.uid == FirebaseAuth.instance.currentUser?.uid
+                  ? () => sos.removeSosReport(report)
+                  : null,
+            );
+        }
+      }
+      return null;
+    },
+    readFeatures: () {
+      if (!mounted || FirebaseAuth.instance.currentUser == null) {
+        return {'type': 'FeatureCollection', 'features': <Object>[]};
+      }
+      Map<String, Object> point(
+        String kind,
+        String id,
+        String label,
+        LatLng p, [
+        Map<String, Object> presentation = const {},
+      ]) => {
+        'type': 'Feature',
+        'geometry': {
+          'type': 'Point',
+          'coordinates': [p.longitude, p.latitude],
+        },
+        'properties': {'kind': kind, 'id': id, 'label': label, ...presentation},
+      };
+      final own = displayedUserLocation ?? currentUserLocation;
+      return {
+        'type': 'FeatureCollection',
+        'features': [
+          for (final spot in layers.visibleSpots)
+            if (isValidLatLng(spot.coordinates))
+              point(
+                'spot',
+                spot.id,
+                spot.name,
+                spot.coordinates,
+                globeSpotStyle(spot),
+              ),
+          for (final location in liveLocations)
+            if (location.uid != FirebaseAuth.instance.currentUser?.uid &&
+                presence.liveLocationShouldStayVisibleOnMap(location) &&
+                isValidLatLng(location.coordinates))
+              point(
+                'live',
+                location.uid,
+                location.username,
+                location.coordinates,
+              ),
+          for (final report in layers.visiblePoliceReports)
+            if (isValidLatLng(report.coordinates))
+              point('police', report.id, 'Police', report.coordinates),
+          for (final report in layers.visibleSosReports)
+            if (isValidLatLng(report.coordinates))
+              point('sos', report.id, 'SOS', report.coordinates),
+          if (own != null && isValidLatLng(own))
+            point('self', '', 'You', own, {
+              'heading': displayedNavigationHeading.isFinite
+                  ? displayedNavigationHeading
+                  : 0,
+            }),
+        ],
+      };
+    },
+  );
+
   void scheduleNorthReset() {
     if (followExitGesture.isActive || !northResetScheduled) return;
     // Wait for the gesture wrapper to release its camera constraint first.
@@ -428,7 +570,7 @@ class _MapScreenState extends State<MapScreen>
         sosReport != null ||
         liveLocation != null;
 
-    return Scaffold(
+    final standardMap = Scaffold(
       backgroundColor: Colors.transparent,
       body: Stack(
         children: [
@@ -587,6 +729,18 @@ class _MapScreenState extends State<MapScreen>
                     onFilterTap: appearance.showMapCategoryFilterSheet,
                   ),
                 ),
+                if (GlobePreviewScreen.supported)
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      child: FilledButton.tonalIcon(
+                        onPressed: openGlobePreview,
+                        icon: const Icon(Icons.public),
+                        label: const CcsText('Try globe'),
+                      ),
+                    ),
+                  ),
                 if (routePreviewMode)
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -722,6 +876,13 @@ class _MapScreenState extends State<MapScreen>
             ),
         ],
       ),
+    );
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        Offstage(offstage: globeOpen, child: standardMap),
+        if (globeOpen) Positioned.fill(child: buildGlobePreview()),
+      ],
     );
   }
 }

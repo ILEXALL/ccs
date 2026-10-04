@@ -36,7 +36,7 @@ class NavigationArrow extends StatelessWidget {
     child: Transform.rotate(
       angle: (headingDegrees.isFinite ? headingDegrees : 0) * math.pi / 180,
       child: CustomPaint(
-        painter: _NavigationArrowPainter(
+        painter: NavigationArrowPainter(
           pulse.isFinite ? pulse.clamp(0.0, 1.0) : 0,
         ),
         size: Size(62, 62),
@@ -45,9 +45,9 @@ class NavigationArrow extends StatelessWidget {
   );
 }
 
-class _NavigationArrowPainter extends CustomPainter {
+class NavigationArrowPainter extends CustomPainter {
   final double pulse;
-  const _NavigationArrowPainter(this.pulse);
+  const NavigationArrowPainter(this.pulse);
   @override
   void paint(Canvas canvas, Size size) {
     canvas.scale(size.width / 62, size.height / 62);
@@ -87,7 +87,7 @@ class _NavigationArrowPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant _NavigationArrowPainter oldDelegate) =>
+  bool shouldRepaint(covariant NavigationArrowPainter oldDelegate) =>
       oldDelegate.pulse != pulse;
 }
 

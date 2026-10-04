@@ -1,0 +1,544 @@
+import 'dart:async';
+import '../widgets/navigation_arrow.dart';
+import 'dart:convert';
+import 'dart:ui' as ui;
+
+import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
+import 'package:ccs_app/features/spots/models/spot_categories.dart';
+import 'package:url_launcher/url_launcher.dart';
+import 'package:webview_flutter/webview_flutter.dart';
+
+/// Read-only renderer. GPS, visibility rules and Firebase remain owned by CCS.
+class GlobePreviewScreen extends StatefulWidget {
+  const GlobePreviewScreen({
+    super.key,
+    required this.readFeatures,
+    required this.onBack,
+    required this.isSharing,
+    required this.sharingBusy,
+    required this.onShareChanged,
+    this.isVisible = true,
+    required this.cardBuilder,
+    required this.onFilter,
+    required this.onAddReport,
+    required this.onLocate,
+  });
+  final Map<String, Object?> Function() readFeatures;
+
+  final VoidCallback onBack;
+  final bool isSharing, sharingBusy, isVisible;
+  final Future<void> Function(bool) onShareChanged;
+  final Widget? Function(BuildContext, String, String) cardBuilder;
+  final Future<void> Function() onFilter, onAddReport, onLocate;
+  static bool get supported =>
+      !kIsWeb &&
+      (defaultTargetPlatform == TargetPlatform.android ||
+          defaultTargetPlatform == TargetPlatform.iOS);
+
+  @override
+  State<GlobePreviewScreen> createState() => _GlobePreviewScreenState();
+}
+
+class _GlobePreviewScreenState extends State<GlobePreviewScreen>
+    with WidgetsBindingObserver {
+  late final WebViewController controller;
+  Timer? timer;
+  bool ready = false, sending = false, active = true;
+  String? previous;
+  String? error;
+  bool iconsSent = false;
+  String style = 'dark';
+  String? selectedKind, selectedId;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    controller = WebViewController()
+      ..setJavaScriptMode(JavaScriptMode.unrestricted)
+      ..setBackgroundColor(const Color(0xff0b1323))
+      ..addJavaScriptChannel(
+        'CcsGlobe',
+        onMessageReceived: (message) {
+          if (!mounted) return;
+          try {
+            final data = jsonDecode(message.message);
+            if (data is! Map) return;
+            if (data['type'] == 'ready') {
+              ready = true;
+              previous = null;
+              unawaited(refresh());
+            } else if (data['type'] == 'clear') {
+              setState(() {
+                selectedKind = null;
+                selectedId = null;
+              });
+            } else if (data['type'] == 'select') {
+              final kind = data['kind'], id = data['id'];
+              if (const ['spot', 'live', 'police', 'sos'].contains(kind) &&
+                  id is String) {
+                setState(() {
+                  selectedKind = kind;
+                  selectedId = id;
+                });
+              }
+            }
+          } catch (_) {
+            /* Ignore malformed/untrusted bridge messages. */
+          }
+        },
+      )
+      ..setNavigationDelegate(
+        NavigationDelegate(
+          onNavigationRequest: (request) {
+            final uri = Uri.tryParse(request.url);
+            if (uri?.scheme == 'file' || request.url == 'about:blank') {
+              return NavigationDecision.navigate;
+            }
+            // Attribution links open externally; never load them into the bridge.
+            if (uri?.scheme == 'https' &&
+                const {
+                  'openfreemap.org',
+                  'www.openstreetmap.org',
+                  'openstreetmap.org',
+                  'www.openmaptiles.org',
+                  'openmaptiles.org',
+                  'maplibre.org',
+                }.contains(uri?.host)) {
+              unawaited(launchUrl(uri!, mode: LaunchMode.externalApplication));
+            }
+            return NavigationDecision.prevent;
+          },
+          onWebResourceError: (failure) {
+            if (failure.isForMainFrame == true && mounted) {
+              setState(
+                () => error =
+                    'Could not load the globe. Return to the standard map and try again.',
+              );
+            }
+          },
+        ),
+      );
+    unawaited(
+      controller.loadFlutterAsset('assets/globe/index.html').catchError((
+        Object _,
+      ) {
+        if (mounted) {
+          setState(
+            () => error = 'Globe preview is unavailable on this device.',
+          );
+        }
+      }),
+    );
+    timer = Timer.periodic(
+      const Duration(seconds: 1),
+      (_) => unawaited(refresh()),
+    );
+  }
+
+  Future<void> refresh() async {
+    if (!mounted || !ready || !active || !widget.isVisible || sending) return;
+    sending = true;
+    try {
+      if (!iconsSent) {
+        final icons = <String, String>{};
+        for (final asset in {
+          ...spotCategoryIconAssets.values,
+          ...spotCategoryLightIconAssets.values,
+        }) {
+          final bytes = await rootBundle.load(asset);
+          // Original artwork is large; transfer only a marker-sized copy once.
+          final codec = await ui.instantiateImageCodec(
+            bytes.buffer.asUint8List(bytes.offsetInBytes, bytes.lengthInBytes),
+            targetWidth: 128,
+            allowUpscaling: false,
+          );
+          try {
+            final frame = await codec.getNextFrame();
+            try {
+              final png = await frame.image.toByteData(
+                format: ui.ImageByteFormat.png,
+              );
+              if (png != null) {
+                icons[asset] =
+                    'data:image/png;base64,${base64Encode(png.buffer.asUint8List(png.offsetInBytes, png.lengthInBytes))}';
+              }
+            } finally {
+              frame.image.dispose();
+            }
+          } finally {
+            codec.dispose();
+          }
+        }
+        final recorder = ui.PictureRecorder();
+        final canvas = Canvas(recorder)..scale(2);
+        const NavigationArrowPainter(0).paint(canvas, const Size(62, 62));
+        final picture = recorder.endRecording();
+        final arrow = await picture.toImage(124, 124);
+        final arrowBytes = await arrow.toByteData(
+          format: ui.ImageByteFormat.png,
+        );
+        if (arrowBytes != null) {
+          icons['ccs-self-arrow'] =
+              'data:image/png;base64,${base64Encode(arrowBytes.buffer.asUint8List())}';
+        }
+        arrow.dispose();
+        picture.dispose();
+        if (!mounted) return;
+        await controller.runJavaScript(
+          'window.ccsSetIcons(JSON.parse(${jsonEncode(jsonEncode(icons))}));',
+        );
+        iconsSent = true;
+      }
+      final data = jsonEncode(widget.readFeatures());
+      if (data != previous) {
+        // Encode as a JS string, then parse: names cannot become executable code.
+        await controller.runJavaScript(
+          'window.ccsSetFeatures(JSON.parse(${jsonEncode(data)}));',
+        );
+        previous = data;
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(
+          () => error = 'Map updates paused. Reopen the preview to retry.',
+        );
+      }
+    } finally {
+      sending = false;
+      if (mounted) setState(() {});
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    active = state == AppLifecycleState.resumed;
+    if (active) unawaited(refresh());
+  }
+
+  @override
+  void dispose() {
+    timer?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  Future<void> chooseStyle() async {
+    final choice = await showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: const Color(0xff111216),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
+      ),
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Padding(
+              padding: EdgeInsets.all(18),
+              child: Text(
+                'Map style',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+            for (final entry in {
+              'positron': 'CCS Light',
+              'dark': 'CCS Dark',
+            }.entries)
+              ListTile(
+                leading: Icon(
+                  entry.key == 'dark'
+                      ? Icons.dark_mode_outlined
+                      : Icons.light_mode_outlined,
+                  color: Colors.white70,
+                ),
+                title: Text(
+                  entry.value,
+                  style: const TextStyle(color: Colors.white),
+                ),
+                trailing: style == entry.key
+                    ? const Icon(Icons.check, color: Color(0xff008dff))
+                    : null,
+                onTap: () => Navigator.pop(context, entry.key),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (!mounted || choice == null || choice == style || !ready) return;
+    setState(() {
+      style = choice;
+      ready = false;
+    });
+    await controller.runJavaScript(
+      'window.ccsSetStyle(${jsonEncode(choice)});',
+    );
+  }
+
+  Widget control(
+    String label,
+    IconData icon,
+    VoidCallback? onTap, {
+    bool text = false,
+    bool accent = false,
+    bool amber = false,
+    bool sharingActive = false,
+    bool fill = false,
+  }) {
+    final color = amber ? const Color(0xffeeb666) : Colors.white;
+    return Semantics(
+      button: true,
+      label: label,
+      child: Tooltip(
+        message: label,
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: onTap,
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              minHeight: amber ? 52 : 48,
+              minWidth: amber ? 52 : 48,
+            ),
+            child: Center(
+              heightFactor: 1,
+              widthFactor: 1,
+              child: Opacity(
+                opacity: onTap == null ? .5 : 1,
+                child: Container(
+                  height: amber ? 44 : 36,
+                  width: fill ? double.infinity : null,
+                  padding: EdgeInsets.symmetric(
+                    horizontal: text
+                        ? 8
+                        : amber
+                        ? 11
+                        : 9,
+                  ),
+                  decoration: BoxDecoration(
+                    color: accent
+                        ? null
+                        : amber
+                        ? const Color(0xff201a12)
+                        : const Color(0xff111319),
+                    gradient: sharingActive
+                        ? const LinearGradient(
+                            colors: [Color(0xff13713c), Color(0xff19834c)],
+                          )
+                        : accent
+                        ? const LinearGradient(
+                            colors: [Color(0xff0646db), Color(0xff00a7d1)],
+                          )
+                        : null,
+                    border: Border.all(
+                      color: sharingActive
+                          ? const Color(0xff35a563)
+                          : amber
+                          ? const Color(0xff635032)
+                          : accent
+                          ? const Color(0xff1273cc)
+                          : const Color(0xff33363e),
+                    ),
+                    borderRadius: BorderRadius.circular(11),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(icon, size: amber ? 22 : 18, color: color),
+                      if (text) ...[
+                        const SizedBox(width: 7),
+                        Flexible(
+                          child: Text(
+                            label,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: color,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final card = selectedId == null
+        ? null
+        : widget.cardBuilder(context, selectedKind!, selectedId!);
+    return ColoredBox(
+      color: const Color(0xff07080c),
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          Positioned.fill(child: WebViewWidget(controller: controller)),
+          SafeArea(
+            bottom: false,
+            child: Align(
+              alignment: Alignment.topCenter,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(8, 4, 12, 0),
+                child: LayoutBuilder(
+                  builder: (context, constraints) => Row(
+                    mainAxisAlignment: MainAxisAlignment.start,
+                    children: [
+                      control(
+                        'Back to standard map',
+                        Icons.arrow_back,
+                        widget.onBack,
+                      ),
+                      Expanded(
+                        flex: 10,
+                        child: control(
+                          'Styles',
+                          Icons.layers_outlined,
+                          ready ? chooseStyle : null,
+                          text: constraints.maxWidth >= 360,
+                          fill: true,
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        flex: 10,
+                        child: control(
+                          'Filters',
+                          Icons.tune,
+                          widget.onFilter,
+                          text: constraints.maxWidth >= 360,
+                          fill: true,
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        flex: 14,
+                        child: Align(
+                          alignment: Alignment.centerRight,
+                          heightFactor: 1,
+                          child: control(
+                            widget.sharingBusy
+                                ? 'Updating...'
+                                : widget.isSharing
+                                ? 'Sharing live'
+                                : 'Share live',
+                            widget.isSharing
+                                ? Icons.wifi_tethering
+                                : Icons.location_on_outlined,
+                            widget.sharingBusy
+                                ? null
+                                : () => unawaited(
+                                    widget.onShareChanged(!widget.isSharing),
+                                  ),
+                            text: true,
+                            accent: true,
+                            sharingActive: widget.isSharing,
+                            fill: true,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+          if (error != null)
+            SafeArea(
+              child: Align(
+                alignment: Alignment.topCenter,
+                child: Padding(
+                  padding: const EdgeInsets.only(top: 60),
+                  child: Card(
+                    child: Padding(
+                      padding: const EdgeInsets.all(8),
+                      child: Text(error!),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          if (card == null) ...[
+            Positioned(
+              left: 8,
+              bottom: 28,
+              child: control(
+                'Add alert',
+                Icons.warning_amber_rounded,
+                widget.onAddReport,
+                amber: true,
+              ),
+            ),
+            Positioned(
+              right: 8,
+              bottom: 92,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  control(
+                    'Show globe',
+                    Icons.public,
+                    ready
+                        ? () => unawaited(
+                            controller.runJavaScript('window.ccsWorld();'),
+                          )
+                        : null,
+                  ),
+                  control(
+                    'Follow my location',
+                    Icons.my_location,
+                    ready
+                        ? () async {
+                            await widget.onLocate();
+                            await refresh();
+                            if (mounted && ready)
+                              await controller.runJavaScript(
+                                'window.ccsFollow();',
+                              );
+                          }
+                        : null,
+                  ),
+                ],
+              ),
+            ),
+          ],
+          if (card != null)
+            Positioned(
+              left: 12,
+              right: 12,
+              bottom: 24,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  control(
+                    'Close preview',
+                    Icons.close,
+                    () => setState(() {
+                      selectedId = null;
+                      selectedKind = null;
+                    }),
+                  ),
+                  card,
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
