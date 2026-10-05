@@ -186,7 +186,7 @@ class _ExploreScreenState extends State<ExploreScreen>
                     onChanged: (value) => setState(() => searchQuery = value),
                     style: const TextStyle(color: Colors.white),
                     decoration: InputDecoration(
-                      hintText: 'Search spots...',
+                      hintText: trText('Search spots...'),
                       hintStyle: const TextStyle(color: Colors.white38),
                       prefixIcon: const Icon(
                         Icons.search,

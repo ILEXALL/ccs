@@ -1,9 +1,10 @@
+import 'package:ccs_app/features/spots/models/spot_status.dart';
 import 'package:ccs_app/features/moderation/widgets/admin_status_badge.dart'
     show AdminStatusBadge;
 import 'package:flutter/material.dart' hide Text;
 import 'package:ccs_app/features/profile/navigation/profile_navigation.dart'
     show openUserProfile;
-import 'package:ccs_app/core/localization/ccs_text.dart' show CcsText;
+import 'package:ccs_app/core/localization/ccs_text.dart' show CcsText, trText;
 import 'package:ccs_app/core/theme/app_background.dart' show appPageRoute;
 import 'package:ccs_app/core/theme/app_theme.dart' show blue, panelGlass;
 import 'package:ccs_app/features/auth/data/usernames.dart' show displayUsername;
@@ -64,6 +65,17 @@ class AdminSpotTile extends StatelessWidget {
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(color: Colors.white54),
                   ),
+                  if (spot.status == SpotStatus.approved ||
+                      spot.status == SpotStatus.rejected)
+                    CcsText(
+                      spot.reviewedBy.isNotEmpty
+                          ? '${trText(spot.status == SpotStatus.approved ? 'Approved by' : 'Rejected by')}: ${displayUsername(spot.reviewedBy)}'
+                          : trText('Reviewer not recorded'),
+                      style: const TextStyle(
+                        color: Colors.white70,
+                        fontSize: 12,
+                      ),
+                    ),
                   const SizedBox(height: 8),
                   Row(
                     children: [

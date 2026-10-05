@@ -46,6 +46,39 @@ void main() {
     app.appUiPreferences.language = app.AppLanguage.en;
   });
 
+  testWidgets(
+    'group unread badge updates and clears with the shared read state',
+    (tester) async {
+      final data = directory('Unread group');
+      (data['groups'] as List).first['isMember'] = true;
+      Future<void> showCount(int count) async {
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: app.PrivateGroupDirectory(
+                membershipRevision: '',
+                chats: const [],
+                currentUid: 'badge-user',
+                unreadCountsByChatId: {'group': count},
+                requestAction: (_) async => data,
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+      }
+
+      await showCount(7);
+      expect(find.byKey(const ValueKey('group-unread-group')), findsOneWidget);
+      expect(find.text('7'), findsOneWidget);
+      await showCount(0);
+      expect(find.byKey(const ValueKey('group-unread-group')), findsNothing);
+      (data['groups'] as List).first['isMember'] = false;
+      await showCount(7);
+      expect(find.byKey(const ValueKey('group-unread-group')), findsNothing);
+    },
+  );
+
   test(
     'disk cache restores a list after restart and rejects expired/corrupt data',
     () async {

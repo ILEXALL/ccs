@@ -1,4 +1,16 @@
 const russianTranslations = <String, String>{
+  'Sharing live': 'Делюсь',
+
+  'Styles': 'Стили',
+  'Share live': 'Геопозиция',
+  'Sharing': 'Делюсь',
+  'Map style': 'Стиль карты',
+  'Search spots...': 'Поиск спотов...',
+  'Processing decision...': 'Сохранение решения...',
+  'Approved by': 'Одобрил(а)',
+  'Rejected by': 'Отклонил(а)',
+  'Reviewer not recorded': 'Автор решения не записан',
+
   'Could not load users. Tap to retry.':
       'Не удалось загрузить пользователей. Нажмите, чтобы повторить.',
   'Type at least 2 characters to search.':

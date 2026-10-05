@@ -128,10 +128,35 @@ class _AdminSpotReviewScreenState extends State<AdminSpotReviewScreen>
         child: ready
             ? AbsorbPointer(
                 absorbing: _lease.busy,
-                child: _LockedAdminSpotReviewScreen(
-                  spot: _spot!,
-                  lease: _lease,
-                  onEdit: () => unawaited(_edit()),
+                child: Stack(
+                  children: [
+                    _LockedAdminSpotReviewScreen(
+                      spot: _spot!,
+                      lease: _lease,
+                      onEdit: () => unawaited(_edit()),
+                    ),
+                    if (_lease.busy)
+                      Positioned.fill(
+                        child: ColoredBox(
+                          color: Colors.black54,
+                          child: Center(
+                            child: Card(
+                              child: Padding(
+                                padding: const EdgeInsets.all(24),
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    const CircularProgressIndicator(),
+                                    const SizedBox(height: 16),
+                                    CcsText(trText('Processing decision...')),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
                 ),
               )
             : Scaffold(

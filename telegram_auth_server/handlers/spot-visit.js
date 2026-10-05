@@ -1,4 +1,4 @@
-const {syncWeeklyTasks} = require('../lib/xp/weekly-tasks');
+const {syncWeeklyTasks, syncAdminRewardClaims} = require('../lib/xp/weekly-tasks');
 const {assessLocation} = require('../lib/location-integrity');
 const {awardXp} = require('../lib/xp/xp-firestore');
 const {syncAchievements} = require('../lib/xp/achievements');
@@ -23,6 +23,7 @@ module.exports = async (req, res) => {
       throw new Error('Location could not be verified');
     }
     const result = await recordSpotVisit(db, token.uid, req.body?.spotId, Date.now(), req.body?.gpsFix ?? null);
+    if (result.recorded || result.rewardClaimed) await syncAdminRewardClaims(token.uid);
     if (!result.recorded) return res.status(200).json({ok: true, result});
     if (result.event) {
       result.xp = await awardXp({userId: token.uid, action: 'event.attended', objectType: 'event',

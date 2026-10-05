@@ -1,3 +1,4 @@
+import 'package:ccs_app/core/time/trusted_clock.dart';
 import 'package:ccs_app/features/spots/data/spot_filters.dart'
     as app
     show mapVisibleSpots, spotCategoryFilters, spotCountryFilters;
@@ -12,6 +13,8 @@ import 'group_temporary_spots_test.dart' show event;
 
 void main() {
   setUp(() {
+    trustedClock.setSampleForTesting(DateTime.now().millisecondsSinceEpoch);
+    addTearDown(() => trustedClock.setSampleForTesting(null));
     final countries = app.spotCountryFilters.value;
     final categories = app.spotCategoryFilters.value;
     addTearDown(() {

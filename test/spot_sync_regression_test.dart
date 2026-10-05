@@ -4,6 +4,7 @@ import 'package:ccs_app/features/spots/data/spot_state.dart' show demoSpots;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:ccs_app/core/time/trusted_clock.dart';
 
 // A test-only snapshot double keeps these regressions independent of Firebase.
 // ignore: subtype_of_sealed_class
@@ -23,6 +24,11 @@ class _ProfileSnapshot implements DocumentSnapshot<Map<String, dynamic>> {
 }
 
 void main() {
+  setUp(
+    () =>
+        trustedClock.setSampleForTesting(DateTime.now().millisecondsSinceEpoch),
+  );
+  tearDown(() => trustedClock.setSampleForTesting(null));
   test('legacy profile uid cannot break the authenticated spot sync scope', () {
     for (final storedUid in ['', 'old-user', null]) {
       final user = appUserFromCurrentUserDocument(

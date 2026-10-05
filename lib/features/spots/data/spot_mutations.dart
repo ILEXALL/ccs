@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart' show debugPrint;
+import 'package:ccs_app/features/auth/data/auth_state.dart' show currentUser;
 import 'package:ccs_app/features/spots/models/car_spot.dart' show isSameSpot;
 import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -61,6 +63,8 @@ Future<void> updateSpotStatus(
     status: status,
     rejectionReason: cleanRejectionReason,
     updatedAtMillis: nowMillis,
+    reviewedBy: currentUser.username,
+    reviewedByUid: currentUser.uid,
   );
 
   if (spot.id.isNotEmpty) {
@@ -96,52 +100,55 @@ Future<void> updateSpotStatus(
     );
   }
 
-  if (shouldNotifyNearbyMeetUsers) {
-    await createMeetSpotNotificationsForNearbyUsers(updatedSpot);
+  Future<void> notify(Future<void> action) async {
+    try {
+      await action;
+    } catch (error) {
+      debugPrint('Post-review notification failed: $error');
+    }
   }
 
-  if (shouldNotifyOtherAdmins) {
-    await createAdminSpotDecisionNotification(
-      updatedSpot,
-      status,
-      rejectionReason: cleanRejectionReason,
-    );
-  }
-
-  if (statusChanged &&
-      (status == SpotStatus.approved || status == SpotStatus.rejected)) {
-    await createSpotReviewUpdateNotification(
-      updatedSpot,
-      status,
-      rejectionReason: cleanRejectionReason,
-    );
-  }
-
-  if (statusChanged && status == SpotStatus.approved) {
-    await notifyAllUsersIfTemporarySpotIsToday(updatedSpot);
-  }
-
-  if (statusChanged &&
-      status == SpotStatus.approved &&
-      updatedSpot.id.isNotEmpty) {
-    unawaited(
-      syncXpWithServer({'action': 'sync_spot', 'spotId': updatedSpot.id}),
-    );
-  }
-
-  if (statusChanged &&
-      spot.id.isNotEmpty &&
-      (status == SpotStatus.approved || status == SpotStatus.rejected)) {
-    // This event also publishes the approved spot to eligible users. The
-    // owner's review preference must not gate that separate audience.
-    await sendPushNotificationEvent({
-      'type': 'spot_decision',
-      'spotId': spot.id,
-      'status': spotStatusName(status),
-      if (cleanRejectionReason.isNotEmpty)
-        'rejectionReason': cleanRejectionReason,
-    });
-  }
+  await Future.wait([
+    if (shouldNotifyNearbyMeetUsers)
+      notify(createMeetSpotNotificationsForNearbyUsers(updatedSpot)),
+    if (shouldNotifyOtherAdmins)
+      notify(
+        createAdminSpotDecisionNotification(
+          updatedSpot,
+          status,
+          rejectionReason: cleanRejectionReason,
+        ),
+      ),
+    if (statusChanged &&
+        (status == SpotStatus.approved || status == SpotStatus.rejected))
+      notify(
+        createSpotReviewUpdateNotification(
+          updatedSpot,
+          status,
+          rejectionReason: cleanRejectionReason,
+        ),
+      ),
+    if (statusChanged && status == SpotStatus.approved)
+      notify(notifyAllUsersIfTemporarySpotIsToday(updatedSpot)),
+    if (statusChanged &&
+        status == SpotStatus.approved &&
+        updatedSpot.id.isNotEmpty)
+      notify(
+        syncXpWithServer({'action': 'sync_spot', 'spotId': updatedSpot.id}),
+      ),
+    if (statusChanged &&
+        spot.id.isNotEmpty &&
+        (status == SpotStatus.approved || status == SpotStatus.rejected))
+      notify(
+        sendPushNotificationEvent({
+          'type': 'spot_decision',
+          'spotId': spot.id,
+          'status': spotStatusName(status),
+          if (cleanRejectionReason.isNotEmpty)
+            'rejectionReason': cleanRejectionReason,
+        }),
+      ),
+  ]);
 }
 
 Future<void> deleteSpotFromFirebase(CarSpot spot) async {

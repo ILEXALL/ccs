@@ -1,3 +1,5 @@
+import 'package:ccs_app/core/time/trusted_clock.dart';
+import 'package:ccs_app/features/spots/data/spot_state.dart' show reviewSpots;
 import 'app_navigation.dart';
 import 'app_services.dart';
 import 'dart:async';
@@ -53,6 +55,8 @@ Future<void> bootstrap() async {
   configureAppServices();
   notificationLaunchTime = DateTime.now();
   WidgetsFlutterBinding.ensureInitialized();
+  trustedClock.addListener(() => reviewSpots.value = [...reviewSpots.value]);
+  trustedClock.start();
   startAppIconBadgeSync();
   final backgroundReady = warmUpAppMapBackground();
   try {

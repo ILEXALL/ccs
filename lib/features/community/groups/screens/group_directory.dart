@@ -26,6 +26,8 @@ import 'package:ccs_app/features/community/groups/screens/group_join_requests.da
     show GroupJoinRequestsScreen;
 import 'package:ccs_app/features/notifications/data/push_events.dart'
     show sendPushNotificationEvent;
+import 'package:ccs_app/features/notifications/models/badge_label.dart'
+    show compactBadgeLabel;
 import 'package:ccs_app/features/spots/data/spot_filters.dart'
     show availableCommunityCountryCodes;
 import 'package:ccs_app/shared/media/media_upload.dart' show isNetworkUrl;
@@ -302,6 +304,7 @@ class _PrivateGroupDirectoryState extends State<PrivateGroupDirectory>
   }) {
     final id = group['id'] as String;
     final member = group['isMember'] == true;
+    final unreadCount = widget.unreadCountsByChatId[id] ?? 0;
     final monitor = !member && group['canMonitor'] == true;
     final status = group['requestStatus'] ?? '';
     final isBusy = busy.contains(id);
@@ -322,7 +325,7 @@ class _PrivateGroupDirectoryState extends State<PrivateGroupDirectory>
       return Padding(
         padding: const EdgeInsets.only(bottom: 12),
         child: Material(
-          color: panelGlass,
+          color: member ? const Color(0xFFD5EEDC) : panelGlass,
           borderRadius: BorderRadius.circular(20),
           clipBehavior: Clip.antiAlias,
           child: InkWell(
@@ -351,7 +354,8 @@ class _PrivateGroupDirectoryState extends State<PrivateGroupDirectory>
                           stringFromFirebase(group['name'], 'Group chat'),
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
+                          style: TextStyle(
+                            color: member ? const Color(0xFF173B26) : null,
                             fontSize: 17,
                             fontWeight: FontWeight.w800,
                           ),
@@ -359,14 +363,38 @@ class _PrivateGroupDirectoryState extends State<PrivateGroupDirectory>
                         const SizedBox(height: 5),
                         CcsText(
                           groupVisibilityLabel(group['isPrivate'] != false),
-                          style: const TextStyle(
-                            color: Colors.white60,
+                          style: TextStyle(
+                            color: member
+                                ? const Color(0xFF3E6350)
+                                : Colors.white60,
                             fontSize: 12,
                           ),
                         ),
                       ],
                     ),
                   ),
+                  if (member && unreadCount > 0) ...[
+                    const SizedBox(width: 10),
+                    Container(
+                      key: ValueKey('group-unread-$id'),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 4,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.redAccent,
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                      child: CcsText(
+                        compactBadgeLabel(unreadCount),
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -695,6 +723,41 @@ class _PrivateGroupDirectoryState extends State<PrivateGroupDirectory>
               style: const TextStyle(color: Colors.white54),
             );
           }
+          final allGroups = [
+            ...groups,
+            for (final chat in publicChats.where(
+              (chat) => !groups.any((group) => group['id'] == chat.id),
+            ))
+              {
+                'id': chat.id,
+                'name': chat.name,
+                'description': chat.description,
+                'photoUrl': chat.photoUrl.isNotEmpty
+                    ? chat.photoUrl
+                    : chat.avatarUrl,
+                'isPrivate': chat.isPrivate,
+                'isMember': chat.memberIds.contains(widget.currentUid),
+                'isOwner': chat.isOwner(widget.currentUid),
+                'memberCount': chat.memberIds.length,
+              },
+          ];
+          final membership = widget.chats
+              .where((c) => c.memberIds.contains(widget.currentUid))
+              .map((c) => c.id)
+              .toSet();
+          for (final group in allGroups) {
+            if (membership.contains(group['id'])) group['isMember'] = true;
+          }
+          allGroups.sort((a, b) {
+            final memberOrder = (b['isMember'] == true ? 1 : 0).compareTo(
+              a['isMember'] == true ? 1 : 0,
+            );
+            return memberOrder != 0
+                ? memberOrder
+                : (a['name'] as String? ?? '').compareTo(
+                    b['name'] as String? ?? '',
+                  );
+          });
           return Column(
             children: [
               if (snapshot.hasError)
@@ -703,22 +766,7 @@ class _PrivateGroupDirectoryState extends State<PrivateGroupDirectory>
                   icon: const Icon(Icons.refresh, size: 16),
                   label: CcsText(trText('Showing saved groups. Tap to retry.')),
                 ),
-              for (final chat in publicChats.where(
-                (chat) => !groups.any((group) => group['id'] == chat.id),
-              ))
-                groupCard({
-                  'id': chat.id,
-                  'name': chat.name,
-                  'description': chat.description,
-                  'photoUrl': chat.photoUrl.isNotEmpty
-                      ? chat.photoUrl
-                      : chat.avatarUrl,
-                  'isPrivate': chat.isPrivate,
-                  'isMember': chat.memberIds.contains(widget.currentUid),
-                  'isOwner': chat.isOwner(widget.currentUid),
-                  'memberCount': chat.memberIds.length,
-                }, 'Open group'),
-              for (final group in groups)
+              for (final group in allGroups)
                 groupCard(group, groupActionLabel(group)),
             ],
           );

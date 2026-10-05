@@ -1,3 +1,4 @@
+import 'package:ccs_app/features/map/data/globe_context_spots.dart';
 import 'package:flutter/material.dart' hide Text;
 import 'package:ccs_app/core/localization/ccs_text.dart' show CcsText;
 import 'package:ccs_app/core/theme/app_theme.dart' show blue, panelGlass;
@@ -49,6 +50,7 @@ class _AdminSpotLocationReviewMapScreenState
                   'zoom': 17,
                 },
                 'features': [
+                  ...globeContextSpots(excludeId: spot.id),
                   {
                     'type': 'Feature',
                     'geometry': {

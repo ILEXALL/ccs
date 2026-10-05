@@ -1,3 +1,5 @@
+import 'package:ccs_app/core/localization/ccs_text.dart'
+    show CcsText, trText, LanguageReactiveState;
 import '../data/live_location_config.dart'
     show
         regularUserCarIconAsset,
@@ -59,7 +61,7 @@ class GlobeMapScreen extends StatefulWidget {
 }
 
 class _GlobeMapScreenState extends State<GlobeMapScreen>
-    with WidgetsBindingObserver {
+    with WidgetsBindingObserver, LanguageReactiveState {
   late final WebViewController controller;
   Timer? timer, motionTimer;
   bool sendingMotion = false;
@@ -371,7 +373,7 @@ class _GlobeMapScreenState extends State<GlobeMapScreen>
           children: [
             const Padding(
               padding: EdgeInsets.all(18),
-              child: Text(
+              child: CcsText(
                 'Map style',
                 style: TextStyle(
                   color: Colors.white,
@@ -391,7 +393,7 @@ class _GlobeMapScreenState extends State<GlobeMapScreen>
                       : Icons.light_mode_outlined,
                   color: Colors.white70,
                 ),
-                title: Text(
+                title: CcsText(
                   entry.value,
                   style: const TextStyle(color: Colors.white),
                 ),
@@ -434,9 +436,9 @@ class _GlobeMapScreenState extends State<GlobeMapScreen>
     final color = amber ? const Color(0xffeeb666) : Colors.white;
     return Semantics(
       button: true,
-      label: label,
+      label: trText(label),
       child: Tooltip(
-        message: label,
+        message: trText(label),
         child: GestureDetector(
           behavior: HitTestBehavior.opaque,
           onTap: onTap,
@@ -494,7 +496,7 @@ class _GlobeMapScreenState extends State<GlobeMapScreen>
                       if (text) ...[
                         const SizedBox(width: 7),
                         Flexible(
-                          child: Text(
+                          child: CcsText(
                             label,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
@@ -607,7 +609,7 @@ class _GlobeMapScreenState extends State<GlobeMapScreen>
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Text(error!),
+                          CcsText(error!),
                           TextButton(
                             onPressed: () {
                               setState(() {
@@ -619,7 +621,7 @@ class _GlobeMapScreenState extends State<GlobeMapScreen>
                               });
                               unawaited(controller.reload());
                             },
-                            child: const Text('Retry'),
+                            child: const CcsText('Retry'),
                           ),
                         ],
                       ),

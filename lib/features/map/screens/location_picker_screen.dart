@@ -1,3 +1,4 @@
+import 'package:ccs_app/features/map/data/globe_context_spots.dart';
 import 'package:ccs_app/features/map/data/map_overview.dart'
     show currentMapStartLocation;
 import 'package:ccs_app/features/map/data/map_overview.dart'
@@ -156,6 +157,7 @@ class _LocationPickerScreenState extends State<LocationPickerScreen>
                         'zoom': defaultZoom,
                       },
                       'features': [
+                        ...globeContextSpots(),
                         if (pickedLocation != null)
                           {
                             'type': 'Feature',

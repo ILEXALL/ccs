@@ -1,3 +1,4 @@
+import 'package:ccs_app/core/time/trusted_clock.dart';
 import 'dart:math' as math;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:latlong2/latlong.dart';
@@ -65,6 +66,7 @@ class CarSpot {
   final int? showOnMapAtMillis;
   final bool verifiedOnly;
   final String rejectionReason;
+  final String reviewedBy, reviewedByUid;
 
   const CarSpot({
     this.id = '',
@@ -108,6 +110,8 @@ class CarSpot {
     this.showOnMapAtMillis,
     this.verifiedOnly = false,
     this.rejectionReason = '',
+    this.reviewedBy = '',
+    this.reviewedByUid = '',
   });
 
   CarSpot copyWith({
@@ -149,6 +153,8 @@ class CarSpot {
     int? showOnMapAtMillis,
     bool? verifiedOnly,
     String? rejectionReason,
+    String? reviewedBy,
+    String? reviewedByUid,
     bool clearTemporarySchedule = false,
     bool clearTemporaryMapReveal = false,
   }) {
@@ -200,6 +206,8 @@ class CarSpot {
           : showOnMapAtMillis ?? this.showOnMapAtMillis,
       verifiedOnly: verifiedOnly ?? this.verifiedOnly,
       rejectionReason: rejectionReason ?? this.rejectionReason,
+      reviewedBy: reviewedBy ?? this.reviewedBy,
+      reviewedByUid: reviewedByUid ?? this.reviewedByUid,
     );
   }
 
@@ -231,7 +239,7 @@ class CarSpot {
     final expiresAt = expiresAtMillis;
     return isTemporary &&
         expiresAt != null &&
-        DateTime.now().millisecondsSinceEpoch >= expiresAt;
+        (trustedClock.nowMillis ?? 0) >= expiresAt;
   }
 
   int? get effectiveShowOnMapAtMillis {
@@ -255,7 +263,8 @@ class CarSpot {
       return false;
     }
 
-    final now = DateTime.now().millisecondsSinceEpoch;
+    final now = trustedClock.nowMillis;
+    if (now == null) return false;
     return now >= startsAtMillis! && now < expiresAtMillis!;
   }
 
@@ -269,7 +278,8 @@ class CarSpot {
       return false;
     }
 
-    final now = DateTime.now().millisecondsSinceEpoch;
+    final now = trustedClock.nowMillis;
+    if (now == null) return false;
     return now >= revealAt && now < startsAtMillis! && now < expiresAtMillis!;
   }
 
@@ -283,7 +293,8 @@ class CarSpot {
       return false;
     }
 
-    final now = DateTime.now().millisecondsSinceEpoch;
+    final now = trustedClock.nowMillis;
+    if (now == null) return false;
     return now >= revealAt && now < expiresAtMillis!;
   }
 
@@ -420,6 +431,8 @@ class CarSpot {
       ),
       verifiedOnly: data['verifiedOnly'] == true,
       rejectionReason: stringFromFirebase(data['rejectionReason'], ''),
+      reviewedBy: stringFromFirebase(data['reviewedBy'], ''),
+      reviewedByUid: stringFromFirebase(data['reviewedByUid'], ''),
     );
   }
 }

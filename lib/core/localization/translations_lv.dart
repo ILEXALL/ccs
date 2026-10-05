@@ -1,4 +1,16 @@
 const latvianTranslations = <String, String>{
+  'Sharing live': 'Kopīgoju',
+
+  'Styles': 'Stili',
+  'Share live': 'Kopīgot',
+  'Sharing': 'Kopīgoju',
+  'Map style': 'Kartes stils',
+  'Search spots...': 'Meklēt vietas...',
+  'Processing decision...': 'Lēmums tiek saglabāts...',
+  'Approved by': 'Apstiprināja',
+  'Rejected by': 'Noraidīja',
+  'Reviewer not recorded': 'Pārskatītājs nav reģistrēts',
+
   'Could not load users. Tap to retry.':
       'Neizdevās ielādēt lietotājus. Pieskarieties, lai mēģinātu vēlreiz.',
   'Type at least 2 characters to search.':

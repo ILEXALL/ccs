@@ -1,3 +1,4 @@
+const {prepareNearbyAdminRewards} = require('./xp/nearby-admin-rewards');
 const {prepareTaskVisit} = require('./xp/weekly-visit-evidence');
 const crypto = require('node:crypto');
 
@@ -69,19 +70,22 @@ async function recordSpotVisit(db, userId, spotId, now = Date.now(), gpsFix = nu
       tx.delete(sessionRef);
       return {recorded: false, status: 'outside_or_invalid', spotId, elapsedMs: 0, requiredMs: DWELL_MS};
     }
+    const rewards = await prepareNearbyAdminRewards(db, tx, {userId, user, position, sample, now, session, candidates, distanceMeters, coordinates});
     const continuous = session.spotId === spotId && session.dayKey === dayKey &&
       now >= session.lastSeenAt && now - session.lastSeenAt <= MAX_DWELL_GAP_MS &&
       sample >= session.lastSampleAt && sample - session.lastSampleAt <= MAX_DWELL_GAP_MS;
     const elapsedMs = continuous ? Math.min(DWELL_MS, (session.elapsedMs || 0) +
       Math.max(0, Math.min(now - session.lastSeenAt, sample - session.lastSampleAt))) : 0;
-    const state = {spotId, dayKey, elapsedMs, lastSeenAt: now, lastSampleAt: sample,
+    const state = {rewardDwell: rewards.progress, spotId, dayKey, elapsedMs, lastSeenAt: now, lastSampleAt: sample,
       startedAt: continuous ? session.startedAt : now};
-    const progress = {spotId, elapsedMs, requiredMs: DWELL_MS};
+    const progress = {rewardClaimed: rewards.claimed, spotId, elapsedMs, requiredMs: DWELL_MS};
     if (elapsedMs < DWELL_MS) {
+      rewards.write();
       tx.set(sessionRef, state);
       return {recorded: false, status: 'dwelling', alreadyVisited: existing.exists, ...progress};
     }
-    const writeTaskVisit = await prepareTaskVisit(db, tx, userId, spotId, spot, now, dayKey, !existing.exists, candidates);
+    const writeTaskVisit = await prepareTaskVisit(db, tx, userId, spotId, spot, now, dayKey, !existing.exists, []);
+    rewards.write();
     tx.set(sessionRef, state);
     writeTaskVisit();
     if (existing.exists) return {...progress, status: 'completed', recorded: true, duplicate: true, dayKey, event: existing.data().event === true};

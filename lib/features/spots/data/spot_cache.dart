@@ -73,6 +73,8 @@ Map<String, Object?> carSpotToLocalCacheData(CarSpot spot) {
     'showOnMapAtMillis': spot.showOnMapAtMillis,
     'verifiedOnly': spot.verifiedOnly,
     'rejectionReason': spot.rejectionReason,
+    'reviewedBy': spot.reviewedBy,
+    'reviewedByUid': spot.reviewedByUid,
   };
 }
 

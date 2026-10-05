@@ -6,7 +6,7 @@ const readline = require('node:readline/promises');
 const suites = {
   accounts: {name: 'Account deletion', files: ['account-deletion.test.js', 'account-deletion-storage.test.js', 'account-deletion-scheduler.test.cjs', 'account-deletion-verify.test.cjs', 'account-deletion-scope.test.cjs'],
     gaps: ['Production storage and scheduler; run account-deletion.emulator.cjs for local integration checks']},
-  xp: { name: 'XP', files: ['xp.test.js', 'xp-matrix.test.js', 'xp-adjustments.test.js', 'admin-grants.test.js', 'achievements.test.js', 'leaderboard-pages.test.js'],
+  xp: { name: 'XP', files: ['xp.test.js', 'xp-matrix.test.js', 'xp-adjustments.test.js', 'admin-grants.test.js', 'achievements.test.js', 'leaderboard-pages.test.js', 'nearby-admin-rewards.test.cjs'],
     gaps: ['Правила Firebase, одновременные запросы, интерфейс и доставка пушей'] },
   profiles: { name: 'Profiles', files: ['workflows.test.js'], pattern: '\\[profiles\\]',
     gaps: ['Редактирование профиля, сохранение гаража, загрузка фото и правила приватности'] },

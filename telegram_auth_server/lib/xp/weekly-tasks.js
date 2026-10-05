@@ -71,13 +71,24 @@ function weeklyAward(userId, key, task) {
   return {userId, action: 'weekly.completed', objectType: 'weekly_task', objectId: `${key}_${task.id}`,
     stage: 'completed', amount: task.xp, metadata: {reason: task.title.en, title: task.title, assignmentWeek: key}};
 }
+// Pay durable admin claims before potentially expensive historical weekly scans.
+// The ledger transaction ID makes retries safe after disconnects/timeouts.
+async function syncAdminRewardClaims(userId, options = {}) {
+  const now = options.now || new Date();
+  const claims = await db.collection('admin_reward_claims').where('userId', '==', userId).get();
+  for (const doc of claims.docs) {
+    const c = doc.data();
+    await awardXp({userId, action: 'admin_reward.completed', objectType: 'admin_reward', objectId: c.rewardId,
+      stage: 'completed', amount: c.xp, metadata: {reason: c.title.en, title: c.title}}, {now});
+  }
+}
 async function syncWeeklyTasks(userId, options = {}) {
   const now = options.now || new Date();
+  await syncAdminRewardClaims(userId, {now});
   await settlePendingXp(userId, {now});
-  const [visits, transactions, claims] = await Promise.all([
+  const [visits, transactions] = await Promise.all([
     db.collection('weekly_visit_records').where('userId', '==', userId).get(),
     db.collection('xp_transactions').where('userId', '==', userId).get(),
-    db.collection('admin_reward_claims').where('userId', '==', userId).get(),
   ]);
   const rows = visits.docs.map(d => d.data());
   const publications = transactions.docs.map(d => d.data()).filter(r => r.action === 'spot.approved' && ['confirmed','pending'].includes(r.status));
@@ -101,11 +112,7 @@ async function syncWeeklyTasks(userId, options = {}) {
       if (progress(task, evidence, published) >= task.target) await awardXp(weeklyAward(userId, key, task), {now});
     }
   }
-  for (const doc of claims.docs) {
-    const c = doc.data();
-    await awardXp({userId, action: 'admin_reward.completed', objectType: 'admin_reward', objectId: c.rewardId,
-      stage: 'completed', amount: c.xp, metadata: {reason: c.title.en, title: c.title}}, {now});
-  }
+
 }
 async function weeklyProgress(userId, options = {}) {
   const now = options.now || new Date();
@@ -159,4 +166,4 @@ async function eligibleTarget(spot, user, uid) {
   }
   return false;
 }
-module.exports = {EPOCH, tasksForWeek, progress, weeklyAward, syncWeeklyTasks, weeklyProgress};
+module.exports = {EPOCH, tasksForWeek, progress, weeklyAward, syncWeeklyTasks, syncAdminRewardClaims, weeklyProgress};
