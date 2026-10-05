@@ -24,9 +24,12 @@ function fixture() {
     fitBounds(bounds, options) {moves.push({bounds,...options});}
   }
   let clock=0;
+  const touches={};
+  const surface={addEventListener:(type,fn)=>{touches[type]=fn;}};
   const context={performance:{now:()=>clock},requestAnimationFrame:fn=>{frames.set(++frameId,fn);return frameId;},cancelAnimationFrame:id=>frames.delete(id),Date:{now:()=>clock},setInterval:fn=>{timers.add(fn);return fn;},clearInterval:fn=>timers.delete(fn),window:{CcsGlobe:{postMessage:m=>messages.push(JSON.parse(m))}},document:{getElementById:()=>({})},maplibregl:{Map,NavigationControl:class{}}};
+  context.document.getElementById=id=>id==='map'?surface:{};
   vm.runInNewContext(fs.readFileSync('assets/globe/globe.js','utf8'),context);
-  return {...context,handlers,messages,moves,sources,layers,paints,layouts,timers,setTime:t=>clock=t, tick:t=>{clock=t;const pending=[...frames.values()];frames.clear();pending.forEach(fn=>fn(t));}, frames};
+  return {...context,touches,handlers,messages,moves,sources,layers,paints,layouts,timers,setTime:t=>clock=t, tick:t=>{clock=t;const pending=[...frames.values()];frames.clear();pending.forEach(fn=>fn(t));}, frames};
 }
 test('data arriving before map load survives; replacements remove expired markers',()=>{
   const f=fixture(), data={type:'FeatureCollection',features:[{properties:{kind:'spot',id:'one',label:'</script><script>bad()</script>'},geometry:{type:'Point',coordinates:[24,57]}}]};
@@ -134,12 +137,51 @@ test('motion interpolates arrow and camera together without changing the spots s
  f.window.ccsSetMotion({position:[24,57],heading:350,following:true,zoom:16}); f.tick(100);
  f.window.ccsSetMotion({position:[24.001,57.001],heading:10,following:true,zoom:16}); f.tick(150);
  const marker=f.sources['ccs-motion'].data.features[0];
- assert.ok(Math.abs(marker.geometry.coordinates[0]-24.0005)<1e-8);
- assert.ok(Math.abs(marker.properties.heading%360)<1e-8);
+ assert.ok(marker.geometry.coordinates[0]>24 && marker.geometry.coordinates[0]<24.001);
+ assert.ok(marker.properties.heading>350 && marker.properties.heading<370);
  assert.deepEqual(f.moves.at(-1).center,marker.geometry.coordinates);
  assert.equal(f.sources.ccs.data,spots);
  f.handlers.dragstart(); const moves=f.moves.length; f.tick(200);
  assert.equal(f.moves.length,moves);
  f.window.ccsSetMotion({position:[25,58],heading:10,following:false,zoom:16});
  f.window.ccsSetActive(false); assert.equal(f.frames.size,0);
+});
+test('motion keeps advancing between irregular packets and stops its loop when stale',()=>{
+ const f=fixture();f.handlers['style.load']();
+ f.window.ccsSetMotion({position:[24,57],heading:90,following:true,zoom:16});f.tick(16);
+ f.setTime(100);f.window.ccsSetMotion({position:[24.00003,57],heading:90,following:true,zoom:16});
+ let previous=24;
+ for(let t=116;t<=244;t+=16){
+   f.tick(t);const x=f.sources['ccs-motion'].data.features[0].geometry.coordinates[0];
+   assert.ok(x>previous,'movement must not stop at the 100 ms packet boundary');previous=x;
+ }
+ f.tick(1200);assert.equal(f.frames.size,0);
+});
+test('manual rotation survives delayed follow packets until an explicit follow tap',()=>{
+ const f=fixture();f.handlers['style.load']();
+ const packet={position:[24,57],heading:90,following:true,zoom:16,followRevision:1};
+ f.window.ccsSetMotion(packet);f.tick(16);
+ f.handlers['rotatestart']({originalEvent:{}});
+ const count=f.moves.length;
+ f.window.ccsSetMotion(packet);f.tick(32);
+ assert.equal(f.moves.length,count);
+ f.window.ccsSetFeatures({type:'FeatureCollection',features:[],camera:{revision:50,center:[24,57],zoom:16,bearing:0}});
+ assert.equal(f.moves.at(-1).bearing,undefined);
+ f.window.ccsSetMotion({...packet,followRevision:2});f.tick(48);
+ assert.equal(f.moves.at(-1).bearing,90);
+});
+test('two-finger pinch exits follow before zoomstart and ignores queued camera updates',()=>{
+ const f=fixture();f.handlers['style.load']();
+ const packet={position:[24,57],heading:45,following:true,zoom:16,followRevision:1};
+ f.window.ccsSetMotion(packet);f.tick(16);
+ const count=f.moves.length;
+ f.touches.touchstart({touches:[{},{}]});
+ assert.equal(f.messages.at(-1).type,'gesture');
+ f.handlers.zoomstart({});
+ f.window.ccsSetMotion(packet);f.tick(32);
+ f.window.ccsSetFeatures({features:[],camera:{revision:1,center:[24,57],zoom:16,bearing:45}});
+ assert.equal(f.moves.length,count);
+ f.touches.touchend({touches:[]});
+ f.window.ccsSetMotion({...packet,followRevision:2});f.tick(48);
+ assert.equal(f.moves.length,count+1);
 });

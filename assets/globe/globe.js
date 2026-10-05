@@ -42,28 +42,49 @@ window.ccsSetIcons = icons => {
 // at animation-frame frequency. Both arrow and camera use the same interpolation.
 let motionReceived=false, motionPosition=null, motionHeading=0, motionFollowing=false;
 let motionFrame=null;
+let gestureBlocked=false, followRevision=0;
+let manualTouchActive=false;
+let motionTarget=null, motionAt=0, motionLastFrame=null, motionVelocity=[0,0];
 function motionData() {return {type:'FeatureCollection',features:motionPosition?[{
   type:'Feature',geometry:{type:'Point',coordinates:motionPosition},properties:{kind:'self',heading:motionHeading}
 }]:[]};}
-function stopMotion() {if(motionFrame!==null) cancelAnimationFrame(motionFrame); motionFrame=null;}
+function stopMotion() {if(motionFrame!==null) cancelAnimationFrame(motionFrame); motionFrame=null;motionLastFrame=null;}
+const shortArc = value => ((value+540)%360)-180;
+function animateMotion(now) {
+  motionFrame=null;
+  if(!ready || !viewActive || !motionTarget) {motionLastFrame=null;return;}
+  const dt=motionLastFrame===null?1/60:Math.min(.05,Math.max(0,(now-motionLastFrame)/1000));
+  motionLastFrame=now;
+  const age=Math.max(0,(now-motionAt)/1000);
+  // Bridge jitter is predicted for only 150 ms; native GPS prediction handles
+  // longer gaps. One continuous frame loop avoids restarting animations at 10 Hz.
+  const ahead=Math.min(.15,age);
+  const target=[motionTarget.position[0]+motionVelocity[0]*ahead,motionTarget.position[1]+motionVelocity[1]*ahead];
+  const blend=1-Math.exp(-dt/.065);
+  motionPosition=[motionPosition[0]+shortArc(target[0]-motionPosition[0])*blend,motionPosition[1]+(target[1]-motionPosition[1])*blend];
+  motionHeading+=shortArc(motionTarget.heading-motionHeading)*(1-Math.exp(-dt/.12));
+  map.getSource('ccs-motion')?.setData(motionData());
+  if(motionFollowing) map.jumpTo({center:motionPosition,zoom:motionTarget.zoom,bearing:motionHeading});
+  if(age<1) motionFrame=requestAnimationFrame(animateMotion);
+  else motionLastFrame=null;
+}
 window.ccsSetMotion = data => {
-  motionReceived=true; stopMotion();
-  motionFollowing=!!data.following;
-  if(!data.position) {motionPosition=null; if(ready) map.getSource('ccs-motion')?.setData(motionData());return;}
-  const from=motionPosition||data.position, heading=motionHeading;
-  const delta=((data.heading-heading+540)%360)-180;
-  const lngDelta=((data.position[0]-from[0]+540)%360)-180;
-  const started=performance.now();
-  function frame(now) {
-    if(!ready || !viewActive) return;
-    const t=Math.min(1,Math.max(0,(now-started)/100));
-    motionPosition=[from[0]+lngDelta*t,from[1]+(data.position[1]-from[1])*t];
-    motionHeading=heading+delta*t;
-    map.getSource('ccs-motion')?.setData(motionData());
-    if(motionFollowing) map.jumpTo({center:motionPosition,zoom:data.zoom,bearing:motionHeading});
-    motionFrame=t<1?requestAnimationFrame(frame):null;
+  motionReceived=true;
+  if(data.followRevision!==undefined && data.followRevision!==followRevision) {
+    followRevision=data.followRevision;gestureBlocked=false;
   }
-  motionFrame=requestAnimationFrame(frame);
+  motionFollowing=!!data.following && !gestureBlocked;
+  if(!data.position) {stopMotion();motionTarget=null;motionPosition=null;motionVelocity=[0,0];if(ready) map.getSource('ccs-motion')?.setData(motionData());return;}
+  const now=performance.now(), seconds=(now-motionAt)/1000;
+  motionVelocity=[0,0];
+  if(motionTarget && seconds>=.04 && seconds<=.5) {
+    const velocity=[shortArc(data.position[0]-motionTarget.position[0])/seconds,(data.position[1]-motionTarget.position[1])/seconds];
+    const metersPerSecond=Math.hypot(velocity[0]*Math.cos(data.position[1]*Math.PI/180),velocity[1])*111320;
+    if(metersPerSecond<=70) motionVelocity=velocity;
+  }
+  if(!motionPosition || seconds>3) {motionPosition=data.position.slice();motionHeading=data.heading;}
+  motionTarget=data;motionAt=now;
+  if(motionFrame===null) motionFrame=requestAnimationFrame(animateMotion);
 };
 function currentPosition() { return latest.features.find(f => f.properties.kind === 'self')?.geometry.coordinates; }
 function follow() {
@@ -84,12 +105,12 @@ window.ccsSetFeatures = data => {
     if(camera && camera.revision !== cameraRevision) {
       cameraRevision=camera.revision; following=false;
       if(camera.bounds) map.fitBounds(camera.bounds,{padding:80,maxZoom:15.6,duration:500});
-      else if(!motionFollowing) map.easeTo({center:camera.center,zoom:camera.zoom,bearing:camera.bearing||0,duration:250});
+      else if(!motionFollowing && !manualTouchActive) map.easeTo({center:camera.center,zoom:camera.zoom,...(!gestureBlocked?{bearing:camera.bearing||0}:{}),duration:250});
     } else if(following) follow();
   }
 };
-window.ccsFollow = () => { following = true; follow(); };
-window.ccsWorld = () => { following = false; motionFollowing=false; notify('gesture'); map.easeTo({zoom:1.3,pitch:0,duration:1200}); };
+window.ccsFollow = () => { gestureBlocked=false; following = true; follow(); };
+window.ccsWorld = () => { gestureBlocked=true; following = false; motionFollowing=false; notify('gesture'); map.easeTo({zoom:1.3,pitch:0,duration:1200}); };
 window.ccsSetStyle = style => {
   if (!['dark','positron'].includes(style) || style===currentStyle) {notify('ready');return;}
   stopAlertAnimation(); currentStyle=style; ready=false;
@@ -143,9 +164,21 @@ function startAlertAnimation() {
 try {
   map = new maplibregl.Map({container:'map',style:'https://tiles.openfreemap.org/styles/dark',center:[24,45],zoom:1.3,maxZoom:18,attributionControl:{compact:true}});
   // Native compact controls own globe/follow; pinch gestures provide zoom.
-  map.on('dragstart', () => {following=false; motionFollowing=false; notify('gesture');});
-  map.on('zoomstart', e => {if(e.originalEvent) {following=false;motionFollowing=false;notify('gesture');}});
-  map.on('rotatestart', e => {if(e.originalEvent) {following=false;motionFollowing=false;notify('gesture');}});
+  const browse = () => {gestureBlocked=true;following=false;motionFollowing=false;notify('gesture');};
+  // Capture the second finger before MapLibre handles the pinch. Camera jumpTo
+  // updates can otherwise interrupt zoomstart before it carries originalEvent.
+  const surface=document.getElementById('map');
+  const touch = e => {
+    manualTouchActive=e.touches.length>0;
+    if(e.touches.length>=2 && !gestureBlocked) {browse();map.stop?.();}
+  };
+  for(const type of ['touchstart','touchmove','touchend','touchcancel']) {
+    surface.addEventListener?.(type,touch,{capture:true,passive:true});
+  }
+  map.on('dragstart', browse);
+  map.on('zoomstart', e => {if(e.originalEvent) browse();});
+  map.on('rotatestart', e => {if(e.originalEvent) browse();});
+  map.on('pitchstart', e => {if(e.originalEvent) browse();});
   map.on('moveend', () => {if(motionFollowing) return; const p=map.getCenter(); notify('camera',{lat:p.lat,lng:p.lng,zoom:map.getZoom()});});
   map.on('error', () => {notify('error');statusBox.textContent='Map could not load. Check your connection or retry the map.';statusBox.hidden=false;});
   map.on('style.load', () => {

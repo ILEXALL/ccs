@@ -31,10 +31,12 @@ import 'package:ccs_app/features/spots/data/spot_filters.dart'
 import 'package:ccs_app/features/spots/models/car_spot.dart' show CarSpot;
 import 'map_session.dart';
 import 'map_config.dart';
+import 'navigation_motion.dart';
 
 /// Coordinates navigation behavior using screen-owned state and lifecycle.
 class MapNavigationController implements MapNavigationActions {
   final MapSession host;
+  final NavigationMotion _motion = NavigationMotion();
   final DateTime Function() _now;
   final void Function(LatLng, double, double)? onCamera;
   final void Function(LatLng, LatLng)? onFit;
@@ -48,24 +50,16 @@ class MapNavigationController implements MapNavigationActions {
   @override
   void pauseFollowForMapGesture() {
     if (host.mapCenteredOnCurrentUser) {
-      host.northResetScheduled = true;
       host.navigationZoom = host.currentMapZoom;
     }
     host.mapCenteredOnCurrentUser = false;
+    host.northResetScheduled = false;
   }
 
   @override
   void resetNorthAfterFocusExit() {
-    if (!host.northResetScheduled || host.followExitGesture.isActive) return;
+    // Manual browsing retains the user's orientation until Follow is tapped.
     host.northResetScheduled = false;
-    if (host.mapCenteredOnCurrentUser) return;
-    host.currentMapRotationDegrees = 0;
-    if (host.isVisible && host.mapCameraReady)
-      moveMapCamera(
-        host.currentMapCenter,
-        host.currentMapZoom,
-        rotationDegrees: 0,
-      );
   }
 
   @override
@@ -491,23 +485,21 @@ class MapNavigationController implements MapNavigationActions {
       host.currentUserHeadingDegrees,
       blend,
     );
-    final speed = host.currentUserSpeedMetersPerSecond
-        .clamp(0.0, 70.0)
-        .toDouble();
+    _motion.sample(gpsLocation, gpsTime, host.currentUserSpeedMetersPerSecond);
     final age = now.difference(gpsTime).inMilliseconds / 1000.0;
     // Browsing stays unfocused until the user explicitly taps GPS again.
     // Brief bounded visual extrapolation only. Uploaded coordinates remain GPS fixes.
-    final target = speed < 0.8
+    final target = _motion.speed < 0.8
         ? gpsLocation
         : projectLatLngMeters(
             gpsLocation,
             host.currentUserHeadingDegrees,
-            speed * age.clamp(0.0, 0.5),
+            _motion.distanceAhead(age),
           );
     host.displayedUserLocation = lerpLatLng(
       host.displayedUserLocation ?? gpsLocation,
       target,
-      blend,
+      1 - math.exp(-dt.clamp(0.0, 0.1) / .22),
     );
     if (host.mapCenteredOnCurrentUser &&
         !host.routePreviewMode &&

@@ -76,7 +76,7 @@ class _MapScreenState extends State<MapScreen>
         'revision': ++globeCameraRevision,
         'center': [location.longitude, location.latitude],
         'zoom': zoom,
-        'bearing': -rotation,
+        'bearing': globeFollowRevision > 0 ? -rotation : 0,
       };
     },
     onFit: (a, b) {
@@ -418,6 +418,7 @@ class _MapScreenState extends State<MapScreen>
 
   int globeCameraRevision = 0;
   Map<String, Object?>? globeCamera;
+  int globeFollowRevision = 0;
 
   Widget buildGlobeMap() => GlobeMapScreen(
     isVisible: widget.isVisible,
@@ -436,6 +437,7 @@ class _MapScreenState extends State<MapScreen>
     onAddReport: appearance.showAddMapReportSheet,
     onLocate: () async {
       await navigation.moveToCurrentLocation();
+      if (mounted && mapCenteredOnCurrentUser) globeFollowRevision++;
     },
     cardBuilder: (cardContext, kind, id) {
       if (kind == 'spot') {
@@ -513,7 +515,8 @@ class _MapScreenState extends State<MapScreen>
         'heading': displayedNavigationHeading.isFinite
             ? displayedNavigationHeading
             : 0,
-        'following': mapCenteredOnCurrentUser,
+        'following': mapCenteredOnCurrentUser && globeFollowRevision > 0,
+        'followRevision': globeFollowRevision,
         'zoom': navigationZoom,
       };
     },
