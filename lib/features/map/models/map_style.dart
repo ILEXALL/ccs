@@ -7,28 +7,6 @@ const ccsMapStylePreferenceKey = 'ccs_map_style';
 
 const ccsAdaptiveMapStylePreferenceKey = 'ccs_adaptive_map_style';
 
-// CARTO started requiring an API key for its public raster basemaps in
-// August 2026. Keep the key out of source control and provide it at build time:
-//   flutter run --dart-define=CCS_CARTO_BASEMAP_KEY=YOUR_KEY
-//   flutter build apk --dart-define=CCS_CARTO_BASEMAP_KEY=YOUR_KEY
-const ccsCartoBasemapKey = String.fromEnvironment('CCS_CARTO_BASEMAP_KEY');
-
-String ccsCartoTileUrl(String baseUrl) {
-  final key = ccsCartoBasemapKey.trim();
-  if (key.isEmpty) {
-    // Leaving the URL unchanged makes a missing build configuration obvious in
-    // development while avoiding a hard-coded/shared production credential.
-    debugPrint(
-      'CARTO basemap API key is missing. Build with '
-      '--dart-define=CCS_CARTO_BASEMAP_KEY=YOUR_KEY.',
-    );
-    return baseUrl;
-  }
-
-  final separator = baseUrl.contains('?') ? '&' : '?';
-  return '$baseUrl${separator}key=${Uri.encodeQueryComponent(key)}';
-}
-
 CcsMapStyle mapStyleForLocalTime(DateTime time) {
   return time.hour >= 7 && time.hour < 21
       ? CcsMapStyle.light
@@ -51,21 +29,6 @@ extension CcsMapStylePresentation on CcsMapStyle {
         return Icons.dark_mode_outlined;
       case CcsMapStyle.light:
         return Icons.light_mode_outlined;
-    }
-  }
-
-  String get tileUrl {
-    switch (this) {
-      case CcsMapStyle.dark:
-        return ccsCartoTileUrl(
-          'https://basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',
-        );
-      case CcsMapStyle.light:
-        // Gray, high-contrast light map. Voyager keeps roads/buildings clear
-        // and preserves naturally blue water without washing the whole map blue.
-        return ccsCartoTileUrl(
-          'https://basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png?ccs=gray_v29_neutral',
-        );
     }
   }
 

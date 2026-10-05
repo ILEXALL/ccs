@@ -283,6 +283,7 @@ test('removes content and orphan descendants, scrubs old reply previews, keeps o
     'account_deletion_receipts/receipt': {status: 'processing'},
     'users/alice': {uid: 'alice', deleted: true, name: 'Alice', garage: [{photoUrl: 'private'}]},
     'users/alice/legal_acceptances/v1': {termsVersion: 'v1'},
+    'users/alice/private/account': {email: 'synthetic@example.invalid', fcmTokens: ['synthetic-token']},
     'users/bob': {uid: 'bob', name: 'Bob'},
     'global_chat/mine': {userId: 'alice', text: 'erase', photoUrl: 'erase.jpg'},
     'global_chat/reply': {userId: 'bob', text: 'keep', replyToMessageId: 'mine', replyToUsername: 'old_alice', replyToText: 'erase', replyToPhotoUrl: 'erase.jpg'},
@@ -302,7 +303,7 @@ test('removes content and orphan descendants, scrubs old reply previews, keeps o
   }}, media: {deletePrefixPage: async prefix => {deletedPrefixes.push(prefix); return true;}}});
   assert.equal((await ref.get()).data().status, 'complete');
   assert.equal(authDeleted, true);
-  for (const key of ['users/alice', 'users/alice/legal_acceptances/v1', 'global_chat/mine', 'chats/orphan/messages/mine', 'spots/spot1']) {
+  for (const key of ['users/alice', 'users/alice/legal_acceptances/v1', 'users/alice/private/account', 'global_chat/mine', 'chats/orphan/messages/mine', 'spots/spot1']) {
     assert.equal((await db.doc(key).get()).exists, false, key);
   }
   assert.equal((await db.doc('users/bob').get()).data().name, 'Bob');

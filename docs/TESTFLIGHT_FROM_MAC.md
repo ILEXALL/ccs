@@ -36,7 +36,7 @@ Unicode-представление `Š`. Успешная загрузка по�
 
    ```sh
    cd /Users/ilexall/Documents/GitHub/ccs
-   flutter build ipa --release --dart-define=CCS_CARTO_BASEMAP_KEY=cb1_2n69_1_8c3e5525543822b4ade84b5d
+   flutter build ipa --release
    open build/ios/archive/Runner.xcarchive
    ```
 

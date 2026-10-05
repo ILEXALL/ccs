@@ -294,7 +294,6 @@ Future<AppUser> saveFirebaseUser(
     'name': name,
     'username': username,
     'usernameKey': usernameKey(username),
-    'email': emailOverride ?? firebaseUser.email ?? '',
     'photoUrl': photoUrl,
     'bio': bio,
     'avatarPath': avatarPath,
@@ -333,6 +332,9 @@ Future<AppUser> saveFirebaseUser(
   }
 
   await userRef.debugSet(firebaseData, SetOptions(merge: true));
+  await userRef.collection('private').doc('account').debugSet({
+    'email': emailOverride ?? firebaseUser.email ?? '',
+  }, SetOptions(merge: true));
 
   return AppUser(
     uid: firebaseUser.uid,

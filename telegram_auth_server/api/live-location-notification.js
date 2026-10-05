@@ -1,4 +1,5 @@
 'use strict';
+const {deliveryTokens, removeDeliveryTokens} = require('../lib/private-profile');
 
 const {
   applicationDefault,
@@ -268,26 +269,8 @@ async function removeInvalidTokens(db, invalidTokensByUser) {
   );
   if (entries.length === 0) return;
 
-  let batch = db.batch();
-  let operationCount = 0;
   for (const [uid, tokens] of entries) {
-    batch.set(
-      db.collection('users').doc(uid),
-      {
-        fcmTokens: FieldValue.arrayRemove(...tokens),
-        fcmTokenUpdatedAt: FieldValue.serverTimestamp(),
-      },
-      { merge: true },
-    );
-    operationCount += 1;
-    if (operationCount >= 400) {
-      await batch.commit();
-      batch = db.batch();
-      operationCount = 0;
-    }
-  }
-  if (operationCount > 0) {
-    await batch.commit();
+    await removeDeliveryTokens(db, uid, [...tokens]);
   }
 }
 
@@ -414,7 +397,7 @@ module.exports = async function liveLocationNotificationHandler(req, res) {
       if (userData.deleted === true || userData.banned === true) continue;
       if (!notificationPreferenceEnabled(userData)) continue;
 
-      const tokens = [...new Set(nonEmptyStrings(userData.fcmTokens))];
+      const tokens = await deliveryTokens(db, uid, userData);
       recipients.push({ uid, tokens });
       for (const fcmToken of tokens) {
         tokenOwner.set(fcmToken, uid);

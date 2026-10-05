@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'package:ccs_app/core/network/json_http.dart' show postJsonToUrl;
+import 'package:ccs_app/core/config/app_config.dart' show telegramAuthBaseUrl;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart' hide Text;
@@ -12,25 +14,19 @@ import 'package:ccs_app/core/config/app_config.dart'
         minimumPermanentSpotDistanceMeters;
 import 'package:ccs_app/core/firestore/collections.dart' show spotsCollection;
 import 'package:ccs_app/core/firestore/firestore_tracking.dart'
-    show
-        FirestoreDebugDocumentReferenceExtension,
-        FirestoreDebugWriteBatchExtension;
+    show FirestoreDebugDocumentReferenceExtension;
 import 'package:ccs_app/core/localization/ccs_text.dart' show CcsText, trText;
 import 'package:ccs_app/core/location/coordinates.dart'
     show distanceBetweenLatLngMeters, safeLatLng, safeLatLngFromPosition;
 import 'package:ccs_app/core/theme/app_background.dart' show appPageRoute;
 import 'package:ccs_app/core/theme/app_theme.dart' show blue, panelGlass;
-import 'package:ccs_app/features/auth/data/auth_state.dart'
-    show currentUser, currentUserHomeCountryCode;
+import 'package:ccs_app/features/auth/data/auth_state.dart' show currentUser;
 import 'package:ccs_app/features/community/chats/models/chat_thread.dart'
     show ChatThreadData;
 import 'package:ccs_app/features/community/data/community_country.dart'
     show communityText;
 import 'package:ccs_app/features/community/forum/data/forum_topics.dart'
-    show
-        createTemporarySpotForumTopic,
-        temporarySpotForumTopicData,
-        temporarySpotForumTopicId;
+    show temporarySpotForumDescription;
 import 'package:ccs_app/features/community/groups/data/group_spot_access.dart'
     show memberSpotGroups;
 import 'package:ccs_app/features/events/data/event_reminders.dart'
@@ -67,8 +63,7 @@ import 'package:ccs_app/features/spots/models/opening_hours.dart'
     show defaultServiceOpeningHours;
 import 'package:ccs_app/features/spots/models/spot_categories.dart'
     show spotCategoryOptions, spotCategorySupportsContacts;
-import 'package:ccs_app/features/spots/models/spot_status.dart'
-    show SpotStatus, spotStatusName;
+import 'package:ccs_app/features/spots/models/spot_status.dart' show SpotStatus;
 import 'package:ccs_app/shared/media/entity_photos.dart' show uploadSpotPhoto;
 import 'package:ccs_app/shared/media/photo_picker.dart' show pickPhotoFromPhone;
 import 'package:ccs_app/shared/models/countries.dart'
@@ -1060,56 +1055,33 @@ class AddSpotController implements AddSpotControllerActions {
           FirebaseAuth.instance.currentUser?.uid != firebaseUser.uid) {
         return;
       }
-      final batch = FirebaseFirestore.instance.batch();
-      batch.set(spotRef, spotToFirestoreData(newSpot, includeCreatedAt: true));
-      for (final group in sharingGroups) {
-        batch.set(
-          FirebaseFirestore.instance
-              .collection('chats')
-              .doc(group.id)
-              .collection('spot_links')
-              .doc(spotRef.id),
-          {
-            'spotId': spotRef.id,
-            'authorUid': firebaseUser.uid,
-            'published': newSpot.status == SpotStatus.approved,
-          },
-        );
+      final payload = spotToFirestoreData(newSpot)
+        ..remove('coordinates')
+        ..remove('updatedAt');
+      for (final key in ['startsAt', 'expiresAt', 'showOnMapAt']) {
+        final value = payload[key];
+        if (value is Timestamp) payload[key] = value.millisecondsSinceEpoch;
       }
-      if (newSpot.isGroupSpot) {
-        batch.set(
-          FirebaseFirestore.instance
-              .collection('forum_topics')
-              .doc(temporarySpotForumTopicId(newSpot.id)),
-          temporarySpotForumTopicData(
-            spot: newSpot,
-            authorId: firebaseUser.uid,
-            authorName: newSpot.addedBy,
-            authorCountry: currentUser.country,
-            authorCountryCode: currentUserHomeCountryCode(),
-            authorRole: currentUser.role,
-            authorVerified: currentUser.verified,
-            authorGlobalModerator: false,
-            status: spotStatusName(newSpot.status),
-            reviewedBy: newSpot.status == SpotStatus.approved
-                ? firebaseUser.uid
-                : null,
-            reviewedAt: newSpot.status == SpotStatus.approved
-                ? FieldValue.serverTimestamp()
-                : null,
-          ),
-        );
-      }
-      await batch.debugCommit();
+      final result = await postJsonToUrl(
+        '$telegramAuthBaseUrl/api/create-spot',
+        {
+          'id': newSpot.id,
+          'spot': payload,
+          if (newSpot.isTemporary)
+            'topicDescription': temporarySpotForumDescription(newSpot),
+        },
+        headers: {'Authorization': 'Bearer ${await firebaseUser.getIdToken()}'},
+      );
+      newSpot = newSpot.copyWith(
+        status: result['status'] == 'approved'
+            ? SpotStatus.approved
+            : SpotStatus.pending,
+      );
       committed = true;
       // The write is already confirmed. Do not wait for a second network
       // request (or notification fan-out) to show the creator their spot.
       if (FirebaseAuth.instance.currentUser?.uid != firebaseUser.uid) return;
       upsertSpotIntoLocalImmediateCache(newSpot);
-
-      if (newSpot.isTemporary && !newSpot.isGroupSpot) {
-        unawaited(createTemporarySpotForumTopic(newSpot));
-      }
 
       var savedNewSpot = newSpot;
       try {

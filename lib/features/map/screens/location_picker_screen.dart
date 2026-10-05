@@ -5,26 +5,14 @@ import 'package:ccs_app/features/map/data/map_overview.dart'
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart' hide Text;
-import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:ccs_app/app/gates/maintenance_state.dart'
     show maintenanceModeConfig;
 import 'package:ccs_app/core/config/app_config.dart' show maxSpotGalleryPhotos;
 import 'package:ccs_app/core/localization/ccs_text.dart'
     show CcsText, LanguageReactiveState, trText;
 import 'package:ccs_app/core/theme/app_theme.dart' show blue, panelGlass;
-import 'package:ccs_app/features/map/widgets/exclusive_map_gestures.dart'
-    show ExclusiveMapGestures;
-import 'package:ccs_app/features/map/models/map_style.dart'
-    show
-        CcsMapStyle,
-        CcsMapStylePresentation,
-        ccsAdaptiveMapStylePreferenceKey,
-        ccsMapStylePreferenceKey,
-        mapStyleForLocalTime;
-import 'package:ccs_app/features/map/widgets/map_tile.dart'
-    show CcsSmoothMapTileLayer;
+import 'globe_map_screen.dart';
 import 'package:ccs_app/features/spots/data/spot_regions.dart'
     show
         SpotCountryOutline,
@@ -54,7 +42,6 @@ class _LocationPickerScreenState extends State<LocationPickerScreen>
   bool centerLoading = true;
   double defaultZoom = 13.0;
 
-  final mapController = MapController();
   LatLng? pickedLocation;
   SpotLocationRegion? pickedRegion;
   bool checkingRegion = false;
@@ -99,8 +86,6 @@ class _LocationPickerScreenState extends State<LocationPickerScreen>
     }
   }
 
-  CcsMapStyle mapStyle = CcsMapStyle.dark;
-
   @override
   void initState() {
     super.initState();
@@ -111,7 +96,6 @@ class _LocationPickerScreenState extends State<LocationPickerScreen>
       unawaited(loadOutlines());
       if (pickedLocation != null) unawaited(selectPin(pickedLocation!));
     }
-    unawaited(loadMapStylePreference());
   }
 
   Future<void> loadProfileCenter() async {
@@ -124,54 +108,10 @@ class _LocationPickerScreenState extends State<LocationPickerScreen>
     if (mounted) setState(() => centerLoading = false);
   }
 
-  Future<void> loadMapStylePreference() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final adaptive = prefs.getBool(ccsAdaptiveMapStylePreferenceKey) ?? false;
-      final savedStyle = prefs.getString(ccsMapStylePreferenceKey);
-      final nextStyle = adaptive
-          ? mapStyleForLocalTime(DateTime.now())
-          : CcsMapStyle.values.firstWhere(
-              (style) => style.name == savedStyle,
-              orElse: () => CcsMapStyle.dark,
-            );
-
-      if (mounted && nextStyle != mapStyle) {
-        setState(() => mapStyle = nextStyle);
-      }
-    } catch (_) {}
-  }
-
   @override
   void dispose() {
     maintenanceModeConfig.removeListener(regionsChanged);
-    mapController.dispose();
     super.dispose();
-  }
-
-  List<Marker> get markers {
-    final location = pickedLocation;
-
-    if (location == null) {
-      return [];
-    }
-
-    return [
-      Marker(
-        point: location,
-        width: 64,
-        height: 64,
-        child: Icon(
-          Icons.location_on,
-          color: checkingRegion
-              ? Colors.orangeAccent
-              : (widget.restrictSpotRegions && pickedRegion?.allowed != true)
-              ? Colors.redAccent
-              : blue,
-          size: 56,
-        ),
-      ),
-    ];
   }
 
   @override
@@ -188,169 +128,196 @@ class _LocationPickerScreenState extends State<LocationPickerScreen>
         backgroundColor: Colors.transparent,
         foregroundColor: blue,
       ),
-      body: centerLoading
-          ? const Center(child: CircularProgressIndicator())
-          : Stack(
-              children: [
-                ExclusiveMapGestures(
-                  mapController: mapController,
-                  builder: (interactionOptions, constraint) => FlutterMap(
-                    mapController: mapController,
-                    options: MapOptions(
-                      initialCenter: pickedLocation ?? defaultCenter,
-                      initialZoom: defaultZoom,
-                      minZoom: 3,
-                      maxZoom: 18,
-                      interactionOptions: interactionOptions,
-                      cameraConstraint: constraint,
-                      backgroundColor: mapStyle.backgroundColor,
-                      onTap: (_, point) => unawaited(selectPin(point)),
+      body: SafeArea(
+        top: false,
+        child: centerLoading
+            ? const Center(child: CircularProgressIndicator())
+            : Stack(
+                children: [
+                  GlobeMapScreen(
+                    showControls: false,
+                    isSharing: false,
+                    sharingBusy: false,
+                    onShareChanged: (_) async {},
+                    onFilter: () async {},
+                    onAddReport: () async {},
+                    onLocate: () async {},
+                    cardBuilder: (_, _, _) => null,
+                    onPick: (lat, lng) =>
+                        unawaited(selectPin(LatLng(lat, lng))),
+                    readFeatures: () => {
+                      'type': 'FeatureCollection',
+                      'camera': {
+                        'revision': 0,
+                        'center': [
+                          (widget.initialLocation ?? defaultCenter).longitude,
+                          (widget.initialLocation ?? defaultCenter).latitude,
+                        ],
+                        'zoom': defaultZoom,
+                      },
+                      'features': [
+                        if (pickedLocation != null)
+                          {
+                            'type': 'Feature',
+                            'geometry': {
+                              'type': 'Point',
+                              'coordinates': [
+                                pickedLocation!.longitude,
+                                pickedLocation!.latitude,
+                              ],
+                            },
+                            'properties': {
+                              'kind': 'pin',
+                              'icon': checkingRegion
+                                  ? 'ccs-pin-amber'
+                                  : widget.restrictSpotRegions &&
+                                        pickedRegion?.allowed != true
+                                  ? 'ccs-pin-red'
+                                  : 'ccs-pin-blue',
+                              'label': 'Selected location',
+                              'color': checkingRegion
+                                  ? '#ffab40'
+                                  : widget.restrictSpotRegions &&
+                                        pickedRegion?.allowed != true
+                                  ? '#ff5252'
+                                  : '#008dff',
+                            },
+                          },
+                        if (widget.restrictSpotRegions)
+                          for (final outline in outlines)
+                            if (!spotCountryIsSupported(outline.code))
+                              {
+                                'type': 'Feature',
+                                'geometry': {
+                                  'type': 'Polygon',
+                                  'coordinates': [
+                                    for (final ring in outline.rings)
+                                      [
+                                        for (final p in ring)
+                                          [p.longitude, p.latitude],
+                                      ],
+                                  ],
+                                },
+                                'properties': {'kind': 'restricted'},
+                              },
+                      ],
+                    },
+                  ),
+                  Positioned(
+                    left: 16,
+                    right: 16,
+                    top: 16,
+                    child: Container(
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withValues(alpha: 0.78),
+                        borderRadius: BorderRadius.circular(18),
+                        border: Border.all(color: Colors.white12),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.touch_app, color: blue),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: CcsText(
+                              trText(
+                                widget.restrictSpotRegions
+                                    ? 'Tap to place a pin. Red regions are unsupported. Borders are approximate.'
+                                    : 'Tap the map where this car spot should be placed.',
+                              ),
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w700,
+                                height: 1.25,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                    children: [
-                      CcsSmoothMapTileLayer(mapStyle: mapStyle),
-                      if (widget.restrictSpotRegions)
-                        IgnorePointer(
-                          child: PolygonLayer(
-                            polygons: [
-                              for (final outline in outlines)
-                                if (!spotCountryIsSupported(outline.code))
-                                  Polygon(
-                                    points: outline.rings.first,
-                                    holePointsList: outline.rings
-                                        .skip(1)
-                                        .toList(),
-                                    color: Colors.red.withValues(alpha: 0.16),
-                                    borderColor: Colors.redAccent.withValues(
-                                      alpha: 0.6,
-                                    ),
-                                    borderStrokeWidth: 1,
-                                    label: '×',
-                                    labelStyle: const TextStyle(
-                                      color: Colors.redAccent,
-                                      fontSize: 32,
-                                    ),
+                  ),
+                  Positioned(
+                    left: 16,
+                    right: 16,
+                    bottom: 16,
+                    child: Container(
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: panelGlass,
+                        borderRadius: BorderRadius.circular(22),
+                        border: Border.all(color: Colors.white12),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.36),
+                            blurRadius: 24,
+                            offset: const Offset(0, 10),
+                          ),
+                        ],
+                      ),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Icon(
+                                hasLocation ? Icons.check_circle : Icons.place,
+                                color: hasLocation ? blue : Colors.white54,
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: CcsText(
+                                  trText(
+                                    checkingRegion
+                                        ? 'Checking region...'
+                                        : pickedRegion != null &&
+                                              !pickedRegion!.allowed
+                                        ? pickedRegion!.warning
+                                        : hasLocation
+                                        ? 'Location selected'
+                                        : 'No location selected yet',
                                   ),
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 17,
+                                    fontWeight: FontWeight.w900,
+                                  ),
+                                ),
+                              ),
                             ],
                           ),
-                        ),
-                      MarkerLayer(markers: markers),
-                    ],
-                  ),
-                ),
-                Positioned(
-                  left: 16,
-                  right: 16,
-                  top: 16,
-                  child: Container(
-                    padding: const EdgeInsets.all(14),
-                    decoration: BoxDecoration(
-                      color: Colors.black.withValues(alpha: 0.78),
-                      borderRadius: BorderRadius.circular(18),
-                      border: Border.all(color: Colors.white12),
-                    ),
-                    child: Row(
-                      children: [
-                        const Icon(Icons.touch_app, color: blue),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: CcsText(
-                            trText(
-                              widget.restrictSpotRegions
-                                  ? 'Tap to place a pin. Red regions are unsupported. Borders are approximate.'
-                                  : 'Tap the map where this car spot should be placed.',
-                            ),
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.w700,
-                              height: 1.25,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                Positioned(
-                  left: 16,
-                  right: 16,
-                  bottom: 16,
-                  child: Container(
-                    padding: const EdgeInsets.all(14),
-                    decoration: BoxDecoration(
-                      color: panelGlass,
-                      borderRadius: BorderRadius.circular(22),
-                      border: Border.all(color: Colors.white12),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.36),
-                          blurRadius: 24,
-                          offset: const Offset(0, 10),
-                        ),
-                      ],
-                    ),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Icon(
-                              hasLocation ? Icons.check_circle : Icons.place,
-                              color: hasLocation ? blue : Colors.white54,
-                            ),
-                            const SizedBox(width: 10),
-                            Expanded(
+                          const SizedBox(height: 12),
+                          SizedBox(
+                            height: 48,
+                            width: double.infinity,
+                            child: ElevatedButton(
+                              onPressed: hasLocation
+                                  ? () => Navigator.pop(context, pickedLocation)
+                                  : null,
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: blue,
+                                disabledBackgroundColor: Colors.white12,
+                                foregroundColor: Colors.white,
+                                disabledForegroundColor: Colors.white38,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(16),
+                                ),
+                              ),
                               child: CcsText(
-                                trText(
-                                  checkingRegion
-                                      ? 'Checking region...'
-                                      : pickedRegion != null &&
-                                            !pickedRegion!.allowed
-                                      ? pickedRegion!.warning
-                                      : hasLocation
-                                      ? 'Location selected'
-                                      : 'No location selected yet',
-                                ),
+                                trText('Use this Location'),
                                 style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 17,
-                                  fontWeight: FontWeight.w900,
+                                  fontWeight: FontWeight.w800,
                                 ),
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 12),
-                        SizedBox(
-                          height: 48,
-                          width: double.infinity,
-                          child: ElevatedButton(
-                            onPressed: hasLocation
-                                ? () => Navigator.pop(context, pickedLocation)
-                                : null,
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: blue,
-                              disabledBackgroundColor: Colors.white12,
-                              foregroundColor: Colors.white,
-                              disabledForegroundColor: Colors.white38,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(16),
-                              ),
-                            ),
-                            child: CcsText(
-                              trText('Use this Location'),
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w800,
                               ),
                             ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
                   ),
-                ),
-              ],
-            ),
+                ],
+              ),
+      ),
     );
   }
 }

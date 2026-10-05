@@ -3,14 +3,25 @@
 const statusBox = document.getElementById('status');
 const notify = (type, extra = {}) => window.CcsGlobe?.postMessage(JSON.stringify({type, ...extra}));
 let map, latest = {type:'FeatureCollection',features:[]}, ready = false, following = false, currentStyle='dark';
+let cameraRevision;
+let attributionPresented=false;
+function collapseInitialAttribution() {
+  if(attributionPresented) return;
+  const control=document.querySelector?.('.maplibregl-ctrl-attrib');
+  if(!control) return;
+  attributionPresented=true;
+  // OSM permits automatic collapse after five seconds; credits remain accessible.
+  const timeout=setTimeout(()=>control.classList.remove('maplibregl-compact-show'),5000);
+  control.querySelector('summary')?.addEventListener('click',()=>clearTimeout(timeout),{once:true});
+}
 const iconCache = new Map();
-// Reuse the exact bundled category PNGs from the standard map; never fetch icons.
+// Reuse the bundled CCS category PNGs; never fetch icons.
 window.ccsSetIcons = icons => {
   for (const [id, uri] of Object.entries(icons)) {
-    if ((!id.startsWith('assets/spot_icons/') && id!=='ccs-self-arrow') || !uri.startsWith('data:image/png;base64,')) continue;
+    if ((!id.startsWith('assets/spot_icons/') && !/^ccs-(self-arrow|pin-(blue|amber|red)|police-([0-9]|1[0-6])|sos)$/.test(id)) || !uri.startsWith('data:image/png;base64,')) continue;
     const image = new Image();
     image.onload = () => {
-      for (const tint of ['', '#616161', '#ffab40']) {
+      for (const tint of (id.startsWith('ccs-') ? [''] : ['', '#616161', '#ffab40'])) {
         const canvas = document.createElement('canvas'); canvas.width=128; canvas.height=128;
         const ctx = canvas.getContext('2d');
         const scale = Math.min(128/image.width,128/image.height);
@@ -23,7 +34,7 @@ window.ccsSetIcons = icons => {
         if(ready && !map.hasImage(key)) map.addImage(key,pixels,{pixelRatio:2});
       }
     };
-    image.onerror = () => {statusBox.textContent='Some spot icons could not load. Reopen the preview.';statusBox.hidden=false;};
+    image.onerror = () => {statusBox.textContent='Some spot icons could not load. Retry the map.';statusBox.hidden=false;};
     image.src=uri;
   }
 };
@@ -34,41 +45,115 @@ function follow() {
 }
 window.ccsSetFeatures = data => {
   latest = data;
-  if (ready) { map.getSource('ccs').setData(data); if(following) follow(); }
+  startAlertAnimation();
+  if (ready) {
+    map.getSource('ccs').setData(data);
+    const camera=data.camera;
+    if(camera && camera.revision !== cameraRevision) {
+      cameraRevision=camera.revision; following=false;
+      if(camera.bounds) map.fitBounds(camera.bounds,{padding:80,maxZoom:15.6,duration:500});
+      else map.easeTo({center:camera.center,zoom:camera.zoom,bearing:camera.bearing||0,duration:250});
+    } else if(following) follow();
+  }
 };
 window.ccsFollow = () => { following = true; follow(); };
-window.ccsWorld = () => { following = false; map.easeTo({zoom:1.3,pitch:0,duration:1200}); };
+window.ccsWorld = () => { following = false; notify('gesture'); map.easeTo({zoom:1.3,pitch:0,duration:1200}); };
 window.ccsSetStyle = style => {
   if (!['dark','positron'].includes(style) || style===currentStyle) {notify('ready');return;}
-  currentStyle=style; ready=false;
+  stopAlertAnimation(); currentStyle=style; ready=false;
   map.setStyle('https://tiles.openfreemap.org/styles/'+style);
 };
+let alertTimer=null, viewActive=true;
+function stopAlertAnimation() { if(alertTimer!==null) clearInterval(alertTimer); alertTimer=null; }
+window.ccsSetActive = active => {viewActive=!!active; if(viewActive) startAlertAnimation(); else stopAlertAnimation();};
+function alertRadius(kind) {
+  const stops=['interpolate',['linear'],['zoom']];
+  for(const z of [1,4,5,7,9,11,12,14.19,14.2,15,16,17,18]) {
+    let size;
+    if(z>=14.2) {const p=Math.max(0,Math.min(1,(z-14.2)/2.8));size=(kind==='police'?42:46)+(kind==='police'?32:36)*(1-Math.pow(1-p,3));}
+    else if(kind==='police') size=3+19*Math.pow(Math.max(0,(z-5)/9.2),2.4);
+    else {const p=Math.max(0,Math.min(1,(z-4)/10.2));size=15+11*(1-Math.pow(1-p,3));}
+    stops.push(z,size/2);
+  }
+  return stops;
+}
+function addAlertLayers() {
+  for(const kind of ['police','sos']) {
+    const filter=['==',['get','kind'],kind], color=kind==='police'?'#1565ff':'#ff2d55';
+    const opacity=kind==='police'?['interpolate',['linear'],['zoom'],5,0,12,1]:1;
+    map.addLayer({id:'ccs-'+kind+'-glow',type:'circle',source:'ccs',filter,paint:{'circle-radius':alertRadius(kind),'circle-color':color,'circle-blur':0.8,'circle-opacity':kind==='police'?['interpolate',['linear'],['zoom'],5,0,12,0.32]:0.34}});
+    map.addLayer({id:'ccs-'+kind+'-core',type:'circle',source:'ccs',filter,paint:{
+      'circle-radius':alertRadius(kind),'circle-color':color,
+      'circle-opacity':kind==='police'?['interpolate',['linear'],['zoom'],5,0,12,0.9,14.19,0.9,14.2,0.14]:['step',['zoom'],0.9,14.2,0.24],
+      'circle-stroke-color':color,'circle-stroke-width':2,'circle-stroke-opacity':opacity}});
+    map.addLayer({id:'ccs-'+kind+'-badge',type:'symbol',source:'ccs',filter,minzoom:14.2,layout:{
+      'icon-image':kind==='police'?'ccs-police-0':'ccs-sos','icon-size':(kind==='police'?34:38)/64,
+      'icon-allow-overlap':true,'icon-ignore-placement':true,'icon-pitch-alignment':'viewport','icon-rotation-alignment':'viewport'}});
+  }
+}
+function animateAlerts() {
+  if(!ready || !viewActive) return;
+  const t=(Date.now()%6000)/3000, p=(1-Math.cos(Math.PI*(t<=1?t:2-t)))/2;
+  const rgb=[21+(255-21)*p,101+(45-101)*p,255+(85-255)*p].map(Math.round);
+  const color='rgb('+rgb.join(',')+')';
+  for(const layer of ['ccs-police-core','ccs-police-glow']) map.setPaintProperty(layer,'circle-color',color);
+  map.setPaintProperty('ccs-police-core','circle-stroke-color',color);
+  map.setLayoutProperty('ccs-police-badge','icon-image','ccs-police-'+Math.round(p*16));
+  map.setPaintProperty('ccs-sos-glow','circle-opacity',0.34+p*0.22);
+  map.setPaintProperty('ccs-sos-core','circle-opacity',['step',['zoom'],0.82+p*0.14,14.2,0.18+p*0.12]);
+  map.setPaintProperty('ccs-sos-core','circle-stroke-opacity',0.82+p*0.18);
+}
+function startAlertAnimation() {
+  stopAlertAnimation();
+  if(!ready || !viewActive || !latest.features.some(f=>['police','sos'].includes(f.properties.kind))) return;
+  animateAlerts(); alertTimer=setInterval(animateAlerts,80);
+}
 try {
-  map = new maplibregl.Map({container:'map',style:'https://tiles.openfreemap.org/styles/dark',center:[24,45],zoom:1.3,maxZoom:18,attributionControl:{compact:false}});
+  map = new maplibregl.Map({container:'map',style:'https://tiles.openfreemap.org/styles/dark',center:[24,45],zoom:1.3,maxZoom:18,attributionControl:{compact:true}});
   // Native compact controls own globe/follow; pinch gestures provide zoom.
-  map.on('dragstart', () => {following=false;});
-  map.on('error', () => {statusBox.textContent='Map could not load. Check your connection or reopen the preview.';statusBox.hidden=false;});
+  map.on('dragstart', () => {following=false; notify('gesture');});
+  map.on('zoomstart', e => {if(e.originalEvent) {following=false;notify('gesture');}});
+  map.on('rotatestart', e => {if(e.originalEvent) {following=false;notify('gesture');}});
+  map.on('moveend', () => {const p=map.getCenter(); notify('camera',{lat:p.lat,lng:p.lng,zoom:map.getZoom()});});
+  map.on('error', () => {notify('error');statusBox.textContent='Map could not load. Check your connection or retry the map.';statusBox.hidden=false;});
   map.on('style.load', () => {
     map.setProjection({type:'globe'});
     for (const [key,pixels] of iconCache) map.addImage(key,pixels,{pixelRatio:2});
     map.addSource('ccs',{type:'geojson',data:latest});
+    map.addLayer({id:'ccs-restricted',type:'fill',source:'ccs',filter:['==',['get','kind'],'restricted'],paint:{'fill-color':'#ff5252','fill-opacity':0.16}});
+    map.addLayer({id:'ccs-pin',type:'symbol',source:'ccs',filter:['==',['get','kind'],'pin'],layout:{
+      'icon-image':['coalesce',['get','icon'],'ccs-pin-blue'],'icon-size':56/64,'icon-anchor':'bottom',
+      'icon-allow-overlap':true,'icon-ignore-placement':true,'icon-pitch-alignment':'viewport','icon-rotation-alignment':'viewport'}});
+    map.addLayer({id:'ccs-route',type:'line',source:'ccs',filter:['==',['get','kind'],'route'],paint:{'line-color':'#008dff','line-width':3,'line-dasharray':[2,2]}});
     const spots=['==',['get','kind'],'spot'];
     const dotSize=['interpolate',['linear'],['zoom']];
     for(const z of [1,3,5,7,9,10,11.25,18]) {
       const p=Math.max(0,Math.min(1,(z-3)/(11.25-3)));
-      dotSize.push(z,['*',(4+9*Math.pow(p,2.7))/2,['case',['get','event'],1.04,1]]);
+      dotSize.push(z,['*',(3.2+7.2*Math.pow(p,2.7))/2,['case',['get','event'],1.04,1]]);
     }
+    // A small, soft halo keeps distant spots legible without enlarging the dot.
+    // Fade with zoom; muted/visited markers keep their subdued appearance.
+    map.addLayer({id:'ccs-spot-glow',type:'circle',source:'ccs',filter:spots,paint:{
+      'circle-radius':['interpolate',['linear'],['zoom'],1,4,7,5,10,7,11.25,9,13,12,16,14,18,14],
+      'circle-color':['coalesce',['get','color'],'#4d90ff'],
+      'circle-blur':0.85,
+      'circle-opacity':['interpolate',['linear'],['zoom'],
+        1,['case',['get','tint'],0.12,0.30],
+        9,['case',['get','tint'],0.09,0.23],
+        11.25,['case',['get','tint'],0.065,0.16],
+        14,['case',['get','tint'],0.025,0.065],
+        18,0.015]}});
     map.addLayer({id:'ccs-points',type:'circle',source:'ccs',filter:spots,maxzoom:11.25,paint:{
       'circle-radius':dotSize,
       'circle-color':['coalesce',['get','color'],'#4d90ff'],
       'circle-opacity':['case',['get','tint'],0.58,1],
       'circle-stroke-opacity':0.8,
       'circle-stroke-color':['case',['get','event'],'#ffab40','#ffffff'],
-      'circle-stroke-width':['interpolate',['linear'],['zoom'],3,0.45,11.25,0.85]}});
+      'circle-stroke-width':['interpolate',['linear'],['zoom'],3,0.35,11.25,0.65]}});
     const iconSize=['interpolate',['linear'],['zoom']];
     for(const z of [11.25,12,13,14,15,16,18]) {
       const p=Math.max(0,Math.min(1,(z-11.25)/(16-11.25)));
-      iconSize.push(z,['*',(46+24*(1-Math.pow(1-p,3)))/64,['case',['get','event'],1.16,1]]);
+      iconSize.push(z,['*',(38+27*(1-Math.pow(1-p,3)))/64,['case',['get','event'],1.16,1]]);
     }
     const spotIcon=['get',currentStyle==='positron'?'lightIcon':'icon'];
     map.addLayer({id:'ccs-spot-icons',type:'symbol',source:'ccs',filter:spots,minzoom:11.25,layout:{
@@ -84,22 +169,21 @@ try {
       'icon-image':'ccs-self-arrow','icon-size':['interpolate',['linear'],['zoom'],3,18/64,16,62/64],
       'icon-rotate':['coalesce',['get','heading'],0], 'icon-rotation-alignment':'map',
       'icon-pitch-alignment':'viewport','icon-allow-overlap':true,'icon-ignore-placement':true}});
-    map.addLayer({id:'ccs-alerts',type:'circle',source:'ccs',filter:['in',['get','kind'],['literal',['police','sos']]],paint:{
-      'circle-radius':14,'circle-color':['match',['get','kind'],'police','#287cff','#ef3340'],
-      'circle-stroke-color':'#ffffff','circle-stroke-width':2}});
+    addAlertLayers();
     const labelFont=map.getStyle().layers.find(l=>l.layout?.['text-font'])?.layout['text-font'] || ['Noto Sans Regular'];
-    map.addLayer({id:'ccs-labels',type:'symbol',source:'ccs',minzoom:12.35,layout:{
+    map.addLayer({id:'ccs-labels',type:'symbol',source:'ccs',filter:['==',['geometry-type'],'Point'],minzoom:12.35,layout:{
       'text-font':labelFont,'text-field':['get','label'],
       'text-size':['interpolate',['linear'],['zoom'],11.25,8.2,16,10],
       'text-anchor':'bottom','text-offset':[0,-4]},
       paint:{'text-color':currentStyle==='positron'?'#182333':'#ffffff','text-halo-color':currentStyle==='positron'?'#ffffff':'#101827','text-halo-width':2,
         'text-opacity':['interpolate',['linear'],['zoom'],12.35,0,14.25,1]}});
-    ready=true; statusBox.hidden=true; notify('ready');
+    ready=true; statusBox.hidden=true; notify('ready'); startAlertAnimation(); collapseInitialAttribution();
   });
   map.on('click', e => {
     if(!ready) return;
-    const p=map.queryRenderedFeatures(e.point,{layers:['ccs-spot-icons','ccs-points','ccs-live-points','ccs-alerts']})[0]?.properties;
+    if(e.lngLat) notify('pick',{lat:e.lngLat.lat,lng:e.lngLat.lng});
+    const p=map.queryRenderedFeatures(e.point,{layers:['ccs-spot-icons','ccs-points','ccs-live-points','ccs-police-core','ccs-sos-core','ccs-police-badge','ccs-sos-badge']})[0]?.properties;
     if(p && p.kind!=='self') notify('select',{kind:p.kind,id:p.id});
     else if(!p) notify('clear');
   });
-} catch (_) {statusBox.textContent='This device could not start the globe. Use the standard map.';notify('error');}
+} catch (_) {statusBox.textContent='This device could not start the globe. Please retry.';notify('error');}

@@ -111,8 +111,8 @@ test('[rules badges] private or blocked users cannot expose their badge to anoth
   }
 });
 
-test('[rules spots] user creates pending spot but cannot self-approve or forge author', async () => {
-  await assertSucceeds(setDoc(doc(client('owner'), 'spots/new'), spot()));
+test('[rules spots] direct creation is blocked; creation belongs to the consent-checking server', async () => {
+  await assertFails(setDoc(doc(client('owner'), 'spots/new'), spot()));
   await assertFails(setDoc(doc(client('owner'), 'spots/approved'), spot('owner', 'approved')));
   await assertFails(setDoc(doc(client('owner'), 'spots/forged'), spot('other')));
   await assertFails(setDoc(doc(client('banned'), 'spots/banned'), spot('banned')));
@@ -162,7 +162,7 @@ test('[rules spots] optional region config preserves country bans', async () => 
   await seed({'app_config/main': {bannedCountryKeys: ['lv']}});
   await assertFails(setDoc(doc(client('owner'), 'spots/blocked-key'), spot()));
   await seed({'app_config/main': {bannedCountryCodes: [], bannedCountryKeys: []}});
-  await assertSucceeds(setDoc(doc(client('owner'), 'spots/allowed'), spot()));
+  await assertFails(setDoc(doc(client('owner'), 'spots/allowed'), spot()));
 });
 
 test('[rules groups] descriptions required and only actual non-banned members can message',async()=>{

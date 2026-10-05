@@ -16,7 +16,7 @@ const suites = {
     gaps: ['Одобрение и отклонение спотов, одновременная работа модераторов'] },
   chats: { name: 'Chats', files: ['workflows.test.js'], pattern: '\\[chats\\]',
     gaps: ['Отправка и получение сообщений, вложения, обновления и пуши'] },
-  access: { name: 'Access', files: ['workflows.test.js'], pattern: '\\[access\\]',
+  access: { name: 'Access', files: ['workflows.test.js', 'upload-access.test.cjs'], pattern: '\\[access\\]|upload endpoint|authenticated owner',
     gaps: ['Настоящий вход, истечение токенов и правила Firebase'] },
   notifications: { name: 'Notifications', files: ['xp.test.js', 'spot-notification-dispatch.test.cjs'],
     gaps: ['Доставка пушей на телефон, локализация и уведомления вне XP'] },

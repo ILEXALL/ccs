@@ -141,7 +141,7 @@ class PublicUserProfileData {
       uid: stringFromFirebase(data['uid'], doc.id),
       username: stringFromFirebase(data['username'], 'ccs_driver'),
       name: stringFromFirebase(data['name'], 'CCS Driver'),
-      email: stringFromFirebase(data['email'], ''),
+      email: '', // Account email is private and never part of a public profile.
       photoUrl: data['photoUrl'] is String ? data['photoUrl'] as String : null,
       avatarPath: data['avatarPath'] is String
           ? data['avatarPath'] as String

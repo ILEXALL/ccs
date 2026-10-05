@@ -128,10 +128,10 @@ class MapAppearanceController implements MapAppearanceActions {
   List<SourceAttribution> get mapAttributions {
     return [
       TextSourceAttribution(
-        'CARTO',
+        'OpenFreeMap',
         onTap: () => unawaited(
           launchUrl(
-            Uri.parse('https://carto.com/basemaps'),
+            Uri.parse('https://openfreemap.org'),
             mode: LaunchMode.externalApplication,
           ),
         ),

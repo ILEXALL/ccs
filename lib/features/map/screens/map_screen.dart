@@ -1,5 +1,5 @@
 import '../controllers/map_session.dart';
-import 'globe_preview_screen.dart';
+import 'globe_map_screen.dart';
 import '../models/globe_spot_style.dart';
 import '../controllers/map_appearance_controller.dart';
 import '../controllers/map_layers_controller.dart';
@@ -19,41 +19,30 @@ import 'package:ccs_app/features/map/widgets/navigation_arrow.dart';
 import 'package:ccs_app/features/profile/navigation/profile_navigation.dart'
     show openUserProfile;
 import 'package:ccs_app/core/localization/ccs_text.dart'
-    show LanguageReactiveState, CcsText;
-import 'package:ccs_app/core/location/coordinates.dart'
-    show isValidLatLng, normalizedRotationDegrees;
+    show LanguageReactiveState;
+import 'package:ccs_app/core/location/coordinates.dart' show isValidLatLng;
 import 'package:ccs_app/core/platform/platform_bridges.dart'
     show setScreenAwakeForMap;
-import 'package:ccs_app/core/theme/app_theme.dart' show blue, panelGlass;
 import 'package:ccs_app/features/map/controllers/map_focus.dart'
     show mapFocusRequest;
-import 'package:ccs_app/features/map/widgets/exclusive_map_gestures.dart'
-    show ExclusiveMapGestures;
 import 'package:ccs_app/features/map/models/live_location.dart'
     show LiveLocationData;
-import 'package:ccs_app/features/map/models/map_style.dart'
-    show CcsMapStyle, CcsMapStylePresentation;
+import 'package:ccs_app/features/map/models/map_style.dart' show CcsMapStyle;
 import 'package:ccs_app/features/map/models/police_report.dart'
     show PoliceReportData;
 import 'package:ccs_app/features/map/models/sos_report.dart' show SosReportData;
 import 'package:ccs_app/features/map/data/map_overview.dart'
     show loadedSpotsMapCenter;
-import 'package:ccs_app/features/map/widgets/map_controls.dart'
-    show MapHeader, MapStyleSelector, SpotRouteDistanceBadge;
 import 'package:ccs_app/features/map/widgets/report_map_cards.dart'
     show PoliceReportMapCard, SosReportMapCard;
 import 'package:ccs_app/features/map/widgets/map_spot_card.dart'
     show LiveLocationMapCard, SpotMapCard;
-import 'package:ccs_app/features/map/widgets/map_tile.dart'
-    show CcsSmoothMapTileLayer;
 import 'package:ccs_app/features/progression/data/visit_tracking.dart'
     show checkGpsSpotVisits, visitDwellProgress;
 import 'package:ccs_app/features/spots/data/spot_filters.dart'
-    show availableSpotCountries, spotCategoryFilters, spotCountryFilters;
+    show spotCategoryFilters, spotCountryFilters;
 import 'package:ccs_app/features/spots/data/spot_state.dart' show reviewSpots;
 import 'package:ccs_app/features/spots/models/car_spot.dart' show CarSpot;
-import 'package:ccs_app/features/spots/models/spot_categories.dart'
-    show spotCategoryOptions;
 
 class MapScreen extends StatefulWidget {
   final bool isVisible;
@@ -80,7 +69,26 @@ class _MapScreenState extends State<MapScreen>
   late final MapLayersActions layers = MapLayersController(this);
 
   @override
-  late final MapNavigationActions navigation = MapNavigationController(this);
+  late final MapNavigationActions navigation = MapNavigationController(
+    this,
+    onCamera: (location, zoom, rotation) {
+      globeCamera = {
+        'revision': ++globeCameraRevision,
+        'center': [location.longitude, location.latitude],
+        'zoom': zoom,
+        'bearing': -rotation,
+      };
+    },
+    onFit: (a, b) {
+      globeCamera = {
+        'revision': ++globeCameraRevision,
+        'bounds': [
+          [a.longitude, a.latitude],
+          [b.longitude, b.latitude],
+        ],
+      };
+    },
+  );
 
   @override
   late final MapPoliceActions police = MapPoliceController(this);
@@ -408,13 +416,19 @@ class _MapScreenState extends State<MapScreen>
     scheduleNorthReset();
   }
 
-  bool globeOpen = false;
+  int globeCameraRevision = 0;
+  Map<String, Object?>? globeCamera;
 
-  void openGlobePreview() => setState(() => globeOpen = true);
-
-  Widget buildGlobePreview() => GlobePreviewScreen(
+  Widget buildGlobeMap() => GlobeMapScreen(
     isVisible: widget.isVisible,
-    onBack: () => setState(() => globeOpen = false),
+    onCameraChanged: (lat, lng, zoom) {
+      currentMapCenter = LatLng(lat, lng);
+      currentMapZoom = zoom;
+    },
+    onInteraction: () {
+      navigation.pauseFollowForMapGesture();
+      mapCameraChangedByUser = true;
+    },
     isSharing: isSharingLiveLocation,
     sharingBusy: isTogglingLiveLocation,
     onShareChanged: sharing.toggleLiveLocationSharing,
@@ -511,7 +525,27 @@ class _MapScreenState extends State<MapScreen>
       final own = displayedUserLocation ?? currentUserLocation;
       return {
         'type': 'FeatureCollection',
+        'camera': globeCamera,
+        'selection': {
+          'token': lastHandledMapFocusRequestToken,
+          'id': selectedSpot?.id,
+        },
         'features': [
+          if (routePreviewMode && routePreviewSpot != null && own != null)
+            {
+              'type': 'Feature',
+              'geometry': {
+                'type': 'LineString',
+                'coordinates': [
+                  [own.longitude, own.latitude],
+                  [
+                    routePreviewSpot!.coordinates.longitude,
+                    routePreviewSpot!.coordinates.latitude,
+                  ],
+                ],
+              },
+              'properties': {'kind': 'route'},
+            },
           for (final spot in layers.visibleSpots)
             if (isValidLatLng(spot.coordinates))
               point(
@@ -559,330 +593,5 @@ class _MapScreenState extends State<MapScreen>
   }
 
   @override
-  Widget build(BuildContext context) {
-    final spot = selectedSpot;
-    final policeReport = selectedPoliceReport;
-    final sosReport = selectedSosReport;
-    final liveLocation = selectedLiveLocation;
-    final hasBottomCard =
-        spot != null ||
-        policeReport != null ||
-        sosReport != null ||
-        liveLocation != null;
-
-    final standardMap = Scaffold(
-      backgroundColor: Colors.transparent,
-      body: Stack(
-        children: [
-          ExclusiveMapGestures(
-            mapController: mapController,
-            builder: (interactionOptions, constraint) => FlutterMap(
-              mapController: mapController,
-              options: MapOptions(
-                onMapReady: () {
-                  mapCameraReady = true;
-                  if (widget.isVisible)
-                    unawaited(navigation.focusInitialMapOnCurrentLocation());
-                },
-                initialCenter: currentMapCenter,
-                initialZoom: currentMapZoom,
-                initialRotation: currentMapRotationDegrees,
-                minZoom: 3,
-                maxZoom: 18,
-                interactionOptions: interactionOptions,
-                cameraConstraint: constraint,
-                backgroundColor: mapStyle.backgroundColor,
-                onMapEvent: (event) {
-                  // A rotation around the exact map centre may not emit a
-                  // position change, but it still exits GPS focus.
-                  if (event is MapEventRotateStart &&
-                      mapCenteredOnCurrentUser) {
-                    setState(() {
-                      navigation.pauseFollowForMapGesture();
-                      mapCameraChangedByUser = true;
-                    });
-                    scheduleNorthReset();
-                  }
-                },
-                onPointerDown: (event, _) {
-                  followExitGesture.pointerDown(
-                    event.pointer,
-                    following: mapCenteredOnCurrentUser,
-                    zoom: currentMapZoom,
-                  );
-                  // A tap (including on a marker) must not stop course-up
-                  // following. Only an actual camera gesture below exits it.
-                },
-                onPointerUp: (event, _) => finishMapPointer(event.pointer),
-                onPointerCancel: (event, _) => finishMapPointer(event.pointer),
-                onPositionChanged: (camera, hasGesture) {
-                  if (!isValidLatLng(camera.center) || !camera.zoom.isFinite) {
-                    WidgetsBinding.instance.addPostFrameCallback((_) {
-                      if (mounted) {
-                        navigation.restoreMapCamera();
-                      }
-                    });
-                    return;
-                  }
-
-                  final nextZoom = camera.zoom.clamp(3.0, 18.0).toDouble();
-                  final nextRotation = normalizedRotationDegrees(
-                    camera.rotation,
-                    fallback: currentMapRotationDegrees,
-                  );
-                  final zoomChanged = (nextZoom - currentMapZoom).abs() >= 0.05;
-                  final rotationChanged =
-                      (nextRotation - currentMapRotationDegrees).abs() >= 0.5;
-
-                  if (zoomChanged || rotationChanged || hasGesture) {
-                    final now = DateTime.now();
-                    final allowUiRefresh =
-                        lastMapCameraUiUpdateAt == null ||
-                        now.difference(lastMapCameraUiUpdateAt!) >=
-                            const Duration(milliseconds: 90);
-
-                    currentMapCenter = camera.center;
-                    currentMapZoom = nextZoom;
-                    currentMapRotationDegrees = nextRotation;
-                    if (hasGesture) {
-                      navigation.pauseFollowForMapGesture();
-                      scheduleNorthReset();
-                      mapCameraChangedByUser = true;
-                      mapGestureIdleTimer?.cancel();
-                      mapGestureIdleTimer = Timer(
-                        const Duration(milliseconds: 320),
-                        () {
-                          if (!mounted || !mapGestureInProgress) {
-                            return;
-                          }
-                          setState(() => mapGestureInProgress = false);
-                        },
-                      );
-                    }
-
-                    if (allowUiRefresh) {
-                      lastMapCameraUiUpdateAt = now;
-                      setState(() {
-                        if (hasGesture) {
-                          mapGestureInProgress = true;
-                        }
-                      });
-                    } else if (hasGesture && !mapGestureInProgress) {
-                      setState(() => mapGestureInProgress = true);
-                    }
-                  }
-                },
-                onTap: (_, _) => setState(() {
-                  navigation.clearRoutePreviewMode();
-                  selectedSpot = null;
-                  selectedPoliceReport = null;
-                  selectedSosReport = null;
-                  selectedLiveLocation = null;
-                }),
-              ),
-              children: [
-                CcsSmoothMapTileLayer(mapStyle: mapStyle),
-                MarkerLayer(markers: layers.spotFogCloudMarkers),
-                MarkerLayer(markers: layers.allMapMarkers),
-                AnimatedBuilder(
-                  animation: Listenable.merge([
-                    navigationMotionController,
-                    mapAlertPulseController,
-                  ]),
-                  builder: (context, _) {
-                    final marker = layers.currentUserMarker;
-                    return MarkerLayer(markers: [if (marker != null) marker]);
-                  },
-                ),
-                RichAttributionWidget(
-                  attributions: appearance.mapAttributions,
-                  showFlutterMapAttribution: false,
-                  popupBackgroundColor: panelGlass,
-                ),
-              ],
-            ),
-          ),
-          SafeArea(
-            child: Column(
-              children: [
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-                  child: MapHeader(
-                    isSharingLiveLocation: isSharingLiveLocation,
-                    isBusy: isTogglingLiveLocation,
-                    onShareChanged: sharing.toggleLiveLocationSharing,
-                  ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-                  child: MapStyleSelector(
-                    selectedStyle: mapStyle,
-                    adaptiveEnabled: adaptiveMapStyleEnabled,
-                    onSelected: appearance.setMapStyle,
-                    onAdaptiveChanged: appearance.setAdaptiveMapStyle,
-                    filterEnabledCount:
-                        spotCategoryFilters.value.length +
-                        spotCountryFilters.value.length,
-                    filterTotalCount:
-                        spotCategoryOptions.length +
-                        availableSpotCountries().length,
-                    onFilterTap: appearance.showMapCategoryFilterSheet,
-                  ),
-                ),
-                if (GlobePreviewScreen.supported)
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
-                      child: FilledButton.tonalIcon(
-                        onPressed: openGlobePreview,
-                        icon: const Icon(Icons.public),
-                        label: const CcsText('Try globe'),
-                      ),
-                    ),
-                  ),
-                if (routePreviewMode)
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    child: Align(
-                      alignment: Alignment.center,
-                      child: SpotRouteDistanceBadge(
-                        spotName: routePreviewSpot?.name ?? '',
-                        distanceLabel: navigation.routePreviewDistanceLabel(),
-                        isLoading: routePreviewLocating,
-                      ),
-                    ),
-                  ),
-              ],
-            ),
-          ),
-          Positioned(
-            left: 16,
-            bottom: hasBottomCard ? 218 : 50,
-            child: FloatingActionButton.small(
-              heroTag: 'add_map_report',
-              onPressed: (isAddingPoliceReport || isAddingSosReport)
-                  ? null
-                  : appearance.showAddMapReportSheet,
-              backgroundColor: panelGlass,
-              foregroundColor: Colors.white,
-              child: (isAddingPoliceReport || isAddingSosReport)
-                  ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: Colors.white,
-                      ),
-                    )
-                  : const Icon(Icons.add),
-            ),
-          ),
-          Positioned(
-            right: 16,
-            bottom: hasBottomCard ? 218 : 50,
-            child: FloatingActionButton.small(
-              heroTag: 'current_location',
-              onPressed: isLocatingUser
-                  ? null
-                  : () => navigation.moveToCurrentLocation(),
-              backgroundColor: blue,
-              foregroundColor: Colors.white,
-              child: isLocatingUser
-                  ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: Colors.white,
-                      ),
-                    )
-                  : const Icon(Icons.my_location),
-            ),
-          ),
-          if (policeReport != null)
-            Positioned(
-              left: 16,
-              right: 16,
-              bottom: 16,
-              child: PoliceReportMapCard(
-                report: policeReport,
-                isBusy: isVotingPoliceReport,
-                canVote: police.canVotePoliceReportFromCurrentMapLocation(
-                  policeReport,
-                ),
-                voteHint: police.policeReportVoteHint(policeReport),
-                onStillThere: () =>
-                    police.votePoliceReport(policeReport, stillThere: true),
-                onNotThere: () =>
-                    police.votePoliceReport(policeReport, stillThere: false),
-                onDelete:
-                    policeReport.uid == FirebaseAuth.instance.currentUser?.uid
-                    ? () => police.removePoliceReport(policeReport)
-                    : null,
-              ),
-            ),
-          if (sosReport != null)
-            Positioned(
-              left: 16,
-              right: 16,
-              bottom: 16,
-              child: SosReportMapCard(
-                report: sosReport,
-                isOwnReport:
-                    sosReport.uid == FirebaseAuth.instance.currentUser?.uid,
-                onOpenProfile: () => openUserProfile(
-                  context,
-                  uid: sosReport.uid,
-                  fallbackUsername: sosReport.username,
-                ),
-                onMessage: () => sos.openSosMessage(sosReport),
-                onRoute: () =>
-                    navigation.openWazeRouteToLatLng(sosReport.coordinates),
-                onDelete:
-                    sosReport.uid == FirebaseAuth.instance.currentUser?.uid
-                    ? () => sos.removeSosReport(sosReport)
-                    : null,
-              ),
-            ),
-          if (spot != null)
-            Positioned(
-              left: 16,
-              right: 16,
-              bottom: 16,
-              child: SpotMapCard(
-                spot: spot,
-                peopleCount: presence.peopleAtSpot(spot).length,
-                onPeople: () => presence.showSpotPeople(spot),
-                onOpen: () => appearance.openSpotDetails(spot),
-              ),
-            ),
-          if (liveLocation != null)
-            Positioned(
-              left: 16,
-              right: 16,
-              bottom: 16,
-              child: LiveLocationMapCard(
-                location: liveLocation,
-                isFriend: presence.liveLocationIsFriend(liveLocation),
-                onOpen: () => openUserProfile(
-                  context,
-                  uid: liveLocation.uid,
-                  fallbackUsername: liveLocation.username,
-                ),
-                onRoute: () =>
-                    navigation.openWazeRouteToLatLng(liveLocation.coordinates),
-              ),
-            ),
-        ],
-      ),
-    );
-    return Stack(
-      fit: StackFit.expand,
-      children: [
-        Offstage(offstage: globeOpen, child: standardMap),
-        if (globeOpen) Positioned.fill(child: buildGlobePreview()),
-      ],
-    );
-  }
+  Widget build(BuildContext context) => buildGlobeMap();
 }

@@ -1,9 +1,36 @@
+import 'package:ccs_app/features/map/screens/location_picker_screen.dart';
+import 'package:latlong2/latlong.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:webview_flutter_platform_interface/webview_flutter_platform_interface.dart';
-import 'package:ccs_app/features/map/screens/globe_preview_screen.dart';
+import 'package:ccs_app/features/map/screens/globe_map_screen.dart';
 
 void main() {
+  testWidgets('location confirmation clears Android system navigation', (
+    tester,
+  ) async {
+    WebViewPlatform.instance = _Platform();
+    await tester.binding.setSurfaceSize(const Size(393, 800));
+    tester.view.devicePixelRatio = 1;
+    tester.view.padding = const FakeViewPadding(bottom: 48);
+    addTearDown(() {
+      tester.view.resetPadding();
+      tester.view.resetDevicePixelRatio();
+      tester.binding.setSurfaceSize(null);
+    });
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: LocationPickerScreen(initialLocation: LatLng(57, 24)),
+      ),
+    );
+    await tester.pump();
+    final button = find.widgetWithText(ElevatedButton, 'Use this Location');
+    expect(button, findsOneWidget);
+    expect(tester.getRect(button).bottom, lessThanOrEqualTo(752));
+    expect(tester.widget<ElevatedButton>(button).onPressed, isNotNull);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
   for (final size in [
     const Size(320, 720),
     const Size(393, 800),
@@ -24,9 +51,8 @@ void main() {
               height: 62,
               child: Center(child: Text('App navigation: Map selected')),
             ),
-            body: GlobePreviewScreen(
+            body: GlobeMapScreen(
               readFeatures: () => {'type': 'FeatureCollection', 'features': []},
-              onBack: () {},
               isSharing: false,
               sharingBusy: false,
               onShareChanged: (_) async {},
@@ -40,6 +66,7 @@ void main() {
       );
       await tester.pump();
       final map = tester.getRect(find.byKey(const Key('native-map')));
+      expect(find.byTooltip('Back'), findsNothing);
       expect(map.top, 0);
       expect(map.bottom, size.height - 62);
       expect(find.text('App navigation: Map selected'), findsOneWidget);
@@ -72,8 +99,7 @@ void main() {
       MaterialApp(
         home: Scaffold(
           bottomNavigationBar: const Text('Map selected'),
-          body: GlobePreviewScreen(
-            onBack: () {},
+          body: GlobeMapScreen(
             isSharing: false,
             sharingBusy: false,
             onShareChanged: (value) async {
@@ -100,7 +126,7 @@ void main() {
     await tester.pump();
     expect(find.text('Sample spot card'), findsOneWidget);
     expect(find.text('Map selected'), findsOneWidget);
-    expect(find.byType(GlobePreviewScreen), findsOneWidget);
+    expect(find.byType(GlobeMapScreen), findsOneWidget);
     await tester.tap(find.byTooltip('Close preview'));
     await tester.pump();
     expect(find.text('Sample spot card'), findsNothing);

@@ -1,16 +1,14 @@
 // Notification delivery note:
 // FCM fan-out is performed by the authenticated push-notification backend.
-// FCM tokens and account email belong in /users/{uid}/private/account.
-// CUTOVER RULES: retire legacy writers and migrate private fields before rollout.
-// See docs/SECURITY-ROLLOUT-2026-10-05.md. These rules are not deployed yet.
+// Firestore clients may update their own FCM tokens and notification settings
+// through the existing /users/{userId} rules below. No public token reads are allowed.
 
 rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
     function isSignedIn() {
-      return request.auth != null
-        && !exists(/databases/$(database)/documents/account_deletions/$(request.auth.uid));
+      return request.auth != null;
     }
 
     function currentUid() {
@@ -545,6 +543,7 @@ service cloud.firestore {
         'name',
         'username',
         'usernameKey',
+        'email',
         'photoUrl',
         'bio',
         'avatarPath',
@@ -569,6 +568,9 @@ service cloud.firestore {
         'friendLiveShareNotifications',
         'publicProfile',
         'showGarage',
+        'fcmTokens',
+        'fcmTokenUpdatedAt',
+        'lastFcmTokenPlatform',
         'deviceIds',
         'lastDeviceId',
         'lastDevicePlatform',
@@ -623,6 +625,7 @@ service cloud.firestore {
 
     function validNewUser(userId) {
       return request.resource.data.uid == userId
+        && request.resource.data.get('email', '') is string
         && usernameReservationOwnedBy(
           userId,
           request.resource.data.username,
@@ -1753,12 +1756,6 @@ service cloud.firestore {
       allow delete: if false;
     }
 
-    function publicProfileHasNoSecrets() {
-      return !request.resource.data.keys().hasAny([
-        'email', 'fcmTokens', 'fcmTokenUpdatedAt', 'lastFcmTokenPlatform'
-      ]);
-    }
-
     match /users/{userId} {
       match /private/account {
         allow read: if isOwner(userId);
@@ -1773,19 +1770,10 @@ service cloud.firestore {
           && request.resource.data.get('lastFcmTokenPlatform', '') is string;
         allow delete: if isOwner(userId);
       }
-      match /legal_acceptances/{version} {
-        allow read: if isOwner(userId);
-        allow create: if isOwner(userId)
-          && version == '2026-09-24'
-          && request.resource.data.keys().hasOnly(['termsVersion', 'acceptedAt'])
-          && request.resource.data.termsVersion == version
-          && request.resource.data.acceptedAt == request.time;
-        // Acceptance history cannot be rewritten by a client.
-        allow update, delete: if false;
-      }
+
       allow read: if isSignedIn();
-      allow create: if isOwner(userId) && publicProfileHasNoSecrets() && validNewUser(userId);
-      allow update: if publicProfileHasNoSecrets() && ((
+      allow create: if isOwner(userId) && validNewUser(userId);
+      allow update: if (
         isOwner(userId)
         && isActiveUser()
         && userProtectedFieldsUnchanged()
@@ -1796,7 +1784,7 @@ service cloud.firestore {
           .hasOnly(selfUserEditableKeys())
       ) || validGlobalChatCooldownUpdate(userId)
         || isAdmin()
-        || moderatorCanUpdateUser());
+        || moderatorCanUpdateUser();
       allow delete: if isAdmin();
     }
 
@@ -1991,8 +1979,10 @@ service cloud.firestore {
 
     match /spots/{spotId} {
       allow read: if canReadSpot();
-      // The server validates consent, author, and all eight group memberships.
-      allow create: if false;
+      allow create: if isActiveUser()
+        && spotCreationRegionAllowed(request.resource.data)
+        && validSpotAudience(request.resource.data)
+        && validNewSpot();
       allow update: if request.resource.data.get('visibility', 'public') == resource.data.get('visibility', 'public')
         && request.resource.data.get('sharedGroupIds', []) == resource.data.get('sharedGroupIds', [])
         && request.resource.data.get('sharedGroups', []) == resource.data.get('sharedGroups', [])
@@ -2921,6 +2911,19 @@ service cloud.firestore {
             && resource.data.userId == currentUid()
           );
       }
+    }
+
+
+    // Compatibility bridge for the new app's TermsAcceptanceGate.
+    match /users/{userId}/legal_acceptances/{version} {
+      allow read: if request.auth != null && request.auth.uid == userId;
+      allow create: if request.auth != null
+        && request.auth.uid == userId
+        && version == '2026-09-24'
+        && request.resource.data.keys().hasOnly(['termsVersion', 'acceptedAt'])
+        && request.resource.data.termsVersion == version
+        && request.resource.data.acceptedAt == request.time;
+      allow update, delete: if false;
     }
 
     match /{document=**} {

@@ -36,7 +36,9 @@ Community listings may be incomplete or outdated. A listing does not by itself m
 
 ## Privacy and leaving CCS
 
-Personal data is handled as described in the CCS Privacy Policy: https://sites.google.com/view/community-car-spots/privacy-policy. To request account or data deletion, email communitycarspots@proton.me and identify your CCS account and sign-in method. Uninstalling the application alone does not delete your account.
+Personal data is handled as described in the CCS Privacy Policy: https://sites.google.com/view/community-car-spots/privacy-policy. To delete your account, open Settings in CCS, choose Delete account, and complete the confirmation and any required sign-in verification. After the request is accepted, you are signed out and deletion continues automatically. Use Check deletion status on the sign-in screen to see whether processing has completed. Deletion is not immediate: recent verified tests took about three hours, and processing can take longer depending on the queue, the amount of data and service availability. Closing or uninstalling the app does not cancel an accepted request.
+
+If you cannot access your account or need help with a deletion request, email communitycarspots@proton.me and identify your CCS account and sign-in method. Do not send passwords or verification codes. Uninstalling the application alone does not request account deletion. The Privacy Policy explains deletion status records, limited retention and copies outside our control.
 
 ## Service changes and these terms
 

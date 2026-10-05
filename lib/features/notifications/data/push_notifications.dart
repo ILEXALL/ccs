@@ -46,14 +46,16 @@ Future<void> registerPushTokenForCurrentUser(String token) async {
   }
 
   try {
-    await usersCollection().doc(firebaseUser.uid).debugSet({
-      'fcmTokens': FieldValue.arrayUnion([cleanToken]),
-      'fcmTokenUpdatedAt': FieldValue.serverTimestamp(),
-      'lastFcmTokenPlatform': Platform.operatingSystem,
-    }, SetOptions(merge: true));
-    debugPrint(
-      'Push token registered for ${firebaseUser.uid}: ${cleanToken.substring(0, math.min(12, cleanToken.length))}...',
-    );
+    await usersCollection()
+        .doc(firebaseUser.uid)
+        .collection('private')
+        .doc('account')
+        .debugSet({
+          'fcmTokens': FieldValue.arrayUnion([cleanToken]),
+          'fcmTokenUpdatedAt': FieldValue.serverTimestamp(),
+          'lastFcmTokenPlatform': Platform.operatingSystem,
+        }, SetOptions(merge: true));
+    debugPrint('Push token registered.');
   } catch (error, stack) {
     debugPrint('Push token registration failed: $error');
     debugPrint('$stack');
@@ -74,10 +76,14 @@ Future<void> unregisterPushTokenForCurrentUser() async {
       return;
     }
 
-    await usersCollection().doc(firebaseUser.uid).debugSet({
-      'fcmTokens': FieldValue.arrayRemove([token]),
-      'fcmTokenUpdatedAt': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
+    await usersCollection()
+        .doc(firebaseUser.uid)
+        .collection('private')
+        .doc('account')
+        .debugSet({
+          'fcmTokens': FieldValue.arrayRemove([token]),
+          'fcmTokenUpdatedAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
   } catch (error, stack) {
     debugPrint('Push token cleanup failed: $error');
     debugPrint('$stack');

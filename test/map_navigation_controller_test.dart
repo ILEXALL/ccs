@@ -38,7 +38,32 @@ class NavigationSession extends Fake implements MapSession {
   double navigationZoom = 16.35;
 }
 
+class GlobeNavigationSession extends NavigationSession {
+  @override
+  bool get isVisible => true;
+  @override
+  bool get mapCameraReady => true;
+}
+
 void main() {
+  test(
+    'globe receives camera movement without an attached raster controller',
+    () {
+      final session = GlobeNavigationSession();
+      final moves = <List<double>>[];
+      final navigation = MapNavigationController(
+        session,
+        onCamera: (p, zoom, rotation) =>
+            moves.add([p.latitude, p.longitude, zoom, rotation]),
+      );
+      navigation.moveMapCamera(const LatLng(57, 24), 16, rotationDegrees: 90);
+      expect(moves.single, [57, 24, 16, 90]);
+      session.displayedNavigationHeading = 45;
+      navigation.updateFollowCamera(const LatLng(58, 25), 45);
+      expect(moves.last[0], 58);
+      expect(moves.last[3], 315);
+    },
+  );
   test('heading interpolation crosses north through the shortest turn', () {
     final navigation = MapNavigationController(NavigationSession());
     expect(navigation.smoothHeadingDegrees(350, 10, 0.5), closeTo(0, 0.001));

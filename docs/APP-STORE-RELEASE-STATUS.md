@@ -791,3 +791,141 @@ configuration was changed during this test. Source changes remain uncommitted.
 
 
 
+# Release audit — 5 October 2026 (latest status)
+
+The user confirms Apple sign-in, account deletion, moderation, and iPhone/iPad
+testing now work. Treat these as user-reported device validations. The checks
+below concern remaining production/security, rights, privacy and review access;
+older sections are historical and do not override this entry.
+
+## Checks actually performed
+
+- 111 offline server checks passed. The optional report output failed because
+  its first destination was outside the workspace; the test results themselves
+  were successful. No test failure was concealed by that output-path error.
+- 13 Firestore rules tests and 21 account-deletion integration tests passed in
+  a local emulator with synthetic data. No production data was deleted.
+- Unauthenticated empty POST probes against both configured Vercel domains
+  returned 401 on moderation, push, live-location alerts, XP and private groups.
+  Account deletion returned 401 on ccs-wine and 404 on the legacy host.
+- Both live R2 presign endpoints returned 200 and an upload capability WITHOUT
+  authentication for unique nonexistent audit paths. No file was uploaded, no
+  real user's path was used, and signed URLs were not logged. This differs from
+  the protected repository implementation and is a release blocker.
+- Firebase console rules editor displayed rules without the repository's
+  account_deletions guard. The console also reported "Error loading rules
+  versions". Therefore the editor is evidence of a mismatch, NOT conclusive
+  proof of the active released ruleset. Obtain authoritative rules access and
+  compare the published version before deploying anything.
+  Switching to the newly signed-in owner account produced the same console error.
+- Local emulator reproductions show that a signed-in account can read another
+  synthetic user's email/fcmTokens from users/{uid}, and can create a pending
+  spot with no legal_acceptances document. Both are unresolved security gaps.
+  No live user tokens or emails were fetched to prove these findings.
+- Spot creation is still client-batched in add_spot_controller.dart. Do not
+  assume the previously discussed server creation flow for eight groups shipped.
+
+## Required coordinated security work (not deployed in this audit)
+
+1. Close anonymous R2 signing on BOTH hostnames. The current app supplies a
+   Firebase token, but older public builds may not; decide and test the upgrade
+   path before cutting over. Do not preserve an anonymous signing back door.
+2. Move private profile fields/push tokens to a private document/collection,
+   migrate backend readers and client writers, and restrict reads. Firestore
+   document read rules cannot hide selected fields from an otherwise allowed
+   document read. Simply restricting the existing public profile document would
+   break profile/community consumers and is not a safe isolated change.
+3. Enforce consent for protected writes/uploads server-side and in rules, while
+   retaining onboarding and deletion access. Keep eight-group creation working
+   by implementing the authenticated server path and testing rule access limits.
+4. Confirm and deploy the correct rules and server versions with rollback and
+   compatibility checks. No production rules/server settings changed this turn.
+
+## Privacy, rights and App Store Connect
+
+- Live App Store Connect: iOS 1.0.9 remains Prepare for Submission; build 13 is
+  selected; manual release is selected. Reviewer credential fields are empty
+  and the existing review note mentions only Google/Telegram.
+- App Privacy is published with 14 identity-linked data types. Existing categories
+  cover the additional Apple identity provider and globe resource requests found
+  in this audit. No category change was identified; declarations left unchanged.
+- The previous public Privacy Policy was dated 23 September and mentioned
+  email-only deletion, Google/Telegram, and CARTO only. Published the corrected
+  paragraphs on 5 October and verified the new public content after reload.
+  See PRIVACY-POLICY-PUBLICATION-UPDATE.txt for the publication record.
+- Updated the bundled Terms deletion instructions in assets/legal/terms.txt.
+  Kept the existing acceptance version because the edit describes the existing
+  mechanism rather than expanding the content licence. No release app built.
+- The user signed in with the Google Sites owner account. Published both Terms
+  and Privacy Policy updates to the existing URLs and verified the deletion
+  instructions, policy date, Apple sign-in, OpenFreeMap and receipt retention.
+  All six existing consent/Terms Flutter tests passed after the bundled edit.
+- Operator confirms built-in artwork was created by the team. See
+  CONTENT-RIGHTS-AUDIT-2026-10-05.txt for map/software sources, the still-active
+  CARTO dependency, and unresolved permission for historical user uploads.
+  Content Rights remains unset; no unsupported certification was submitted.
+- Reviewer instructions prepared in APPLE-REVIEW-INSTRUCTIONS-DRAFT.txt.
+  Existing reviewer password is not in this workspace; requested the private
+  file location. No reviewer login, credential reset, onboarding acceptance or
+  physical iOS reviewer-account test has been claimed or performed.
+  Clarified that the missing password belongs to the CCS app review account,
+  not the user's Apple, Google or Proton mailbox account.
+
+
+## Security implementation follow-up — 5 October 2026
+
+Prepared private account documents, authenticated/owner-checked uploads,
+server-side consent-checked spot creation (up to eight groups), and a resumable
+private-field migration. The actual September 28 deployed ruleset was retrieved
+through Firebase's Rules API, resolving the verification blocker despite the
+console UI error. See [security rollout](SECURITY-ROLLOUT-2026-10-05.md).
+
+The strict upload/rules/migration fixes remain local; the compatible subset is
+live as recorded below. The owner explicitly chose to preserve older
+public builds, which still depend on public profile writes/direct spot creation
+and, for build 13, unauthenticated uploads. Production rollout is gated on a
+coordinated compatibility transition; do not deploy the strict rules alone or
+mark the production exposure resolved. The updated app needs the new server and
+private-document rules before distribution.
+
+## Compatibility deployment — 5 October 2026
+
+The main API (`ccs-wine.vercel.app`) now serves the isolated compatibility
+release `dpl_B7a7mJammCrhpFFvrS9AkEHmhWWn`. Additive Firestore ruleset
+`b140d733-e16f-4285-ab0b-8a1da125e5a3` is live and its release was verified.
+Legacy profile writes, direct spot creation and upload behavior remain intact.
+No private-data migration or strict-rule activation occurred.
+
+The legacy notification-reader patch is now live at
+`ccs-telegram-auth-server.vercel.app`, deployment
+`dpl_D913BF2kKLGHrQhVp81EpfbUGqFf`. Both live aliases and the active ruleset were
+verified, with staged and public endpoint smoke checks passing. Legacy tests
+(76) and actual staged notification-handler tests (10) passed. Real-device
+1.1.0 sign-in, uploads, eight-group spot creation and cross-version notification
+delivery remain to be tested. The user will build the app.
+See SECURITY-ROLLOUT-2026-10-05.md
+for exact deployment, ruleset and rollback records; do not deploy the entire
+current local server or strict rules as a compatibility update.
+
+
+## Main globe migration � 5 October 2026
+
+The next app build opens the OpenFreeMap/MapLibre globe directly in the Map tab.
+Removed the old raster renderer, provider key and CI/build flag. Location picking
+(including unsupported-country overlays and existing coordinate validation) and
+moderator pin review also use the same globe renderer. Spots and Firebase data
+are unchanged. Bottom navigation, sharing, filters, alerts, stars and both CCS
+styles remain. Saved map style is reused. Native GPS and external spot-focus
+requests now drive the globe camera rather than an invisible raster map.
+
+No server or Firestore deployment is required for this change. Device acceptance
+is pending: Android/iPhone/iPad Map tab, GPS follow/gesture/world controls, opening
+a spot from the list, location picking, restricted regions, review pin, style
+persistence, connection failure/retry, sharing and background/foreground return.
+The draft privacy publication text and content-rights audit reflect the new map;
+the public policy still needs publication with the release. Historical audit logs
+and source backups retain prior-provider references for provenance; active app
+code and build configuration have none.
+
+Validation: 15 Flutter regression tests and 7 JavaScript renderer tests passed.
+Targeted analysis has no errors or warnings (existing style/info notices remain).

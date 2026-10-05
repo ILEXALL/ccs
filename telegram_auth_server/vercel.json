@@ -15,6 +15,10 @@
     {
       "source": "/api/spot-visit",
       "destination": "/api/community?endpoint=spot-visit"
+    },
+    {
+      "source": "/api/create-spot",
+      "destination": "/api/community?endpoint=create-spot"
     }
   ],
   "crons": [

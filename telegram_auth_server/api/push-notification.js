@@ -1,3 +1,4 @@
+import {deliveryTokens, removeDeliveryTokens} from '../lib/private-profile.js';
 import publications from '../lib/forum-publications.js';
 import crypto from 'node:crypto';
 import admin from 'firebase-admin';
@@ -365,7 +366,7 @@ export async function sendPushToUser({
     badgeCount = Math.max(1, counts.reduce((total, count) => total + count.data().count, 0));
   } catch (error) { console.warn('Unread badge count unavailable', error.message); }
 
-  const tokens = userTokens(user);
+  const tokens = await deliveryTokens(db, userId, user);
   if (!tokens.length) {
     return 0;
   }
@@ -415,9 +416,7 @@ export async function sendPushToUser({
     });
 
     if (invalidTokens.length) {
-      await userRef.update({
-        fcmTokens: admin.firestore.FieldValue.arrayRemove(...invalidTokens),
-      });
+      await removeDeliveryTokens(db, userId, invalidTokens);
     }
 
     return result.successCount;

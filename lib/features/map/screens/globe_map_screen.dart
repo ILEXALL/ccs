@@ -1,3 +1,6 @@
+import '../widgets/globe_marker_images.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import '../models/map_style.dart';
 import 'dart:async';
 import '../widgets/navigation_arrow.dart';
 import 'dart:convert';
@@ -11,11 +14,15 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
 /// Read-only renderer. GPS, visibility rules and Firebase remain owned by CCS.
-class GlobePreviewScreen extends StatefulWidget {
-  const GlobePreviewScreen({
+class GlobeMapScreen extends StatefulWidget {
+  const GlobeMapScreen({
     super.key,
     required this.readFeatures,
-    required this.onBack,
+    this.onBack,
+    this.onInteraction,
+    this.onCameraChanged,
+    this.onPick,
+    this.showControls = true,
     required this.isSharing,
     required this.sharingBusy,
     required this.onShareChanged,
@@ -27,7 +34,10 @@ class GlobePreviewScreen extends StatefulWidget {
   });
   final Map<String, Object?> Function() readFeatures;
 
-  final VoidCallback onBack;
+  final VoidCallback? onBack, onInteraction;
+  final void Function(double, double, double)? onCameraChanged;
+  final void Function(double latitude, double longitude)? onPick;
+  final bool showControls;
   final bool isSharing, sharingBusy, isVisible;
   final Future<void> Function(bool) onShareChanged;
   final Widget? Function(BuildContext, String, String) cardBuilder;
@@ -38,10 +48,10 @@ class GlobePreviewScreen extends StatefulWidget {
           defaultTargetPlatform == TargetPlatform.iOS);
 
   @override
-  State<GlobePreviewScreen> createState() => _GlobePreviewScreenState();
+  State<GlobeMapScreen> createState() => _GlobeMapScreenState();
 }
 
-class _GlobePreviewScreenState extends State<GlobePreviewScreen>
+class _GlobeMapScreenState extends State<GlobeMapScreen>
     with WidgetsBindingObserver {
   late final WebViewController controller;
   Timer? timer;
@@ -51,6 +61,7 @@ class _GlobePreviewScreenState extends State<GlobePreviewScreen>
   bool iconsSent = false;
   String style = 'dark';
   String? selectedKind, selectedId;
+  Object? selectionToken;
 
   @override
   void initState() {
@@ -66,8 +77,41 @@ class _GlobePreviewScreenState extends State<GlobePreviewScreen>
           try {
             final data = jsonDecode(message.message);
             if (data is! Map) return;
-            if (data['type'] == 'ready') {
+            if (data['type'] == 'camera' &&
+                data['lat'] is num &&
+                data['lng'] is num &&
+                data['zoom'] is num) {
+              final lat = (data['lat'] as num).toDouble(),
+                  lng = (data['lng'] as num).toDouble(),
+                  zoom = (data['zoom'] as num).toDouble();
+              if (lat.isFinite &&
+                  lng.isFinite &&
+                  zoom.isFinite &&
+                  lat.abs() <= 90 &&
+                  lng.abs() <= 180)
+                widget.onCameraChanged?.call(lat, lng, zoom);
+            } else if (data['type'] == 'gesture') {
+              widget.onInteraction?.call();
+            } else if (data['type'] == 'pick' &&
+                data['lat'] is num &&
+                data['lng'] is num) {
+              final lat = (data['lat'] as num).toDouble(),
+                  lng = (data['lng'] as num).toDouble();
+              if (lat.isFinite &&
+                  lng.isFinite &&
+                  lat.abs() <= 90 &&
+                  lng.abs() <= 180)
+                widget.onPick?.call(lat, lng);
+            } else if (data['type'] == 'error') {
+              setState(
+                () => error =
+                    'Could not load the map. Check your connection and retry.',
+              );
+            } else if (data['type'] == 'ready') {
               ready = true;
+              unawaited(syncAnimationVisibility());
+              error = null;
+              unawaited(applySavedStyle());
               previous = null;
               unawaited(refresh());
             } else if (data['type'] == 'clear') {
@@ -115,7 +159,7 @@ class _GlobePreviewScreenState extends State<GlobePreviewScreen>
             if (failure.isForMainFrame == true && mounted) {
               setState(
                 () => error =
-                    'Could not load the globe. Return to the standard map and try again.',
+                    'Could not load the map. Check your connection and retry.',
               );
             }
           },
@@ -126,9 +170,7 @@ class _GlobePreviewScreenState extends State<GlobePreviewScreen>
         Object _,
       ) {
         if (mounted) {
-          setState(
-            () => error = 'Globe preview is unavailable on this device.',
-          );
+          setState(() => error = 'The map is unavailable on this device.');
         }
       }),
     );
@@ -143,7 +185,7 @@ class _GlobePreviewScreenState extends State<GlobePreviewScreen>
     sending = true;
     try {
       if (!iconsSent) {
-        final icons = <String, String>{};
+        final icons = await globeMarkerImages();
         for (final asset in {
           ...spotCategoryIconAssets.values,
           ...spotCategoryLightIconAssets.values,
@@ -192,7 +234,14 @@ class _GlobePreviewScreenState extends State<GlobePreviewScreen>
         );
         iconsSent = true;
       }
-      final data = jsonEncode(widget.readFeatures());
+      final frame = widget.readFeatures();
+      final selection = frame['selection'];
+      if (selection is Map && selection['token'] != selectionToken) {
+        selectionToken = selection['token'];
+        selectedKind = selection['id'] == null ? null : 'spot';
+        selectedId = selection['id'] as String?;
+      }
+      final data = jsonEncode(frame);
       if (data != previous) {
         // Encode as a JS string, then parse: names cannot become executable code.
         await controller.runJavaScript(
@@ -202,9 +251,7 @@ class _GlobePreviewScreenState extends State<GlobePreviewScreen>
       }
     } catch (_) {
       if (mounted) {
-        setState(
-          () => error = 'Map updates paused. Reopen the preview to retry.',
-        );
+        setState(() => error = 'Map updates paused. Retry to reconnect.');
       }
     } finally {
       sending = false;
@@ -215,14 +262,56 @@ class _GlobePreviewScreenState extends State<GlobePreviewScreen>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     active = state == AppLifecycleState.resumed;
+    unawaited(syncAnimationVisibility());
     if (active) unawaited(refresh());
+  }
+
+  Future<void> syncAnimationVisibility() async {
+    if (!ready) return;
+    try {
+      await controller.runJavaScript(
+        'window.ccsSetActive(${active && widget.isVisible});',
+      );
+    } catch (_) {
+      /* The platform view may already be closing. */
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant GlobeMapScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.isVisible != widget.isVisible) {
+      unawaited(syncAnimationVisibility());
+      if (widget.isVisible) unawaited(refresh());
+    }
   }
 
   @override
   void dispose() {
+    active = false;
+    unawaited(syncAnimationVisibility());
     timer?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
+  }
+
+  Future<void> applySavedStyle() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (!mounted || !ready) return;
+      final saved = prefs.getBool(ccsAdaptiveMapStylePreferenceKey) == true
+          ? mapStyleForLocalTime(DateTime.now()).name
+          : prefs.getString(ccsMapStylePreferenceKey);
+      final next = saved == 'light' ? 'positron' : 'dark';
+      if (next == style) return;
+      setState(() {
+        style = next;
+        ready = false;
+      });
+      await controller.runJavaScript(
+        'window.ccsSetStyle(${jsonEncode(next)});',
+      );
+    } catch (_) {}
   }
 
   Future<void> chooseStyle() async {
@@ -272,6 +361,13 @@ class _GlobePreviewScreenState extends State<GlobePreviewScreen>
       ),
     );
     if (!mounted || choice == null || choice == style || !ready) return;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+      ccsMapStylePreferenceKey,
+      choice == 'positron' ? 'light' : 'dark',
+    );
+    await prefs.setBool(ccsAdaptiveMapStylePreferenceKey, false);
+    if (!mounted) return;
     setState(() {
       style = choice;
       ready = false;
@@ -388,75 +484,73 @@ class _GlobePreviewScreenState extends State<GlobePreviewScreen>
         fit: StackFit.expand,
         children: [
           Positioned.fill(child: WebViewWidget(controller: controller)),
-          SafeArea(
-            bottom: false,
-            child: Align(
-              alignment: Alignment.topCenter,
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(8, 4, 12, 0),
-                child: LayoutBuilder(
-                  builder: (context, constraints) => Row(
-                    mainAxisAlignment: MainAxisAlignment.start,
-                    children: [
-                      control(
-                        'Back to standard map',
-                        Icons.arrow_back,
-                        widget.onBack,
-                      ),
-                      Expanded(
-                        flex: 10,
-                        child: control(
-                          'Styles',
-                          Icons.layers_outlined,
-                          ready ? chooseStyle : null,
-                          text: constraints.maxWidth >= 360,
-                          fill: true,
-                        ),
-                      ),
-                      const SizedBox(width: 6),
-                      Expanded(
-                        flex: 10,
-                        child: control(
-                          'Filters',
-                          Icons.tune,
-                          widget.onFilter,
-                          text: constraints.maxWidth >= 360,
-                          fill: true,
-                        ),
-                      ),
-                      const SizedBox(width: 6),
-                      Expanded(
-                        flex: 14,
-                        child: Align(
-                          alignment: Alignment.centerRight,
-                          heightFactor: 1,
+          if (widget.showControls)
+            SafeArea(
+              bottom: false,
+              child: Align(
+                alignment: Alignment.topCenter,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(8, 4, 12, 0),
+                  child: LayoutBuilder(
+                    builder: (context, constraints) => Row(
+                      mainAxisAlignment: MainAxisAlignment.start,
+                      children: [
+                        if (widget.onBack != null)
+                          control('Back', Icons.arrow_back, widget.onBack),
+                        Expanded(
+                          flex: 10,
                           child: control(
-                            widget.sharingBusy
-                                ? 'Updating...'
-                                : widget.isSharing
-                                ? 'Sharing live'
-                                : 'Share live',
-                            widget.isSharing
-                                ? Icons.wifi_tethering
-                                : Icons.location_on_outlined,
-                            widget.sharingBusy
-                                ? null
-                                : () => unawaited(
-                                    widget.onShareChanged(!widget.isSharing),
-                                  ),
-                            text: true,
-                            accent: true,
-                            sharingActive: widget.isSharing,
+                            'Styles',
+                            Icons.layers_outlined,
+                            ready ? chooseStyle : null,
+                            text: constraints.maxWidth >= 360,
                             fill: true,
                           ),
                         ),
-                      ),
-                    ],
+                        const SizedBox(width: 6),
+                        Expanded(
+                          flex: 10,
+                          child: control(
+                            'Filters',
+                            Icons.tune,
+                            widget.onFilter,
+                            text: constraints.maxWidth >= 360,
+                            fill: true,
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          flex: 14,
+                          child: Align(
+                            alignment: Alignment.centerRight,
+                            heightFactor: 1,
+                            child: control(
+                              widget.sharingBusy
+                                  ? 'Updating...'
+                                  : widget.isSharing
+                                  ? 'Sharing live'
+                                  : 'Share live',
+                              widget.isSharing
+                                  ? Icons.wifi_tethering
+                                  : Icons.location_on_outlined,
+                              widget.sharingBusy
+                                  ? null
+                                  : () => unawaited(
+                                      widget.onShareChanged(!widget.isSharing),
+                                    ),
+                              text: true,
+                              accent: true,
+                              sharingActive: widget.isSharing,
+                              fill: true,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ),
             ),
-          ),
           if (error != null)
             SafeArea(
               child: Align(
@@ -466,13 +560,31 @@ class _GlobePreviewScreenState extends State<GlobePreviewScreen>
                   child: Card(
                     child: Padding(
                       padding: const EdgeInsets.all(8),
-                      child: Text(error!),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(error!),
+                          TextButton(
+                            onPressed: () {
+                              setState(() {
+                                error = null;
+                                ready = false;
+                                iconsSent = false;
+                                style = 'dark';
+                                previous = null;
+                              });
+                              unawaited(controller.reload());
+                            },
+                            child: const Text('Retry'),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                 ),
               ),
             ),
-          if (card == null) ...[
+          if (widget.showControls && card == null) ...[
             Positioned(
               left: 8,
               bottom: 28,

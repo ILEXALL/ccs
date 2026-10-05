@@ -1,0 +1,49 @@
+CCS Privacy Policy — publication changes prepared 5 October 2026
+
+STATUS: Published to the existing Google Sites Privacy Policy on 5 October 2026.
+Verified the public page after reload: new date, Apple sign-in, OpenFreeMap,
+in-app deletion and receipt retention are present. Terms deletion instructions
+were also published and verified at their existing public URL. The operator,
+purposes, rights, international-transfer, security, children and contact sections
+were preserved. The paragraphs below are the publication record; map-provider
+links are reference sources rather than newly added public-page links.
+
+INFORMATION WE PROCESS — replace the account/sign-in paragraph:
+
+Account and profile information: your account ID, sign-in provider, name, email address where supplied, username, profile photo, bio, city, country and social profile links you choose to add. Google, Telegram or Apple provides information needed to authenticate you when you choose that provider; CCS does not receive your provider password. Apple may supply a private relay email address if you choose Hide My Email. Email/password sign-in is also available through Firebase Authentication. When you link another sign-in provider, we associate it with your existing CCS account after the required verification. We record the version and time of your acceptance of the community terms.
+
+VISIBILITY AND SHARING — replace the service-provider/map paragraph:
+
+We use Google/Firebase for authentication, databases, storage, notifications and app integrity; Vercel for backend hosting; Cloudflare R2 for uploaded media and Cloudflare Workers for scheduled account-deletion processing; Apple services for Apple sign-in, device attestation and iOS notifications; and Google or Telegram when you choose their sign-in service. Our support mailbox is hosted by Proton. Maps use OpenFreeMap with OpenMapTiles and OpenStreetMap data, rendered by a bundled MapLibre library. Requests for map resources disclose your IP address, technical request information and the requested map area to the relevant provider. CCS does not include your account credentials, chat messages or profile details in those map-resource requests. Provider logs may be retained for service operation and security under the provider's privacy policy. External navigation and social links open third-party services with their own privacy policies.
+
+Map-provider information:
+https://openfreemap.org/privacy/
+
+RETENTION AND DELETION — replace the entire section:
+
+Account information and community content are retained while needed to provide your account and the features you use. Retention depends on the purpose, account status, support needs, security investigations and applicable legal requirements. Ending live-location sharing stops active sharing; expiry of a sharing session does not itself mean all related backend records have been erased.
+
+To delete your account, open Settings in CCS, choose Delete account, and complete the confirmation and any required sign-in verification. After the server accepts the request, you are signed out and automated deletion continues even if you close the app. Use Check deletion status on the sign-in screen to check progress. Deletion removes your sign-in account and associated account data and uploaded media from the active services processed by the deletion system; references in shared content are removed or anonymized while other users' own content is preserved.
+
+Deletion is not immediate. Recent verified tests completed in approximately three hours. This is an observed processing time, not a guaranteed deadline: requests can take longer depending on the amount of data, queue load, retries and service availability. The app confirms completion only when its cleanup process finishes. Closing or uninstalling the app does not cancel an accepted deletion request. Uninstalling the app by itself does not request deletion.
+
+For security, the automated cleanup retains a minimal account-linked completion record for the token-revocation window and schedules it for removal after one hour. A separate receipt containing a random-token hash, status and timestamps is scheduled for removal after 30 days so the signed-out app can check completion. These are cleanup eligibility times; removal occurs in subsequent successful background runs. Service-provider logs, backups or cached copies may persist according to their applicable retention or cache-expiry settings and are not necessarily removed at the moment the app reports completion. Copies independently saved by other users are outside our control.
+
+If you cannot access your account, a request appears stuck, or you want help exercising your data rights, email communitycarspots@proton.me with the subject "CCS data deletion" and identify your CCS account and sign-in method. We may ask for information necessary to verify ownership. Never send passwords or verification codes. If information must be retained for a lawful reason, we will explain that reason.
+
+TERMS OF USE — publication source:
+
+Use the updated "Privacy and leaving CCS" section in assets/legal/terms.txt.
+This is a description of the existing deletion mechanism; it does not expand the
+content licence or silently change the consent version stored by the app.
+
+APP PRIVACY CHECK:
+
+The live App Store Connect declaration was checked on 5 October 2026: fourteen
+data types, linked to identity, with App Functionality purposes; precise/coarse
+location also have Product Personalization. No new category is needed solely
+for Apple sign-in or switching the globe tile provider: existing email, user ID,
+location and diagnostic declarations cover the identified types. Contacts covers
+the app's social graph, even though it does not import the phone address book.
+No advertising/tracking SDK was found in the inspected direct dependencies.
+No declaration was changed merely to remove an existing disclosure.

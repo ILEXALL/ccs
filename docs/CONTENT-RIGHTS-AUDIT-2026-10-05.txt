@@ -1,0 +1,39 @@
+CCS content-rights audit — 5 October 2026
+
+Team artwork
+The operator confirmed in this conversation that built-in photographs, badges,
+logos and partner images were all created by the team. Record the confirmation
+as provenance; it is not an independent audit of every image or depicted mark.
+
+Third-party components still exist despite that confirmation:
+- OpenFreeMap globe: commercial use permitted by the provider. Attribution is
+  required. Current renderer uses the source attribution control, compact=false.
+  Keep OpenMapTiles and OpenStreetMap attribution and working external links.
+  https://openfreemap.org/
+- MapLibre GL JS: licence text is present in assets/globe/LICENSE-maplibre.txt,
+  within the bundled assets/globe directory. Do not remove the licence file.
+- Natural Earth country outlines: repository provenance file identifies the
+  source and public-domain status. Official terms confirm public-domain data.
+  https://www.naturalearthdata.com/about/terms-of-use/
+- Social glyphs: assets/social/README.md identifies Simple Icons (CC0).
+  CC0 does not grant trademark ownership. Use logos only to identify services.
+- Material/Cupertino icons and Flutter dependencies: preserve the dependencies'
+  packaged licence notices and review the final archive's notices.
+- All map screens now use the OpenFreeMap globe renderer in the next app build.
+  Provider attribution and bundled MapLibre licence remain included.
+
+User uploads
+The Terms contain a prospective licence for content submitted after acceptance,
+an ownership/permission requirement, and a complaints contact. They explicitly
+do not retrospectively obtain permission for historical uploads.
+The owner's team-artwork confirmation does not cover all users' uploaded photos.
+The local rules allow spot creation without a legal-acceptance document, as
+reproduced in the local emulator. Fix enforcement and establish permission for
+historical content before representing the entire audit as complete.
+
+App Store Connect
+Content Rights is still unset, as verified in the live console on 5 October.
+Do not choose "no third-party content" merely because team artwork is original:
+the app displays third-party map data and user contributions. Complete the
+rights declaration only when the remaining historical-upload checks
+are resolved. No Content Rights assertion was submitted during this audit.

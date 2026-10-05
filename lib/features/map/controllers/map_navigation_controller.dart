@@ -36,8 +36,14 @@ import 'map_config.dart';
 class MapNavigationController implements MapNavigationActions {
   final MapSession host;
   final DateTime Function() _now;
-  MapNavigationController(this.host, {DateTime Function()? now})
-    : _now = now ?? DateTime.now;
+  final void Function(LatLng, double, double)? onCamera;
+  final void Function(LatLng, LatLng)? onFit;
+  MapNavigationController(
+    this.host, {
+    DateTime Function()? now,
+    this.onCamera,
+    this.onFit,
+  }) : _now = now ?? DateTime.now;
 
   @override
   void pauseFollowForMapGesture() {
@@ -54,7 +60,12 @@ class MapNavigationController implements MapNavigationActions {
     host.northResetScheduled = false;
     if (host.mapCenteredOnCurrentUser) return;
     host.currentMapRotationDegrees = 0;
-    if (host.isVisible && host.mapCameraReady) host.mapController.rotate(0);
+    if (host.isVisible && host.mapCameraReady)
+      moveMapCamera(
+        host.currentMapCenter,
+        host.currentMapZoom,
+        rotationDegrees: 0,
+      );
   }
 
   @override
@@ -144,6 +155,10 @@ class MapNavigationController implements MapNavigationActions {
       return;
     }
 
+    if (onCamera != null) {
+      onCamera!(location, safeZoom, safeRotation);
+      return;
+    }
     host.mapController.moveAndRotate(location, safeZoom, safeRotation);
   }
 
@@ -215,6 +230,10 @@ class MapNavigationController implements MapNavigationActions {
       return;
     }
 
+    if (onFit != null) {
+      onFit!(spot.coordinates, userLocation);
+      return;
+    }
     host.mapController.fitCamera(
       CameraFit.bounds(
         bounds: LatLngBounds.fromPoints([spot.coordinates, userLocation]),
@@ -720,6 +739,10 @@ class MapNavigationController implements MapNavigationActions {
 
     // Place the car below centre, leaving more of the road ahead visible.
     // Rotate first: flutter_map interprets the move offset in camera space.
+    if (onCamera != null) {
+      moveMapCamera(location, host.navigationZoom, rotationDegrees: rotation);
+      return;
+    }
     final controller = host.mapController;
     controller.rotate(rotation);
     controller.move(
