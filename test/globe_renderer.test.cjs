@@ -3,7 +3,8 @@ const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const vm=require('node:vm');
 function fixture() {
-  const handlers={}, messages=[], moves=[], sources={}, layers=[], paints=[], layouts=[], timers=new Set();
+  const handlers={}, messages=[], moves=[], sources={}, layers=[], paints=[], layouts=[], timers=new Set(), frames=new globalThis.Map();
+  let frameId=0;
   class Map {
     constructor() {this.zoom=1;}
     addControl() {}
@@ -18,13 +19,14 @@ function fixture() {
     addLayer(layer) {layers.push(layer);}
     queryRenderedFeatures(point) {return point;}
     getZoom() {return this.zoom;}
+    jumpTo(move) {moves.push(move);}
     easeTo(move) {moves.push(move);}
     fitBounds(bounds, options) {moves.push({bounds,...options});}
   }
   let clock=0;
-  const context={Date:{now:()=>clock},setInterval:fn=>{timers.add(fn);return fn;},clearInterval:fn=>timers.delete(fn),window:{CcsGlobe:{postMessage:m=>messages.push(JSON.parse(m))}},document:{getElementById:()=>({})},maplibregl:{Map,NavigationControl:class{}}};
+  const context={performance:{now:()=>clock},requestAnimationFrame:fn=>{frames.set(++frameId,fn);return frameId;},cancelAnimationFrame:id=>frames.delete(id),Date:{now:()=>clock},setInterval:fn=>{timers.add(fn);return fn;},clearInterval:fn=>timers.delete(fn),window:{CcsGlobe:{postMessage:m=>messages.push(JSON.parse(m))}},document:{getElementById:()=>({})},maplibregl:{Map,NavigationControl:class{}}};
   vm.runInNewContext(fs.readFileSync('assets/globe/globe.js','utf8'),context);
-  return {...context,handlers,messages,moves,sources,layers,paints,layouts,timers,setTime:t=>clock=t};
+  return {...context,handlers,messages,moves,sources,layers,paints,layouts,timers,setTime:t=>clock=t, tick:t=>{clock=t;const pending=[...frames.values()];frames.clear();pending.forEach(fn=>fn(t));}, frames};
 }
 test('data arriving before map load survives; replacements remove expired markers',()=>{
   const f=fixture(), data={type:'FeatureCollection',features:[{properties:{kind:'spot',id:'one',label:'</script><script>bad()</script>'},geometry:{type:'Point',coordinates:[24,57]}}]};
@@ -118,4 +120,26 @@ test('police alternates blue/red, SOS pulses, hidden views and removed alerts st
   f.window.ccsSetFeatures({type:'FeatureCollection',features:[]}); assert.equal(f.timers.size,0);
   assert.equal(f.layers.find(l=>l.id==='ccs-police-badge').minzoom,14.2);
   assert.equal(f.layers.find(l=>l.id==='ccs-sos-badge').layout['icon-image'],'ccs-sos');
+});
+
+test('live users render their car artwork with course rotation',()=>{
+ const f=fixture(); f.handlers['style.load']();
+ const cars=f.layers.find(l=>l.id==='ccs-live-cars');
+ assert.equal(cars.type,'symbol'); assert.equal(cars.layout['icon-rotation-alignment'],'map');
+ assert.match(JSON.stringify(cars.layout['icon-image']),/car_green/);
+ assert.ok(!f.layers.some(l=>l.id==='ccs-live-points'));
+});
+test('motion interpolates arrow and camera together without changing the spots source',()=>{
+ const f=fixture(); f.handlers['style.load'](); const spots=f.sources.ccs.data;
+ f.window.ccsSetMotion({position:[24,57],heading:350,following:true,zoom:16}); f.tick(100);
+ f.window.ccsSetMotion({position:[24.001,57.001],heading:10,following:true,zoom:16}); f.tick(150);
+ const marker=f.sources['ccs-motion'].data.features[0];
+ assert.ok(Math.abs(marker.geometry.coordinates[0]-24.0005)<1e-8);
+ assert.ok(Math.abs(marker.properties.heading%360)<1e-8);
+ assert.deepEqual(f.moves.at(-1).center,marker.geometry.coordinates);
+ assert.equal(f.sources.ccs.data,spots);
+ f.handlers.dragstart(); const moves=f.moves.length; f.tick(200);
+ assert.equal(f.moves.length,moves);
+ f.window.ccsSetMotion({position:[25,58],heading:10,following:false,zoom:16});
+ f.window.ccsSetActive(false); assert.equal(f.frames.size,0);
 });

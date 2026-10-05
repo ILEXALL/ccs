@@ -1,3 +1,8 @@
+import '../data/live_location_config.dart'
+    show
+        regularUserCarIconAsset,
+        verifiedUserCarIconAsset,
+        friendUserCarIconAsset;
 import '../widgets/globe_marker_images.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/map_style.dart';
@@ -18,6 +23,7 @@ class GlobeMapScreen extends StatefulWidget {
   const GlobeMapScreen({
     super.key,
     required this.readFeatures,
+    this.readMotion,
     this.onBack,
     this.onInteraction,
     this.onCameraChanged,
@@ -33,6 +39,7 @@ class GlobeMapScreen extends StatefulWidget {
     required this.onLocate,
   });
   final Map<String, Object?> Function() readFeatures;
+  final Map<String, Object?> Function()? readMotion;
 
   final VoidCallback? onBack, onInteraction;
   final void Function(double, double, double)? onCameraChanged;
@@ -54,7 +61,9 @@ class GlobeMapScreen extends StatefulWidget {
 class _GlobeMapScreenState extends State<GlobeMapScreen>
     with WidgetsBindingObserver {
   late final WebViewController controller;
-  Timer? timer;
+  Timer? timer, motionTimer;
+  bool sendingMotion = false;
+  String? previousMotion;
   bool ready = false, sending = false, active = true;
   String? previous;
   String? error;
@@ -112,6 +121,7 @@ class _GlobeMapScreenState extends State<GlobeMapScreen>
               unawaited(syncAnimationVisibility());
               error = null;
               unawaited(applySavedStyle());
+              previousMotion = null;
               previous = null;
               unawaited(refresh());
             } else if (data['type'] == 'clear') {
@@ -174,10 +184,38 @@ class _GlobeMapScreenState extends State<GlobeMapScreen>
         }
       }),
     );
+    motionTimer = Timer.periodic(
+      const Duration(milliseconds: 100),
+      (_) => unawaited(refreshMotion()),
+    );
     timer = Timer.periodic(
       const Duration(seconds: 1),
       (_) => unawaited(refresh()),
     );
+  }
+
+  Future<void> refreshMotion() async {
+    if (!mounted ||
+        !ready ||
+        !active ||
+        !widget.isVisible ||
+        sendingMotion ||
+        widget.readMotion == null)
+      return;
+    sendingMotion = true;
+    try {
+      final data = jsonEncode(widget.readMotion!());
+      if (data != previousMotion) {
+        await controller.runJavaScript(
+          'window.ccsSetMotion(JSON.parse(${jsonEncode(data)}));',
+        );
+        previousMotion = data;
+      }
+    } catch (_) {
+      previousMotion = null;
+    } finally {
+      sendingMotion = false;
+    }
   }
 
   Future<void> refresh() async {
@@ -187,6 +225,9 @@ class _GlobeMapScreenState extends State<GlobeMapScreen>
       if (!iconsSent) {
         final icons = await globeMarkerImages();
         for (final asset in {
+          regularUserCarIconAsset,
+          verifiedUserCarIconAsset,
+          friendUserCarIconAsset,
           ...spotCategoryIconAssets.values,
           ...spotCategoryLightIconAssets.values,
         }) {
@@ -262,6 +303,7 @@ class _GlobeMapScreenState extends State<GlobeMapScreen>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     active = state == AppLifecycleState.resumed;
+    previousMotion = null;
     unawaited(syncAnimationVisibility());
     if (active) unawaited(refresh());
   }
@@ -281,6 +323,7 @@ class _GlobeMapScreenState extends State<GlobeMapScreen>
   void didUpdateWidget(covariant GlobeMapScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.isVisible != widget.isVisible) {
+      previousMotion = null;
       unawaited(syncAnimationVisibility());
       if (widget.isVisible) unawaited(refresh());
     }
@@ -291,6 +334,7 @@ class _GlobeMapScreenState extends State<GlobeMapScreen>
     active = false;
     unawaited(syncAnimationVisibility());
     timer?.cancel();
+    motionTimer?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }

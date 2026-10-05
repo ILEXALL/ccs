@@ -504,6 +504,19 @@ class _MapScreenState extends State<MapScreen>
       }
       return null;
     },
+    readMotion: () {
+      final own = displayedUserLocation ?? currentUserLocation;
+      return {
+        'position': own != null && isValidLatLng(own)
+            ? [own.longitude, own.latitude]
+            : null,
+        'heading': displayedNavigationHeading.isFinite
+            ? displayedNavigationHeading
+            : 0,
+        'following': mapCenteredOnCurrentUser,
+        'zoom': navigationZoom,
+      };
+    },
     readFeatures: () {
       if (!mounted || FirebaseAuth.instance.currentUser == null) {
         return {'type': 'FeatureCollection', 'features': <Object>[]};
@@ -564,6 +577,10 @@ class _MapScreenState extends State<MapScreen>
                 location.uid,
                 location.username,
                 location.coordinates,
+                {
+                  'icon': presence.liveLocationCarIconAsset(location),
+                  'heading': location.headingDegrees,
+                },
               ),
           for (final report in layers.visiblePoliceReports)
             if (isValidLatLng(report.coordinates))

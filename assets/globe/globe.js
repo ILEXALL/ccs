@@ -18,10 +18,10 @@ const iconCache = new Map();
 // Reuse the bundled CCS category PNGs; never fetch icons.
 window.ccsSetIcons = icons => {
   for (const [id, uri] of Object.entries(icons)) {
-    if ((!id.startsWith('assets/spot_icons/') && !/^ccs-(self-arrow|pin-(blue|amber|red)|police-([0-9]|1[0-6])|sos)$/.test(id)) || !uri.startsWith('data:image/png;base64,')) continue;
+    if ((!id.startsWith('assets/spot_icons/') && !/^assets\/user_cars\/car_(green|blue|purple)\.png$/.test(id) && !/^ccs-(self-arrow|pin-(blue|amber|red)|police-([0-9]|1[0-6])|sos)$/.test(id)) || !uri.startsWith('data:image/png;base64,')) continue;
     const image = new Image();
     image.onload = () => {
-      for (const tint of (id.startsWith('ccs-') ? [''] : ['', '#616161', '#ffab40'])) {
+      for (const tint of (!id.startsWith('assets/spot_icons/') ? [''] : ['', '#616161', '#ffab40'])) {
         const canvas = document.createElement('canvas'); canvas.width=128; canvas.height=128;
         const ctx = canvas.getContext('2d');
         const scale = Math.min(128/image.width,128/image.height);
@@ -38,6 +38,33 @@ window.ccsSetIcons = icons => {
     image.src=uri;
   }
 };
+// Small motion packets use their own source; hundreds of spots are not rebuilt
+// at animation-frame frequency. Both arrow and camera use the same interpolation.
+let motionReceived=false, motionPosition=null, motionHeading=0, motionFollowing=false;
+let motionFrame=null;
+function motionData() {return {type:'FeatureCollection',features:motionPosition?[{
+  type:'Feature',geometry:{type:'Point',coordinates:motionPosition},properties:{kind:'self',heading:motionHeading}
+}]:[]};}
+function stopMotion() {if(motionFrame!==null) cancelAnimationFrame(motionFrame); motionFrame=null;}
+window.ccsSetMotion = data => {
+  motionReceived=true; stopMotion();
+  motionFollowing=!!data.following;
+  if(!data.position) {motionPosition=null; if(ready) map.getSource('ccs-motion')?.setData(motionData());return;}
+  const from=motionPosition||data.position, heading=motionHeading;
+  const delta=((data.heading-heading+540)%360)-180;
+  const lngDelta=((data.position[0]-from[0]+540)%360)-180;
+  const started=performance.now();
+  function frame(now) {
+    if(!ready || !viewActive) return;
+    const t=Math.min(1,Math.max(0,(now-started)/100));
+    motionPosition=[from[0]+lngDelta*t,from[1]+(data.position[1]-from[1])*t];
+    motionHeading=heading+delta*t;
+    map.getSource('ccs-motion')?.setData(motionData());
+    if(motionFollowing) map.jumpTo({center:motionPosition,zoom:data.zoom,bearing:motionHeading});
+    motionFrame=t<1?requestAnimationFrame(frame):null;
+  }
+  motionFrame=requestAnimationFrame(frame);
+};
 function currentPosition() { return latest.features.find(f => f.properties.kind === 'self')?.geometry.coordinates; }
 function follow() {
   const p = currentPosition();
@@ -45,6 +72,11 @@ function follow() {
 }
 window.ccsSetFeatures = data => {
   latest = data;
+  if(!motionReceived) {
+    const self=data.features.find(f=>f.properties.kind==='self');
+    motionPosition=self?.geometry.coordinates||null; motionHeading=self?.properties.heading||0;
+    if(ready) map.getSource('ccs-motion')?.setData(motionData());
+  }
   startAlertAnimation();
   if (ready) {
     map.getSource('ccs').setData(data);
@@ -52,12 +84,12 @@ window.ccsSetFeatures = data => {
     if(camera && camera.revision !== cameraRevision) {
       cameraRevision=camera.revision; following=false;
       if(camera.bounds) map.fitBounds(camera.bounds,{padding:80,maxZoom:15.6,duration:500});
-      else map.easeTo({center:camera.center,zoom:camera.zoom,bearing:camera.bearing||0,duration:250});
+      else if(!motionFollowing) map.easeTo({center:camera.center,zoom:camera.zoom,bearing:camera.bearing||0,duration:250});
     } else if(following) follow();
   }
 };
 window.ccsFollow = () => { following = true; follow(); };
-window.ccsWorld = () => { following = false; notify('gesture'); map.easeTo({zoom:1.3,pitch:0,duration:1200}); };
+window.ccsWorld = () => { following = false; motionFollowing=false; notify('gesture'); map.easeTo({zoom:1.3,pitch:0,duration:1200}); };
 window.ccsSetStyle = style => {
   if (!['dark','positron'].includes(style) || style===currentStyle) {notify('ready');return;}
   stopAlertAnimation(); currentStyle=style; ready=false;
@@ -65,7 +97,7 @@ window.ccsSetStyle = style => {
 };
 let alertTimer=null, viewActive=true;
 function stopAlertAnimation() { if(alertTimer!==null) clearInterval(alertTimer); alertTimer=null; }
-window.ccsSetActive = active => {viewActive=!!active; if(viewActive) startAlertAnimation(); else stopAlertAnimation();};
+window.ccsSetActive = active => {viewActive=!!active; if(viewActive) startAlertAnimation(); else {stopAlertAnimation();stopMotion();}};
 function alertRadius(kind) {
   const stops=['interpolate',['linear'],['zoom']];
   for(const z of [1,4,5,7,9,11,12,14.19,14.2,15,16,17,18]) {
@@ -111,15 +143,16 @@ function startAlertAnimation() {
 try {
   map = new maplibregl.Map({container:'map',style:'https://tiles.openfreemap.org/styles/dark',center:[24,45],zoom:1.3,maxZoom:18,attributionControl:{compact:true}});
   // Native compact controls own globe/follow; pinch gestures provide zoom.
-  map.on('dragstart', () => {following=false; notify('gesture');});
-  map.on('zoomstart', e => {if(e.originalEvent) {following=false;notify('gesture');}});
-  map.on('rotatestart', e => {if(e.originalEvent) {following=false;notify('gesture');}});
-  map.on('moveend', () => {const p=map.getCenter(); notify('camera',{lat:p.lat,lng:p.lng,zoom:map.getZoom()});});
+  map.on('dragstart', () => {following=false; motionFollowing=false; notify('gesture');});
+  map.on('zoomstart', e => {if(e.originalEvent) {following=false;motionFollowing=false;notify('gesture');}});
+  map.on('rotatestart', e => {if(e.originalEvent) {following=false;motionFollowing=false;notify('gesture');}});
+  map.on('moveend', () => {if(motionFollowing) return; const p=map.getCenter(); notify('camera',{lat:p.lat,lng:p.lng,zoom:map.getZoom()});});
   map.on('error', () => {notify('error');statusBox.textContent='Map could not load. Check your connection or retry the map.';statusBox.hidden=false;});
   map.on('style.load', () => {
     map.setProjection({type:'globe'});
     for (const [key,pixels] of iconCache) map.addImage(key,pixels,{pixelRatio:2});
     map.addSource('ccs',{type:'geojson',data:latest});
+    map.addSource('ccs-motion',{type:'geojson',data:motionData()});
     map.addLayer({id:'ccs-restricted',type:'fill',source:'ccs',filter:['==',['get','kind'],'restricted'],paint:{'fill-color':'#ff5252','fill-opacity':0.16}});
     map.addLayer({id:'ccs-pin',type:'symbol',source:'ccs',filter:['==',['get','kind'],'pin'],layout:{
       'icon-image':['coalesce',['get','icon'],'ccs-pin-blue'],'icon-size':56/64,'icon-anchor':'bottom',
@@ -161,17 +194,22 @@ try {
       'icon-size':iconSize,'icon-allow-overlap':true,'icon-ignore-placement':true,
       'icon-pitch-alignment':'viewport','icon-rotation-alignment':'viewport'},
       paint:{'icon-opacity':['coalesce',['get','opacity'],1]}});
-    map.addLayer({id:'ccs-live-points',type:'circle',source:'ccs',filter:['==',['get','kind'],'live'],paint:{
-      'circle-radius':['interpolate',['linear'],['zoom'],1,3,12,8,17,11],
-      'circle-color':['match',['get','kind'],'spot','#4d90ff','self','#ffffff','#38dfba'],
-      'circle-stroke-color':'#0b1323','circle-stroke-width':2}});
-    map.addLayer({id:'ccs-self',type:'symbol',source:'ccs',filter:['==',['get','kind'],'self'],layout:{
+    const carSize=['interpolate',['linear'],['zoom']];
+    for(const z of [1,4,7,10,13,15,17,18]) {
+      const p=Math.max(0,Math.min(1,(z-4)/13));
+      carSize.push(z,(9+25*(1-Math.pow(1-p,3)))/64);
+    }
+    map.addLayer({id:'ccs-live-cars',type:'symbol',source:'ccs',filter:['==',['get','kind'],'live'],layout:{
+      'icon-image':['coalesce',['get','icon'],'assets/user_cars/car_green.png'],'icon-size':carSize,
+      'icon-rotate':['coalesce',['get','heading'],0],'icon-rotation-alignment':'map',
+      'icon-pitch-alignment':'viewport','icon-allow-overlap':true,'icon-ignore-placement':true}});
+    map.addLayer({id:'ccs-self',type:'symbol',source:'ccs-motion',filter:['==',['get','kind'],'self'],layout:{
       'icon-image':'ccs-self-arrow','icon-size':['interpolate',['linear'],['zoom'],3,18/64,16,62/64],
       'icon-rotate':['coalesce',['get','heading'],0], 'icon-rotation-alignment':'map',
       'icon-pitch-alignment':'viewport','icon-allow-overlap':true,'icon-ignore-placement':true}});
     addAlertLayers();
     const labelFont=map.getStyle().layers.find(l=>l.layout?.['text-font'])?.layout['text-font'] || ['Noto Sans Regular'];
-    map.addLayer({id:'ccs-labels',type:'symbol',source:'ccs',filter:['==',['geometry-type'],'Point'],minzoom:12.35,layout:{
+    map.addLayer({id:'ccs-labels',type:'symbol',source:'ccs',filter:['all',['==',['geometry-type'],'Point'],['!=',['get','kind'],'self']],minzoom:12.35,layout:{
       'text-font':labelFont,'text-field':['get','label'],
       'text-size':['interpolate',['linear'],['zoom'],11.25,8.2,16,10],
       'text-anchor':'bottom','text-offset':[0,-4]},
@@ -182,7 +220,7 @@ try {
   map.on('click', e => {
     if(!ready) return;
     if(e.lngLat) notify('pick',{lat:e.lngLat.lat,lng:e.lngLat.lng});
-    const p=map.queryRenderedFeatures(e.point,{layers:['ccs-spot-icons','ccs-points','ccs-live-points','ccs-police-core','ccs-sos-core','ccs-police-badge','ccs-sos-badge']})[0]?.properties;
+    const p=map.queryRenderedFeatures(e.point,{layers:['ccs-spot-icons','ccs-points','ccs-live-cars','ccs-police-core','ccs-sos-core','ccs-police-badge','ccs-sos-badge']})[0]?.properties;
     if(p && p.kind!=='self') notify('select',{kind:p.kind,id:p.id});
     else if(!p) notify('clear');
   });
