@@ -205,7 +205,7 @@ class MainActivity : FlutterActivity() {
         }
 
         builder
-            .setSmallIcon(R.mipmap.ic_launcher)
+            .setSmallIcon(R.drawable.ic_ccs_notification)
             .setContentTitle(title)
             .setContentText(body)
             .setStyle(Notification.BigTextStyle().bigText(body))
@@ -232,7 +232,7 @@ class MainActivity : FlutterActivity() {
         val launch = packageManager.getLaunchIntentForPackage(packageName)
         val pending = launch?.let { PendingIntent.getActivity(this, 0, it, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE) }
         val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) Notification.Builder(this, "ccs_badge_summary") else Notification.Builder(this)
-        manager.notify(9108, builder.setSmallIcon(R.mipmap.ic_launcher).setContentTitle("CCS")
+        manager.notify(9108, builder.setSmallIcon(R.drawable.ic_ccs_notification).setContentTitle("CCS")
             .setContentText("$count unread notifications").setNumber(count).setOnlyAlertOnce(true)
             .setContentIntent(pending).setAutoCancel(true).build())
     }

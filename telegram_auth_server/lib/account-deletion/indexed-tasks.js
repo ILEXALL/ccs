@@ -6,7 +6,7 @@ const identityFields = ['uid', 'userId', 'senderUid', 'authorId', 'authorUid',
   'reviewedByUid', 'ownerUid', 'createdBy', 'updatedBy', 'deletedBy'];
 
 function userIndexTasks(root, uid, username) {
-  if (root === 'push_deliveries') return [queryTask(root, 'userId', uid)];
+  if (root === 'push_deliveries' || root === 'partner_views') return [queryTask(root, 'userId', uid)];
   if (root !== 'user_notifications') return null;
   const tasks = identityFields.flatMap(field => [field, `data.${field}`])
     .map(field => queryTask(root, field, uid));

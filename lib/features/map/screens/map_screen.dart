@@ -9,6 +9,7 @@ import '../controllers/map_presence_controller.dart';
 import '../controllers/map_sharing_controller.dart';
 import '../controllers/map_sos_controller.dart';
 import 'dart:async';
+import 'package:ccs_app/features/auth/data/auth_state.dart' show currentUser;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart' hide Text;
@@ -31,8 +32,7 @@ import 'package:ccs_app/features/map/models/map_style.dart' show CcsMapStyle;
 import 'package:ccs_app/features/map/models/police_report.dart'
     show PoliceReportData;
 import 'package:ccs_app/features/map/models/sos_report.dart' show SosReportData;
-import 'package:ccs_app/features/map/data/map_overview.dart'
-    show loadedSpotsMapCenter;
+import 'package:ccs_app/features/map/data/country_capitals.dart';
 import 'package:ccs_app/features/map/widgets/report_map_cards.dart'
     show PoliceReportMapCard, SosReportMapCard;
 import 'package:ccs_app/features/map/widgets/map_spot_card.dart'
@@ -240,9 +240,9 @@ class _MapScreenState extends State<MapScreen>
   @override
   bool defaultMapUsesSpots = true;
   @override
-  LatLng currentMapCenter = loadedSpotsMapCenter();
+  LatLng currentMapCenter = capitalForProfileCountry(currentUser.country);
   @override
-  double currentMapZoom = 3;
+  double currentMapZoom = 6.5;
   @override
   double currentMapRotationDegrees = 0;
   @override
@@ -431,6 +431,16 @@ class _MapScreenState extends State<MapScreen>
       mapCameraChangedByUser = true;
     },
     isSharing: isSharingLiveLocation,
+    sharingExpiresAt: liveLocationExpiresAt,
+    onExtendSharing: () async {
+      if (isTogglingLiveLocation) return;
+      setState(() => isTogglingLiveLocation = true);
+      try {
+        await sharing.continueLiveLocationSharing();
+      } finally {
+        if (mounted) setState(() => isTogglingLiveLocation = false);
+      }
+    },
     sharingBusy: isTogglingLiveLocation,
     onShareChanged: sharing.toggleLiveLocationSharing,
     onFilter: appearance.showMapCategoryFilterSheet,

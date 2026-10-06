@@ -37,6 +37,7 @@ import 'navigation_motion.dart';
 class MapNavigationController implements MapNavigationActions {
   final MapSession host;
   final NavigationMotion _motion = NavigationMotion();
+  String? _fittedPreview;
   final DateTime Function() _now;
   final void Function(LatLng, double, double)? onCamera;
   final void Function(LatLng, LatLng)? onFit;
@@ -95,14 +96,6 @@ class MapNavigationController implements MapNavigationActions {
         return;
       }
       if (!(host.mounted && viewContext.mounted) || !host.isVisible) return;
-      if (!host.initialProfileCityFocusApplied &&
-          mapFocusRequest.value == null &&
-          !host.mapCameraChangedByUser) {
-        host.navigationZoom = cityOverviewZoom(
-          MediaQuery.sizeOf(viewContext).width,
-        );
-        host.mapCenteredOnCurrentUser = true;
-      }
       startNavigationTracking();
       // Use a completed fresh warm-up, never await a startup request that may
       // have stalled while another OS permission dialog was open.
@@ -158,6 +151,17 @@ class MapNavigationController implements MapNavigationActions {
 
   @override
   void restoreMapCamera() {
+    if (!host.initialProfileCityFocusApplied &&
+        !host.mapCameraChangedByUser &&
+        !host.routePreviewMode) {
+      final size = MediaQuery.sizeOf(host.context);
+      host.currentMapZoom = regionalOverviewZoom(
+        size.width,
+        math.max(1, size.height - 150),
+        host.currentMapCenter.latitude,
+      );
+      host.initialProfileCityFocusApplied = true;
+    }
     moveMapCamera(
       isValidLatLng(host.currentMapCenter)
           ? host.currentMapCenter
@@ -214,6 +218,9 @@ class MapNavigationController implements MapNavigationActions {
     if (!host.isVisible || !host.mapCameraReady) {
       return;
     }
+    final fitKey = '${spot.id}:${userLocation != null}';
+    if (_fittedPreview == fitKey) return;
+    _fittedPreview = fitKey;
 
     if (userLocation == null || !isValidLatLng(userLocation)) {
       moveMapCamera(
@@ -254,6 +261,7 @@ class MapNavigationController implements MapNavigationActions {
 
   @override
   Future<void> startRoutePreviewForSpot(CarSpot spot) async {
+    _fittedPreview = null;
     if (!isValidLatLng(spot.coordinates)) {
       return;
     }
@@ -308,6 +316,7 @@ class MapNavigationController implements MapNavigationActions {
       host.routePreviewLocating = false;
     });
     startNavigationTracking();
+    _fittedPreview = null;
     fitRoutePreviewCamera();
   }
 
@@ -447,9 +456,7 @@ class MapNavigationController implements MapNavigationActions {
     );
 
     final nextDisplay = distanceToNewGps > 80 ? location : currentDisplay;
-
     host.updateMap(() {
-      host.initialProfileCityFocusApplied = true;
       host.defaultMapUsesSpots = false;
       host.currentUserLocation = location;
       host.displayedUserLocation = nextDisplay;

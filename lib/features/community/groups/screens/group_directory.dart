@@ -325,7 +325,7 @@ class _PrivateGroupDirectoryState extends State<PrivateGroupDirectory>
       return Padding(
         padding: const EdgeInsets.only(bottom: 12),
         child: Material(
-          color: member ? const Color(0xFFD5EEDC) : panelGlass,
+          color: member ? const Color(0xFF182D47) : panelGlass,
           borderRadius: BorderRadius.circular(20),
           clipBehavior: Clip.antiAlias,
           child: InkWell(
@@ -355,7 +355,7 @@ class _PrivateGroupDirectoryState extends State<PrivateGroupDirectory>
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
-                            color: member ? const Color(0xFF173B26) : null,
+                            color: member ? const Color(0xFFDCEAFF) : null,
                             fontSize: 17,
                             fontWeight: FontWeight.w800,
                           ),
@@ -365,7 +365,7 @@ class _PrivateGroupDirectoryState extends State<PrivateGroupDirectory>
                           groupVisibilityLabel(group['isPrivate'] != false),
                           style: TextStyle(
                             color: member
-                                ? const Color(0xFF3E6350)
+                                ? const Color(0xFF9CB4D2)
                                 : Colors.white60,
                             fontSize: 12,
                           ),

@@ -399,6 +399,24 @@ class _ProfileScreenState extends State<ProfileScreen>
           return ListView(
             padding: const EdgeInsets.fromLTRB(14, 12, 14, 24),
             children: [
+              if (userRoleIsStaff(currentUser.role)) ...[
+                SizedBox(
+                  height: 42,
+                  child: OutlinedButton.icon(
+                    onPressed: openAdminPanel,
+                    icon: const Icon(
+                      Icons.admin_panel_settings_outlined,
+                      size: 20,
+                    ),
+                    label: CcsText(
+                      currentUser.role == UserRole.admin
+                          ? 'Admin Panel'
+                          : 'Moderator Panel',
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 10),
+              ],
               ProfileHeader(
                 profile: profile,
                 garageValue: garageValue,
@@ -445,19 +463,7 @@ class _ProfileScreenState extends State<ProfileScreen>
                 onTap: openBlacklist,
               ),
               const SizedBox(height: 10),
-              if (userRoleIsStaff(currentUser.role)) ...[
-                ProfileActionTile(
-                  icon: Icons.admin_panel_settings,
-                  title: currentUser.role == UserRole.admin
-                      ? 'Admin Panel'
-                      : 'Moderator Panel',
-                  subtitle: currentUser.role == UserRole.admin
-                      ? 'Review spots and manage users'
-                      : 'Review spots and moderate users',
-                  onTap: openAdminPanel,
-                ),
-                const SizedBox(height: 10),
-              ] else
+              if (!userRoleIsStaff(currentUser.role))
                 FutureBuilder<bool>(
                   future: currentUserHasCommunityModerationAccess(),
                   builder: (context, snapshot) {

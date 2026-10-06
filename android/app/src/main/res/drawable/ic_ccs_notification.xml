@@ -1,0 +1,10 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp" android:height="24dp"
+    android:viewportWidth="2048" android:viewportHeight="2048">
+    <!-- Monochrome CCS wordmark silhouette for Android notification masking. -->
+    <group android:translateY="675">
+        <path android:fillColor="#FFFFFFFF" android:pathData="M440,150 L798,150 L752,246 L460,246 Q419,246 399,284 L340,411 Q327,443 363,444 L686,444 L641,543 L284,543 Q152,543 196,439 L281,257 Q322,150 440,150 Z"/>
+        <path android:fillColor="#FFFFFFFF" android:pathData="M976,150 L1331,150 L1286,246 L996,246 Q953,246 936,285 L878,411 Q864,443 902,444 L1204,444 L1159,543 L824,543 Q692,543 738,438 L821,256 Q862,150 976,150 Z"/>
+        <path android:fillColor="#FFFFFFFF" android:pathData="M1515,150 L1879,150 L1832,247 L1517,247 Q1478,247 1462,280 Q1451,303 1480,303 L1694,303 Q1818,303 1769,410 L1747,453 Q1701,543 1570,543 L1217,543 L1262,444 L1583,444 Q1616,444 1628,418 Q1649,391 1619,391 L1408,391 Q1276,391 1326,289 L1347,244 Q1397,150 1515,150 Z"/>
+    </group>
+</vector>

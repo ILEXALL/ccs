@@ -104,7 +104,13 @@ window.ccsSetFeatures = data => {
     const camera=data.camera;
     if(camera && camera.revision !== cameraRevision) {
       cameraRevision=camera.revision; following=false;
-      if(camera.bounds) map.fitBounds(camera.bounds,{padding:80,maxZoom:15.6,duration:500});
+      if(camera.bounds) {
+        const [a,b]=camera.bounds;
+        const east=a[0]+shortArc(b[0]-a[0]);
+        const bounds=[[Math.min(a[0],east),Math.min(a[1],b[1])],[Math.max(a[0],east),Math.max(a[1],b[1])]];
+        motionFollowing=false;following=false;gestureBlocked=true;
+        map.fitBounds(bounds,{padding:{top:100,bottom:160,left:45,right:45},bearing:0,pitch:0,maxZoom:15.6,duration:500});
+      }
       else if(!motionFollowing && !manualTouchActive) map.easeTo({center:camera.center,zoom:camera.zoom,...(!gestureBlocked?{bearing:camera.bearing||0}:{}),duration:250});
     } else if(following) follow();
   }
@@ -162,7 +168,7 @@ function startAlertAnimation() {
   animateAlerts(); alertTimer=setInterval(animateAlerts,80);
 }
 try {
-  map = new maplibregl.Map({container:'map',style:'https://tiles.openfreemap.org/styles/dark',center:[24,45],zoom:1.3,maxZoom:18,attributionControl:{compact:true}});
+  map = new maplibregl.Map({container:'map',style:'https://tiles.openfreemap.org/styles/dark',center:[24.1,56.95],zoom:6.5,maxZoom:18,attributionControl:{compact:true}});
   // Native compact controls own globe/follow; pinch gestures provide zoom.
   const browse = () => {gestureBlocked=true;following=false;motionFollowing=false;notify('gesture');};
   // Capture the second finger before MapLibre handles the pinch. Camera jumpTo

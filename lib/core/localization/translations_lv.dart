@@ -1,4 +1,9 @@
 const latvianTranslations = <String, String>{
+  'Load more': 'Ielādēt vairāk',
+  'Open in Google Maps': 'Atvērt Google Maps',
+  'Extend sharing': 'Pagarināt kopīgošanu',
+  'Could not update sharing. Please retry.':
+      'Neizdevās atjaunināt kopīgošanu. Mēģiniet vēlreiz.',
   'Sharing live': 'Kopīgoju',
 
   'Styles': 'Stili',

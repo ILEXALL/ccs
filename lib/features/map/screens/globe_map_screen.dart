@@ -35,6 +35,8 @@ class GlobeMapScreen extends StatefulWidget {
     required this.sharingBusy,
     required this.onShareChanged,
     this.isVisible = true,
+    this.sharingExpiresAt,
+    this.onExtendSharing,
     required this.cardBuilder,
     required this.onFilter,
     required this.onAddReport,
@@ -48,6 +50,8 @@ class GlobeMapScreen extends StatefulWidget {
   final void Function(double latitude, double longitude)? onPick;
   final bool showControls;
   final bool isSharing, sharingBusy, isVisible;
+  final DateTime? sharingExpiresAt;
+  final Future<void> Function()? onExtendSharing;
   final Future<void> Function(bool) onShareChanged;
   final Widget? Function(BuildContext, String, String) cardBuilder;
   final Future<void> Function() onFilter, onAddReport, onLocate;
@@ -423,6 +427,52 @@ class _GlobeMapScreenState extends State<GlobeMapScreen>
     );
   }
 
+  String get sharingCountdown {
+    final seconds =
+        (widget.sharingExpiresAt?.difference(DateTime.now()).inSeconds ?? 0)
+            .clamp(0, 864000);
+    return '${(seconds ~/ 3600).toString().padLeft(2, '0')}:${((seconds ~/ 60) % 60).toString().padLeft(2, '0')}:${(seconds % 60).toString().padLeft(2, '0')}';
+  }
+
+  Future<void> sharingOptions() async {
+    if (!widget.isSharing) {
+      await widget.onShareChanged(true);
+      return;
+    }
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.stop_circle_outlined),
+              title: CcsText(trText('Stop sharing')),
+              onTap: () => Navigator.pop(context, 'stop'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.more_time),
+              title: CcsText(trText('Extend sharing')),
+              onTap: () => Navigator.pop(context, 'extend'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (!mounted) return;
+    try {
+      if (action == 'stop') await widget.onShareChanged(false);
+      if (action == 'extend') await widget.onExtendSharing?.call();
+    } catch (_) {
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: CcsText(trText('Could not update sharing. Please retry.')),
+          ),
+        );
+    }
+  }
+
   Widget control(
     String label,
     IconData icon,
@@ -574,16 +624,14 @@ class _GlobeMapScreenState extends State<GlobeMapScreen>
                               widget.sharingBusy
                                   ? 'Updating...'
                                   : widget.isSharing
-                                  ? 'Sharing live'
+                                  ? sharingCountdown
                                   : 'Share live',
                               widget.isSharing
                                   ? Icons.wifi_tethering
                                   : Icons.location_on_outlined,
                               widget.sharingBusy
                                   ? null
-                                  : () => unawaited(
-                                      widget.onShareChanged(!widget.isSharing),
-                                    ),
+                                  : () => unawaited(sharingOptions()),
                               text: true,
                               accent: true,
                               sharingActive: widget.isSharing,

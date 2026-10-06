@@ -2,6 +2,8 @@ import 'package:ccs_app/features/moderation/controllers/admin_edit_spot_view_sta
 import 'package:ccs_app/features/moderation/widgets/admin_edit_spot_content.dart';
 import 'package:ccs_app/features/moderation/controllers/admin_edit_spot_controller.dart';
 import 'dart:async';
+import 'package:ccs_app/core/platform/external_links.dart'
+    show launchExternalUrl;
 import 'package:flutter/material.dart' hide Text;
 import 'package:ccs_app/core/config/app_config.dart' show maxSpotGalleryPhotos;
 import 'package:ccs_app/core/localization/ccs_text.dart'
@@ -224,6 +226,27 @@ class _AdminEditSpotScreenState extends State<AdminEditSpotScreen>
       backgroundColor: Colors.transparent,
       appBar: AppBar(
         title: const CcsText('Edit Spot'),
+        actions: [
+          IconButton(
+            tooltip: trText('Open in Google Maps'),
+            icon: const Icon(Icons.map_outlined),
+            onPressed: () {
+              final lat = double.tryParse(latController.text);
+              final lng = double.tryParse(lngController.text);
+              if (lat == null ||
+                  lng == null ||
+                  !lat.isFinite ||
+                  !lng.isFinite ||
+                  lat.abs() > 90 ||
+                  lng.abs() > 180)
+                return;
+              launchExternalUrl(
+                context,
+                'https://www.google.com/maps/search/?api=1&query=$lat,$lng',
+              );
+            },
+          ),
+        ],
         backgroundColor: Colors.transparent,
         foregroundColor: blue,
       ),

@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'package:ccs_app/features/notifications/widgets/foreground_message_banner.dart';
+import 'package:ccs_app/features/notifications/models/notification_item.dart';
 import 'dart:io';
 import 'dart:math' as math;
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -184,6 +186,29 @@ Future<void> showForegroundSystemNotification(RemoteMessage message) async {
   final body = notification?.body ?? message.data['body'] ?? '';
 
   if (body.trim().isEmpty) {
+    return;
+  }
+
+  final type = stringFromFirebase(message.data['type'], '');
+  if ({
+    'chat_message',
+    'global_chat_message',
+    'global_chat_admin',
+  }.contains(type)) {
+    showMessageBanner(
+      NotificationCenterItem(
+        id: message.messageId ?? '',
+        title: title,
+        body: body,
+        type: type,
+        createdAtMillis: message.sentTime?.millisecondsSinceEpoch ?? 0,
+        read: false,
+        chatId: stringFromFirebase(message.data['chatId'], ''),
+        messageId: stringFromFirebase(message.data['messageId'], ''),
+        topicId: stringFromFirebase(message.data['topicId'], ''),
+        countryCode: stringFromFirebase(message.data['countryCode'], ''),
+      ),
+    );
     return;
   }
 

@@ -26,14 +26,27 @@ import 'package:ccs_app/features/progression/widgets/xp_transaction_tile.dart'
 import 'package:ccs_app/shared/widgets/empty_state_card.dart'
     show EmptyStateCard;
 
-class XpHistoryScreen extends StatelessWidget {
+class XpHistoryScreen extends StatefulWidget {
   final String userId;
 
   const XpHistoryScreen({super.key, required this.userId});
 
   @override
+  State<XpHistoryScreen> createState() => _XpHistoryScreenState();
+}
+
+class _XpHistoryScreenState extends State<XpHistoryScreen> {
+  int historyLimit = 100;
+
+  @override
+  void didUpdateWidget(XpHistoryScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.userId != widget.userId) historyLimit = 100;
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final cleanUserId = userId.trim();
+    final cleanUserId = widget.userId.trim();
 
     if (cleanUserId != currentUser.uid)
       return PublicXpHistoryScreen(userId: cleanUserId);
@@ -59,7 +72,7 @@ class XpHistoryScreen extends StatelessWidget {
               stream: xpTransactionsCollection()
                   .where('userId', isEqualTo: cleanUserId)
                   .orderBy('createdAt', descending: true)
-                  .limit(100)
+                  .limit(historyLimit)
                   .debugSnapshots('profile: xp history listener'),
               builder: (context, snapshot) {
                 if (snapshot.connectionState == ConnectionState.waiting &&
@@ -116,6 +129,11 @@ class XpHistoryScreen extends StatelessWidget {
                     const SizedBox(height: 12),
                     for (final transaction in transactions)
                       XpTransactionTile(transaction: transaction),
+                    if (transactions.length >= historyLimit)
+                      TextButton(
+                        onPressed: () => setState(() => historyLimit += 100),
+                        child: const CcsText('Load more'),
+                      ),
                   ],
                 );
               },
@@ -132,11 +150,13 @@ class PublicXpHistoryScreen extends StatefulWidget {
 }
 
 class _PublicXpHistoryScreenState extends State<PublicXpHistoryScreen> {
+  int offset = 0;
   late Future<Map<String, dynamic>> request;
   void load() {
     request = xpScreenRequest('public_xp', {
       'userId': widget.userId,
       'section': 'history',
+      'offset': offset,
     });
   }
 
@@ -149,7 +169,10 @@ class _PublicXpHistoryScreenState extends State<PublicXpHistoryScreen> {
   @override
   void didUpdateWidget(PublicXpHistoryScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.userId != widget.userId) load();
+    if (oldWidget.userId != widget.userId) {
+      offset = 0;
+      load();
+    }
   }
 
   @override
@@ -197,6 +220,14 @@ class _PublicXpHistoryScreenState extends State<PublicXpHistoryScreen> {
         return ListView(
           padding: const EdgeInsets.all(14),
           children: [
+            if (offset > 0)
+              TextButton(
+                onPressed: () => setState(() {
+                  offset -= 100;
+                  load();
+                }),
+                child: const Icon(Icons.arrow_back),
+              ),
             for (final item in items)
               XpTransactionTile(
                 transaction: XpTransactionData(
@@ -214,6 +245,14 @@ class _PublicXpHistoryScreenState extends State<PublicXpHistoryScreen> {
                   createdAtMillis: intFromFirebase(item['createdAtMillis'], 0),
                   metadata: const {},
                 ),
+              ),
+            if (snapshot.data?['nextOffset'] is num)
+              TextButton(
+                onPressed: () => setState(() {
+                  offset = (snapshot.data!['nextOffset'] as num).toInt();
+                  load();
+                }),
+                child: const CcsText('Load more'),
               ),
           ],
         );

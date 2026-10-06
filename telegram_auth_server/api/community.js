@@ -1,5 +1,6 @@
 // Keep the public URLs stable while sharing one Vercel function.
 const handlers = new Map([
+  ['partner-view', require('../handlers/partner-view')],
   ['create-spot', require('../handlers/create-spot')],
   ['account-deletion', (req, res) => require('../handlers/account-deletion')(req, res)],
   ['xp-sync', require('../handlers/xp-sync')],

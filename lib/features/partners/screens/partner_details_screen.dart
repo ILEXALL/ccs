@@ -1,4 +1,6 @@
+import 'package:ccs_app/shared/media/photo_gallery.dart' show SpotPhotoCarousel;
 import 'dart:async';
+import 'package:ccs_app/features/partners/widgets/partner_view_counter.dart';
 import 'package:flutter/material.dart' hide Text;
 import 'package:url_launcher/url_launcher.dart';
 import 'package:ccs_app/core/localization/ccs_text.dart' show CcsText;
@@ -98,102 +100,85 @@ class PartnerDetailsScreen extends StatelessWidget {
             ),
         ],
       ),
-      body: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 30),
-        children: [
-          Container(
-            height: 150,
-            padding: const EdgeInsets.all(18),
-            decoration: BoxDecoration(
-              color: panelGlass,
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: blue.withValues(alpha: 0.28)),
-            ),
-            child: Image.network(
-              partner.logoUrl,
-              fit: BoxFit.contain,
-              errorBuilder: (_, _, _) =>
-                  const Icon(Icons.handshake_outlined, color: blue, size: 52),
-            ),
-          ),
-          const SizedBox(height: 14),
-          CcsText(
-            partner.name,
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 24,
-              fontWeight: FontWeight.w900,
-            ),
-          ),
-          const SizedBox(height: 4),
-          const CcsText(
-            'Official CCS Partner',
-            style: TextStyle(
-              color: blue,
-              fontSize: 13,
-              fontWeight: FontWeight.w800,
-            ),
-          ),
-          if (partner.bio.isNotEmpty) ...[
-            const SizedBox(height: 18),
-            const CcsText(
-              'About',
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: 18,
-                fontWeight: FontWeight.w900,
+      body: SafeArea(
+        top: false,
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 30),
+          children: [
+            Container(
+              height: 150,
+              padding: const EdgeInsets.all(18),
+              decoration: BoxDecoration(
+                color: panelGlass,
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: blue.withValues(alpha: 0.28)),
+              ),
+              child: Image.network(
+                partner.logoUrl,
+                fit: BoxFit.contain,
+                errorBuilder: (_, _, _) =>
+                    const Icon(Icons.handshake_outlined, color: blue, size: 52),
               ),
             ),
-            const SizedBox(height: 7),
+            const SizedBox(height: 14),
             CcsText(
-              partner.bio,
+              partner.name,
               style: const TextStyle(
-                color: Colors.white70,
-                fontSize: 14,
-                height: 1.4,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-          ],
-          if (contacts.isNotEmpty) ...[
-            const SizedBox(height: 16),
-            Wrap(spacing: 8, runSpacing: 8, children: contacts),
-          ],
-          if (partner.photoUrls.isNotEmpty) ...[
-            const SizedBox(height: 22),
-            const CcsText(
-              'Gallery',
-              style: TextStyle(
                 color: Colors.white,
-                fontSize: 18,
+                fontSize: 24,
                 fontWeight: FontWeight.w900,
               ),
             ),
-            const SizedBox(height: 10),
-            GridView.builder(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: 2,
-                crossAxisSpacing: 8,
-                mainAxisSpacing: 8,
-                childAspectRatio: 1.35,
+            const SizedBox(height: 4),
+            PartnerViewCounter(partnerId: partner.id),
+            const CcsText(
+              'Official CCS Partner',
+              style: TextStyle(
+                color: blue,
+                fontSize: 13,
+                fontWeight: FontWeight.w800,
               ),
-              itemCount: partner.photoUrls.length,
-              itemBuilder: (context, index) => ClipRRect(
-                borderRadius: BorderRadius.circular(14),
-                child: Image.network(
-                  partner.photoUrls[index],
-                  fit: BoxFit.cover,
-                  errorBuilder: (_, _, _) => Container(
-                    color: Colors.white10,
-                    child: const Icon(Icons.image_not_supported_outlined),
-                  ),
+            ),
+            if (partner.bio.isNotEmpty) ...[
+              const SizedBox(height: 18),
+              const CcsText(
+                'About',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w900,
                 ),
               ),
-            ),
+              const SizedBox(height: 7),
+              CcsText(
+                partner.bio,
+                style: const TextStyle(
+                  color: Colors.white70,
+                  fontSize: 14,
+                  height: 1.4,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
+            if (contacts.isNotEmpty) ...[
+              const SizedBox(height: 16),
+              Wrap(spacing: 8, runSpacing: 8, children: contacts),
+            ],
+            if (partner.photoUrls.isNotEmpty) ...[
+              const SizedBox(height: 22),
+              const CcsText(
+                'Gallery',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              const SizedBox(height: 10),
+              SpotPhotoCarousel.photos(sources: partner.photoUrls, height: 260),
+            ],
           ],
-        ],
+        ),
       ),
     );
   }

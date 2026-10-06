@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'package:ccs_app/core/platform/external_links.dart'
+    show launchExternalUrl;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart' hide Text;
 import 'package:ccs_app/features/profile/navigation/profile_navigation.dart'
@@ -387,6 +389,16 @@ class _LockedAdminSpotReviewScreen extends StatelessWidget {
       backgroundColor: Colors.transparent,
       appBar: AppBar(
         title: const CcsText('Manage Spot'),
+        actions: [
+          IconButton(
+            tooltip: trText('Open in Google Maps'),
+            icon: const Icon(Icons.map_outlined),
+            onPressed: () => launchExternalUrl(
+              context,
+              'https://www.google.com/maps/search/?api=1&query=${spot.coordinates.latitude},${spot.coordinates.longitude}',
+            ),
+          ),
+        ],
         backgroundColor: Colors.transparent,
         foregroundColor: blue,
       ),

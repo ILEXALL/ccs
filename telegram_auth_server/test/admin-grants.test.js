@@ -16,6 +16,12 @@ test('grant updates lifetime XP and level, records the reason, and retries once'
   assert.equal(result.xpTotal, 8796); assert.equal(result.level, 19);
   assert.equal(f.rows.get('xp_user_stats/tester').weeklyXp, 325);
   const ledger = f.rows.get('xp_transactions/' + result.transactionId);
+  assert.equal(ledger.action, 'admin.grant');
+  assert.equal(ledger.status, 'confirmed');
+  assert.equal(ledger.amount, 1000);
+  assert.ok(ledger.createdAt);
+  const {publicHistory} = require('../lib/xp/history');
+  assert.equal(publicHistory([ledger], new Map(), new Set()).items[0].amount, 1000);
   assert.equal(ledger.reason, input.reason); assert.equal(ledger.metadata.reason, input.reason);
   assert.equal(ledger.historicalCatchup, true); assert.equal(ledger.weekKey, null);
   assert.equal((await f.grantXp('admin', input)).duplicate, true);

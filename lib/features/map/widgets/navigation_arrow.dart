@@ -17,6 +17,24 @@ double cityOverviewZoom(double width) => width.isFinite && width > 0
     ? (10 + math.log(width / 400) / math.ln2).clamp(9.0, 11.25).toDouble()
     : 10;
 
+/// MapLibre uses 512-pixel tiles. Approximate a 60,000 km² visible region.
+double regionalOverviewZoom(double width, double height, double latitude) {
+  if (!width.isFinite ||
+      !height.isFinite ||
+      !latitude.isFinite ||
+      width <= 0 ||
+      height <= 0)
+    return 6.5;
+  final metersPerPixel = math.sqrt(60000000000 / (width * height));
+  return (math.log(
+            78271.51696 *
+                math.cos(latitude.clamp(-85.0, 85.0) * math.pi / 180) /
+                metersPerPixel,
+          ) /
+          math.ln2)
+      .clamp(3.0, 12.0);
+}
+
 double navigationArrowSize(double zoom) {
   final t = ((zoom.isFinite ? zoom : 3) - 3).clamp(0.0, 13.0) / 13;
   return 18 + 44 * t;

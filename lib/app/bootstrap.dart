@@ -4,6 +4,7 @@ import 'app_navigation.dart';
 import 'app_services.dart';
 import 'dart:async';
 import 'dart:io';
+import 'package:flutter/services.dart';
 import 'package:firebase_app_check/firebase_app_check.dart';
 import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:firebase_core/firebase_core.dart';
@@ -55,6 +56,7 @@ Future<void> bootstrap() async {
   configureAppServices();
   notificationLaunchTime = DateTime.now();
   WidgetsFlutterBinding.ensureInitialized();
+  await SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
   trustedClock.addListener(() => reviewSpots.value = [...reviewSpots.value]);
   trustedClock.start();
   startAppIconBadgeSync();

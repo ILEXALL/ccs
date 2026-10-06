@@ -439,7 +439,11 @@ class MapSharingController implements MapSharingActions {
     final now = DateTime.now();
     final duration = shareDuration ?? host.liveLocationShareDuration;
     final expiresAt = renewWindow
-        ? now.add(duration)
+        ? (host.isSharingLiveLocation &&
+                      (host.liveLocationExpiresAt?.isAfter(now) ?? false)
+                  ? host.liveLocationExpiresAt!
+                  : now)
+              .add(duration)
         : host.liveLocationExpiresAt ?? now.add(duration);
     final promptAt = expiresAt;
 
@@ -584,7 +588,7 @@ class MapSharingController implements MapSharingActions {
     }
 
     if (position == null) {
-      await stopLiveLocationSharing();
+      // A failed extension must not cancel the existing sharing window.
       return;
     }
 

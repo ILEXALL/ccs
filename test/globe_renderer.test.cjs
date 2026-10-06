@@ -93,7 +93,7 @@ test('style changes restore current data and use light artwork without resetting
   f.window.ccsSetFeatures(frame); f.window.ccsSetFeatures(frame);
   assert.equal(f.moves.length,1); assert.equal(f.moves[0].bearing,45);
   f.window.ccsSetFeatures({...frame,camera:{revision:2,bounds:[[24,57],[25,58]]}});
-  assert.equal(f.moves.length,2); assert.deepEqual(f.moves[1].bounds,[[24,57],[25,58]]);
+  assert.equal(f.moves.length,2); assert.equal(JSON.stringify(f.moves[1].bounds),JSON.stringify([[24,57],[25,58]]));
  });
  test('world control exits native following and pin selection reports coordinates',()=>{
   const f=fixture(); f.handlers['style.load'](); f.window.ccsWorld();
@@ -184,4 +184,13 @@ test('two-finger pinch exits follow before zoomstart and ignores queued camera u
  f.touches.touchend({touches:[]});
  f.window.ccsSetMotion({...packet,followRevision:2});f.tick(48);
  assert.equal(f.moves.length,count+1);
+});
+test('route preview sorts bounds and crosses the date line by the shortest arc',()=>{
+ const f=fixture();f.handlers['style.load']();
+ f.window.ccsSetFeatures({features:[],camera:{revision:1,bounds:[[25,58],[24,57]]}});
+ assert.equal(JSON.stringify(f.moves.at(-1).bounds),JSON.stringify([[24,57],[25,58]]));
+ assert.equal(f.moves.at(-1).bearing,0);
+ assert.equal(f.moves.at(-1).pitch,0);
+ f.window.ccsSetFeatures({features:[],camera:{revision:2,bounds:[[179,58],[-179,57]]}});
+ assert.equal(JSON.stringify(f.moves.at(-1).bounds),JSON.stringify([[179,57],[181,58]]));
 });

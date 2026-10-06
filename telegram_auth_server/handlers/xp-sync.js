@@ -142,7 +142,7 @@ const handlers = {
     return recordCountryAchievement(actor.uid, body);
   },
   creator_spots: (actor, body) => creatorSpotCount(actor.uid, body.userId),
-  public_xp: (actor, body) => publicXpProfile(actor.uid, body.userId, body.section),
+  public_xp: (actor, body) => publicXpProfile(actor.uid, body.userId, body.section, body.offset),
   public_achievements: (actor, body) => publicAchievements(actor.uid, body.userId),
   rewards: (actor) => rewardProgress(actor.uid),
   select_achievement: (actor, body) => selectAchievement(actor.uid, body.achievementId),

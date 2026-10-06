@@ -2,9 +2,10 @@ const {db} = require('../firebase-admin');
 const {createdSpotCount} = require('./spot-counts');
 const {assertPublicXpAccess, catalog, retiredAchievementIds} = require('./achievements');
 const {rewardCatalog, rewardProgress} = require('./rewards');
+const {publicHistory} = require('./history');
 
 // Public views never return raw ledger documents, moderation reasons or object IDs.
-async function publicXpProfile(actorId, userId, section = 'stats') {
+async function publicXpProfile(actorId, userId, section = 'stats', offset = 0) {
   await assertPublicXpAccess(actorId, userId);
   if (section === 'stats') {
     const stats = (await db.collection('xp_user_stats').doc(userId).get()).data() || {};
@@ -18,18 +19,7 @@ async function publicXpProfile(actorId, userId, section = 'stats') {
   const rewards = new Map(rewardCatalog().map(item => [item.id, item]));
   const achievements = new Set([...catalog().map(item => item.id), ...retiredAchievementIds]);
   const snapshot = await db.collection('xp_transactions').where('userId', '==', userId).get();
-  const items = snapshot.docs.map(doc => doc.data()).filter(row =>
-    row.status === 'confirmed' && row.amount > 0 && !row.adjustmentOf &&
-    (rewards.has(row.action) || (row.action === 'achievement.unlock' && achievements.has(row.objectId))))
-    .map(row => ({
-      action: row.action,
-      objectType: row.action === 'achievement.unlock' ? 'achievement' :
-        rewards.get(row.action).category,
-      achievementId: row.action === 'achievement.unlock' ? row.objectId : '',
-      amount: row.amount,
-      createdAtMillis: row.createdAt?.toMillis?.() || Number(row.createdAtMillis) || 0,
-    })).sort((a, b) => b.createdAtMillis - a.createdAtMillis).slice(0, 100);
-  return {items};
+  return publicHistory(snapshot.docs.map(doc => doc.data()), rewards, achievements, offset);
 }
 async function creatorSpotCount(actorId, userId) {
   // Owners can inspect their own count even when their profile is private.

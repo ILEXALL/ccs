@@ -1,4 +1,9 @@
 const russianTranslations = <String, String>{
+  'Load more': 'Загрузить ещё',
+  'Open in Google Maps': 'Открыть в Google Картах',
+  'Extend sharing': 'Продлить трансляцию',
+  'Could not update sharing. Please retry.':
+      'Не удалось обновить трансляцию. Попробуйте ещё раз.',
   'Sharing live': 'Делюсь',
 
   'Styles': 'Стили',
