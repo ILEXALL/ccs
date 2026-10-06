@@ -199,12 +199,7 @@ class MapNavigationController implements MapNavigationActions {
           : trText('Distance unavailable');
     }
 
-    if (distance >= 1000) {
-      final km = distance / 1000;
-      return '${km >= 10 ? km.toStringAsFixed(0) : km.toStringAsFixed(1)} km';
-    }
-
-    return '${distance.round()} m';
+    return '${(distance / 1000).toStringAsFixed(2)} km';
   }
 
   @override

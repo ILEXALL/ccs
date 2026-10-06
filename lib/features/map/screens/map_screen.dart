@@ -422,6 +422,17 @@ class _MapScreenState extends State<MapScreen>
 
   Widget buildGlobeMap() => GlobeMapScreen(
     isVisible: widget.isVisible,
+    routeDistanceLabel: routePreviewMode
+        ? navigation.routePreviewDistanceLabel()
+        : null,
+    onDismissRoute: () {
+      if (!routePreviewMode) return;
+      setState(() {
+        navigation.clearRoutePreviewMode();
+        selectedSpot = null;
+        globeCamera = null;
+      });
+    },
     onCameraChanged: (lat, lng, zoom) {
       currentMapCenter = LatLng(lat, lng);
       currentMapZoom = zoom;
@@ -552,6 +563,7 @@ class _MapScreenState extends State<MapScreen>
       return {
         'type': 'FeatureCollection',
         'camera': globeCamera,
+        'routePreview': routePreviewMode,
         'selection': {
           'token': lastHandledMapFocusRequestToken,
           'id': selectedSpot?.id,

@@ -258,6 +258,11 @@ try {
   });
   map.on('click', e => {
     if(!ready) return;
+    if(latest.routePreview) {
+      latest.routePreview=false;
+      notify('dismissRoute');
+      return;
+    }
     if(e.lngLat) notify('pick',{lat:e.lngLat.lat,lng:e.lngLat.lng});
     const p=map.queryRenderedFeatures(e.point,{layers:['ccs-spot-icons','ccs-points','ccs-live-cars','ccs-police-core','ccs-sos-core','ccs-police-badge','ccs-sos-badge']})[0]?.properties;
     if(p && p.kind!=='self') notify('select',{kind:p.kind,id:p.id});

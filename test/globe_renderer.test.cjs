@@ -55,6 +55,19 @@ test('taps send a selection, never content execution, and self marker does not s
   f.handlers.click({point:[{properties:{kind:'self',id:''}}]});
   assert.equal(f.messages.length,2);
 });
+test('one tap exits route preview without selecting a marker or moving the camera',()=>{
+  const f=fixture(); f.handlers['style.load']();
+  f.window.ccsSetFeatures({type:'FeatureCollection',routePreview:true,features:[]});
+  const moves=f.moves.length;
+  f.handlers.click({lngLat:{lat:57,lng:24},point:[{properties:{kind:'spot',id:'target'}}]});
+  assert.deepEqual(f.messages.at(-1),{type:'dismissRoute'});
+  assert.equal(f.messages.some(m=>m.type==='select'||m.type==='pick'),false);
+  assert.equal(f.moves.length,moves);
+  f.window.ccsSetFeatures({type:'FeatureCollection',routePreview:false,features:[]});
+  f.handlers.click({point:[{properties:{kind:'spot',id:'other'}}]});
+  assert.deepEqual(f.messages.at(-1),{type:'select',kind:'spot',id:'other'});
+});
+
 test('all spots are retained and icon placement cannot discard dense neighbors',()=>{
   const f=fixture(); f.handlers['style.load']();
   const features=Array.from({length:600},(_,id)=>({properties:{kind:'spot',id:String(id),icon:'assets/spot_icons/photo.png',color:'#9b35ff',tint:false,event:false},geometry:{type:'Point',coordinates:[24+id/100000,57]}}));

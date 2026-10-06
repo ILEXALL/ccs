@@ -30,6 +30,8 @@ class GlobeMapScreen extends StatefulWidget {
     this.onInteraction,
     this.onCameraChanged,
     this.onPick,
+    this.onDismissRoute,
+    this.routeDistanceLabel,
     this.showControls = true,
     required this.isSharing,
     required this.sharingBusy,
@@ -46,6 +48,8 @@ class GlobeMapScreen extends StatefulWidget {
   final Map<String, Object?> Function()? readMotion;
 
   final VoidCallback? onBack, onInteraction;
+  final VoidCallback? onDismissRoute;
+  final String? routeDistanceLabel;
   final void Function(double, double, double)? onCameraChanged;
   final void Function(double latitude, double longitude)? onPick;
   final bool showControls;
@@ -129,6 +133,13 @@ class _GlobeMapScreenState extends State<GlobeMapScreen>
               unawaited(applySavedStyle());
               previousMotion = null;
               previous = null;
+              unawaited(refresh());
+            } else if (data['type'] == 'dismissRoute') {
+              widget.onDismissRoute?.call();
+              setState(() {
+                selectedKind = null;
+                selectedId = null;
+              });
               unawaited(refresh());
             } else if (data['type'] == 'clear') {
               setState(() {
@@ -580,6 +591,43 @@ class _GlobeMapScreenState extends State<GlobeMapScreen>
         fit: StackFit.expand,
         children: [
           Positioned.fill(child: WebViewWidget(controller: controller)),
+          if (widget.routeDistanceLabel != null)
+            SafeArea(
+              child: Align(
+                alignment: Alignment.topCenter,
+                child: Padding(
+                  padding: const EdgeInsets.only(top: 58),
+                  child: Material(
+                    color: const Color(0xee10141c),
+                    borderRadius: BorderRadius.circular(16),
+                    child: InkWell(
+                      onTap: widget.onDismissRoute,
+                      borderRadius: BorderRadius.circular(16),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 10,
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(
+                              Icons.straighten,
+                              size: 18,
+                              color: Colors.lightBlueAccent,
+                            ),
+                            const SizedBox(width: 8),
+                            CcsText(widget.routeDistanceLabel!),
+                            const SizedBox(width: 10),
+                            const Icon(Icons.close, size: 16),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
           if (widget.showControls)
             SafeArea(
               bottom: false,
