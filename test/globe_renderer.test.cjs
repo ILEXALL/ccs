@@ -29,8 +29,9 @@ function fixture() {
   const surface={addEventListener:(type,fn)=>{touches[type]=fn;}};
   const context={performance:{now:()=>clock},requestAnimationFrame:fn=>{frames.set(++frameId,fn);return frameId;},cancelAnimationFrame:id=>frames.delete(id),Date:{now:()=>clock},setInterval:fn=>{timers.add(fn);return fn;},clearInterval:fn=>timers.delete(fn),window:{CcsGlobe:{postMessage:m=>messages.push(JSON.parse(m))}},document:{getElementById:()=>({})},maplibregl:{Map,NavigationControl:class{}}};
   context.document.getElementById=id=>id==='map'?surface:{};
+  vm.runInNewContext(fs.readFileSync('assets/globe/beacons.js','utf8'),context);
   vm.runInNewContext(fs.readFileSync('assets/globe/globe.js','utf8'),context);
-  return {...context,touches,handlers,messages,moves,sources,layers,paints,layouts,timers,setTime:t=>clock=t, tick:t=>{clock=t;const pending=[...frames.values()];frames.clear();pending.forEach(fn=>fn(t));}, frames};
+  return {...context,run:code=>vm.runInNewContext(code,context),touches,handlers,messages,moves,sources,layers,paints,layouts,timers,setTime:t=>clock=t, tick:t=>{clock=t;const pending=[...frames.values()];frames.clear();pending.forEach(fn=>fn(t));}, frames};
 }
 test('data arriving before map load survives; replacements remove expired markers',()=>{
   const f=fixture(), data={type:'FeatureCollection',features:[{properties:{kind:'spot',id:'one',label:'</script><script>bad()</script>'},geometry:{type:'Point',coordinates:[24,57]}}]};
@@ -219,4 +220,68 @@ test('follow camera anchors the driver below center without retaining padding',(
  f.handlers.dragstart();
  f.window.ccsSetMotion({position:[24.001,57],heading:90,following:true,zoom:16,followRevision:1});f.tick(32);
  assert.equal(f.moves.length,count);
+});
+
+test('cameras stay at close zoom across style reload and can be selected',()=>{
+  const f=fixture(); f.handlers['style.load']();
+  const camera={type:'Feature',properties:{kind:'camera',id:'osm-node-123',icon:'ccs-speed-camera'},geometry:{type:'Point',coordinates:[24.1,56.9]}};
+  f.window.ccsSetFeatures({type:'FeatureCollection',features:[camera]});
+  for (let i=0;i<2;i++) {
+    const layer=f.layers.find(l=>l.id==='ccs-cameras');
+    assert.equal(layer.minzoom,13);
+    assert.equal(layer.paint['icon-opacity'].at(-2),14.5);
+    assert.equal(layer.paint['icon-opacity'].at(-1),1);
+    assert.equal(layer.layout['icon-image'],'ccs-speed-camera');
+    assert.equal(f.sources.ccs.data.features[0].properties.id,'osm-node-123');
+    if(!i){ f.window.ccsSetStyle('positron'); f.handlers['style.load'](); }
+  }
+  f.handlers.click({point:[camera]});
+  assert.deepEqual(f.messages.at(-1),{type:'select',kind:'camera',id:'osm-node-123'});
+  f.window.ccsSetFeatures({type:'FeatureCollection',features:[]});
+  assert.equal(f.sources.ccs.data.features.length,0);
+});
+
+test('bundled Latvia camera snapshot has real unique coordinates and licensing',()=>{
+  const data=JSON.parse(fs.readFileSync('assets/globe/speed_cameras_lv.json','utf8'));
+  assert.equal(data.region,'Latvia');
+  assert.ok(data.cameras.length>0);
+  assert.equal(new Set(data.cameras.map(c=>c.id)).size,data.cameras.length);
+  for(const c of data.cameras){
+    assert.match(c.id,/^osm-node-\d+$/);
+    assert.ok(Number.isFinite(c.lat)&&c.lat>55&&c.lat<59);
+    assert.ok(Number.isFinite(c.lon)&&c.lon>20&&c.lon<29);
+    assert.equal(c.maxspeed,undefined);
+  }
+  assert.match(data.attribution,/OpenStreetMap/);
+  assert.match(data.license,/odbl/);
+});
+
+test('offscreen SOS and police render report artwork, animate and open their cards',()=>{
+ const f=fixture();
+ const nodes=[];
+ function element(){return {style:{setProperty(){}},dataset:{},children:[],appendChild(child){this.children.push(child);this.firstChild=this.children[0];this.lastChild=child;},addEventListener(name,fn){this[name]=fn;},getBoundingClientRect(){},getContext(){return {putImageData(){}};},setAttribute(){},remove(){this.removed=true;}};}
+ f.document.createElement=()=>{const node=element();nodes.push(node);return node;};
+ f.document.body=element();
+ f.handlers['style.load']();
+ f.run("map.project = point => ({x:200+(point[0]-24)*100000,y:400}); iconCache.set('ccs-sos',{}); for(let i=0;i<=16;i++) iconCache.set('ccs-police-'+i,{});");
+ function show(kind,offset){
+  f.window.ccsSetFeatures({type:'FeatureCollection',features:[{properties:{kind:'self'},geometry:{type:'Point',coordinates:[24,57]}},{properties:{kind,id:'report',label:kind},geometry:{type:'Point',coordinates:[24+offset,57]}}]});
+  f.window.ccsFollow(); f.run('updateEdgeBeacons()');
+  return nodes.filter(n=>n.className==='ccs-beacon').at(-1);
+ }
+ const sos=show('sos',0.0495); // approximately 3km, beyond ordinary beacon range
+ assert.equal(sos.dataset.icon,'ccs-sos');
+ assert.ok(Number(sos.style.opacity)>0 && Number(sos.style.opacity)<1);
+ sos.click({stopPropagation(){}});
+ assert.deepEqual(f.messages.at(-1),{type:'select',kind:'sos',id:'report'});
+ const police=show('police',-0.0165); // approximately 1km
+ assert.match(police.dataset.icon,/^ccs-police-/);
+ assert.ok(Number(police.style.opacity)>0 && Number(police.style.opacity)<1);
+ const before=police.dataset.icon;
+ f.setTime(3000);f.timers.forEach(fn=>fn());f.run('updateEdgeBeacons()');
+ assert.notEqual(police.dataset.icon,before);
+ police.click({stopPropagation(){}});
+ assert.deepEqual(f.messages.at(-1),{type:'select',kind:'police',id:'report'});
+ f.handlers.dragstart();
+ assert.equal(police.style.opacity,'0');
 });

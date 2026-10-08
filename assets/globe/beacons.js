@@ -4,8 +4,12 @@ function beaconDistance(a, b) {
   const h = Math.sin(lat / 2) ** 2 + Math.cos(radians(a[1])) * Math.cos(radians(b[1])) * Math.sin(lng / 2) ** 2;
   return 6371000 * 2 * Math.asin(Math.sqrt(Math.min(1, Math.max(0, h))));
 }
-function beaconOpacity(distance) {
-  const t = Math.max(0, Math.min(1, (2000 - distance) / 1500));
+function beaconRange(kind) {
+  return kind === 'sos' ? [5000, 1000] : kind === 'camera' ? [500, 200] : [2000, 500];
+}
+function beaconOpacity(distance, kind = 'spot') {
+  const [start, end] = beaconRange(kind);
+  const t = Math.max(0, Math.min(1, (start - distance) / (start - end)));
   return t * t * (3 - 2 * t);
 }
 function beaconPlacement(origin, point, bounds) {
@@ -17,4 +21,4 @@ function beaconPlacement(origin, point, bounds) {
   const t = Math.min(tx, ty);
   return {x: origin.x + dx * t, y: origin.y + dy * t};
 }
-if (typeof module !== 'undefined') module.exports = {beaconDistance, beaconOpacity, beaconPlacement};
+if (typeof module !== 'undefined') module.exports = {beaconDistance, beaconOpacity, beaconPlacement, beaconRange};

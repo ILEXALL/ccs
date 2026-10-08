@@ -1,6 +1,13 @@
 const latvianTranslations = <String, String>{
+  'Speed cameras': 'Ātruma kameras',
+  'Mapped fixed cameras in Latvia': 'Stacionārās kameras Latvijā',
+  'Fixed speed camera': 'Stacionārā ātruma kamera',
+  'Mapped camera location. Coverage may be incomplete or outdated.':
+      'Kartē atzīmēta kamera. Dati var būt nepilnīgi vai novecojuši.',
+
   'Edit group': 'Rediģēt grupu',
-  'Could not load group. Please retry.': 'Neizdevās ielādēt grupu. Mēģiniet vēlreiz.',
+  'Could not load group. Please retry.':
+      'Neizdevās ielādēt grupu. Mēģiniet vēlreiz.',
   'Load more': 'Ielādēt vairāk',
   'Open in Google Maps': 'Atvērt Google Maps',
   'Extend sharing': 'Pagarināt kopīgošanu',

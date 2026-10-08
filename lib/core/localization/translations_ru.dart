@@ -1,6 +1,13 @@
 const russianTranslations = <String, String>{
+  'Speed cameras': 'Камеры скорости',
+  'Mapped fixed cameras in Latvia': 'Стационарные камеры в Латвии',
+  'Fixed speed camera': 'Стационарная камера',
+  'Mapped camera location. Coverage may be incomplete or outdated.':
+      'Камера на карте. Данные могут быть неполными или устаревшими.',
+
   'Edit group': 'Редактировать группу',
-  'Could not load group. Please retry.': 'Не удалось загрузить группу. Попробуйте ещё раз.',
+  'Could not load group. Please retry.':
+      'Не удалось загрузить группу. Попробуйте ещё раз.',
   'Load more': 'Загрузить ещё',
   'Open in Google Maps': 'Открыть в Google Картах',
   'Extend sharing': 'Продлить трансляцию',

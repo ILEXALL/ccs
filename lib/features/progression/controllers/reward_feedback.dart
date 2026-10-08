@@ -35,17 +35,43 @@ void handleRewardNotification(
   if (data['type'] == 'xp_reward') {
     rewardMessengerKey.currentState?.showSnackBar(
       SnackBar(
-        behavior: SnackBarBehavior.floating,
-        margin: const EdgeInsets.fromLTRB(16, 0, 16, 88),
-        backgroundColor: const Color(0xFF153C62),
+        // Fixed snackbars slide from the navigation edge and are clipped there.
+        // Scaffold supplies the actual navigation/keyboard/safe-area offset.
+        behavior: SnackBarBehavior.fixed,
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        padding: EdgeInsets.zero,
         duration: const Duration(seconds: 4),
-        content: Row(
-          children: [
-            const Icon(Icons.bolt, color: Colors.amber),
-            const SizedBox(width: 10),
-            Expanded(child: Text(data['body']?.toString() ?? 'XP credited')),
-          ],
+        content: Container(
+          margin: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          decoration: BoxDecoration(
+            color: const Color(0xFF153C62),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: const Color(0xFF3979B3)),
+          ),
+          child: Row(
+            children: [
+              const Icon(Icons.bolt, color: Color(0xFFFFD54F), size: 26),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  data['body']?.toString() ?? 'XP credited',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 15,
+                    height: 1.35,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
+      ),
+      snackBarAnimationStyle: const AnimationStyle(
+        duration: Duration(milliseconds: 350),
+        reverseDuration: Duration(milliseconds: 300),
       ),
     );
   }

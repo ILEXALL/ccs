@@ -4,6 +4,7 @@ const statusBox = document.getElementById('status');
 const notify = (type, extra = {}) => window.CcsGlobe?.postMessage(JSON.stringify({type, ...extra}));
 let map, latest = {type:'FeatureCollection',features:[]}, ready = false, following = false, currentStyle='dark';
 let cameraRevision;
+let policeBeaconFrame = 0;
 let attributionPresented=false;
 function collapseInitialAttribution() {
   if(attributionPresented) return;
@@ -18,7 +19,7 @@ const iconCache = new Map();
 // Reuse the bundled CCS category PNGs; never fetch icons.
 window.ccsSetIcons = icons => {
   for (const [id, uri] of Object.entries(icons)) {
-    if ((!id.startsWith('assets/spot_icons/') && !/^assets\/user_cars\/car_(green|blue|purple)\.png$/.test(id) && !/^ccs-(self-arrow|pin-(blue|amber|red)|police-([0-9]|1[0-6])|sos)$/.test(id)) || !uri.startsWith('data:image/png;base64,')) continue;
+    if ((!id.startsWith('assets/spot_icons/') && !/^assets\/user_cars\/car_(green|blue|purple)\.png$/.test(id) && !/^ccs-(self-arrow|pin-(blue|amber|red)|police-([0-9]|1[0-6])|sos|speed-camera)$/.test(id)) || !uri.startsWith('data:image/png;base64,')) continue;
     const image = new Image();
     image.onload = () => {
       for (const tint of (!id.startsWith('assets/spot_icons/') ? [''] : ['', '#616161', '#ffab40'])) {
@@ -162,7 +163,8 @@ function animateAlerts() {
   const color='rgb('+rgb.join(',')+')';
   for(const layer of ['ccs-police-core','ccs-police-glow']) map.setPaintProperty(layer,'circle-color',color);
   map.setPaintProperty('ccs-police-core','circle-stroke-color',color);
-  map.setLayoutProperty('ccs-police-badge','icon-image','ccs-police-'+Math.round(p*16));
+  policeBeaconFrame = Math.round(p*16);
+  map.setLayoutProperty('ccs-police-badge','icon-image','ccs-police-'+policeBeaconFrame);
   map.setPaintProperty('ccs-sos-glow','circle-opacity',0.34+p*0.22);
   map.setPaintProperty('ccs-sos-core','circle-opacity',['step',['zoom'],0.82+p*0.14,14.2,0.18+p*0.12]);
   map.setPaintProperty('ccs-sos-core','circle-stroke-opacity',0.82+p*0.18);
@@ -247,13 +249,14 @@ try {
       'icon-image':['coalesce',['get','icon'],'assets/user_cars/car_green.png'],'icon-size':carSize,
       'icon-rotate':['coalesce',['get','heading'],0],'icon-rotation-alignment':'map',
       'icon-pitch-alignment':'viewport','icon-allow-overlap':true,'icon-ignore-placement':true}});
+    map.addLayer({id:'ccs-cameras',type:'symbol',source:'ccs',minzoom:13,filter:['==',['get','kind'],'camera'],layout:{'icon-image':'ccs-speed-camera','icon-size':0.5,'icon-allow-overlap':true},paint:{'icon-opacity':['interpolate',['linear'],['zoom'],13,0,13.25,0.074,13.5,0.259,13.75,0.5,14,0.741,14.25,0.926,14.5,1]}});
     map.addLayer({id:'ccs-self',type:'symbol',source:'ccs-motion',filter:['==',['get','kind'],'self'],layout:{
       'icon-image':'ccs-self-arrow','icon-size':['interpolate',['linear'],['zoom'],3,18/64,16,62/64],
       'icon-rotate':['coalesce',['get','heading'],0], 'icon-rotation-alignment':'map',
       'icon-pitch-alignment':'viewport','icon-allow-overlap':true,'icon-ignore-placement':true}});
     addAlertLayers();
     const labelFont=map.getStyle().layers.find(l=>l.layout?.['text-font'])?.layout['text-font'] || ['Noto Sans Regular'];
-    map.addLayer({id:'ccs-labels',type:'symbol',source:'ccs',filter:['all',['==',['geometry-type'],'Point'],['!=',['get','kind'],'self']],minzoom:12.35,layout:{
+    map.addLayer({id:'ccs-labels',type:'symbol',source:'ccs',filter:['all',['==',['geometry-type'],'Point'],['!=',['get','kind'],'self'],['!=',['get','kind'],'camera']],minzoom:12.35,layout:{
       'text-font':labelFont,'text-field':['get','label'],
       'text-size':['interpolate',['linear'],['zoom'],11.25,8.2,16,10],
       'text-anchor':'bottom','text-offset':[0,-4]},
@@ -269,7 +272,7 @@ try {
       return;
     }
     if(e.lngLat) notify('pick',{lat:e.lngLat.lat,lng:e.lngLat.lng});
-    const p=map.queryRenderedFeatures(e.point,{layers:['ccs-spot-icons','ccs-points','ccs-live-cars','ccs-police-core','ccs-sos-core','ccs-police-badge','ccs-sos-badge']})[0]?.properties;
+    const p=map.queryRenderedFeatures(e.point,{layers:['ccs-cameras','ccs-spot-icons','ccs-points','ccs-live-cars','ccs-police-core','ccs-sos-core','ccs-police-badge','ccs-sos-badge']})[0]?.properties;
     if(p && p.kind!=='self') notify('select',{kind:p.kind,id:p.id});
     else if(!p) notify('clear');
   });
@@ -295,9 +298,9 @@ function updateEdgeBeacons() {
     if (bounds.right > bounds.left && bounds.bottom > bounds.top) {
       const projected = map.project(position);
       const origin = {x: Math.max(bounds.left, Math.min(bounds.right, projected.x)), y: Math.max(bounds.top, Math.min(bounds.bottom, projected.y))};
-      const candidates = latest.features.filter(f => ['spot','live'].includes(f.properties.kind) && f.geometry.type === 'Point')
+      const candidates = latest.features.filter(f => ['spot','live','camera','police','sos'].includes(f.properties.kind) && f.geometry.type === 'Point')
         .map(f => ({f, distance: beaconDistance(position, f.geometry.coordinates)}))
-        .filter(item => Number.isFinite(item.distance) && item.distance < 2000)
+        .filter(item => Number.isFinite(item.distance) && item.distance < beaconRange(item.f.properties.kind)[0])
         .sort((a,b) => a.distance - b.distance || String(a.f.properties.id).localeCompare(String(b.f.properties.id)));
       const occupied = [];
       for (const {f, distance} of candidates) {
@@ -322,20 +325,20 @@ function updateEdgeBeacons() {
           node.getBoundingClientRect();
         }
         // Beacons have a dark surface in both styles: use the bright dark-map artwork.
-        const baseIcon = p.icon;
+        const baseIcon = p.kind === 'police' ? 'ccs-police-' + policeBeaconFrame : p.kind === 'sos' ? 'ccs-sos' : p.icon;
         const icon = baseIcon + (p.tint ? '@' + p.color : '');
         const pixels = iconCache.get(icon);
         if (pixels && node.dataset.icon !== icon) {
           node.firstChild.getContext('2d').putImageData(pixels,0,0); node.dataset.icon=icon;
         }
         if (!pixels) continue;
-        node.style.setProperty('--beacon-color', /^#[0-9a-f]{6}$/i.test(p.color || '') ? p.color : '#00b8ff');
+        node.style.setProperty('--beacon-color', p.kind === 'sos' ? '#ff3355' : p.kind === 'police' ? (policeBeaconFrame < 8 ? '#1565ff' : '#ff2d55') : /^#[0-9a-f]{6}$/i.test(p.color || '') ? p.color : '#00b8ff');
         node.lastChild.textContent = (distance / 1000).toFixed(1) + ' km';
         node.setAttribute('aria-label', String(p.label || p.kind) + ', ' + node.lastChild.textContent);
         node.style.transform = `translate(${at.x}px,${at.y}px) translate(-50%,-50%)`;
         node.style.setProperty('--beacon-angle', (Math.atan2(point.y-origin.y,point.x-origin.x)*180/Math.PI+90)+'deg');
-        node.style.opacity = String(beaconOpacity(distance));
-        node.style.pointerEvents = distance < 1950 ? 'auto' : 'none';
+        node.style.opacity = String(beaconOpacity(distance, p.kind));
+        node.style.pointerEvents = beaconOpacity(distance, p.kind) > 0.02 ? 'auto' : 'none';
         node.hiddenAt = null;
         selected.add(key); occupied.push(at);
       }

@@ -1,0 +1,18 @@
+Latvia fixed speed cameras
+
+Source: OpenStreetMap contributors, extracted from the Geofabrik Latvia extract.
+Data: https://download.geofabrik.de/europe/latvia-latest.osm.pbf
+Copyright and attribution: https://www.openstreetmap.org/copyright
+Database license: Open Database License (ODbL) 1.0
+License: https://opendatacommons.org/licenses/odbl/1-0/
+
+The bundled JSON is a derived database of highway=speed_camera nodes.
+It contains mapped fixed cameras, not live police reports or mobile radar data.
+Coverage can be incomplete or outdated. Average-speed sections are not imported.
+No speed limits are imported or displayed.
+
+Refresh with tools/import_speed_cameras.py and a current Latvia .osm.pbf extract
+(requires Python osmium). Validate the output and commit it with the next app
+release. Phones do not contact Overpass or Geofabrik and receive updates through
+app releases. Existing OpenStreetMap attribution remains available on the map;
+the camera card also links to the copyright and licensing page.

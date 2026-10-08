@@ -81,11 +81,134 @@ class _GlobeMapScreenState extends State<GlobeMapScreen>
   String style = 'dark';
   String? selectedKind, selectedId;
   Object? selectionToken;
+  List<Map<String, Object?>> cameras = [];
+  bool camerasEnabled = true;
+
+  Future<void> loadCameras() async {
+    try {
+      final data =
+          jsonDecode(
+                await rootBundle.loadString(
+                  'assets/globe/speed_cameras_lv.json',
+                ),
+              )
+              as Map;
+      final prefs = await SharedPreferences.getInstance();
+      if (!mounted) return;
+      cameras = (data['cameras'] as List)
+          .map(
+            (entry) => <String, Object?>{
+              'type': 'Feature',
+              'geometry': {
+                'type': 'Point',
+                'coordinates': [entry['lon'], entry['lat']],
+              },
+              'properties': {
+                'kind': 'camera',
+                'id': entry['id'],
+                'icon': 'ccs-speed-camera',
+                'color': '#ffbf47',
+                'label': '',
+              },
+            },
+          )
+          .toList();
+      camerasEnabled = prefs.getBool('ccsSpeedCamerasVisible') ?? true;
+      await refresh();
+    } catch (error) {
+      debugPrint('Camera snapshot could not be loaded: $error');
+    }
+  }
+
+  Future<void> showFilters() async {
+    final spots = await showModalBottomSheet<bool>(
+      context: context,
+      builder: (context) => SafeArea(
+        child: StatefulBuilder(
+          builder: (context, update) => Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              SwitchListTile(
+                title: CcsText('Speed cameras'),
+                subtitle: CcsText('Mapped fixed cameras in Latvia'),
+                value: camerasEnabled,
+                onChanged: (value) async {
+                  update(() => camerasEnabled = value);
+                  if (!value && selectedKind == 'camera') {
+                    selectedId = null;
+                    selectedKind = null;
+                  }
+                  unawaited(refresh());
+                  final prefs = await SharedPreferences.getInstance();
+                  await prefs.setBool('ccsSpeedCamerasVisible', value);
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.filter_list),
+                title: CcsText('Spot filters'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => Navigator.pop(context, true),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (spots == true && mounted) await widget.onFilter();
+  }
+
+  Widget cameraCard() => Material(
+    color: const Color(0xff101820),
+    borderRadius: BorderRadius.circular(18),
+    child: Padding(
+      padding: const EdgeInsets.all(18),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.camera_alt, color: Color(0xffffbf47)),
+              const SizedBox(width: 10),
+              Expanded(
+                child: CcsText(
+                  'Fixed speed camera',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+              IconButton(
+                onPressed: () => setState(() {
+                  selectedId = null;
+                  selectedKind = null;
+                }),
+                icon: const Icon(Icons.close, color: Colors.white),
+              ),
+            ],
+          ),
+          CcsText(
+            'Mapped camera location. Coverage may be incomplete or outdated.',
+            style: const TextStyle(color: Colors.white70),
+          ),
+          TextButton(
+            onPressed: () => launchUrl(
+              Uri.parse('https://www.openstreetmap.org/copyright'),
+              mode: LaunchMode.externalApplication,
+            ),
+            child: const Text('© OpenStreetMap contributors · ODbL'),
+          ),
+        ],
+      ),
+    ),
+  );
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    unawaited(loadCameras());
     controller = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
       ..setBackgroundColor(const Color(0xff0b1323))
@@ -148,7 +271,13 @@ class _GlobeMapScreenState extends State<GlobeMapScreen>
               });
             } else if (data['type'] == 'select') {
               final kind = data['kind'], id = data['id'];
-              if (const ['spot', 'live', 'police', 'sos'].contains(kind) &&
+              if (const [
+                    'spot',
+                    'live',
+                    'police',
+                    'sos',
+                    'camera',
+                  ].contains(kind) &&
                   id is String) {
                 setState(() {
                   selectedKind = kind;
@@ -292,7 +421,12 @@ class _GlobeMapScreenState extends State<GlobeMapScreen>
         );
         iconsSent = true;
       }
-      final frame = widget.readFeatures();
+      final frame = Map<String, Object?>.from(widget.readFeatures());
+      if (widget.showControls &&
+          camerasEnabled &&
+          frame['routePreview'] != true) {
+        frame['features'] = [...(frame['features'] as List), ...cameras];
+      }
       final selection = frame['selection'];
       if (selection is Map && selection['token'] != selectionToken) {
         selectionToken = selection['token'];
@@ -585,6 +719,8 @@ class _GlobeMapScreenState extends State<GlobeMapScreen>
   Widget build(BuildContext context) {
     final card = selectedId == null
         ? null
+        : selectedKind == 'camera'
+        ? cameraCard()
         : widget.cardBuilder(context, selectedKind!, selectedId!);
     return ColoredBox(
       color: const Color(0xff07080c),
@@ -662,7 +798,7 @@ class _GlobeMapScreenState extends State<GlobeMapScreen>
                           child: control(
                             'Filters',
                             Icons.tune,
-                            widget.onFilter,
+                            showFilters,
                             text: true,
                             fill: true,
                           ),

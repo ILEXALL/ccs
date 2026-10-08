@@ -97,5 +97,34 @@ Future<Map<String, String>> globeMarkerImages() async {
     text.paint(canvas, Offset((38 - text.width) / 2, (38 - text.height) / 2));
     text.dispose();
   });
+  // Camera Pin: amber teardrop with a dark core and a fixed-camera cabinet.
+  await draw('ccs-speed-camera', 48, (canvas) {
+    const amber = Color(0xffffbf47);
+    const dark = Color(0xff101820);
+    final pin = Path()
+      ..moveTo(24, 46)
+      ..cubicTo(19, 39, 6, 28, 6, 19)
+      ..cubicTo(6, -4, 42, -4, 42, 19)
+      ..cubicTo(42, 28, 29, 39, 24, 46)
+      ..close();
+    canvas.drawPath(pin, Paint()..color = amber);
+    canvas.drawPath(
+      pin,
+      Paint()
+        ..color = dark
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.4,
+    );
+    canvas.drawCircle(const Offset(24, 19), 12.5, Paint()..color = dark);
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        const Rect.fromLTWH(18.5, 9, 11, 20),
+        const Radius.circular(2.5),
+      ),
+      Paint()..color = Colors.white,
+    );
+    canvas.drawCircle(const Offset(24, 14.5), 3.2, Paint()..color = dark);
+    canvas.drawCircle(const Offset(24, 23), 3.7, Paint()..color = dark);
+  });
   return images;
 }

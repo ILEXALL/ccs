@@ -20,3 +20,24 @@ test('visible markers get no beacon; offscreen directions intersect safe edges',
  assert.deepEqual(beaconPlacement(origin,{x:200,y:900},bounds),{x:200,y:600});
  assert.equal(beaconPlacement(origin,{x:NaN,y:0},bounds),null);
 });
+
+test('camera proximity fades only from 500m to 200m without changing spot range',()=>{
+  assert.equal(beaconOpacity(501,'camera'),0);
+  assert.equal(beaconOpacity(500,'camera'),0);
+  assert.equal(beaconOpacity(350,'camera'),0.5);
+  assert.equal(beaconOpacity(200,'camera'),1);
+  assert.equal(beaconOpacity(0,'camera'),1);
+  assert.equal(beaconOpacity(500,'spot'),1);
+});
+
+test('SOS and police use independent smooth distance ranges',()=>{
+ for (const [kind,start,end] of [['sos',5000,1000],['police',2000,500]]) {
+  assert.equal(beaconOpacity(start+1,kind),0);
+  assert.equal(beaconOpacity(start,kind),0);
+  assert.equal(beaconOpacity((start+end)/2,kind),0.5);
+  assert.equal(beaconOpacity(end,kind),1);
+  assert.equal(beaconOpacity(0,kind),1);
+  let previous=0;
+  for(let d=start;d>=end;d-=10){const opacity=beaconOpacity(d,kind);assert.ok(opacity>=previous);previous=opacity;}
+ }
+});

@@ -1,3 +1,4 @@
+import 'package:ccs_app/core/time/trusted_clock.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ccs_app/features/map/models/globe_spot_style.dart';
 import 'package:ccs_app/features/spots/models/spot_categories.dart';
@@ -16,7 +17,9 @@ void main() {
     }
   });
   test('active events keep the standard orange highlight', () {
-    final now = DateTime.now().millisecondsSinceEpoch;
+    const now = 2000000060000;
+    trustedClock.setSampleForTesting(now);
+    addTearDown(() => trustedClock.setSampleForTesting(null));
     final style = globeSpotStyle(
       event().copyWith(
         startsAtMillis: now - 60000,
