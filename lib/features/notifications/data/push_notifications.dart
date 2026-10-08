@@ -1,3 +1,4 @@
+import 'foreground_push_policy.dart';
 import 'dart:async';
 import 'package:ccs_app/features/notifications/widgets/foreground_message_banner.dart';
 import 'package:ccs_app/features/notifications/models/notification_item.dart';
@@ -145,8 +146,7 @@ bool remoteMessageTargetsGlobalChat(RemoteMessage message) {
 }
 
 Future<void> showForegroundSystemNotification(RemoteMessage message) async {
-  if (message.sentTime == null ||
-      !message.sentTime!.isAfter(notificationLaunchTime))
+  if (!foregroundPushIsCurrent(message.sentTime, notificationLaunchTime))
     return;
   if (!moderationNotificationAllowed(message.data)) return;
   if (!Platform.isAndroid && !Platform.isIOS) {
@@ -280,6 +280,30 @@ Future<void> _initializePushNotifications(String expectedUid) async {
   try {
     final messaging = FirebaseMessaging.instance;
 
+    foregroundPushSubscription ??= FirebaseMessaging.onMessage.listen(
+      (message) {
+        debugPrint(
+          'Foreground push received. messageId=${message.messageId}, data=${message.data}',
+        );
+        unawaited(showForegroundSystemNotification(message));
+        // Notification count is refreshed lazily when the notification center is opened.
+      },
+      onError: (Object error, StackTrace stack) {
+        debugPrint('Foreground push listener failed: $error');
+        debugPrint('$stack');
+      },
+    );
+
+    pushTokenRefreshSubscription ??= messaging.onTokenRefresh.listen(
+      (token) {
+        debugPrint('FCM token refreshed.');
+        unawaited(registerPushTokenForCurrentUser(token));
+      },
+      onError: (Object error, StackTrace stack) {
+        debugPrint('FCM token refresh listener failed: $error');
+        debugPrint('$stack');
+      },
+    );
     final settings = await runPermissionRequest(
       () => messaging.requestPermission(alert: true, badge: true, sound: true),
     );
@@ -305,31 +329,6 @@ Future<void> _initializePushNotifications(String expectedUid) async {
       }
     }
     // Keep notification reads lazy. The notification center loads when opened.
-
-    pushTokenRefreshSubscription ??= messaging.onTokenRefresh.listen(
-      (token) {
-        debugPrint('FCM token refreshed.');
-        unawaited(registerPushTokenForCurrentUser(token));
-      },
-      onError: (Object error, StackTrace stack) {
-        debugPrint('FCM token refresh listener failed: $error');
-        debugPrint('$stack');
-      },
-    );
-
-    foregroundPushSubscription ??= FirebaseMessaging.onMessage.listen(
-      (message) {
-        debugPrint(
-          'Foreground push received. messageId=${message.messageId}, data=${message.data}',
-        );
-        unawaited(showForegroundSystemNotification(message));
-        // Notification count is refreshed lazily when the notification center is opened.
-      },
-      onError: (Object error, StackTrace stack) {
-        debugPrint('Foreground push listener failed: $error');
-        debugPrint('$stack');
-      },
-    );
   } catch (error, stack) {
     if (pushInitializationUid == expectedUid) {
       pushInitializationUid = null;

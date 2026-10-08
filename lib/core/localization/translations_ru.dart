@@ -1,4 +1,6 @@
 const russianTranslations = <String, String>{
+  'Edit group': 'Редактировать группу',
+  'Could not load group. Please retry.': 'Не удалось загрузить группу. Попробуйте ещё раз.',
   'Load more': 'Загрузить ещё',
   'Open in Google Maps': 'Открыть в Google Картах',
   'Extend sharing': 'Продлить трансляцию',

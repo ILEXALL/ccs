@@ -1,4 +1,6 @@
 const latvianTranslations = <String, String>{
+  'Edit group': 'Rediģēt grupu',
+  'Could not load group. Please retry.': 'Neizdevās ielādēt grupu. Mēģiniet vēlreiz.',
   'Load more': 'Ielādēt vairāk',
   'Open in Google Maps': 'Atvērt Google Maps',
   'Extend sharing': 'Pagarināt kopīgošanu',

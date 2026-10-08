@@ -1,3 +1,4 @@
+import 'group_settings_screen.dart';
 import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart' hide Text;
@@ -265,16 +266,69 @@ class _PrivateGroupDirectoryState extends State<PrivateGroupDirectory>
       appPageRoute(
         builder: (context) => StatefulBuilder(
           builder: (context, updateDetail) => Scaffold(
-            appBar: AppBar(title: CcsText(trText('Group info'))),
-            body: SingleChildScrollView(
-              padding: const EdgeInsets.all(20),
-              child: groupCard(
-                group,
-                groupActionLabel(group),
-                detail: true,
-                onChanged: () {
-                  if (context.mounted) updateDetail(() {});
-                },
+            appBar: AppBar(
+              title: CcsText(trText('Group info')),
+              actions: [
+                if (group['isOwner'] == true ||
+                    currentUser.role == UserRole.admin)
+                  IconButton(
+                    icon: const Icon(Icons.edit_outlined),
+                    tooltip: trText('Edit group'),
+                    onPressed: () async {
+                      try {
+                        final ref = chatsCollection().doc(
+                          group['id'] as String,
+                        );
+                        final doc = await ref.get();
+                        if (!context.mounted || !doc.exists) return;
+                        await Navigator.push<void>(
+                          context,
+                          appPageRoute(
+                            builder: (_) => GroupSettingsScreen(
+                              chat: ChatThreadData.fromFirestore(doc),
+                              editMode: true,
+                            ),
+                          ),
+                        );
+                        final updated = (await ref.get()).data();
+                        if (!context.mounted || updated == null) return;
+                        updateDetail(() {
+                          for (final key in [
+                            'name',
+                            'description',
+                            'isPrivate',
+                          ]) {
+                            if (updated.containsKey(key))
+                              group[key] = updated[key];
+                          }
+                          group['photoUrl'] =
+                              updated['avatarUrl'] ?? updated['photoUrl'] ?? '';
+                        });
+                      } catch (_) {
+                        if (context.mounted)
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: CcsText(
+                                trText('Could not load group. Please retry.'),
+                              ),
+                            ),
+                          );
+                      }
+                    },
+                  ),
+              ],
+            ),
+            body: SafeArea(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.all(20),
+                child: groupCard(
+                  group,
+                  groupActionLabel(group),
+                  detail: true,
+                  onChanged: () {
+                    if (context.mounted) updateDetail(() {});
+                  },
+                ),
               ),
             ),
           ),
@@ -329,7 +383,9 @@ class _PrivateGroupDirectoryState extends State<PrivateGroupDirectory>
           borderRadius: BorderRadius.circular(20),
           clipBehavior: Clip.antiAlias,
           child: InkWell(
-            onTap: () => showGroupInfo(group),
+            onTap: isBusy
+                ? null
+                : () => member ? openGroup(group) : showGroupInfo(group),
             child: Padding(
               padding: const EdgeInsets.all(16),
               child: Row(

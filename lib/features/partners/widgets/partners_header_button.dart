@@ -38,14 +38,14 @@ class _PartnersHeaderButtonState extends State<PartnersHeaderButton> {
     partnerStream = ccsPartnersCollection().debugSnapshots(
       'partners: header listener',
     );
-    rotationTimer = Timer.periodic(const Duration(milliseconds: 2400), (_) {
+    rotationTimer = Timer.periodic(const Duration(milliseconds: 6000), (_) {
       if (!mounted || partnerCount <= 1 || !pageController.hasClients) return;
       currentLoopPage += 1;
       try {
         pageController.animateToPage(
           currentLoopPage,
-          duration: const Duration(milliseconds: 520),
-          curve: Curves.easeInOutCubicEmphasized,
+          duration: const Duration(milliseconds: 1100),
+          curve: Curves.easeInOutCubic,
         );
       } catch (_) {}
     });
