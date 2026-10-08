@@ -8,6 +8,7 @@ import UIKit
 @main
 @objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate, PHPickerViewControllerDelegate, UIImagePickerControllerDelegate, UINavigationControllerDelegate, UIAdaptivePresentationControllerDelegate {
   private var feedbackPlayer: AVAudioPlayer?
+  private var mapAlertPlayer: AVAudioPlayer?
   private var photoPickerChannel: FlutterMethodChannel?
   private var deviceIdentityChannel: FlutterMethodChannel?
   private var appBadgeChannel: FlutterMethodChannel?
@@ -108,6 +109,32 @@ import UIKit
 
     systemNotificationsChannel?.setMethodCallHandler { call, result in
       switch call.method {
+      case "stopMapAlert":
+        self.mapAlertPlayer?.stop()
+        self.mapAlertPlayer = nil
+        result(nil)
+      case "playMapAlert":
+        let arguments = call.arguments as? [String: Any]
+        guard let bytes = arguments?["bytes"] as? FlutterStandardTypedData,
+              bytes.data.count <= 1_000_000 else {
+          result(FlutterError(code: "invalid_audio", message: "Invalid map alert", details: nil))
+          return
+        }
+        do {
+          self.mapAlertPlayer?.stop()
+          try AVAudioSession.sharedInstance().setCategory(.ambient, options: [.mixWithOthers])
+          try AVAudioSession.sharedInstance().setActive(true)
+          let player = try AVAudioPlayer(data: bytes.data)
+          self.mapAlertPlayer = player
+          player.prepareToPlay()
+          if player.play() {
+            result(Int(player.duration * 1000))
+          } else {
+            result(FlutterError(code: "audio_failed", message: "Could not play map alert", details: nil))
+          }
+        } catch {
+          result(FlutterError(code: "audio_failed", message: "Could not play map alert", details: nil))
+        }
       case "stopSound":
         self.feedbackPlayer?.stop()
         self.feedbackPlayer = nil

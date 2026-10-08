@@ -1,3 +1,4 @@
+import '../data/map_proximity_audio.dart';
 import 'package:ccs_app/core/localization/ccs_text.dart'
     show CcsText, trText, LanguageReactiveState;
 import '../data/live_location_config.dart'
@@ -81,8 +82,111 @@ class _GlobeMapScreenState extends State<GlobeMapScreen>
   String style = 'dark';
   String? selectedKind, selectedId;
   Object? selectionToken;
+  final _proximityAudio = MapProximityAudio();
   List<Map<String, Object?>> cameras = [];
   bool camerasEnabled = true;
+
+  final _avatarImages = <String, Map<String, String>>{};
+  final _avatarLoading = <String>{};
+  final _avatarFailed = <String>{};
+  int _avatarSequence = 0;
+
+  // Resolve profile images natively so no new WebView network permissions are needed.
+  Future<void> loadBeaconAvatar(String url) async {
+    _avatarLoading.add(url);
+    ImageStream? stream;
+    ImageStreamListener? listener;
+    ImageInfo? info;
+    ui.Image? output;
+    ui.Picture? picture;
+    try {
+      final completer = Completer<ImageInfo>();
+      stream = ResizeImage(
+        NetworkImage(url),
+        width: 128,
+        height: 128,
+      ).resolve(ImageConfiguration.empty);
+      listener = ImageStreamListener(
+        (image, _) {
+          if (!completer.isCompleted) {
+            completer.complete(image);
+          } else {
+            image.dispose();
+          }
+        },
+        onError: (Object error, StackTrace? stack) {
+          if (!completer.isCompleted) completer.completeError(error, stack);
+        },
+      );
+      stream.addListener(listener);
+      info = await completer.future.timeout(const Duration(seconds: 8));
+      final recorder = ui.PictureRecorder();
+      final canvas = Canvas(recorder);
+      final image = info.image;
+      final side = image.width < image.height
+          ? image.width.toDouble()
+          : image.height.toDouble();
+      canvas.drawImageRect(
+        image,
+        Rect.fromLTWH(
+          (image.width - side) / 2,
+          (image.height - side) / 2,
+          side,
+          side,
+        ),
+        const Rect.fromLTWH(0, 0, 128, 128),
+        Paint(),
+      );
+      picture = recorder.endRecording();
+      output = await picture.toImage(128, 128);
+      final bytes = await output.toByteData(format: ui.ImageByteFormat.png);
+      if (!mounted || bytes == null) return;
+      final id = 'ccs-avatar-${_avatarSequence++}';
+      final png =
+          'data:image/png;base64,${base64Encode(bytes.buffer.asUint8List(bytes.offsetInBytes, bytes.lengthInBytes))}';
+      _avatarImages[url] = {'id': id, 'png': png};
+      if (ready) {
+        await controller.runJavaScript(
+          'window.ccsSetIcons(JSON.parse(${jsonEncode(jsonEncode({id: png}))}));',
+        );
+      }
+      unawaited(refresh());
+    } catch (_) {
+      _avatarFailed.add(
+        url,
+      ); // Keep the person silhouette if an image is unavailable.
+    } finally {
+      if (stream != null && listener != null) stream.removeListener(listener);
+      info?.dispose();
+      output?.dispose();
+      picture?.dispose();
+      _avatarLoading.remove(url);
+    }
+  }
+
+  List<Object?> withBeaconAvatars(List features) => features.map<Object?>((
+    feature,
+  ) {
+    if (feature is! Map ||
+        feature['properties'] is! Map ||
+        feature['properties']['kind'] != 'live')
+      return feature;
+    final properties = Map<String, Object?>.from(feature['properties'] as Map);
+    final url = properties.remove('avatarUrl')?.toString() ?? '';
+    final avatar = _avatarImages[url];
+    properties['avatarIcon'] = avatar?['id'] ?? 'ccs-person';
+    final uri = Uri.tryParse(url);
+    if (avatar == null &&
+        uri?.scheme == 'https' &&
+        uri!.host.isNotEmpty &&
+        !_avatarLoading.contains(url) &&
+        !_avatarFailed.contains(url) &&
+        _avatarLoading.length < 4 &&
+        _avatarImages.length < 64) {
+      unawaited(loadBeaconAvatar(url));
+    }
+    return {...feature, 'properties': properties};
+  }).toList();
 
   Future<void> loadCameras() async {
     try {
@@ -419,6 +523,11 @@ class _GlobeMapScreenState extends State<GlobeMapScreen>
         await controller.runJavaScript(
           'window.ccsSetIcons(JSON.parse(${jsonEncode(jsonEncode(icons))}));',
         );
+        for (final avatar in _avatarImages.values) {
+          await controller.runJavaScript(
+            'window.ccsSetIcons(JSON.parse(${jsonEncode(jsonEncode({avatar['id']!: avatar['png']!}))}));',
+          );
+        }
         iconsSent = true;
       }
       final frame = Map<String, Object?>.from(widget.readFeatures());
@@ -426,6 +535,15 @@ class _GlobeMapScreenState extends State<GlobeMapScreen>
           camerasEnabled &&
           frame['routePreview'] != true) {
         frame['features'] = [...(frame['features'] as List), ...cameras];
+      }
+      frame['features'] = withBeaconAvatars(frame['features'] as List);
+      if (widget.showControls) {
+        unawaited(
+          _proximityAudio.update(
+            frame['features'] as List,
+            widget.readMotion?.call(),
+          ),
+        );
       }
       final selection = frame['selection'];
       if (selection is Map && selection['token'] != selectionToken) {
@@ -460,6 +578,7 @@ class _GlobeMapScreenState extends State<GlobeMapScreen>
   }
 
   Future<void> syncAnimationVisibility() async {
+    if (!active || !widget.isVisible) unawaited(_proximityAudio.stop());
     if (!ready) return;
     try {
       await controller.runJavaScript(

@@ -22,3 +22,11 @@ function beaconPlacement(origin, point, bounds) {
   return {x: origin.x + dx * t, y: origin.y + dy * t};
 }
 if (typeof module !== 'undefined') module.exports = {beaconDistance, beaconOpacity, beaconPlacement, beaconRange};
+
+// A zoom difference of one doubles visible ground distance.
+function speedFollowZoom(baseZoom, metersPerSecond) {
+  const kmh = Number.isFinite(metersPerSecond) ? Math.max(0, metersPerSecond) * 3.6 : 0;
+  const distanceScale = Math.min(3, 1 + Math.max(0, kmh - 30) / 70);
+  return baseZoom - Math.log2(distanceScale);
+}
+if (typeof module !== 'undefined') module.exports.speedFollowZoom = speedFollowZoom;

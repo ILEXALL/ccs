@@ -19,6 +19,7 @@ function fixture() {
     addLayer(layer) {layers.push(layer);}
     queryRenderedFeatures(point) {return point;}
     getZoom() {return this.zoom;}
+    getBearing() {return this.bearing || 0;}
     getCanvas() {return {clientWidth:400,clientHeight:800};}
     jumpTo(move) {moves.push(move);}
     easeTo(move) {moves.push(move);}
@@ -95,7 +96,7 @@ test('style changes restore current data and use light artwork without resetting
   assert.match(JSON.stringify(f.layers.find(l=>l.id==='ccs-spot-icons').layout['icon-image']),/lightIcon/);
   const arrow=f.layers.find(l=>l.id==='ccs-self');
   assert.equal(arrow.layout['icon-image'],'ccs-self-arrow');
-  assert.equal(arrow.layout['icon-rotation-alignment'],'map');
+  assert.equal(arrow.layout['icon-rotation-alignment'],'viewport');
   f.window.ccsSetStyle('dark'); f.handlers['style.load']();
   assert.doesNotMatch(JSON.stringify(f.layers.find(l=>l.id==='ccs-spot-icons').layout['icon-image']),/lightIcon/);
   f.handlers.click({point:[]});
@@ -143,7 +144,7 @@ test('police alternates blue/red, SOS pulses, hidden views and removed alerts st
 test('live users render their car artwork with course rotation',()=>{
  const f=fixture(); f.handlers['style.load']();
  const cars=f.layers.find(l=>l.id==='ccs-live-cars');
- assert.equal(cars.type,'symbol'); assert.equal(cars.layout['icon-rotation-alignment'],'map');
+ assert.equal(cars.type,'symbol'); assert.equal(cars.layout['icon-rotation-alignment'],'viewport');
  assert.match(JSON.stringify(cars.layout['icon-image']),/car_green/);
  assert.ok(!f.layers.some(l=>l.id==='ccs-live-points'));
 });
@@ -284,4 +285,65 @@ test('offscreen SOS and police render report artwork, animate and open their car
  assert.deepEqual(f.messages.at(-1),{type:'select',kind:'police',id:'report'});
  f.handlers.dragstart();
  assert.equal(police.style.opacity,'0');
+});
+
+test('speed zoom eases gradually and stationary heading noise cannot rotate follow',()=>{
+ const f=fixture();f.handlers['style.load']();
+ const packet=(speed,heading)=>({position:[24,57],zoom:16.35,following:true,followRevision:1,speed,heading});
+ f.window.ccsSetMotion(packet(0,45));f.tick(0);
+ const stationary=f.moves.at(-1).bearing;
+ for(let i=1;i<10;i++){f.setTime(i*100);f.window.ccsSetMotion(packet(0,i*37));f.tick(i*100);assert.equal(f.moves.at(-1).bearing,stationary);}
+ f.window.ccsSetMotion(packet(100/3.6,90));f.tick(950);
+ assert.ok(f.moves.at(-1).zoom>15.35);
+ for(let t=1000;t<=8000;t+=50){f.setTime(t);if(t%100===0)f.window.ccsSetMotion(packet(100/3.6,90));f.tick(t);}
+ assert.ok(Math.abs(f.moves.at(-1).zoom-15.35)<.01);
+ const fast=f.moves.at(-1).zoom;
+ f.window.ccsSetMotion(packet(0,270));f.tick(8050);
+ assert.ok(f.moves.at(-1).zoom>fast&&f.moves.at(-1).zoom<16.35);
+ const frozen=f.moves.at(-1).bearing;
+ f.setTime(8100);f.window.ccsSetMotion(packet(0,180));f.tick(8100);
+ assert.equal(f.moves.at(-1).bearing,frozen);
+ f.handlers.dragstart();const count=f.moves.length;
+ f.setTime(8200);f.window.ccsSetMotion(packet(50,0));f.tick(8200);
+ assert.equal(f.moves.length,count);
+});
+
+test('people beacons show avatar and literal nickname with silhouette fallback',()=>{
+ const f=fixture(),nodes=[];
+ function element(){return {style:{setProperty(){}},dataset:{},children:[],appendChild(c){this.children.push(c);this.firstChild=this.children[0];this.lastChild=c;},addEventListener(n,fn){this[n]=fn;},getBoundingClientRect(){},getContext(){return {putImageData(){}};},setAttribute(){},remove(){}};}
+ f.document.createElement=()=>{const n=element();nodes.push(n);return n;};f.document.body=element();f.handlers['style.load']();
+ f.run("map.project = p=>({x:200+(p[0]-24)*100000,y:400});iconCache.set('ccs-person',{});iconCache.set('ccs-avatar-1',{});");
+ const live={properties:{kind:'live',id:'u',label:'<b>Nickname</b>',avatarIcon:'ccs-avatar-1'},geometry:{type:'Point',coordinates:[24.01,57]}};
+ const data=()=>({type:'FeatureCollection',features:[{properties:{kind:'self'},geometry:{type:'Point',coordinates:[24,57]}},live]});
+ f.window.ccsSetFeatures(data());f.window.ccsFollow();f.run('updateEdgeBeacons()');
+ const node=nodes.find(n=>n.className==='ccs-beacon ccs-person-beacon');
+ assert.equal(node.nickname.textContent,'<b>Nickname</b>');assert.equal(node.dataset.icon,'ccs-avatar-1');
+ delete live.properties.avatarIcon;f.window.ccsSetFeatures(data());f.run('updateEdgeBeacons()');assert.equal(node.dataset.icon,'ccs-person');
+ node.click({stopPropagation(){}});assert.deepEqual(f.messages.at(-1),{type:'select',kind:'live',id:'u'});
+});
+
+test('zoom cannot rotate directional markers; real map rotation compensates both layers',()=>{
+ const f=fixture();f.handlers['style.load']();
+ for(const id of ['ccs-self','ccs-live-cars']) {
+  const layer=f.layers.find(l=>l.id===id);
+  assert.equal(layer.layout['icon-rotation-alignment'],'viewport');
+  assert.equal(layer.layout['icon-pitch-alignment'],'viewport');
+  assert.equal(JSON.stringify(layer.layout['icon-rotate']),JSON.stringify(['-',['coalesce',['get','heading'],0],0]));
+ }
+ const updates=()=>f.layouts.filter(v=>v[1]==='icon-rotate');
+ const count=updates().length;
+ for(const zoom of [16,12,8,5,2,5,8,12,16]) {
+  f.run(`map.zoom=${zoom};syncMarkerBearing()`);
+ }
+ assert.equal(updates().length,count);
+ f.run('map.bearing=90');f.handlers.rotate();
+ assert.equal(updates().length,count+2);
+ for(const change of updates().slice(-2)) assert.equal(change[2][2],90);
+ // A 90-degree course viewed with a 90-degree map bearing points screen-up.
+ assert.equal(90-updates().at(-1)[2][2],0);
+ f.window.ccsSetStyle('positron');f.handlers['style.load']();
+ assert.equal(f.layers.find(l=>l.id==='ccs-self').layout['icon-rotate'][2],90);
+ f.run('map.bearing=-179');f.handlers.rotate();
+ assert.equal(updates().at(-1)[2][2],-179);
+ assert.equal(f.moves.length,0); // Updating icon orientation never moves the camera.
 });

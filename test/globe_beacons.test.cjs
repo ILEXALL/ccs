@@ -41,3 +41,13 @@ test('SOS and police use independent smooth distance ranges',()=>{
   for(let d=start;d>=end;d-=10){const opacity=beaconOpacity(d,kind);assert.ok(opacity>=previous);previous=opacity;}
  }
 });
+
+test('speed zoom retains low-speed scale and doubles distance at 100 km/h',()=>{
+ const {speedFollowZoom}=require('../assets/globe/beacons.js');
+ assert.equal(speedFollowZoom(16.35,0),16.35);
+ assert.equal(speedFollowZoom(16.35,30/3.6),16.35);
+ assert.ok(Math.abs(speedFollowZoom(16.35,100/3.6)-15.35)<1e-10);
+ assert.equal(speedFollowZoom(16.35,NaN),16.35);
+ let previous=16.35;
+ for(let k=31;k<=150;k++){const z=speedFollowZoom(16.35,k/3.6);assert.ok(z<previous);assert.ok(previous-z<.025);previous=z;}
+});

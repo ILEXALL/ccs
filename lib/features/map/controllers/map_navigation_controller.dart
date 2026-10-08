@@ -639,7 +639,8 @@ class MapNavigationController implements MapNavigationActions {
 
     if (previousLocation == null) {
       host.previousAcceptedHeadingLocation = nextLocation;
-      host.smoothedUserHeadingDegrees = hasRawHeading
+      host.smoothedUserHeadingDegrees =
+          hasRawHeading && speedMetersPerSecond >= 1.5
           ? normalizedRawHeading
           : fallback;
       return host.smoothedUserHeadingDegrees;
@@ -667,10 +668,14 @@ class MapNavigationController implements MapNavigationActions {
     // 2) When stopped or crawling, keep the last good heading instead of using
     //    the phone compass. This prevents the arrow from pointing sideways in a
     //    car, on a magnetic mount, or when the phone is in a pocket/cup holder.
-    if (speed >= mapGpsCourseMinSpeedMetersPerSecond && hasRawHeading) {
+    if (speed >= math.max(1.5, mapGpsCourseMinSpeedMetersPerSecond) &&
+        accuracy <= 35 &&
+        movedMeters >= movementThreshold &&
+        hasRawHeading) {
       targetHeading = normalizedRawHeading;
       host.previousAcceptedHeadingLocation = nextLocation;
-    } else if (speed >= mapGpsCourseMinSpeedMetersPerSecond &&
+    } else if (speed >= math.max(1.5, mapGpsCourseMinSpeedMetersPerSecond) &&
+        accuracy <= 35 &&
         movedMeters >= movementThreshold) {
       targetHeading = bearingBetweenLatLngDegrees(
         previousLocation,

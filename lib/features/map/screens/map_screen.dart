@@ -552,6 +552,19 @@ class _MapScreenState extends State<MapScreen>
         'following': mapCenteredOnCurrentUser && globeFollowRevision > 0,
         'followRevision': globeFollowRevision,
         'zoom': navigationZoom,
+        'gpsFresh':
+            lastGpsUserLocationAt != null &&
+            DateTime.now().difference(lastGpsUserLocationAt!).inSeconds < 10,
+        'gpsPosition': lastGpsUserLocation == null
+            ? null
+            : [lastGpsUserLocation!.longitude, lastGpsUserLocation!.latitude],
+        'speed':
+            lastGpsUserLocationAt != null &&
+                DateTime.now().difference(lastGpsUserLocationAt!).inSeconds <
+                    5 &&
+                currentUserSpeedMetersPerSecond.isFinite
+            ? currentUserSpeedMetersPerSecond.clamp(0.0, 70.0)
+            : 0.0,
       };
     },
     readFeatures: () {
@@ -621,12 +634,16 @@ class _MapScreenState extends State<MapScreen>
                 location.coordinates,
                 {
                   'icon': presence.liveLocationCarIconAsset(location),
+                  'avatarUrl': location.photoUrl ?? '',
                   'heading': location.headingDegrees,
                 },
               ),
           for (final report in layers.visiblePoliceReports)
             if (isValidLatLng(report.coordinates))
-              point('police', report.id, 'Police', report.coordinates),
+              point('police', report.id, 'Police', report.coordinates, {
+                'ownReport':
+                    report.uid == FirebaseAuth.instance.currentUser?.uid,
+              }),
           for (final report in layers.visibleSosReports)
             if (isValidLatLng(report.coordinates))
               point('sos', report.id, 'SOS', report.coordinates),

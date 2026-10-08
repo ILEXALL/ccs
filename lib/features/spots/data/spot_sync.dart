@@ -70,6 +70,13 @@ StreamSubscription<QuerySnapshot<Map<String, dynamic>>>?
 adminReviewSpotSubscription;
 
 bool adminReviewSpotSyncRequested = false;
+String? _adminReviewListenerScope;
+int _adminReviewListenerGeneration = 0;
+
+String get _currentAdminReviewListenerScope {
+  final countries = currentUser.moderatorCountryCodes.toList()..sort();
+  return '${currentUser.uid}|${currentUser.role}|${countries.join(",")}';
+}
 
 const String localImmediateSpotCacheSource = 'local immediate';
 
@@ -265,10 +272,14 @@ void startApprovedSpotsLiveSync(int generation, String scope) {
 
 Future<void> stopAdminReviewSpotSync() async {
   adminReviewSpotSyncRequested = false;
-  await adminReviewSpotSubscription?.cancel();
+  // Detach synchronously: a new screen may subscribe while cancellation waits.
+  final previous = adminReviewSpotSubscription;
   adminReviewSpotSubscription = null;
+  _adminReviewListenerScope = null;
+  _adminReviewListenerGeneration++;
   firebaseSpotCacheBySource.remove('admin review');
   publishFirebaseSpotCaches();
+  await previous?.cancel();
 }
 
 final Set<String> _spotCountryCodeBackfillsThisSession = <String>{};
@@ -312,7 +323,7 @@ Future<void> _backfillLegacySpotCountryCodes(Iterable<CarSpot> spots) async {
   }
 }
 
-void startAdminReviewSpotSync() {
+void startAdminReviewSpotSync({bool forceRestart = false}) {
   if (!userRoleIsStaff(currentUser.role)) {
     unawaited(stopAdminReviewSpotSync());
     return;
@@ -320,7 +331,17 @@ void startAdminReviewSpotSync() {
 
   adminReviewSpotSyncRequested = true;
 
-  unawaited(adminReviewSpotSubscription?.cancel());
+  final scope = _currentAdminReviewListenerScope;
+  if (!forceRestart &&
+      adminReviewSpotSubscription != null &&
+      _adminReviewListenerScope == scope) {
+    return;
+  }
+  final previous = adminReviewSpotSubscription;
+  adminReviewSpotSubscription = null;
+  _adminReviewListenerScope = scope;
+  final generation = ++_adminReviewListenerGeneration;
+  unawaited(previous?.cancel());
 
   const adminReviewStatuses = <String>[
     'pending',
@@ -356,6 +377,13 @@ void startAdminReviewSpotSync() {
         reviewQuery.limit(firebaseAdminReviewSpotsListenLimit),
       ).listen(
         (snapshot) {
+          if (generation != _adminReviewListenerGeneration ||
+              !adminReviewSpotSyncRequested ||
+              scope != _currentAdminReviewListenerScope ||
+              FirebaseAuth.instance.currentUser?.uid != currentUser.uid ||
+              currentUser.banActive) {
+            return;
+          }
           final parsedSpots = snapshot.docs
               .map(CarSpot.fromFirestore)
               .where(
@@ -372,6 +400,11 @@ void startAdminReviewSpotSync() {
           }
         },
         onError: (Object error, StackTrace stack) {
+          if (generation != _adminReviewListenerGeneration) return;
+          final failed = adminReviewSpotSubscription;
+          adminReviewSpotSubscription = null;
+          _adminReviewListenerScope = null;
+          unawaited(failed?.cancel());
           debugPrint('Admin review spot listener failed: $error');
           debugPrint('$stack');
         },
@@ -472,7 +505,9 @@ void startFirebaseSpotSync({bool forceFullRefresh = false}) {
     firebaseSpotCacheBySource.clear();
     // Notify both Map and Explore immediately when access changes.
     publishFirebaseSpotCaches();
-    if (adminReviewSpotSyncRequested) startAdminReviewSpotSync();
+    if (adminReviewSpotSyncRequested) {
+      startAdminReviewSpotSync(forceRestart: true);
+    }
   }
   startTemporarySpotTodayNotificationScheduler();
   final generation = spotSyncGeneration;

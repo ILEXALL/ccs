@@ -56,6 +56,7 @@ flutter:
 
   assets:
     - assets/globe/
+    - assets/sounds/
     - assets/legal/terms.txt
     - assets/icon.png
     - assets/cities/

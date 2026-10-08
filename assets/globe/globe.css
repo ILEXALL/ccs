@@ -25,3 +25,18 @@ body{background:#050911 url("stars.svg") repeat;background-size:768px 768px}
 
 /* A small outward-pointing tip follows the actual projected bearing. */
 .ccs-beacon::before{content:'';position:absolute;left:calc(50% - 4px);top:13px;width:8px;height:8px;background:var(--beacon-color);clip-path:polygon(50% 0,100% 100%,0 100%);transform:rotate(var(--beacon-angle,0deg)) translateY(-24px);transform-origin:50% 50%;pointer-events:none}
+
+/* People keep an avatar silhouette and nickname, distinct from place icons. */
+.ccs-person-beacon{gap:3px}
+.ccs-person-beacon canvas{width:40px;height:40px;padding:0;border:2px solid #3fbcff;background:#12283b}
+.ccs-person-beacon .ccs-beacon-name{position:absolute;bottom:100%;margin-bottom:4px;max-width:98px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:600 11px system-ui,sans-serif;padding:3px 6px;border-radius:6px;background:#101820f5;color:white;box-sizing:border-box}
+.ccs-person-beacon::before{top:16px}
+
+/* Pulse only the camera artwork, never the placement transform or distance. */
+.ccs-camera-beacon canvas{animation:ccs-camera-pulse 2.4s ease-in-out infinite}
+.ccs-camera-waves{position:absolute;left:50%;top:17px;width:0;height:0;pointer-events:none}
+.ccs-camera-waves::before,.ccs-camera-waves::after{content:'';position:absolute;left:-17px;top:-17px;width:34px;height:34px;box-sizing:border-box;border:1.5px solid #ffbf47;border-radius:50%;animation:ccs-camera-wave 2.4s ease-out infinite}
+.ccs-camera-waves::after{animation-delay:1.2s}
+@keyframes ccs-camera-pulse{0%,100%{transform:scale(1);box-shadow:0 0 4px #ffbf4733}50%{transform:scale(1.07);box-shadow:0 0 12px #ffbf4777}}
+@keyframes ccs-camera-wave{0%{transform:scale(1);opacity:.5}100%{transform:scale(1.85);opacity:0}}
+@media(prefers-reduced-motion:reduce){.ccs-camera-beacon canvas,.ccs-camera-waves::before,.ccs-camera-waves::after{animation:none}.ccs-camera-waves{display:none}}

@@ -19,7 +19,7 @@ const iconCache = new Map();
 // Reuse the bundled CCS category PNGs; never fetch icons.
 window.ccsSetIcons = icons => {
   for (const [id, uri] of Object.entries(icons)) {
-    if ((!id.startsWith('assets/spot_icons/') && !/^assets\/user_cars\/car_(green|blue|purple)\.png$/.test(id) && !/^ccs-(self-arrow|pin-(blue|amber|red)|police-([0-9]|1[0-6])|sos|speed-camera)$/.test(id)) || !uri.startsWith('data:image/png;base64,')) continue;
+    if ((!id.startsWith('assets/spot_icons/') && !/^assets\/user_cars\/car_(green|blue|purple)\.png$/.test(id) && !/^ccs-(self-arrow|pin-(blue|amber|red)|police-([0-9]|1[0-6])|sos|speed-camera|person|avatar-[0-9]+)$/.test(id)) || !uri.startsWith('data:image/png;base64,')) continue;
     const image = new Image();
     image.onload = () => {
       for (const tint of (!id.startsWith('assets/spot_icons/') ? [''] : ['', '#616161', '#ffab40'])) {
@@ -42,7 +42,7 @@ window.ccsSetIcons = icons => {
 // Small motion packets use their own source; hundreds of spots are not rebuilt
 // at animation-frame frequency. Both arrow and camera use the same interpolation.
 let motionReceived=false, motionPosition=null, motionHeading=0, motionFollowing=false;
-let motionFrame=null;
+let motionFrame=null, followZoom=null;
 let gestureBlocked=false, followRevision=0;
 let manualTouchActive=false;
 let motionTarget=null, motionAt=0, motionLastFrame=null, motionVelocity=[0,0];
@@ -64,9 +64,11 @@ function animateMotion(now) {
   const blend=1-Math.exp(-dt/.065);
   motionPosition=[motionPosition[0]+shortArc(target[0]-motionPosition[0])*blend,motionPosition[1]+(target[1]-motionPosition[1])*blend];
   motionHeading+=shortArc(motionTarget.heading-motionHeading)*(1-Math.exp(-dt/.12));
+  const zoomTarget=speedFollowZoom(motionTarget.zoom, motionTarget.speed);
+  followZoom=followZoom===null?motionTarget.zoom:followZoom+(zoomTarget-followZoom)*(1-Math.exp(-dt/1.2));
   map.getSource('ccs-motion')?.setData(motionData());
-  if(motionFollowing) map.easeTo({center:motionPosition,zoom:motionTarget.zoom,bearing:motionHeading,offset:followOffset(),padding:0,duration:0});
-  if(age<1) motionFrame=requestAnimationFrame(animateMotion);
+  if(motionFollowing) map.easeTo({center:motionPosition,zoom:followZoom,bearing:motionHeading,offset:followOffset(),padding:0,duration:0});
+  if(age<1 || (motionFollowing && Math.abs(zoomTarget-followZoom)>.001 && age<10)) motionFrame=requestAnimationFrame(animateMotion);
   else motionLastFrame=null;
 }
 window.ccsSetMotion = data => {
@@ -84,10 +86,29 @@ window.ccsSetMotion = data => {
     const metersPerSecond=Math.hypot(velocity[0]*Math.cos(data.position[1]*Math.PI/180),velocity[1])*111320;
     if(metersPerSecond<=70) motionVelocity=velocity;
   }
-  if(!motionPosition || seconds>3) {motionPosition=data.position.slice();motionHeading=data.heading;}
+  if(!motionPosition || seconds>3) {motionPosition=data.position.slice();if(!motionTarget || !Number.isFinite(data.speed) || data.speed>=1.5) motionHeading=data.heading;}
+  // Freeze bearing immediately on stopping; never follow stationary course noise.
+  // Older packets without speed retain their previous behavior.
+  if (Number.isFinite(data.speed) && data.speed < 1.5) data={...data,heading:motionHeading};
   motionTarget=data;motionAt=now;
   if(motionFrame===null) motionFrame=requestAnimationFrame(animateMotion);
 };
+// Keep directional sprites in one screen coordinate system. Mixing map rotation
+// with viewport pitch lets globe projection/zoom change the apparent direction.
+let markerBearing = null;
+function markerRotation() {
+  const bearing = map?.getBearing?.() ?? 0;
+  return ['-', ['coalesce',['get','heading'],0], Number.isFinite(bearing) ? bearing : 0];
+}
+function syncMarkerBearing() {
+  if (!ready) return;
+  const bearing = map.getBearing?.() ?? 0;
+  if (!Number.isFinite(bearing) || bearing === markerBearing) return;
+  markerBearing = bearing;
+  for (const layer of ['ccs-self','ccs-live-cars']) {
+    map.setLayoutProperty(layer, 'icon-rotate', markerRotation());
+  }
+}
 function currentPosition() { return latest.features.find(f => f.properties.kind === 'self')?.geometry.coordinates; }
 function followOffset() {
   // Keep the driver at 68% of the map height without persistent camera padding.
@@ -247,12 +268,12 @@ try {
     }
     map.addLayer({id:'ccs-live-cars',type:'symbol',source:'ccs',filter:['==',['get','kind'],'live'],layout:{
       'icon-image':['coalesce',['get','icon'],'assets/user_cars/car_green.png'],'icon-size':carSize,
-      'icon-rotate':['coalesce',['get','heading'],0],'icon-rotation-alignment':'map',
+      'icon-rotate':markerRotation(),'icon-rotation-alignment':'viewport',
       'icon-pitch-alignment':'viewport','icon-allow-overlap':true,'icon-ignore-placement':true}});
     map.addLayer({id:'ccs-cameras',type:'symbol',source:'ccs',minzoom:13,filter:['==',['get','kind'],'camera'],layout:{'icon-image':'ccs-speed-camera','icon-size':0.5,'icon-allow-overlap':true},paint:{'icon-opacity':['interpolate',['linear'],['zoom'],13,0,13.25,0.074,13.5,0.259,13.75,0.5,14,0.741,14.25,0.926,14.5,1]}});
     map.addLayer({id:'ccs-self',type:'symbol',source:'ccs-motion',filter:['==',['get','kind'],'self'],layout:{
       'icon-image':'ccs-self-arrow','icon-size':['interpolate',['linear'],['zoom'],3,18/64,16,62/64],
-      'icon-rotate':['coalesce',['get','heading'],0], 'icon-rotation-alignment':'map',
+      'icon-rotate':markerRotation(), 'icon-rotation-alignment':'viewport',
       'icon-pitch-alignment':'viewport','icon-allow-overlap':true,'icon-ignore-placement':true}});
     addAlertLayers();
     const labelFont=map.getStyle().layers.find(l=>l.layout?.['text-font'])?.layout['text-font'] || ['Noto Sans Regular'];
@@ -262,8 +283,9 @@ try {
       'text-anchor':'bottom','text-offset':[0,-4]},
       paint:{'text-color':currentStyle==='positron'?'#182333':'#ffffff','text-halo-color':currentStyle==='positron'?'#ffffff':'#101827','text-halo-width':2,
         'text-opacity':['interpolate',['linear'],['zoom'],12.35,0,14.25,1]}});
-    ready=true; statusBox.hidden=true; notify('ready'); startAlertAnimation(); collapseInitialAttribution();
+    ready=true; markerBearing=null; syncMarkerBearing(); statusBox.hidden=true; notify('ready'); startAlertAnimation(); collapseInitialAttribution();
   });
+  map.on('rotate', syncMarkerBearing);
   map.on('click', e => {
     if(!ready) return;
     if(latest.routePreview) {
@@ -294,7 +316,9 @@ function updateEdgeBeacons() {
   if (ready && viewActive && (motionFollowing || following) && !gestureBlocked && position && !latest.routePreview) {
     const canvas = map.getCanvas(), width = canvas.clientWidth, height = canvas.clientHeight;
     const inset = latest.beaconInsets || {top: 110, bottom: 12};
-    const bounds = {left: 30, right: width - 30, top: inset.top + 46, bottom: height - inset.bottom - 30};
+    const hasPeople=latest.features.some(f=>f.properties.kind==='live');
+    const sideInset=hasPeople?54:30;
+    const bounds = {left: sideInset, right: width - sideInset, top: inset.top + (hasPeople ? 62 : 46), bottom: height - inset.bottom - 30};
     if (bounds.right > bounds.left && bounds.bottom > bounds.top) {
       const projected = map.project(position);
       const origin = {x: Math.max(bounds.left, Math.min(bounds.right, projected.x)), y: Math.max(bounds.top, Math.min(bounds.bottom, projected.y))};
@@ -311,12 +335,23 @@ function updateEdgeBeacons() {
         if (point.x >= 0 && point.x <= width && point.y >= inset.top && point.y <= height - inset.bottom) continue;
         const at = beaconPlacement(origin, point, bounds);
         if (at && ((at.x < 75 && at.y > height-110) || (at.x > width-80 && at.y > height-230))) continue;
-        if (!at || occupied.some(other => Math.hypot(other.x-at.x, other.y-at.y) < 66)) continue;
+        if (!at || occupied.some(other => Math.hypot(other.x-at.x, other.y-at.y) < (p.kind==='live'||other.person?104:66))) continue;
         const key = p.kind + ':' + p.id;
         let node = edgeBeacons.get(key);
         if (!node) {
           node = document.createElement('button'); node.className = 'ccs-beacon';
           const face = document.createElement('canvas'); face.width=128; face.height=128;
+          if(p.kind==='live') {
+            node.className+=' ccs-person-beacon';
+            const name=document.createElement('strong');name.className='ccs-beacon-name';
+            node.appendChild(name);node.nickname=name;
+          }
+          if(p.kind==='camera') {
+            node.className+=' ccs-camera-beacon';
+            const waves=document.createElement('i');waves.className='ccs-camera-waves';
+            waves.setAttribute('aria-hidden','true');node.appendChild(waves);
+          }
+          node.face=face;
           const label = document.createElement('span');
           node.appendChild(face); node.appendChild(label);
           node.addEventListener('click', e => {e.stopPropagation(); notify('select', {kind:p.kind,id:p.id});});
@@ -325,11 +360,12 @@ function updateEdgeBeacons() {
           node.getBoundingClientRect();
         }
         // Beacons have a dark surface in both styles: use the bright dark-map artwork.
-        const baseIcon = p.kind === 'police' ? 'ccs-police-' + policeBeaconFrame : p.kind === 'sos' ? 'ccs-sos' : p.icon;
+        if(node.nickname) node.nickname.textContent=String(p.label || 'User');
+        const baseIcon = p.kind === 'live' ? (p.avatarIcon || 'ccs-person') : p.kind === 'police' ? 'ccs-police-' + policeBeaconFrame : p.kind === 'sos' ? 'ccs-sos' : p.icon;
         const icon = baseIcon + (p.tint ? '@' + p.color : '');
         const pixels = iconCache.get(icon);
         if (pixels && node.dataset.icon !== icon) {
-          node.firstChild.getContext('2d').putImageData(pixels,0,0); node.dataset.icon=icon;
+          node.face.getContext('2d').putImageData(pixels,0,0); node.dataset.icon=icon;
         }
         if (!pixels) continue;
         node.style.setProperty('--beacon-color', p.kind === 'sos' ? '#ff3355' : p.kind === 'police' ? (policeBeaconFrame < 8 ? '#1565ff' : '#ff2d55') : /^#[0-9a-f]{6}$/i.test(p.color || '') ? p.color : '#00b8ff');
@@ -340,7 +376,7 @@ function updateEdgeBeacons() {
         node.style.opacity = String(beaconOpacity(distance, p.kind));
         node.style.pointerEvents = beaconOpacity(distance, p.kind) > 0.02 ? 'auto' : 'none';
         node.hiddenAt = null;
-        selected.add(key); occupied.push(at);
+        selected.add(key); occupied.push({...at,person:p.kind==='live'});
       }
     }
   }

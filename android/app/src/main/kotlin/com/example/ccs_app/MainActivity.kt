@@ -30,6 +30,7 @@ class MainActivity : FlutterActivity() {
     private val appBadgeChannelName = "ccs/app_badge"
     private val notificationChannelId = "ccs_updates_bell_v2"
     private var feedbackPlayer: MediaPlayer? = null
+    private var mapAlertPlayer: MediaPlayer? = null
     private val cameraRequestCode = 7002
     private var cameraPhotoFile: File? = null
     private val pickPhotoRequestCode = 7001
@@ -78,6 +79,48 @@ class MainActivity : FlutterActivity() {
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, notificationsChannelName)
             .setMethodCallHandler { call, result ->
                 when (call.method) {
+                    "stopMapAlert" -> {
+                        mapAlertPlayer?.release()
+                        mapAlertPlayer = null
+                        result.success(null)
+                    }
+                    "playMapAlert" -> {
+                        val bytes = call.argument<ByteArray>("bytes")
+                        if (bytes == null || bytes.size > 1_000_000) {
+                            result.error("invalid_audio", "Invalid map alert", null)
+                        } else {
+                            var player: MediaPlayer? = null
+                            try {
+                                mapAlertPlayer?.release()
+                                mapAlertPlayer = null
+                                val audio = File(cacheDir, "ccs-map-alert.mp3")
+                                audio.writeBytes(bytes)
+                                player = MediaPlayer()
+                                player.setAudioAttributes(AudioAttributes.Builder()
+                                    .setUsage(AudioAttributes.USAGE_ASSISTANCE_NAVIGATION_GUIDANCE)
+                                    .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build())
+                                player.setDataSource(audio.absolutePath)
+                                player.prepare()
+                                val duration = player.duration
+                                player.setOnCompletionListener { completed ->
+                                    completed.release()
+                                    if (mapAlertPlayer === completed) mapAlertPlayer = null
+                                }
+                                player.setOnErrorListener { failed, _, _ ->
+                                    failed.release()
+                                    if (mapAlertPlayer === failed) mapAlertPlayer = null
+                                    true
+                                }
+                                mapAlertPlayer = player
+                                player.start()
+                                result.success(duration)
+                            } catch (_: Exception) {
+                                player?.release()
+                                mapAlertPlayer = null
+                                result.error("audio_failed", "Could not play map alert", null)
+                            }
+                        }
+                    }
                     "stopSound" -> {
                         feedbackPlayer?.release()
                         feedbackPlayer = null

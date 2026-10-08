@@ -126,5 +126,13 @@ Future<Map<String, String>> globeMarkerImages() async {
     canvas.drawCircle(const Offset(24, 14.5), 3.2, Paint()..color = dark);
     canvas.drawCircle(const Offset(24, 23), 3.7, Paint()..color = dark);
   });
+  await draw('ccs-person', 40, (canvas) {
+    canvas.drawCircle(
+      const Offset(20, 20),
+      20,
+      Paint()..color = const Color(0xff12283b),
+    );
+    glyph(canvas, Icons.person, Colors.white, 30, 40);
+  });
   return images;
 }
