@@ -16,3 +16,12 @@ body{background:#050911 url("stars.svg") repeat;background-size:768px 768px}
 /* Readable when expanded; collapses to the built-in information button. */
 .maplibregl-ctrl-attrib.maplibregl-compact{background:#10151ef2;color:#c6ced9;font-size:11px!important;line-height:18px}
 .maplibregl-ctrl-attrib-button{filter:invert(1)}
+
+#ccs-beacons{position:absolute;inset:0;pointer-events:none;overflow:hidden}
+.ccs-beacon{position:absolute;left:0;top:0;display:flex;flex-direction:column;align-items:center;gap:3px;background:none;border:0;padding:0;color:white;opacity:0;transition:opacity .4s ease,transform .18s linear;cursor:pointer}
+.ccs-beacon canvas{width:34px;height:34px;box-sizing:border-box;padding:3px;border:1.5px solid var(--beacon-color);border-radius:50%;background:#101820f2;box-shadow:0 2px 8px #0008}
+.ccs-beacon span{font:600 10px system-ui,sans-serif;white-space:nowrap;padding:2px 5px;border-radius:8px;background:#101820ed;border:1px solid #ffffff24;color:#fff}
+@media(prefers-reduced-motion:reduce){.ccs-beacon{transition:none}}
+
+/* A small outward-pointing tip follows the actual projected bearing. */
+.ccs-beacon::before{content:'';position:absolute;left:calc(50% - 4px);top:13px;width:8px;height:8px;background:var(--beacon-color);clip-path:polygon(50% 0,100% 100%,0 100%);transform:rotate(var(--beacon-angle,0deg)) translateY(-24px);transform-origin:50% 50%;pointer-events:none}

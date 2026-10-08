@@ -340,8 +340,21 @@ class _MapScreenState extends State<MapScreen>
       mapCameraReady = true;
       navigation.restoreMapCamera();
       navigation.handleMapFocusRequest();
-      unawaited(navigation.focusInitialMapOnCurrentLocation());
+      unawaited(startMapOpeningFollow());
     });
+  }
+
+  Future<void> startMapOpeningFollow() async {
+    // Spot-route requests keep their overview. Manual gestures can still cancel
+    // following while the first GPS fix is pending.
+    if (!routePreviewMode && selectedSpot == null) {
+      setState(() {
+        mapCenteredOnCurrentUser = true;
+        navigationZoom = 16.35;
+        globeFollowRevision++;
+      });
+    }
+    await navigation.focusInitialMapOnCurrentLocation();
   }
 
   @override
@@ -378,7 +391,7 @@ class _MapScreenState extends State<MapScreen>
       mapCameraReady = true;
       navigation.restoreMapCamera();
       navigation.handleMapFocusRequest();
-      unawaited(navigation.focusInitialMapOnCurrentLocation());
+      unawaited(startMapOpeningFollow());
     });
   }
 
@@ -564,6 +577,10 @@ class _MapScreenState extends State<MapScreen>
         'type': 'FeatureCollection',
         'camera': globeCamera,
         'routePreview': routePreviewMode,
+        'beaconInsets': {
+          'top': MediaQuery.paddingOf(context).top + 64,
+          'bottom': MediaQuery.paddingOf(context).bottom + 12,
+        },
         'selection': {
           'token': lastHandledMapFocusRequestToken,
           'id': selectedSpot?.id,

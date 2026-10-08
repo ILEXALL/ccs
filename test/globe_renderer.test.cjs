@@ -19,6 +19,7 @@ function fixture() {
     addLayer(layer) {layers.push(layer);}
     queryRenderedFeatures(point) {return point;}
     getZoom() {return this.zoom;}
+    getCanvas() {return {clientWidth:400,clientHeight:800};}
     jumpTo(move) {moves.push(move);}
     easeTo(move) {moves.push(move);}
     fitBounds(bounds, options) {moves.push({bounds,...options});}
@@ -206,4 +207,16 @@ test('route preview sorts bounds and crosses the date line by the shortest arc',
  assert.equal(f.moves.at(-1).pitch,0);
  f.window.ccsSetFeatures({features:[],camera:{revision:2,bounds:[[179,58],[-179,57]]}});
  assert.equal(JSON.stringify(f.moves.at(-1).bounds),JSON.stringify([[179,57],[181,58]]));
+});
+
+test('follow camera anchors the driver below center without retaining padding',()=>{
+ const f=fixture();f.handlers['style.load']();
+ f.window.ccsSetMotion({position:[24,57],heading:90,following:true,zoom:16,followRevision:1});f.tick(16);
+ assert.equal(JSON.stringify(f.moves.at(-1).offset),JSON.stringify([0,144]));
+ assert.equal(f.moves.at(-1).duration,0);
+ assert.equal(f.moves.at(-1).padding,0);
+ const count=f.moves.length;
+ f.handlers.dragstart();
+ f.window.ccsSetMotion({position:[24.001,57],heading:90,following:true,zoom:16,followRevision:1});f.tick(32);
+ assert.equal(f.moves.length,count);
 });

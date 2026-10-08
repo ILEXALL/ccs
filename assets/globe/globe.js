@@ -64,7 +64,7 @@ function animateMotion(now) {
   motionPosition=[motionPosition[0]+shortArc(target[0]-motionPosition[0])*blend,motionPosition[1]+(target[1]-motionPosition[1])*blend];
   motionHeading+=shortArc(motionTarget.heading-motionHeading)*(1-Math.exp(-dt/.12));
   map.getSource('ccs-motion')?.setData(motionData());
-  if(motionFollowing) map.jumpTo({center:motionPosition,zoom:motionTarget.zoom,bearing:motionHeading});
+  if(motionFollowing) map.easeTo({center:motionPosition,zoom:motionTarget.zoom,bearing:motionHeading,offset:followOffset(),padding:0,duration:0});
   if(age<1) motionFrame=requestAnimationFrame(animateMotion);
   else motionLastFrame=null;
 }
@@ -74,6 +74,7 @@ window.ccsSetMotion = data => {
     followRevision=data.followRevision;gestureBlocked=false;
   }
   motionFollowing=!!data.following && !gestureBlocked;
+  if (!motionFollowing) updateEdgeBeacons();
   if(!data.position) {stopMotion();motionTarget=null;motionPosition=null;motionVelocity=[0,0];if(ready) map.getSource('ccs-motion')?.setData(motionData());return;}
   const now=performance.now(), seconds=(now-motionAt)/1000;
   motionVelocity=[0,0];
@@ -87,9 +88,13 @@ window.ccsSetMotion = data => {
   if(motionFrame===null) motionFrame=requestAnimationFrame(animateMotion);
 };
 function currentPosition() { return latest.features.find(f => f.properties.kind === 'self')?.geometry.coordinates; }
+function followOffset() {
+  // Keep the driver at 68% of the map height without persistent camera padding.
+  return [0, Math.round((map.getCanvas?.().clientHeight || 0) * .18)];
+}
 function follow() {
   const p = currentPosition();
-  if (p) map.easeTo({center:p, zoom:Math.max(map.getZoom(),15),duration:900});
+  if (p) map.easeTo({center:p, zoom:Math.max(map.getZoom(),15),offset:followOffset(),padding:0,duration:900});
 }
 window.ccsSetFeatures = data => {
   latest = data;
@@ -124,7 +129,7 @@ window.ccsSetStyle = style => {
 };
 let alertTimer=null, viewActive=true;
 function stopAlertAnimation() { if(alertTimer!==null) clearInterval(alertTimer); alertTimer=null; }
-window.ccsSetActive = active => {viewActive=!!active; if(viewActive) startAlertAnimation(); else {stopAlertAnimation();stopMotion();}};
+window.ccsSetActive = active => {viewActive=!!active;updateEdgeBeacons(); if(viewActive) startAlertAnimation(); else {stopAlertAnimation();stopMotion();}};
 function alertRadius(kind) {
   const stops=['interpolate',['linear'],['zoom']];
   for(const z of [1,4,5,7,9,11,12,14.19,14.2,15,16,17,18]) {
@@ -170,7 +175,7 @@ function startAlertAnimation() {
 try {
   map = new maplibregl.Map({container:'map',style:'https://tiles.openfreemap.org/styles/dark',center:[24.1,56.95],zoom:6.5,maxZoom:18,attributionControl:{compact:true}});
   // Native compact controls own globe/follow; pinch gestures provide zoom.
-  const browse = () => {gestureBlocked=true;following=false;motionFollowing=false;notify('gesture');};
+  const browse = () => {gestureBlocked=true;following=false;motionFollowing=false;updateEdgeBeacons();notify('gesture');};
   // Capture the second finger before MapLibre handles the pinch. Camera jumpTo
   // updates can otherwise interrupt zoomstart before it carries originalEvent.
   const surface=document.getElementById('map');
@@ -269,3 +274,85 @@ try {
     else if(!p) notify('clear');
   });
 } catch (_) {statusBox.textContent='This device could not start the globe. Please retry.';notify('error');}
+
+// One lightweight overlay update per 100 ms; CSS interpolates movement and fade.
+// Only already-authorized, currently visible marker data can become beacons.
+const edgeBeacons = new Map();
+let beaconLayer;
+function updateEdgeBeacons() {
+  if (!document.createElement || !map?.project) return;
+  if (!beaconLayer) {
+    beaconLayer = document.createElement('div');
+    beaconLayer.id = 'ccs-beacons';
+    document.body.appendChild(beaconLayer);
+  }
+  const selected = new Set();
+  const position = motionPosition || currentPosition();
+  if (ready && viewActive && (motionFollowing || following) && !gestureBlocked && position && !latest.routePreview) {
+    const canvas = map.getCanvas(), width = canvas.clientWidth, height = canvas.clientHeight;
+    const inset = latest.beaconInsets || {top: 110, bottom: 12};
+    const bounds = {left: 30, right: width - 30, top: inset.top + 46, bottom: height - inset.bottom - 30};
+    if (bounds.right > bounds.left && bounds.bottom > bounds.top) {
+      const projected = map.project(position);
+      const origin = {x: Math.max(bounds.left, Math.min(bounds.right, projected.x)), y: Math.max(bounds.top, Math.min(bounds.bottom, projected.y))};
+      const candidates = latest.features.filter(f => ['spot','live'].includes(f.properties.kind) && f.geometry.type === 'Point')
+        .map(f => ({f, distance: beaconDistance(position, f.geometry.coordinates)}))
+        .filter(item => Number.isFinite(item.distance) && item.distance < 2000)
+        .sort((a,b) => a.distance - b.distance || String(a.f.properties.id).localeCompare(String(b.f.properties.id)));
+      const occupied = [];
+      for (const {f, distance} of candidates) {
+        if (selected.size >= 8) break;
+        const p = f.properties, coordinate = f.geometry.coordinates;
+        const point = map.project([position[0] + shortArc(coordinate[0] - position[0]), coordinate[1]]);
+        // Do not duplicate markers already visible in the unobstructed map area.
+        if (point.x >= 0 && point.x <= width && point.y >= inset.top && point.y <= height - inset.bottom) continue;
+        const at = beaconPlacement(origin, point, bounds);
+        if (at && ((at.x < 75 && at.y > height-110) || (at.x > width-80 && at.y > height-230))) continue;
+        if (!at || occupied.some(other => Math.hypot(other.x-at.x, other.y-at.y) < 66)) continue;
+        const key = p.kind + ':' + p.id;
+        let node = edgeBeacons.get(key);
+        if (!node) {
+          node = document.createElement('button'); node.className = 'ccs-beacon';
+          const face = document.createElement('canvas'); face.width=128; face.height=128;
+          const label = document.createElement('span');
+          node.appendChild(face); node.appendChild(label);
+          node.addEventListener('click', e => {e.stopPropagation(); notify('select', {kind:p.kind,id:p.id});});
+          beaconLayer.appendChild(node); edgeBeacons.set(key,node);
+          // Establish the transparent initial state before starting the fade.
+          node.getBoundingClientRect();
+        }
+        // Beacons have a dark surface in both styles: use the bright dark-map artwork.
+        const baseIcon = p.icon;
+        const icon = baseIcon + (p.tint ? '@' + p.color : '');
+        const pixels = iconCache.get(icon);
+        if (pixels && node.dataset.icon !== icon) {
+          node.firstChild.getContext('2d').putImageData(pixels,0,0); node.dataset.icon=icon;
+        }
+        if (!pixels) continue;
+        node.style.setProperty('--beacon-color', /^#[0-9a-f]{6}$/i.test(p.color || '') ? p.color : '#00b8ff');
+        node.lastChild.textContent = (distance / 1000).toFixed(1) + ' km';
+        node.setAttribute('aria-label', String(p.label || p.kind) + ', ' + node.lastChild.textContent);
+        node.style.transform = `translate(${at.x}px,${at.y}px) translate(-50%,-50%)`;
+        node.style.setProperty('--beacon-angle', (Math.atan2(point.y-origin.y,point.x-origin.x)*180/Math.PI+90)+'deg');
+        node.style.opacity = String(beaconOpacity(distance));
+        node.style.pointerEvents = distance < 1950 ? 'auto' : 'none';
+        node.hiddenAt = null;
+        selected.add(key); occupied.push(at);
+      }
+    }
+  }
+  const now = performance.now();
+  for (const [key,node] of edgeBeacons) {
+    if (selected.has(key)) continue;
+    node.style.opacity='0'; node.style.pointerEvents='none';
+    if (node.hiddenAt == null) node.hiddenAt=now;
+    if (now-node.hiddenAt>500) {node.remove();edgeBeacons.delete(key);}
+  }
+}
+let lastBeaconUpdate = -Infinity;
+map?.on('render', () => {
+  const now = performance.now();
+  if (now-lastBeaconUpdate < 100) return;
+  lastBeaconUpdate=now;
+  updateEdgeBeacons();
+});

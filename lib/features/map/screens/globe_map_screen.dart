@@ -558,8 +558,9 @@ class _GlobeMapScreenState extends State<GlobeMapScreen>
                         const SizedBox(width: 7),
                         Flexible(
                           child: CcsText(
-                            label,
-                            maxLines: 1,
+                            trText(label),
+                            textAlign: TextAlign.center,
+                            maxLines: sharingActive ? 2 : 1,
                             overflow: TextOverflow.ellipsis,
                             style: TextStyle(
                               fontSize: 12,
@@ -629,62 +630,61 @@ class _GlobeMapScreenState extends State<GlobeMapScreen>
               ),
             ),
           if (widget.showControls)
-            SafeArea(
-              bottom: false,
-              child: Align(
-                alignment: Alignment.topCenter,
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(8, 4, 12, 0),
-                  child: LayoutBuilder(
-                    builder: (context, constraints) => Row(
-                      mainAxisAlignment: MainAxisAlignment.start,
+            Align(
+              alignment: Alignment.topCenter,
+              child: Container(
+                decoration: const BoxDecoration(
+                  color: Color(0xff0e1118),
+                  border: Border(bottom: BorderSide(color: Color(0xff29313e))),
+                ),
+                child: SafeArea(
+                  bottom: false,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 6,
+                    ),
+                    child: Row(
                       children: [
                         if (widget.onBack != null)
                           control('Back', Icons.arrow_back, widget.onBack),
                         Expanded(
-                          flex: 10,
                           child: control(
                             'Styles',
                             Icons.layers_outlined,
                             ready ? chooseStyle : null,
-                            text: constraints.maxWidth >= 360,
+                            text: true,
                             fill: true,
                           ),
                         ),
-                        const SizedBox(width: 6),
+                        const SizedBox(width: 8),
                         Expanded(
-                          flex: 10,
                           child: control(
                             'Filters',
                             Icons.tune,
                             widget.onFilter,
-                            text: constraints.maxWidth >= 360,
+                            text: true,
                             fill: true,
                           ),
                         ),
-                        const SizedBox(width: 6),
+                        const SizedBox(width: 8),
                         Expanded(
-                          flex: 14,
-                          child: Align(
-                            alignment: Alignment.centerRight,
-                            heightFactor: 1,
-                            child: control(
-                              widget.sharingBusy
-                                  ? 'Updating...'
-                                  : widget.isSharing
-                                  ? sharingCountdown
-                                  : 'Share live',
-                              widget.isSharing
-                                  ? Icons.wifi_tethering
-                                  : Icons.location_on_outlined,
-                              widget.sharingBusy
-                                  ? null
-                                  : () => unawaited(sharingOptions()),
-                              text: true,
-                              accent: true,
-                              sharingActive: widget.isSharing,
-                              fill: true,
-                            ),
+                          child: control(
+                            widget.sharingBusy
+                                ? trText('Updating...')
+                                : widget.isSharing
+                                ? '${trText('Sharing live')}\n$sharingCountdown'
+                                : trText('Share live'),
+                            widget.isSharing
+                                ? Icons.wifi_tethering
+                                : Icons.location_on_outlined,
+                            widget.sharingBusy
+                                ? null
+                                : () => unawaited(sharingOptions()),
+                            text: true,
+                            accent: true,
+                            sharingActive: widget.isSharing,
+                            fill: true,
                           ),
                         ),
                       ],
