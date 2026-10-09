@@ -28,6 +28,20 @@ String xpTransactionActionLabel(String action) {
         'Награда от администратора',
         'Administratora atlīdzība',
       );
+    case 'visit.daily':
+      return achievementText(
+        appUiPreferences.language.name,
+        'Daily spot visit',
+        'Ежедневное посещение спота',
+        'Ikdienas vietas apmeklējums',
+      );
+    case 'sharing.hour':
+      return achievementText(
+        appUiPreferences.language.name,
+        'One hour moving while sharing location',
+        'Час движения с передачей геопозиции',
+        'Stunda kustībā, kopīgojot atrašanās vietu',
+      );
     case 'visit.weekly':
       return achievementText(
         appUiPreferences.language.name,

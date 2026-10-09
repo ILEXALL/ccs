@@ -126,9 +126,9 @@ class WeeklyRewardsSection extends StatelessWidget {
             padding: const EdgeInsets.only(top: 8),
             child: Text(
               t(
-                'Spot visits: 50 XP after 5 minutes within 100 m. Up to 3 different spots per day and 7 per week. Leaving or a GPS gap over 1 minute resets the timer. Familiar places count again next week.',
-                'Посещения: 50 XP за 5 минут в пределах 100 м. До 3 разных спотов в день и 7 в неделю. Выход из радиуса или перерыв GPS больше минуты сбрасывает таймер. Знакомые места снова учитываются на следующей неделе.',
-                'Apmeklējumi: 50 XP par 5 minūtēm 100 m rādiusā. Līdz 3 vietām dienā un 7 nedēļā. Attālinoties vai bez GPS ilgāk par minūti, taimeris sākas no jauna. Pazīstamas vietas atkal skaitās nākamnedēļ.',
+                'Spot visits: 50 XP per spot per day after 5 minutes within 100 m. Resets at midnight (Europe/Riga). Events: 400 XP once per event after 5 minutes. Sharing location: 100 XP per full moving hour; stationary time does not count. Leaving or a GPS gap over 1 minute resets the visit timer.',
+                'Посещения: 50 XP за спот раз в день после 5 минут в пределах 100 м. Сброс в полночь (Europe/Riga). События: 400 XP один раз за событие после 5 минут. Передача геопозиции: 100 XP за полный час движения; стоянка не учитывается. Выход из радиуса или перерыв GPS больше минуты сбрасывает таймер посещения.',
+                'Apmeklējumi: 50 XP par vietu reizi dienā pēc 5 minūtēm 100 m rādiusā. Atiestatīšana pusnaktī (Europe/Riga). Pasākumi: 400 XP vienreiz pēc 5 minūtēm. Kopīgojot atrašanās vietu: 100 XP par pilnu stundu kustībā; stāvēšana neskaitās. Attālinoties vai bez GPS ilgāk par minūti, apmeklējuma taimeris sākas no jauna.',
               ),
               style: const TextStyle(color: Colors.white60, fontSize: 12),
             ),

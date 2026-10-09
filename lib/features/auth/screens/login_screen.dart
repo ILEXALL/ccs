@@ -408,7 +408,7 @@ class _LoginScreenState extends State<LoginScreen>
         fit: StackFit.expand,
         children: [
           if (widget.showBackground) ...[
-            Image.asset('assets/bg.png', fit: BoxFit.cover),
+            Image.asset('assets/bg.webp', fit: BoxFit.cover),
             Container(color: Colors.black.withValues(alpha: 0.42)),
           ],
           LayoutBuilder(

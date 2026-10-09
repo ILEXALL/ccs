@@ -55,3 +55,6 @@ body{background:#050911 url("stars.svg") repeat;background-size:768px 768px}
 
 /* Keep attribution accessible below the native top toolbar. */
 .maplibregl-ctrl-top-left{top:var(--ccs-controls-top,0px);left:0}
+
+/* Progress is server-confirmed; this overlay cannot award XP. */
+.ccs-dwell-ring{position:absolute;width:48px;height:48px;transform:translate(-50%,-75%);pointer-events:none;z-index:2;border-radius:50%;background:conic-gradient(#36dcff var(--dwell-angle),#36dcff25 0);mask:radial-gradient(transparent 62%,#000 65%);-webkit-mask:radial-gradient(transparent 62%,#000 65%);}

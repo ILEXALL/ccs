@@ -81,6 +81,45 @@ class _GlobeMapScreenState extends State<GlobeMapScreen>
   String? error;
   bool iconsSent = false;
   String style = 'dark';
+  Future<void> showClusterPeople(List<String> ids) async {
+    final frame = widget.readFeatures();
+    final features = frame['features'] as List? ?? const [];
+    final people = features.whereType<Map>().where((feature) {
+      final p = feature['properties'];
+      return p is Map && p['kind'] == 'live' && ids.contains(p['id']);
+    }).toList();
+    if (people.isEmpty || !mounted) return;
+    final selected = await showModalBottomSheet<String>(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) => SafeArea(
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.sizeOf(context).height * .6,
+          ),
+          child: ListView.builder(
+            shrinkWrap: true,
+            itemCount: people.length,
+            itemBuilder: (context, index) {
+              final p = people[index]['properties'] as Map;
+              return ListTile(
+                leading: const Icon(Icons.person_outline),
+                title: Text('${p['label'] ?? p['id']}'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => Navigator.pop(context, p['id'] as String),
+              );
+            },
+          ),
+        ),
+      ),
+    );
+    if (!mounted || selected == null) return;
+    setState(() {
+      selectedKind = 'live';
+      selectedId = selected;
+    });
+  }
+
   String? selectedKind, selectedId;
   Object? selectionToken;
   final _proximityAudio = MapProximityAudio();
@@ -377,6 +416,10 @@ class _GlobeMapScreenState extends State<GlobeMapScreen>
                 selectedKind = null;
                 selectedId = null;
               });
+            } else if (data['type'] == 'selectPeople') {
+              if (data['ids'] is List) {
+                unawaited(showClusterPeople(List<String>.from(data['ids'])));
+              }
             } else if (data['type'] == 'select') {
               final kind = data['kind'], id = data['id'];
               if (const [

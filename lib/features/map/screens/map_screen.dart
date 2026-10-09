@@ -590,6 +590,15 @@ class _MapScreenState extends State<MapScreen>
       return {
         'type': 'FeatureCollection',
         'camera': globeCamera,
+        'dwell':
+            visitDwellProgress.value?.userId ==
+                FirebaseAuth.instance.currentUser?.uid
+            ? {
+                'spotId': visitDwellProgress.value!.spotId,
+                'fraction': visitDwellProgress.value!.fraction(DateTime.now()),
+                'completed': visitDwellProgress.value!.completed,
+              }
+            : null,
         'routePreview': routePreviewMode,
         'beaconInsets': {
           'top': MediaQuery.paddingOf(context).top + 64,

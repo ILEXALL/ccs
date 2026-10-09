@@ -8,6 +8,7 @@ function fixture() {
   class Map {
     constructor() {this.zoom=1;}
     addControl() {}
+    addImage() {}
     on(name,...args) {handlers[name+(args.length===2?':'+args[0]:'')]=args.at(-1);}
     setStyle(url) {this.style=url;layers.length=0;delete sources.ccs;}
     setProjection(p) {this.projection=p;}
@@ -73,7 +74,7 @@ test('one tap exits route preview without selecting a marker or moving the camer
 
 test('all spots are retained and icon placement cannot discard dense neighbors',()=>{
   const f=fixture(); f.handlers['style.load']();
-  const features=Array.from({length:600},(_,id)=>({properties:{kind:'spot',id:String(id),icon:'assets/spot_icons/photo.png',color:'#9b35ff',tint:false,event:false},geometry:{type:'Point',coordinates:[24+id/100000,57]}}));
+  const features=Array.from({length:600},(_,id)=>({properties:{kind:'spot',id:String(id),icon:'assets/spot_icons/photo.webp',color:'#9b35ff',tint:false,event:false},geometry:{type:'Point',coordinates:[24+id/100000,57]}}));
   f.window.ccsSetFeatures({type:'FeatureCollection',features});
   assert.equal(f.sources.ccs.data.features.length,600);
   const icons=f.layers.find(l=>l.id==='ccs-spot-icons');
@@ -391,12 +392,12 @@ test('spot beacons use original inner artwork in both themes and retain selectio
  const f=fixture(),nodes=[];
  function element(){return {style:{setProperty(){}},dataset:{},children:[],appendChild(c){this.children.push(c);this.lastChild=c;},addEventListener(n,fn){this[n]=fn;},getBoundingClientRect(){},getContext(){return {putImageData(){}}},setAttribute(){},remove(){}};}
  f.document.createElement=()=>{const e=element();nodes.push(e);return e;};f.document.body=element();f.handlers['style.load']();
- f.run("map.project=p=>({x:200+(p[0]-24)*100000,y:400}); iconCache.set('assets/spot_icons/wash.png@beacon-dark',{});iconCache.set('assets/spot_icons/wash.png@beacon-light',{});");
- f.window.ccsSetFeatures({features:[{properties:{kind:'self'},geometry:{type:'Point',coordinates:[24,57]}},{properties:{kind:'spot',id:'wash',icon:'assets/spot_icons/wash.png',color:'#0088ff'},geometry:{type:'Point',coordinates:[24.012,57]}}]});
+ f.run("map.project=p=>({x:200+(p[0]-24)*100000,y:400}); iconCache.set('assets/spot_icons/wash.webp@beacon-dark',{});iconCache.set('assets/spot_icons/wash.webp@beacon-light',{});");
+ f.window.ccsSetFeatures({features:[{properties:{kind:'self'},geometry:{type:'Point',coordinates:[24,57]}},{properties:{kind:'spot',id:'wash',icon:'assets/spot_icons/wash.webp',color:'#0088ff'},geometry:{type:'Point',coordinates:[24.012,57]}}]});
  f.window.ccsFollow();f.run('updateEdgeBeacons()');const beacon=nodes.find(n=>n.className==='ccs-beacon'),layer=nodes.find(n=>n.id==='ccs-beacons');
- assert.equal(beacon.dataset.icon,'assets/spot_icons/wash.png@beacon-dark');assert.equal(layer.dataset.theme,'dark');
+ assert.equal(beacon.dataset.icon,'assets/spot_icons/wash.webp@beacon-dark');assert.equal(layer.dataset.theme,'dark');
  f.window.ccsSetStyle('positron');f.handlers['style.load']();f.run('updateEdgeBeacons()');
- assert.equal(beacon.dataset.icon,'assets/spot_icons/wash.png@beacon-light');assert.equal(layer.dataset.theme,'light');
+ assert.equal(beacon.dataset.icon,'assets/spot_icons/wash.webp@beacon-light');assert.equal(layer.dataset.theme,'light');
  beacon.click({stopPropagation(){}});assert.deepEqual(f.messages.at(-1),{type:'select',kind:'spot',id:'wash'});
 });
 test('follow turning is rate limited and GPS gaps cannot snap bearing',()=>{
@@ -447,4 +448,81 @@ test('stationary packet immediately stops angular momentum',()=>{
  f.setTime(99);f.window.ccsSetMotion({position:[24,57],heading:270,speed:0,following:true,zoom:16});
  f.tick(99);f.tick(132);
  assert.equal(f.moves.at(-1).bearing,before);
+});
+
+test('live nicknames have their own source and fade by viewport ground area',()=>{
+ const f=fixture();f.handlers['style.load']();
+ const layer=f.layers.find(l=>l.id==='ccs-live-labels');
+ assert.equal(layer.source,'ccs-live');
+ assert.equal(layer.layout['text-field'][1][1],'label');
+ const opacityForArea=area=>{
+   // Equatorial viewport with the requested square ground footprint.
+   f.run('map.unproject=([x,y])=>({lng:(x/400-.5)*'+Math.sqrt(area)*1000/111194.9266+
+     ',lat:(y/800-.5)*'+Math.sqrt(area)*1000/111194.9266+'})');
+   f.run('updateLiveLabelOpacity()');
+   return f.paints.filter(p=>p[0]==='ccs-live-labels' && p[1]==='text-opacity').at(-1)[2];
+ };
+ assert.equal(opacityForArea(60),0);
+ assert.equal(opacityForArea(50),0);
+ assert.ok(Math.abs(opacityForArea(35)-.5)<.002);
+ assert.equal(opacityForArea(20),1);
+ assert.equal(opacityForArea(60),0);
+});
+
+test('globe dwell ring follows server progress and disappears on departure',()=>{
+ const f=fixture(),nodes=[];
+ f.document.createElement=()=>{const n={style:{setProperty(k,v){this[k]=v;}}};nodes.push(n);return n;};
+ f.document.body={appendChild(){}};
+ f.run('map.project=()=>({x:100,y:200})');
+ f.handlers['style.load']();
+ const feature={properties:{kind:'spot',id:'s'},geometry:{type:'Point',coordinates:[24,57]}};
+ f.window.ccsSetFeatures({type:'FeatureCollection',features:[feature],dwell:{spotId:'s',fraction:.5,completed:false}});
+ const ring=nodes.find(n=>n.className==='ccs-dwell-ring');
+ assert.equal(ring.style['--dwell-angle'],'180deg');
+ f.window.ccsSetFeatures({type:'FeatureCollection',features:[feature],dwell:null});
+ assert.equal(ring.style.display,'none');
+});
+const live=(id,x)=>({type:'Feature',properties:{kind:'live',id,label:id,icon:'assets/user_cars/car_green.png',heading:30},geometry:{type:'Point',coordinates:[x,57]}});
+test('nearby people merge with count and names, split on zoom, and retain routes',()=>{
+  const f=fixture();f.handlers['style.load']();
+  f.run('map.scale=1;map.project=p=>({x:p[0]*map.scale,y:p[1]})');
+  const route={properties:{kind:'route'},geometry:{type:'LineString',coordinates:[[0,0],[1,1]]}};
+  f.window.ccsSetFeatures({type:'FeatureCollection',features:[live('bob',20),live('alice',0),live('charlie',150),route]});
+  const data=f.sources['ccs-live'].data;
+  assert.equal(data.features.length,3);
+  const group=data.features.find(f=>f.properties.count===2);
+  assert.equal(group.properties.label,'alice\nbob');
+  assert.deepEqual(JSON.parse(group.properties.memberIds),['alice','bob']);
+  assert.equal(data.features.includes(route),true);
+  f.handlers.click({point:[group]});
+  assert.deepEqual(f.messages.at(-1),{type:'selectPeople',ids:['alice','bob']});
+  f.run('map.scale=3;updateLiveClusters()');
+  assert.equal(f.sources['ccs-live'].data.features.length,4);
+  assert.equal(f.sources['ccs-live'].data.features.some(f=>f.properties.count),false);
+});
+test('cluster membership refreshes on expiry and unchanged groups do not rewrite source',()=>{
+  const f=fixture();f.handlers['style.load']();
+  f.run('map.project=p=>({x:p[0],y:p[1]})');
+  f.window.ccsSetFeatures({type:'FeatureCollection',features:[live('a',0),live('b',1)]});
+  const source=f.sources['ccs-live'],same=source.data;
+  f.run('updateLiveClusters()');assert.equal(source.data,same);
+  f.window.ccsSetFeatures({type:'FeatureCollection',features:[live('a',0)]});
+  assert.equal(source.data.features.length,1);
+  assert.equal(source.data.features[0].properties.count,undefined);
+});
+
+test('CCS car badge and number shrink together at distant zoom levels',()=>{
+  const f=fixture();f.handlers['style.load']();
+  const badge=f.layers.find(l=>l.id==='ccs-live-count-bg');
+  const number=f.layers.find(l=>l.id==='ccs-live-count');
+  assert.equal(badge.type,'symbol');
+  assert.equal(badge.layout['icon-image'],'ccs-car-count-badge');
+  const scales=badge.layout['icon-size'],sizes=number.layout['text-size'];
+  for(let i=4;i<scales.length;i+=2) {
+    assert.ok(Math.abs(sizes[i]/scales[i]-11/.65)<.04);
+    if(i>4) assert.ok(scales[i]>scales[i-2]);
+  }
+  const pixels=f.run('carCountBadgeImage()');
+  assert.equal(pixels.data[3],0);
+  assert.equal(pixels.data[(32*96+48)*4+3],255);
 });

@@ -27,11 +27,15 @@ function rewardCatalog() {
   const awards = [...evaluateProfileXp('catalog', user), ...evaluateFirstCarXp('catalog', user),
     ...evaluatePermanentSpotApprovalXp('catalog', {addedByUid: 'catalog', status: 'approved',
       description: 'A'.repeat(20), photoUrls: ['a','b','c']})];
-  return awards.map(award => {
+  return [...awards.map(award => {
     const [en, ru, lv] = labels[award.action];
     return {id: award.action, title: {en, ru, lv}, xp: award.amount,
       repeatable: award.objectType === 'spot', category: award.objectType};
-  });
+  }),
+    {id:'visit.daily',title:{en:'Stay at a spot for 5 minutes (once per spot per day)',ru:'5 минут на споте (раз в день за спот)',lv:'5 minūtes vietā (reizi dienā par vietu)'},xp:50,repeatable:true,category:'daily_visit'},
+    {id:'event.attended',title:{en:'Attend an event for 5 minutes',ru:'Посетить событие в течение 5 минут',lv:'Apmeklēt pasākumu 5 minūtes'},xp:400,repeatable:true,category:'event'},
+    {id:'sharing.hour',title:{en:'Share location while moving for one full hour',ru:'Передавать геопозицию час в движении',lv:'Kopīgot atrašanās vietu stundu kustībā'},xp:100,repeatable:true,category:'live_sharing'},
+  ];
 }
 
 async function rewardProgress(userId, options = {}) {

@@ -10,7 +10,7 @@ class CcsWordmark extends StatelessWidget {
     return SizedBox(
       width: width,
       child: Image.asset(
-        'assets/ccs_logo.png',
+        'assets/ccs_logo.webp',
         fit: BoxFit.contain,
         alignment: Alignment.center,
         filterQuality: FilterQuality.high,
@@ -27,7 +27,7 @@ class CcsAppBarLogo extends StatelessWidget {
     return SizedBox(
       height: 22,
       child: Image.asset(
-        'assets/ccs_logo.png',
+        'assets/ccs_logo.webp',
         fit: BoxFit.contain,
         alignment: Alignment.centerLeft,
         filterQuality: FilterQuality.high,

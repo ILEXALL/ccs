@@ -23,8 +23,6 @@ import 'package:ccs_app/shared/models/countries.dart' show localizedCountryName;
 
 final _countryAchievementRequests = <String>{};
 
-final _completedDwellVisuals = <String>{};
-
 final _creditedSpotVisits = <String, DateTime>{};
 
 final _lastMockLocationReport = <String, DateTime>{};
@@ -140,9 +138,6 @@ Future<void> checkGpsSpotVisits(Position position) async {
     if (response['ok'] == true) {
       _creditedSpotVisits[key] = now;
       final result = response['result'] as Map;
-      if (result['recorded'] == true || result['alreadyVisited'] == true) {
-        _completedDwellVisuals.add(key);
-      }
       if (result['status'] == 'outside_or_invalid') {
         visitDwellProgress.value = null;
       } else {
@@ -153,7 +148,8 @@ Future<void> checkGpsSpotVisits(Position position) async {
           spotId: spotId,
           elapsedMs: (result['elapsedMs'] as num? ?? 0).toInt(),
           requiredMs: (result['requiredMs'] as num? ?? 300000).toInt(),
-          completed: _completedDwellVisuals.contains(key),
+          completed:
+              result['recorded'] == true || result['alreadyVisited'] == true,
           receivedAt: DateTime.now(),
         );
         if (result['recorded'] == true && !wasCompleted)

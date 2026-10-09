@@ -39,7 +39,7 @@ Color get appOutline => Colors.white12;
 
 Color get appSurfaceOverlay => Colors.white.withValues(alpha: 0.06);
 
-const appMapBackgroundAsset = 'assets/bg_map.png';
+const appMapBackgroundAsset = 'assets/bg_map.webp';
 
 ui.Image? appMapBackgroundImage;
 

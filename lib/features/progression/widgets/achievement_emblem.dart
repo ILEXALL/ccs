@@ -76,7 +76,7 @@ class AchievementEmblem extends StatelessWidget {
               top: category == 'tenure' ? 32 : 26,
               child: category == 'tenure'
                   ? Image.asset(
-                      'assets/ccs_logo.png',
+                      'assets/ccs_logo.webp',
                       width: 59,
                       height: 24,
                       fit: BoxFit.contain,

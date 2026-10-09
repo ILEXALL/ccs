@@ -61,8 +61,8 @@ flutter:
     - assets/icon.png
     - assets/cities/
     - assets/country_outlines.json
-    - assets/bg.png
-    - assets/bg_map.png
+    - assets/bg.webp
+    - assets/bg_map.webp
     - assets/achievements/austria.webp
     - assets/achievements/belgium.webp
     - assets/achievements/bulgaria.webp
@@ -90,8 +90,45 @@ flutter:
     - assets/achievements/slovenia.webp
     - assets/achievements/spain.webp
     - assets/achievements/sweden.webp
-    - assets/xp_wheels/
-    - assets/spot_icons/
+    - assets/xp_wheels/lvl_1.webp
+    - assets/xp_wheels/lvl_10.webp
+    - assets/xp_wheels/lvl_100.webp
+    - assets/xp_wheels/lvl_20.webp
+    - assets/xp_wheels/lvl_30.webp
+    - assets/xp_wheels/lvl_40.webp
+    - assets/xp_wheels/lvl_50.webp
+    - assets/xp_wheels/lvl_60.webp
+    - assets/xp_wheels/lvl_70.webp
+    - assets/xp_wheels/lvl_80.webp
+    - assets/xp_wheels/lvl_90.webp
+    - assets/spot_icons/drift.webp
+    - assets/spot_icons/photo.webp
+    - assets/spot_icons/meet.webp
+    - assets/spot_icons/drive.webp
+    - assets/spot_icons/service.webp
+    - assets/spot_icons/detailing.webp
+    - assets/spot_icons/wash.webp
+    - assets/spot_icons/store_2.webp
+    - assets/spot_icons/drag.webp
+    - assets/spot_icons/track.webp
+    - assets/spot_icons/activity.webp
+    - assets/spot_icons/offroad.webp
+    - assets/spot_icons/food.webp
+    - assets/spot_icons/scrap.webp
+    - assets/spot_icons/drift_light.webp
+    - assets/spot_icons/photo_light.webp
+    - assets/spot_icons/meet_light.webp
+    - assets/spot_icons/drive_light.webp
+    - assets/spot_icons/service_light.webp
+    - assets/spot_icons/detailing_light.webp
+    - assets/spot_icons/wash_light.webp
+    - assets/spot_icons/store_light_2.webp
+    - assets/spot_icons/drag_light.webp
+    - assets/spot_icons/track_light.webp
+    - assets/spot_icons/activity_light.webp
+    - assets/spot_icons/offroad_light.webp
+    - assets/spot_icons/food_light.webp
+    - assets/spot_icons/scrap_light.webp
     - assets/user_cars/
-    - assets/ccs_logo.png
+    - assets/ccs_logo.webp
     - assets/social/

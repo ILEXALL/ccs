@@ -126,7 +126,7 @@ class _BannedUserScreenState extends State<BannedUserScreen>
       body: Stack(
         fit: StackFit.expand,
         children: [
-          Image.asset('assets/bg.png', fit: BoxFit.cover),
+          Image.asset('assets/bg.webp', fit: BoxFit.cover),
           Container(color: Colors.black.withValues(alpha: 0.78)),
           SafeArea(
             child: Center(
@@ -369,7 +369,7 @@ class OutdatedAppScreen extends StatelessWidget {
       body: Stack(
         fit: StackFit.expand,
         children: [
-          Image.asset('assets/bg.png', fit: BoxFit.cover),
+          Image.asset('assets/bg.webp', fit: BoxFit.cover),
           Container(color: Colors.black.withValues(alpha: 0.62)),
           SafeArea(
             child: Center(
@@ -546,7 +546,7 @@ class MaintenanceModeScreen extends StatelessWidget {
       body: Stack(
         fit: StackFit.expand,
         children: [
-          Image.asset('assets/bg.png', fit: BoxFit.cover),
+          Image.asset('assets/bg.webp', fit: BoxFit.cover),
           Container(color: Colors.black.withValues(alpha: 0.82)),
           SafeArea(
             child: Padding(

@@ -32,7 +32,7 @@ async function recordSpotVisit(db, userId, spotId, now = Date.now(), gpsFix = nu
   const dayKey = rigaDay(now);
   const id = crypto.createHash('sha256').update(JSON.stringify([userId, spotId])).digest('hex');
   const candidates = (await db.collection('admin_rewards').where('enabled', '==', true).get()).docs;
-  return db.runTransaction(async tx => {
+  const result = await db.runTransaction(async tx => {
     const userDoc = await tx.get(db.collection('users').doc(userId));
     const spotDoc = await tx.get(db.collection('spots').doc(spotId));
     const liveDoc = gpsFix == null ? await tx.get(db.collection('live_locations').doc(userId)) : null;
@@ -78,21 +78,31 @@ async function recordSpotVisit(db, userId, spotId, now = Date.now(), gpsFix = nu
       Math.max(0, Math.min(now - session.lastSeenAt, sample - session.lastSampleAt))) : 0;
     const state = {rewardDwell: rewards.progress, spotId, dayKey, elapsedMs, lastSeenAt: now, lastSampleAt: sample,
       startedAt: continuous ? session.startedAt : now};
-    const progress = {rewardClaimed: rewards.claimed, spotId, elapsedMs, requiredMs: DWELL_MS};
+    const alreadyVisited = existing.exists && (spot.isTemporary === true || (existing.data().lastVisitDay || existing.data().dayKey) === dayKey);
+    const progress = {dayKey, rewardClaimed: rewards.claimed, spotId, elapsedMs, requiredMs: DWELL_MS};
     if (elapsedMs < DWELL_MS) {
       rewards.write();
       tx.set(sessionRef, state);
-      return {recorded: false, status: 'dwelling', alreadyVisited: existing.exists, ...progress};
+      return {recorded: false, status: 'dwelling', alreadyVisited, ...progress};
     }
     const writeTaskVisit = await prepareTaskVisit(db, tx, userId, spotId, spot, now, dayKey, !existing.exists, []);
     rewards.write();
     tx.set(sessionRef, state);
     writeTaskVisit();
+    if (existing.exists) tx.set(recordRef, {lastVisitDay: dayKey}, {merge:true});
     if (existing.exists) return {...progress, status: 'completed', recorded: true, duplicate: true, dayKey, event: existing.data().event === true};
     tx.create(recordRef, {userId, spotId, dayKey, recordedAtMillis: now,
       event: spot.isTemporary === true,
       source: gpsFix == null ? 'shared_live_location' : 'gps_button', status: 'verified'});
     return {...progress, status: 'completed', recorded: true, duplicate: false, dayKey, event: spot.isTemporary === true};
   });
+  if (result.recorded) {
+    const {awardXp} = require('./xp/xp-firestore');
+    result.xp = await awardXp(result.event
+      ? {userId,action:'event.attended',objectType:'event',objectId:spotId,stage:'attended',amount:400,metadata:{reason:'Event attended',spotId}}
+      : {userId,action:'visit.daily',objectType:'daily_visit',objectId:spotId,stage:result.dayKey,amount:50,metadata:{reason:'Daily spot visit',spotId,dayKey:result.dayKey}},
+      {now:new Date(now)});
+  }
+  return result;
 }
 module.exports = {recordSpotVisit, coordinates, distanceMeters, rigaDay, VISIT_RADIUS_METERS, DWELL_MS, MAX_DWELL_GAP_MS};

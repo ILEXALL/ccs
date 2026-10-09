@@ -92,7 +92,7 @@ class _SplashScreenState extends State<SplashScreen>
           return Stack(
             fit: StackFit.expand,
             children: [
-              Image.asset('assets/bg.png', fit: BoxFit.cover),
+              Image.asset('assets/bg.webp', fit: BoxFit.cover),
               Container(color: Colors.black.withValues(alpha: 0.42)),
               SlideTransition(
                 position: Tween<Offset>(
@@ -115,7 +115,7 @@ class _SplashScreenState extends State<SplashScreen>
       body: Stack(
         fit: StackFit.expand,
         children: [
-          Image.asset('assets/bg.png', fit: BoxFit.cover),
+          Image.asset('assets/bg.webp', fit: BoxFit.cover),
           Container(color: Colors.black.withValues(alpha: 0.42)),
           SafeArea(
             child: Padding(

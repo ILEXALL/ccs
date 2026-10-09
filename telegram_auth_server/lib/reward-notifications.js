@@ -1,6 +1,7 @@
 const {admin, db} = require('./firebase-admin');
 function rewardReason(input) {
   const reasons = {
+    'visit.daily': 'Daily spot visit', 'sharing.hour': 'One hour moving while sharing location',
     'event.attended': 'Event attended', 'spot.approved': 'Permanent spot approved',
     'spot.description': 'Spot description', 'spot.photo': 'Spot photo', 'spot.media_bundle': 'Spot media',
     'profile.avatar': 'Profile photo added', 'profile.bio': 'Profile bio completed',

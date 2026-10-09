@@ -332,7 +332,7 @@ function isOneTimeAward(input) {
     'profile.avatar', 'profile.bio', 'profile.city', 'profile.social', 'profile.full',
     'garage.first_car', 'garage.first_car_photo', 'garage.first_car_description',
     'garage.first_car_gallery', 'garage.first_car_full',
-    'visit.weekly', 'weekly.completed', 'admin_reward.completed', 'event.attended', 'spot.approved', 'spot.description', 'spot.photo', 'spot.media_bundle',
+    'visit.daily', 'sharing.hour', 'visit.weekly', 'weekly.completed', 'admin_reward.completed', 'event.attended', 'spot.approved', 'spot.description', 'spot.photo', 'spot.media_bundle',
   ].includes(input.action);
 }
 

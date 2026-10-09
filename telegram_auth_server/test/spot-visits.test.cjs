@@ -1,6 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const {recordSpotVisit, rigaDay} = require('../lib/spot-visits');
+const {rigaDay} = require('../lib/spot-visits');
+const recordSpotVisit=(db,...args)=>db.testRecordVisit(db,...args);
 const now = Date.parse('2026-09-14T12:00:00Z');
 function fixture() {
   const f = require('./support').fixture({
@@ -9,6 +10,7 @@ function fixture() {
     'live_locations/u': {lat:0,lng:0,updatedAt:now,expiresAt:now+60000,accuracy:10},
   });
   require('./support').completedDwell(f,'u','s',now);
+  f.db.testRecordVisit=f.load('../lib/spot-visits.js').recordSpotVisit;
   return f;
 }
 
@@ -77,7 +79,7 @@ test('endpoint binds visit to authenticated UID and rejects missing or invalid t
         if (token !== 'valid') throw new Error('Invalid token');
         return {uid: 'authenticated-user'};
       }})},
-    } : name.includes('weekly-tasks') ? {syncWeeklyTasks: async()=>({})} : name.includes('location-integrity') ? {assessLocation: async()=>true} : name.includes('xp-firestore') ? {awardXp: async()=>({})} : name.includes('achievements') ? {syncAchievements: async()=>({})} : {recordSpotVisit: async (_, uid, spotId) => {calls.push({uid, spotId}); return {recorded: true};}},
+    } : name.includes('weekly-tasks') ? {syncWeeklyTasks: async()=>({}),syncAdminRewardClaims:async()=>({})} : name.includes('location-integrity') ? {assessLocation: async()=>true} : name.includes('xp-firestore') ? {awardXp: async()=>({})} : name.includes('achievements') ? {syncAchievements: async()=>({})} : {recordSpotVisit: async (_, uid, spotId) => {calls.push({uid, spotId}); return {recorded: true};}},
   });
   const response = () => ({code: 0, setHeader() {}, status(code) {this.code = code; return this;}, json(value) {this.value = value; return this;}});
   for (const header of ['', 'Bearer invalid']) {

@@ -125,7 +125,7 @@ void main() {
       );
       await tester.runAsync(
         () => precacheImage(
-          const AssetImage('assets/ccs_logo.png'),
+          const AssetImage('assets/ccs_logo.webp'),
           key.currentContext!,
         ),
       );
@@ -144,7 +144,7 @@ void main() {
       expect(find.byIcon(Icons.diamond_outlined), findsNothing);
       expect(find.byIcon(Icons.auto_awesome), findsNothing);
       for (final image in tester.widgetList<Image>(find.byType(Image))) {
-        expect((image.image as AssetImage).assetName, 'assets/ccs_logo.png');
+        expect((image.image as AssetImage).assetName, 'assets/ccs_logo.webp');
       }
       await capture(tester, key, 'emblems-five-tiers');
     },

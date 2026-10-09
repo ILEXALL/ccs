@@ -1245,17 +1245,18 @@ async function handleFriendAtSpot(userId, payload) {
     const {assessLocation} = await import('../lib/location-integrity.js');
     if (!await assessLocation(userId, sample)) return [];
   }
+  const {recordMovingShare} = await import('../lib/xp/moving-share.js');
+  await recordMovingShare(userId);
   if (latest && sample) {
     const {recordSpotVisit, distanceMeters, coordinates} = await import('../lib/spot-visits.js');
-    const {awardXp} = await import('../lib/xp/xp-firestore.js');
+
     const {syncAchievements} = await import('../lib/xp/achievements.js');
     let changed = false;
+    const currentVisit=(await db.collection('spot_visit_sessions').doc(userId).get()).data()?.spotId;
     for (const spot of attendanceSpots.filter(spot => coordinates(spot) &&
-      distanceMeters({lat: sample.latitude, lng: sample.longitude}, coordinates(spot)) <= 100).slice(0, 10)) {
+      distanceMeters({lat: sample.latitude, lng: sample.longitude}, coordinates(spot)) <= 100).sort((a,b) => a.id===currentVisit?-1:b.id===currentVisit?1:distanceMeters({lat:sample.latitude,lng:sample.longitude},coordinates(a))-distanceMeters({lat:sample.latitude,lng:sample.longitude},coordinates(b))).slice(0, 1)) {
       try {
         const visit = await recordSpotVisit(db, userId, spot.id, Date.now(), sample);
-        if (visit.event) await awardXp({userId, action: 'event.attended', objectType: 'event',
-          objectId: spot.id, stage: 'attended', amount: 200, metadata: {reason: 'Event attended'}});
         changed ||= !visit.duplicate;
       } catch (error) { console.warn('Nearby visit not eligible', error.message); }
     }

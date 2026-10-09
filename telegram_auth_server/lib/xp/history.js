@@ -1,7 +1,7 @@
 // Expose every confirmed award, but never private reasons, actors or target IDs.
 function publicHistory(rows, rewards, achievements, offset = 0) {
   const start = Number.isSafeInteger(offset) && offset >= 0 ? offset : 0;
-  const types = new Set(['profile','garage_car','spot','event','achievement','weekly_task','weekly_visit','admin_reward']);
+  const types = new Set(['profile','garage_car','spot','event','achievement','weekly_task','weekly_visit','daily_visit','live_sharing','admin_reward']);
   const items = rows.filter(row => row.status === 'confirmed' && Number.isFinite(row.amount) && row.amount > 0)
     .map(row => ({
       action: row.action,

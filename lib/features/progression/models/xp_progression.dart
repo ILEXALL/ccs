@@ -6,17 +6,17 @@ import 'package:ccs_app/core/theme/app_theme.dart' show blue;
 const int xpMaxLevel = 100;
 
 const Map<int, String> xpWheelAssetByTier = {
-  1: 'assets/xp_wheels/lvl_1.png',
-  10: 'assets/xp_wheels/lvl_10.png',
-  20: 'assets/xp_wheels/lvl_20.png',
-  30: 'assets/xp_wheels/lvl_30.png',
-  40: 'assets/xp_wheels/lvl_40.png',
-  50: 'assets/xp_wheels/lvl_50.png',
-  60: 'assets/xp_wheels/lvl_60.png',
-  70: 'assets/xp_wheels/lvl_70.png',
-  80: 'assets/xp_wheels/lvl_80.png',
-  90: 'assets/xp_wheels/lvl_90.png',
-  100: 'assets/xp_wheels/lvl_100.png',
+  1: 'assets/xp_wheels/lvl_1.webp',
+  10: 'assets/xp_wheels/lvl_10.webp',
+  20: 'assets/xp_wheels/lvl_20.webp',
+  30: 'assets/xp_wheels/lvl_30.webp',
+  40: 'assets/xp_wheels/lvl_40.webp',
+  50: 'assets/xp_wheels/lvl_50.webp',
+  60: 'assets/xp_wheels/lvl_60.webp',
+  70: 'assets/xp_wheels/lvl_70.webp',
+  80: 'assets/xp_wheels/lvl_80.webp',
+  90: 'assets/xp_wheels/lvl_90.webp',
+  100: 'assets/xp_wheels/lvl_100.webp',
 };
 
 // Tire bounds in the 512px assets, excluding the decorative ring and label.
