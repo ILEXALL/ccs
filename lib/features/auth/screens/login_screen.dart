@@ -1,3 +1,4 @@
+import 'package:ccs_app/features/auth/data/sign_in_cancellation.dart';
 import 'package:ccs_app/features/auth/navigation/auth_pages.dart';
 import 'dart:async';
 import 'package:ccs_app/features/auth/data/apple_auth.dart';
@@ -313,7 +314,7 @@ class _LoginScreenState extends State<LoginScreen>
 
       Navigator.pushReplacement(context, appPageRoute(builder: signedInPage));
     } catch (error) {
-      if (!mounted) {
+      if (!mounted || signInWasCancelled(error)) {
         return;
       }
 
@@ -346,7 +347,7 @@ class _LoginScreenState extends State<LoginScreen>
       if (!mounted || currentUser.banActive) return;
       Navigator.pushReplacement(context, appPageRoute(builder: signedInPage));
     } catch (error) {
-      if (!mounted || appleAuthWasCancelled(error)) return;
+      if (!mounted || signInWasCancelled(error)) return;
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: CcsText(appleAuthErrorText(error))));
@@ -374,7 +375,7 @@ class _LoginScreenState extends State<LoginScreen>
 
       Navigator.pushReplacement(context, appPageRoute(builder: signedInPage));
     } catch (error) {
-      if (!mounted) {
+      if (!mounted || signInWasCancelled(error)) {
         return;
       }
 

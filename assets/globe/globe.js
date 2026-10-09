@@ -88,6 +88,7 @@ let motionFrame=null, followZoom=null, lastMotionSignature=null, lastCameraSigna
 let gestureBlocked=false, followRevision=0;
 let manualTouchActive=false;
 let motionTarget=null, motionAt=0, motionLastFrame=null, motionVelocity=[0,0];
+let motionTurnVelocity=0;
 function motionData() {return {type:'FeatureCollection',features:motionPosition?[{
   type:'Feature',geometry:{type:'Point',coordinates:motionPosition},properties:{kind:'self',heading:motionHeading}
 }]:[]};}
@@ -105,12 +106,18 @@ function animateMotion(now) {
   const target=[motionTarget.position[0]+motionVelocity[0]*ahead,motionTarget.position[1]+motionVelocity[1]*ahead];
   const blend=1-Math.exp(-dt/.065);
   motionPosition=[motionPosition[0]+shortArc(target[0]-motionPosition[0])*blend,motionPosition[1]+(target[1]-motionPosition[1])*blend];
-  const turn=shortArc(motionTarget.heading-motionHeading)*(1-Math.exp(-dt/.35));
+  // Critically damped steering preserves angular velocity between GPS packets.
+  // New headings accelerate/brake the turn instead of instantly changing its rate.
+  const headingError=-shortArc(motionTarget.heading-motionHeading);
+  const omega=8, decay=Math.exp(-omega*dt);
+  const spring=motionTurnVelocity+omega*headingError;
+  const turn=headingError*(decay-1)+spring*dt*decay;
+  motionTurnVelocity=Math.max(-75,Math.min(75,(motionTurnVelocity-omega*spring*dt)*decay));
   motionHeading+=Math.max(-75*dt,Math.min(75*dt,turn));
   const zoomTarget=speedFollowZoom(motionTarget.zoom, motionTarget.speed);
   followZoom=followZoom===null?motionTarget.zoom:followZoom+(zoomTarget-followZoom)*(1-Math.exp(-dt/1.2));
   if(Math.abs(shortArc(target[0]-motionPosition[0]))<1e-8 && Math.abs(target[1]-motionPosition[1])<1e-8) motionPosition=target.slice();
-  if(Math.abs(shortArc(motionTarget.heading-motionHeading))<.02) motionHeading=motionTarget.heading;
+  if(Math.abs(shortArc(motionTarget.heading-motionHeading))<.02 && Math.abs(motionTurnVelocity)<.1) {motionHeading=motionTarget.heading;motionTurnVelocity=0;}
   if(Math.abs(zoomTarget-followZoom)<.001) followZoom=zoomTarget;
   const signature=JSON.stringify([motionPosition,motionHeading]);
   if(signature!==lastMotionSignature) {map.getSource('ccs-motion')?.setData(motionData());lastMotionSignature=signature;}
@@ -118,9 +125,10 @@ function animateMotion(now) {
   if(motionFollowing && cameraSignature!==lastCameraSignature) {
     map.easeTo({center:motionPosition,zoom:followZoom,bearing:motionHeading,offset:followOffset(),padding:0,duration:0});lastCameraSignature=cameraSignature;
   }
-  const unsettled=Math.abs(shortArc(target[0]-motionPosition[0]))>1e-8 || Math.abs(target[1]-motionPosition[1])>1e-8 || Math.abs(shortArc(motionTarget.heading-motionHeading))>.02;
+  const unsettled=Math.abs(shortArc(target[0]-motionPosition[0]))>1e-8 || Math.abs(target[1]-motionPosition[1])>1e-8 || Math.abs(shortArc(motionTarget.heading-motionHeading))>.02 || Math.abs(motionTurnVelocity)>.1;
   const predicting=age<.15 && Math.hypot(...motionVelocity)>0;
-  if((age<1 && (unsettled || predicting)) || (motionFollowing && Math.abs(zoomTarget-followZoom)>.001 && age<10)) motionFrame=requestAnimationFrame(animateMotion);
+  const turning=Math.abs(shortArc(motionTarget.heading-motionHeading))>.02 || Math.abs(motionTurnVelocity)>.1;
+  if((age<1 && (unsettled || predicting)) || (age<10 && turning) || (motionFollowing && Math.abs(zoomTarget-followZoom)>.001 && age<10)) motionFrame=requestAnimationFrame(animateMotion);
   else motionLastFrame=null;
 }
 window.ccsSetMotion = data => {
@@ -133,7 +141,7 @@ window.ccsSetMotion = data => {
   if(motionFollowing!==wasFollowing) lastCameraSignature=null;
   syncFrameBudget();
   if (!motionFollowing) updateEdgeBeacons();
-  if(!data.position) {stopMotion();motionTarget=null;motionPosition=null;motionVelocity=[0,0];if(ready) map.getSource('ccs-motion')?.setData(motionData());return;}
+  if(!data.position) {stopMotion();motionTarget=null;motionPosition=null;motionVelocity=[0,0];motionTurnVelocity=0;if(ready) map.getSource('ccs-motion')?.setData(motionData());return;}
   const now=performance.now(), seconds=(now-motionAt)/1000;
   motionVelocity=[0,0];
   if(motionTarget && seconds>=.04 && seconds<=.5) {
@@ -142,10 +150,10 @@ window.ccsSetMotion = data => {
     if(metersPerSecond<=70) motionVelocity=velocity;
   }
   if(!motionPosition || seconds>3) motionPosition=data.position.slice();
-  if(!motionTarget) motionHeading=data.heading;
+  if(!motionTarget) {motionHeading=data.heading;motionTurnVelocity=0;}
   // Freeze bearing immediately on stopping; never follow stationary course noise.
   // Older packets without speed retain their previous behavior.
-  if (Number.isFinite(data.speed) && data.speed < 1.5) data={...data,heading:motionHeading};
+  if (Number.isFinite(data.speed) && data.speed < 1.5) {data={...data,heading:motionHeading};motionTurnVelocity=0;}
   motionTarget=data;motionAt=now;
   updateEdgeBeacons();
   if(motionFrame===null) motionFrame=requestAnimationFrame(animateMotion);

@@ -423,3 +423,28 @@ test('follow state notifications track explicit follow and gesture exit',()=>{
  f.window.ccsSetMotion({position:[24,57],heading:0,speed:0,following:true,zoom:16,followRevision:2});
  assert.equal(f.messages.filter(m=>m.type==='follow').at(-1).enabled,true);
 });
+
+test('turn acceleration is gradual and converges without further GPS packets',()=>{
+ const f=fixture();f.handlers['style.load']();
+ const packet=heading=>({position:[24,57],heading,speed:12,following:true,zoom:16});
+ f.window.ccsSetMotion(packet(0));f.tick(0);
+ f.setTime(33);f.window.ccsSetMotion(packet(60));f.tick(33);
+ const first=f.moves.at(-1).bearing;
+ f.tick(66);const second=f.moves.at(-1).bearing-first;
+ assert.ok(first>0 && first<2,'turn starts gently');
+ assert.ok(second>first,'turn accelerates rather than starting at maximum speed');
+ for(let t=99;t<9000;t+=33) f.tick(t);
+ assert.ok(Math.abs(f.moves.at(-1).bearing-60)<.02);
+ assert.equal(f.frames.size,0,'settled animation stops consuming frames');
+});
+
+test('stationary packet immediately stops angular momentum',()=>{
+ const f=fixture();f.handlers['style.load']();
+ f.window.ccsSetMotion({position:[24,57],heading:0,speed:12,following:true,zoom:16});f.tick(0);
+ f.setTime(33);f.window.ccsSetMotion({position:[24,57],heading:90,speed:12,following:true,zoom:16});
+ f.tick(33);f.tick(66);
+ const before=f.moves.at(-1).bearing;
+ f.setTime(99);f.window.ccsSetMotion({position:[24,57],heading:270,speed:0,following:true,zoom:16});
+ f.tick(99);f.tick(132);
+ assert.equal(f.moves.at(-1).bearing,before);
+});
