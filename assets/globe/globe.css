@@ -33,10 +33,22 @@ body{background:#050911 url("stars.svg") repeat;background-size:768px 768px}
 .ccs-person-beacon::before{top:16px}
 
 /* Pulse only the camera artwork, never the placement transform or distance. */
-.ccs-camera-beacon canvas{animation:ccs-camera-pulse 2.4s ease-in-out infinite}
-.ccs-camera-waves{position:absolute;left:50%;top:17px;width:0;height:0;pointer-events:none}
-.ccs-camera-waves::before,.ccs-camera-waves::after{content:'';position:absolute;left:-17px;top:-17px;width:34px;height:34px;box-sizing:border-box;border:1.5px solid #ffbf47;border-radius:50%;animation:ccs-camera-wave 2.4s ease-out infinite}
-.ccs-camera-waves::after{animation-delay:1.2s}
-@keyframes ccs-camera-pulse{0%,100%{transform:scale(1);box-shadow:0 0 4px #ffbf4733}50%{transform:scale(1.07);box-shadow:0 0 12px #ffbf4777}}
-@keyframes ccs-camera-wave{0%{transform:scale(1);opacity:.5}100%{transform:scale(1.85);opacity:0}}
+.ccs-camera-beacon[data-attention="true"] canvas{animation:ccs-camera-pulse 1.6s ease-in-out infinite}
+.ccs-camera-waves{display:none;position:absolute;left:50%;top:17px;width:0;height:0;pointer-events:none}
+.ccs-camera-waves::before,.ccs-camera-waves::after{content:'';position:absolute;left:-17px;top:-17px;width:34px;height:34px;box-sizing:border-box;border:1.5px solid #ffbf47;border-radius:50%;animation:ccs-camera-wave 1.6s ease-out infinite}
+.ccs-camera-waves::after{animation-delay:.8s}
+@keyframes ccs-camera-pulse{0%,100%{transform:scale(1);box-shadow:0 0 4px #ffbf4733}50%{transform:scale(1.16);box-shadow:0 0 16px #ffbf4799}}
+@keyframes ccs-camera-wave{0%{transform:scale(1);opacity:.8}100%{transform:scale(2.15);opacity:0}}
 @media(prefers-reduced-motion:reduce){.ccs-camera-beacon canvas,.ccs-camera-waves::before,.ccs-camera-waves::after{animation:none}.ccs-camera-waves{display:none}}
+
+/* Stop compositor animations too when this map is offscreen/backgrounded. */
+.ccs-paused .ccs-camera-beacon canvas,.ccs-paused .ccs-camera-waves::before,.ccs-paused .ccs-camera-waves::after{animation-play-state:paused}
+
+/* Outline Pointer: original artwork on a clean white disc and distance tab. */
+#ccs-beacons[data-theme="light"] .ccs-beacon{color:#182333}
+#ccs-beacons[data-theme="light"] .ccs-beacon canvas{background:#fff;border-width:1.5px;box-shadow:0 1px 3px #18233320}
+#ccs-beacons[data-theme="light"] .ccs-beacon span{background:#fffffff5;color:#182333;border:1px solid #18233314;box-shadow:0 1px 2px #18233314}
+#ccs-beacons[data-theme="light"] .ccs-beacon-name{background:#fffffff5;color:#182333}
+
+.ccs-camera-beacon[data-attention="true"] .ccs-camera-waves{display:block}
+@media(prefers-reduced-motion:reduce){.ccs-camera-beacon[data-attention="true"] canvas{animation:none}.ccs-camera-beacon[data-attention="true"] .ccs-camera-waves{display:none}}

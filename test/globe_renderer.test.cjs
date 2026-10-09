@@ -91,7 +91,8 @@ test('style changes restore current data and use light artwork without resetting
   const data={type:'FeatureCollection',features:[{properties:{kind:'self',heading:123},geometry:{coordinates:[24,57]}}]};
   f.window.ccsSetFeatures(data);
   f.handlers['style.load']();
-  assert.equal(f.sources.ccs.data,data);
+  assert.equal(f.sources.ccs.data.features.length,0);
+  assert.equal(f.sources['ccs-motion'].data.features[0].properties.heading,123);
   assert.equal(f.moves.length,0);
   assert.match(JSON.stringify(f.layers.find(l=>l.id==='ccs-spot-icons').layout['icon-image']),/lightIcon/);
   const arrow=f.layers.find(l=>l.id==='ccs-self');
@@ -346,4 +347,55 @@ test('zoom cannot rotate directional markers; real map rotation compensates both
  f.run('map.bearing=-179');f.handlers.rotate();
  assert.equal(updates().at(-1)[2][2],-179);
  assert.equal(f.moves.length,0); // Updating icon orientation never moves the camera.
+});
+
+test('moving users and camera metadata do not rebuild static spots',()=>{
+ const f=fixture();f.handlers['style.load']();
+ const spot={properties:{kind:'spot',id:'a'},geometry:{coordinates:[24,57]}};
+ const car=x=>({properties:{kind:'live',id:'u'},geometry:{coordinates:[x,57]}});
+ f.window.ccsSetPatch({fixed:[spot],moving:[car(24)],meta:{}});
+ const fixed=f.sources.ccs.data, live=f.sources['ccs-live'].data;
+ f.window.ccsSetPatch({moving:[car(25)],meta:{selection:{id:'a'}}});
+ assert.equal(f.sources.ccs.data,fixed);
+ assert.notEqual(f.sources['ccs-live'].data,live);
+ f.window.ccsSetPatch({fixed:[],moving:[],meta:{}});
+ assert.equal(f.sources.ccs.data.features.length,0);
+ assert.equal(f.sources['ccs-live'].data.features.length,0);
+});
+test('stationary motion settles and repeated unchanged fixes do not move camera',()=>{
+ const f=fixture();f.handlers['style.load']();
+ const packet={position:[24,57],heading:0,speed:0,following:true,zoom:16};
+ f.window.ccsSetMotion(packet);f.tick(16);
+ assert.equal(f.frames.size,0);
+ const moves=f.moves.length;
+ f.setTime(1000);f.window.ccsSetMotion(packet);f.tick(1016);
+ assert.equal(f.moves.length,moves);assert.equal(f.frames.size,0);
+});
+test('alerts outside the viewport and beacon range do not animate',()=>{
+ const f=fixture();f.handlers['style.load']();
+ f.run('map.project=()=>({x:-5000,y:-5000})');
+ f.window.ccsSetFeatures({features:[{properties:{kind:'police'},geometry:{coordinates:[0,0]}}]});
+ assert.equal(f.timers.size,0);
+ f.run('map.project=()=>({x:200,y:200})');f.handlers.render();
+ assert.equal(f.timers.size,1);
+});
+test('frame budget follows gestures, explicit follow and visibility',()=>{
+ const f=fixture(), budgets=[];f.window.ccsFrameBudget=(follow,visible)=>budgets.push([follow,visible]);f.handlers['style.load']();
+ f.window.ccsSetMotion({position:[24,57],heading:0,speed:0,following:true,zoom:16});
+ assert.deepEqual(budgets.at(-1),[true,true]);
+ f.touches.touchstart({touches:[{}]});assert.deepEqual(budgets.at(-1),[false,true]);
+ f.handlers.dragstart();f.touches.touchend({touches:[]});assert.deepEqual(budgets.at(-1),[false,true]);
+ f.window.ccsSetActive(false);assert.deepEqual(budgets.at(-1),[false,false]);
+});
+test('spot beacons use original inner artwork in both themes and retain selection',()=>{
+ const f=fixture(),nodes=[];
+ function element(){return {style:{setProperty(){}},dataset:{},children:[],appendChild(c){this.children.push(c);this.lastChild=c;},addEventListener(n,fn){this[n]=fn;},getBoundingClientRect(){},getContext(){return {putImageData(){}}},setAttribute(){},remove(){}};}
+ f.document.createElement=()=>{const e=element();nodes.push(e);return e;};f.document.body=element();f.handlers['style.load']();
+ f.run("map.project=p=>({x:200+(p[0]-24)*100000,y:400}); iconCache.set('assets/spot_icons/wash.png@beacon-dark',{});iconCache.set('assets/spot_icons/wash.png@beacon-light',{});");
+ f.window.ccsSetFeatures({features:[{properties:{kind:'self'},geometry:{type:'Point',coordinates:[24,57]}},{properties:{kind:'spot',id:'wash',icon:'assets/spot_icons/wash.png',color:'#0088ff'},geometry:{type:'Point',coordinates:[24.012,57]}}]});
+ f.window.ccsFollow();f.run('updateEdgeBeacons()');const beacon=nodes.find(n=>n.className==='ccs-beacon'),layer=nodes.find(n=>n.id==='ccs-beacons');
+ assert.equal(beacon.dataset.icon,'assets/spot_icons/wash.png@beacon-dark');assert.equal(layer.dataset.theme,'dark');
+ f.window.ccsSetStyle('positron');f.handlers['style.load']();f.run('updateEdgeBeacons()');
+ assert.equal(beacon.dataset.icon,'assets/spot_icons/wash.png@beacon-light');assert.equal(layer.dataset.theme,'light');
+ beacon.click({stopPropagation(){}});assert.deepEqual(f.messages.at(-1),{type:'select',kind:'spot',id:'wash'});
 });

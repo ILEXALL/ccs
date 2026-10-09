@@ -51,3 +51,13 @@ test('speed zoom retains low-speed scale and doubles distance at 100 km/h',()=>{
  let previous=16.35;
  for(let k=31;k<=150;k++){const z=speedFollowZoom(16.35,k/3.6);assert.ok(z<previous);assert.ok(previous-z<.025);previous=z;}
 });
+
+test('radar attention follows driving bearing, not map rotation, and stops at rest',()=>{
+ const {cameraAhead}=require('../assets/globe/beacons.js');
+ assert.equal(cameraAhead([24,57],[24,57.003],0,15),true);
+ assert.equal(cameraAhead([24,57],[24,57.003],359,15),true);
+ assert.equal(cameraAhead([24,57],[24,56.997],0,15),false);
+ assert.equal(cameraAhead([24,57],[24.003,57],0,15),false);
+ assert.equal(cameraAhead([24,57],[24,57.003],0,0),false);
+ assert.equal(cameraAhead([24,57],[24,57.003],NaN,15),false);
+});

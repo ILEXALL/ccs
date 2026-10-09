@@ -468,6 +468,8 @@ class _GlobeMapScreenState extends State<GlobeMapScreen>
     }
   }
 
+  String? previousFixedFeatures, previousMovingFeatures;
+
   Future<void> refresh() async {
     if (!mounted || !ready || !active || !widget.isVisible || sending) return;
     sending = true;
@@ -554,9 +556,26 @@ class _GlobeMapScreenState extends State<GlobeMapScreen>
       final data = jsonEncode(frame);
       if (data != previous) {
         // Encode as a JS string, then parse: names cannot become executable code.
+        final features = frame['features'] as List;
+        bool moving(dynamic feature) => const [
+          'live',
+          'self',
+          'route',
+        ].contains(feature['properties']['kind']);
+        final fixed = features.where((f) => !moving(f)).toList();
+        final mobile = features.where(moving).toList();
+        final fixedJson = jsonEncode(fixed), movingJson = jsonEncode(mobile);
+        final full = previous == null;
+        final patch = {
+          'meta': {...frame}..remove('features'),
+          if (full || fixedJson != previousFixedFeatures) 'fixed': fixed,
+          if (full || movingJson != previousMovingFeatures) 'moving': mobile,
+        };
         await controller.runJavaScript(
-          'window.ccsSetFeatures(JSON.parse(${jsonEncode(data)}));',
+          'window.ccsSetPatch(JSON.parse(${jsonEncode(jsonEncode(patch))}));',
         );
+        previousFixedFeatures = fixedJson;
+        previousMovingFeatures = movingJson;
         previous = data;
       }
     } catch (_) {

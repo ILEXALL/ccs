@@ -40,12 +40,55 @@ class NavigationSession extends Fake implements MapSession {
 
 class GlobeNavigationSession extends NavigationSession {
   @override
+  bool get mounted => true;
+  @override
+  DateTime? lastGpsUserLocationAt;
+  @override
+  DateTime? lastNavigationFrameAt;
+  @override
+  double currentUserSpeedMetersPerSecond = 0;
+  @override
+  LatLng? displayedUserLocation;
+
+  @override
   bool get isVisible => true;
   @override
   bool get mapCameraReady => true;
 }
 
 void main() {
+  test('globe predicts at packet cadence without native camera animation', () {
+    final fixTime = DateTime.utc(2026, 10, 9);
+    var now = fixTime;
+    final session = GlobeNavigationSession()
+      ..lastGpsUserLocation = const LatLng(57, 24)
+      ..lastGpsUserLocationAt = fixTime
+      ..currentUserSpeedMetersPerSecond = 20
+      ..currentUserHeadingDegrees = 90;
+    var cameraCalls = 0;
+    final navigation = MapNavigationController(
+      session,
+      now: () => now,
+      onCamera: (_, __, ___) => cameraCalls++,
+    );
+    navigation.updatePredictedUserMarker();
+    final start = session.displayedUserLocation!;
+    now = fixTime.add(const Duration(milliseconds: 500));
+    navigation.updatePredictedUserMarker();
+    expect(
+      session.displayedUserLocation!.longitude,
+      greaterThan(start.longitude),
+    );
+    expect(cameraCalls, 0);
+    expect(session.displayedNavigationHeading, 90);
+    now = fixTime.add(const Duration(seconds: 4));
+    navigation.updatePredictedUserMarker();
+    final stopped = session.displayedUserLocation!;
+    now = fixTime.add(const Duration(seconds: 10));
+    navigation.updatePredictedUserMarker();
+    expect(session.displayedUserLocation, stopped);
+  });
+
   test(
     'globe receives camera movement without an attached raster controller',
     () {

@@ -8,6 +8,8 @@ class NavigationMotion {
   LatLng? _previous;
   DateTime? _time;
   double speed = 0;
+  LatLng? stationaryPosition;
+  int _movingFixes = 0;
 
   void sample(LatLng position, DateTime time, double gpsSpeed) {
     if (_time == time) return;
@@ -18,14 +20,30 @@ class NavigationMotion {
         ? 0.0
         : distanceBetweenLatLngMeters(_previous!, position);
     final measured = seconds >= .25 && seconds <= 3 ? distance / seconds : 0.0;
-    final reported = gpsSpeed.isFinite
+    final hasReportedSpeed = gpsSpeed.isFinite && gpsSpeed >= 0;
+    final reported = hasReportedSpeed
         ? gpsSpeed.clamp(0.0, 70.0).toDouble()
         : 0.0;
     // Avoid interpreting stationary GPS noise or a reacquisition jump as driving.
     final usableCourse = measured >= 2 && measured <= 70 && distance >= 4;
-    final target = reported >= .8
-        ? (usableCourse ? reported * .7 + measured * .3 : reported)
+    // Zero is a valid stopped reading, not an unavailable speed. GPS drift
+    // must not manufacture forward velocity while the receiver says stopped.
+    var target = hasReportedSpeed
+        ? (reported >= .8
+              ? (usableCourse ? reported * .7 + measured * .3 : reported)
+              : 0.0)
         : (usableCourse && measured >= 3 ? measured : 0.0);
+    _movingFixes = target >= .8 ? _movingFixes + 1 : 0;
+    // Require two consecutive moving fixes after a stop, not one noisy sample.
+    if (_time != null && speed < .8 && _movingFixes < 2) target = 0;
+    if (target < .8) {
+      // Release an old anchor after a long GPS gap (for example app resume).
+      if (stationaryPosition == null || seconds > 10 || seconds <= 0) {
+        stationaryPosition = position;
+      }
+    } else {
+      stationaryPosition = null;
+    }
     if (_time == null || seconds > 3 || seconds <= 0 || target < .8) {
       speed = target;
     } else {

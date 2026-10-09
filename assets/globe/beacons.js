@@ -30,3 +30,12 @@ function speedFollowZoom(baseZoom, metersPerSecond) {
   return baseZoom - Math.log2(distanceScale);
 }
 if (typeof module !== 'undefined') module.exports.speedFollowZoom = speedFollowZoom;
+
+// Geographic forward cone: independent of the manually rotated map camera.
+function cameraAhead(origin, target, heading, speed) {
+  if(!origin || !target || ![...origin,...target,heading,speed].every(Number.isFinite) || speed<1.5) return false;
+  const a=radians(origin[1]),b=radians(target[1]),dl=radians(target[0]-origin[0]);
+  const bearing=Math.atan2(Math.sin(dl)*Math.cos(b),Math.cos(a)*Math.sin(b)-Math.sin(a)*Math.cos(b)*Math.cos(dl))*180/Math.PI;
+  return Math.abs(((bearing-heading+540)%360)-180)<=60;
+}
+if(typeof module!=='undefined') module.exports.cameraAhead=cameraAhead;

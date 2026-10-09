@@ -396,7 +396,7 @@ class MapNavigationController implements MapNavigationActions {
               ? AndroidSettings(
                   accuracy: LocationAccuracy.bestForNavigation,
                   distanceFilter: 0,
-                  intervalDuration: const Duration(milliseconds: 500),
+                  intervalDuration: const Duration(seconds: 1),
                   forceLocationManager: false,
                 )
               : AppleSettings(
@@ -419,7 +419,9 @@ class MapNavigationController implements MapNavigationActions {
           },
         );
 
-    if (host.isVisible && !host.navigationMotionController.isAnimating) {
+    if (onCamera == null &&
+        host.isVisible &&
+        !host.navigationMotionController.isAnimating) {
       host.lastNavigationFrameAt = null;
       host.navigationMotionController.repeat();
     }
@@ -436,11 +438,12 @@ class MapNavigationController implements MapNavigationActions {
     if (location == null) {
       return;
     }
-    final speed = position.speed.isFinite ? math.max(0.0, position.speed) : 0.0;
+    final receivedAt = _now();
+    _motion.sample(location, receivedAt, position.speed);
     final heading = headingForNewUserLocation(
       location,
       position.heading,
-      speedMetersPerSecond: speed,
+      speedMetersPerSecond: _motion.speed,
       accuracyMeters: position.accuracy,
     );
 
@@ -450,16 +453,18 @@ class MapNavigationController implements MapNavigationActions {
       location,
     );
 
-    final nextDisplay = distanceToNewGps > 80 ? location : currentDisplay;
+    final nextDisplay = distanceToNewGps > 80 && _motion.speed >= .8
+        ? location
+        : currentDisplay;
     host.updateMap(() {
       host.defaultMapUsesSpots = false;
       host.currentUserLocation = location;
       host.displayedUserLocation = nextDisplay;
       host.lastGpsUserLocation = location;
-      host.lastGpsUserLocationAt = DateTime.now();
+      host.lastGpsUserLocationAt = receivedAt;
       host.lastNavigationPositionAt = DateTime.now();
       host.currentUserHeadingDegrees = heading;
-      host.currentUserSpeedMetersPerSecond = speed;
+      host.currentUserSpeedMetersPerSecond = _motion.speed;
     });
 
     if (host.routePreviewMode) {
@@ -492,12 +497,19 @@ class MapNavigationController implements MapNavigationActions {
     // Browsing stays unfocused until the user explicitly taps GPS again.
     // Brief bounded visual extrapolation only. Uploaded coordinates remain GPS fixes.
     final target = _motion.speed < 0.8
-        ? gpsLocation
+        ? (_motion.stationaryPosition ?? gpsLocation)
         : projectLatLngMeters(
             gpsLocation,
             host.currentUserHeadingDegrees,
             _motion.distanceAhead(age),
           );
+    // Globe packets are predicted at 10 Hz; WebView alone interpolates visuals.
+    // Avoid a second display-rate Flutter ticker and a second smoothing delay.
+    if (onCamera != null) {
+      host.displayedUserLocation = target;
+      host.displayedNavigationHeading = host.currentUserHeadingDegrees;
+      return;
+    }
     host.displayedUserLocation = lerpLatLng(
       host.displayedUserLocation ?? gpsLocation,
       target,

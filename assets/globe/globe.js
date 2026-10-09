@@ -4,6 +4,16 @@ const statusBox = document.getElementById('status');
 const notify = (type, extra = {}) => window.CcsGlobe?.postMessage(JSON.stringify({type, ...extra}));
 let map, latest = {type:'FeatureCollection',features:[]}, ready = false, following = false, currentStyle='dark';
 let cameraRevision;
+let patchFixed=[], patchMoving=[];
+window.ccsSetPatch = patch => {
+  if(patch.fixed) patchFixed=patch.fixed;
+  if(patch.moving) patchMoving=patch.moving;
+  window.ccsSetFeatures({...patch.meta,type:'FeatureCollection',features:[...patchFixed,...patchMoving]});
+};
+let staticData={type:'FeatureCollection',features:[]}, liveData={type:'FeatureCollection',features:[]};
+let staticSignature=null, liveSignature=null;
+function syncFrameBudget() {window.ccsFrameBudget?.((motionFollowing || following) && !manualTouchActive, viewActive);}
+
 let policeBeaconFrame = 0;
 let attributionPresented=false;
 function collapseInitialAttribution() {
@@ -16,12 +26,39 @@ function collapseInitialAttribution() {
   control.querySelector('summary')?.addEventListener('click',()=>clearTimeout(timeout),{once:true});
 }
 const iconCache = new Map();
+// Extract the original neutral-colour illustration inside the coloured pin.
+// This runs once per loaded asset, not during navigation or beacon animation.
+function cacheBeaconArtwork(id, image) {
+  if(!id.startsWith('assets/spot_icons/') || id.includes('_light')) return;
+  const source=document.createElement('canvas');source.width=256;source.height=256;
+  const context=source.getContext('2d');context.drawImage(image,0,0,256,256);
+  const pixels=context.getImageData(0,0,256,256);
+  let left=256,top=256,right=0,bottom=0;
+  for(let y=0;y<256;y++) for(let x=0;x<256;x++) {
+    const i=(y*256+x)*4, r=pixels.data[i],g=pixels.data[i+1],b=pixels.data[i+2];
+    // All bundled pins place the artwork in this upper interior region.
+    const ink=x>=51 && x<205 && y>=31 && y<166 && Math.min(r,g,b)>110 && Math.max(r,g,b)-Math.min(r,g,b)<65;
+    if(!ink) {pixels.data[i+3]=0;continue;}
+    if(pixels.data[i+3]>24) {left=Math.min(left,x);right=Math.max(right,x);top=Math.min(top,y);bottom=Math.max(bottom,y);}
+  }
+  if(right<=left || bottom<=top) return;
+  for(const [theme,color] of [['dark',[255,255,255]],['light',[24,35,51]],['muted',[97,97,97]],['event',[178,99,0]]]) {
+    for(let i=0;i<pixels.data.length;i+=4) {pixels.data[i]=color[0];pixels.data[i+1]=color[1];pixels.data[i+2]=color[2];}
+    context.putImageData(pixels,0,0);
+    const out=document.createElement('canvas');out.width=128;out.height=128;
+    const ctx=out.getContext('2d'),w=right-left+1,h=bottom-top+1,scale=100/Math.max(w,h);
+    ctx.drawImage(source,left,top,w,h,(128-w*scale)/2,(128-h*scale)/2,w*scale,h*scale);
+    iconCache.set(id+'@beacon-'+theme,ctx.getImageData(0,0,128,128));
+  }
+}
+
 // Reuse the bundled CCS category PNGs; never fetch icons.
 window.ccsSetIcons = icons => {
   for (const [id, uri] of Object.entries(icons)) {
     if ((!id.startsWith('assets/spot_icons/') && !/^assets\/user_cars\/car_(green|blue|purple)\.png$/.test(id) && !/^ccs-(self-arrow|pin-(blue|amber|red)|police-([0-9]|1[0-6])|sos|speed-camera|person|avatar-[0-9]+)$/.test(id)) || !uri.startsWith('data:image/png;base64,')) continue;
     const image = new Image();
     image.onload = () => {
+      cacheBeaconArtwork(id,image);
       for (const tint of (!id.startsWith('assets/spot_icons/') ? [''] : ['', '#616161', '#ffab40'])) {
         const canvas = document.createElement('canvas'); canvas.width=128; canvas.height=128;
         const ctx = canvas.getContext('2d');
@@ -42,7 +79,7 @@ window.ccsSetIcons = icons => {
 // Small motion packets use their own source; hundreds of spots are not rebuilt
 // at animation-frame frequency. Both arrow and camera use the same interpolation.
 let motionReceived=false, motionPosition=null, motionHeading=0, motionFollowing=false;
-let motionFrame=null, followZoom=null;
+let motionFrame=null, followZoom=null, lastMotionSignature=null, lastCameraSignature=null;
 let gestureBlocked=false, followRevision=0;
 let manualTouchActive=false;
 let motionTarget=null, motionAt=0, motionLastFrame=null, motionVelocity=[0,0];
@@ -66,9 +103,18 @@ function animateMotion(now) {
   motionHeading+=shortArc(motionTarget.heading-motionHeading)*(1-Math.exp(-dt/.12));
   const zoomTarget=speedFollowZoom(motionTarget.zoom, motionTarget.speed);
   followZoom=followZoom===null?motionTarget.zoom:followZoom+(zoomTarget-followZoom)*(1-Math.exp(-dt/1.2));
-  map.getSource('ccs-motion')?.setData(motionData());
-  if(motionFollowing) map.easeTo({center:motionPosition,zoom:followZoom,bearing:motionHeading,offset:followOffset(),padding:0,duration:0});
-  if(age<1 || (motionFollowing && Math.abs(zoomTarget-followZoom)>.001 && age<10)) motionFrame=requestAnimationFrame(animateMotion);
+  if(Math.abs(shortArc(target[0]-motionPosition[0]))<1e-8 && Math.abs(target[1]-motionPosition[1])<1e-8) motionPosition=target.slice();
+  if(Math.abs(shortArc(motionTarget.heading-motionHeading))<.02) motionHeading=motionTarget.heading;
+  if(Math.abs(zoomTarget-followZoom)<.001) followZoom=zoomTarget;
+  const signature=JSON.stringify([motionPosition,motionHeading]);
+  if(signature!==lastMotionSignature) {map.getSource('ccs-motion')?.setData(motionData());lastMotionSignature=signature;}
+  const cameraSignature=JSON.stringify([motionPosition,motionHeading,followZoom,followOffset()]);
+  if(motionFollowing && cameraSignature!==lastCameraSignature) {
+    map.easeTo({center:motionPosition,zoom:followZoom,bearing:motionHeading,offset:followOffset(),padding:0,duration:0});lastCameraSignature=cameraSignature;
+  }
+  const unsettled=Math.abs(shortArc(target[0]-motionPosition[0]))>1e-8 || Math.abs(target[1]-motionPosition[1])>1e-8 || Math.abs(shortArc(motionTarget.heading-motionHeading))>.02;
+  const predicting=age<.15 && Math.hypot(...motionVelocity)>0;
+  if((age<1 && (unsettled || predicting)) || (motionFollowing && Math.abs(zoomTarget-followZoom)>.001 && age<10)) motionFrame=requestAnimationFrame(animateMotion);
   else motionLastFrame=null;
 }
 window.ccsSetMotion = data => {
@@ -76,7 +122,10 @@ window.ccsSetMotion = data => {
   if(data.followRevision!==undefined && data.followRevision!==followRevision) {
     followRevision=data.followRevision;gestureBlocked=false;
   }
+  const wasFollowing=motionFollowing;
   motionFollowing=!!data.following && !gestureBlocked;
+  if(motionFollowing!==wasFollowing) lastCameraSignature=null;
+  syncFrameBudget();
   if (!motionFollowing) updateEdgeBeacons();
   if(!data.position) {stopMotion();motionTarget=null;motionPosition=null;motionVelocity=[0,0];if(ready) map.getSource('ccs-motion')?.setData(motionData());return;}
   const now=performance.now(), seconds=(now-motionAt)/1000;
@@ -91,6 +140,7 @@ window.ccsSetMotion = data => {
   // Older packets without speed retain their previous behavior.
   if (Number.isFinite(data.speed) && data.speed < 1.5) data={...data,heading:motionHeading};
   motionTarget=data;motionAt=now;
+  updateEdgeBeacons();
   if(motionFrame===null) motionFrame=requestAnimationFrame(animateMotion);
 };
 // Keep directional sprites in one screen coordinate system. Mixing map rotation
@@ -125,9 +175,14 @@ window.ccsSetFeatures = data => {
     motionPosition=self?.geometry.coordinates||null; motionHeading=self?.properties.heading||0;
     if(ready) map.getSource('ccs-motion')?.setData(motionData());
   }
+  const fixed=data.features.filter(f=>!['live','self','route'].includes(f.properties.kind));
+  staticData=fixed.length===data.features.length?data:{type:'FeatureCollection',features:fixed};
+  liveData={type:'FeatureCollection',features:data.features.filter(f=>['live','route'].includes(f.properties.kind))};
+  const fixedKey=JSON.stringify(fixed), movingKey=JSON.stringify(liveData.features);
   startAlertAnimation();
   if (ready) {
-    map.getSource('ccs').setData(data);
+    if(fixedKey!==staticSignature) {map.getSource('ccs').setData(staticData);staticSignature=fixedKey;}
+    if(movingKey!==liveSignature) {map.getSource('ccs-live').setData(liveData);liveSignature=movingKey;}
     const camera=data.camera;
     if(camera && camera.revision !== cameraRevision) {
       cameraRevision=camera.revision; following=false;
@@ -135,15 +190,15 @@ window.ccsSetFeatures = data => {
         const [a,b]=camera.bounds;
         const east=a[0]+shortArc(b[0]-a[0]);
         const bounds=[[Math.min(a[0],east),Math.min(a[1],b[1])],[Math.max(a[0],east),Math.max(a[1],b[1])]];
-        motionFollowing=false;following=false;gestureBlocked=true;
+        motionFollowing=false;following=false;gestureBlocked=true;syncFrameBudget();
         map.fitBounds(bounds,{padding:{top:100,bottom:160,left:45,right:45},bearing:0,pitch:0,maxZoom:15.6,duration:500});
       }
       else if(!motionFollowing && !manualTouchActive) map.easeTo({center:camera.center,zoom:camera.zoom,...(!gestureBlocked?{bearing:camera.bearing||0}:{}),duration:250});
     } else if(following) follow();
   }
 };
-window.ccsFollow = () => { gestureBlocked=false; following = true; follow(); };
-window.ccsWorld = () => { gestureBlocked=true; following = false; motionFollowing=false; notify('gesture'); map.easeTo({zoom:1.3,pitch:0,duration:1200}); };
+window.ccsFollow = () => { gestureBlocked=false; following = true; syncFrameBudget(); follow(); };
+window.ccsWorld = () => { gestureBlocked=true; following = false; motionFollowing=false; syncFrameBudget(); notify('gesture'); map.easeTo({zoom:1.3,pitch:0,duration:1200}); };
 window.ccsSetStyle = style => {
   if (!['dark','positron'].includes(style) || style===currentStyle) {notify('ready');return;}
   stopAlertAnimation(); currentStyle=style; ready=false;
@@ -151,7 +206,7 @@ window.ccsSetStyle = style => {
 };
 let alertTimer=null, viewActive=true;
 function stopAlertAnimation() { if(alertTimer!==null) clearInterval(alertTimer); alertTimer=null; }
-window.ccsSetActive = active => {viewActive=!!active;updateEdgeBeacons(); if(viewActive) startAlertAnimation(); else {stopAlertAnimation();stopMotion();}};
+window.ccsSetActive = active => {viewActive=!!active;document.documentElement?.classList.toggle('ccs-paused',!viewActive);syncFrameBudget();updateEdgeBeacons(); if(viewActive) startAlertAnimation(); else {stopAlertAnimation();stopMotion();}};
 function alertRadius(kind) {
   const stops=['interpolate',['linear'],['zoom']];
   for(const z of [1,4,5,7,9,11,12,14.19,14.2,15,16,17,18]) {
@@ -191,19 +246,28 @@ function animateAlerts() {
   map.setPaintProperty('ccs-sos-core','circle-stroke-opacity',0.82+p*0.18);
 }
 function startAlertAnimation() {
-  stopAlertAnimation();
-  if(!ready || !viewActive || !latest.features.some(f=>['police','sos'].includes(f.properties.kind))) return;
-  animateAlerts(); alertTimer=setInterval(animateAlerts,80);
+  const visible=ready && viewActive && latest.features.some(f=> {
+    if(!['police','sos'].includes(f.properties.kind)) return false;
+    // Keep offscreen alerts animating only when their edge beacon is in range.
+    if((motionFollowing || following) && motionPosition && beaconDistance(motionPosition,f.geometry.coordinates)<beaconRange(f.properties.kind)[0]) return true;
+    if(!map.project) return true;
+    const p=map.project(f.geometry.coordinates), canvas=map.getCanvas();
+    return p.x>=-60 && p.x<=canvas.clientWidth+60 && p.y>=-60 && p.y<=canvas.clientHeight+60;
+  });
+  if(!visible) {stopAlertAnimation();return;}
+  if(alertTimer!==null) return;
+  animateAlerts(); alertTimer=setInterval(animateAlerts,100);
 }
 try {
   map = new maplibregl.Map({container:'map',style:'https://tiles.openfreemap.org/styles/dark',center:[24.1,56.95],zoom:6.5,maxZoom:18,attributionControl:{compact:true}});
   // Native compact controls own globe/follow; pinch gestures provide zoom.
-  const browse = () => {gestureBlocked=true;following=false;motionFollowing=false;updateEdgeBeacons();notify('gesture');};
+  const browse = () => {gestureBlocked=true;following=false;motionFollowing=false;syncFrameBudget();updateEdgeBeacons();notify('gesture');};
   // Capture the second finger before MapLibre handles the pinch. Camera jumpTo
   // updates can otherwise interrupt zoomstart before it carries originalEvent.
   const surface=document.getElementById('map');
   const touch = e => {
     manualTouchActive=e.touches.length>0;
+    syncFrameBudget();
     if(e.touches.length>=2 && !gestureBlocked) {browse();map.stop?.();}
   };
   for(const type of ['touchstart','touchmove','touchend','touchcancel']) {
@@ -217,14 +281,18 @@ try {
   map.on('error', () => {notify('error');statusBox.textContent='Map could not load. Check your connection or retry the map.';statusBox.hidden=false;});
   map.on('style.load', () => {
     map.setProjection({type:'globe'});
-    for (const [key,pixels] of iconCache) map.addImage(key,pixels,{pixelRatio:2});
-    map.addSource('ccs',{type:'geojson',data:latest});
+    for (const [key,pixels] of iconCache) {
+      if(!key.includes('@beacon-')) map.addImage(key,pixels,{pixelRatio:2});
+    }
+    map.addSource('ccs',{type:'geojson',data:staticData});
+    map.addSource('ccs-live',{type:'geojson',data:liveData});
+    staticSignature=JSON.stringify(staticData.features);liveSignature=JSON.stringify(liveData.features);lastMotionSignature=null;
     map.addSource('ccs-motion',{type:'geojson',data:motionData()});
     map.addLayer({id:'ccs-restricted',type:'fill',source:'ccs',filter:['==',['get','kind'],'restricted'],paint:{'fill-color':'#ff5252','fill-opacity':0.16}});
     map.addLayer({id:'ccs-pin',type:'symbol',source:'ccs',filter:['==',['get','kind'],'pin'],layout:{
       'icon-image':['coalesce',['get','icon'],'ccs-pin-blue'],'icon-size':56/64,'icon-anchor':'bottom',
       'icon-allow-overlap':true,'icon-ignore-placement':true,'icon-pitch-alignment':'viewport','icon-rotation-alignment':'viewport'}});
-    map.addLayer({id:'ccs-route',type:'line',source:'ccs',filter:['==',['get','kind'],'route'],paint:{'line-color':'#008dff','line-width':3,'line-dasharray':[2,2]}});
+    map.addLayer({id:'ccs-route',type:'line',source:'ccs-live',filter:['==',['get','kind'],'route'],paint:{'line-color':'#008dff','line-width':3,'line-dasharray':[2,2]}});
     const spots=['==',['get','kind'],'spot'];
     const dotSize=['interpolate',['linear'],['zoom']];
     for(const z of [1,3,5,7,9,10,11.25,18]) {
@@ -266,7 +334,7 @@ try {
       const p=Math.max(0,Math.min(1,(z-4)/13));
       carSize.push(z,(9+25*(1-Math.pow(1-p,3)))/64);
     }
-    map.addLayer({id:'ccs-live-cars',type:'symbol',source:'ccs',filter:['==',['get','kind'],'live'],layout:{
+    map.addLayer({id:'ccs-live-cars',type:'symbol',source:'ccs-live',filter:['==',['get','kind'],'live'],layout:{
       'icon-image':['coalesce',['get','icon'],'assets/user_cars/car_green.png'],'icon-size':carSize,
       'icon-rotate':markerRotation(),'icon-rotation-alignment':'viewport',
       'icon-pitch-alignment':'viewport','icon-allow-overlap':true,'icon-ignore-placement':true}});
@@ -311,6 +379,7 @@ function updateEdgeBeacons() {
     beaconLayer.id = 'ccs-beacons';
     document.body.appendChild(beaconLayer);
   }
+  beaconLayer.dataset.theme=currentStyle==='positron'?'light':'dark';
   const selected = new Set();
   const position = motionPosition || currentPosition();
   if (ready && viewActive && (motionFollowing || following) && !gestureBlocked && position && !latest.routePreview) {
@@ -359,10 +428,17 @@ function updateEdgeBeacons() {
           // Establish the transparent initial state before starting the fade.
           node.getBoundingClientRect();
         }
-        // Beacons have a dark surface in both styles: use the bright dark-map artwork.
+        if(p.kind==='camera') {
+          const fresh=motionTarget?.gpsFresh===true && performance.now()-motionAt<1500;
+          node.dataset.attention=String(fresh && cameraAhead(position,coordinate,motionHeading,motionTarget?.speed));
+        }
+        // Reuse the original inner category artwork in both beacon themes.
         if(node.nickname) node.nickname.textContent=String(p.label || 'User');
         const baseIcon = p.kind === 'live' ? (p.avatarIcon || 'ccs-person') : p.kind === 'police' ? 'ccs-police-' + policeBeaconFrame : p.kind === 'sos' ? 'ccs-sos' : p.icon;
-        const icon = baseIcon + (p.tint ? '@' + p.color : '');
+        const theme=currentStyle==='positron'?'light':'dark';
+        const artworkTheme=p.tint?(p.event?'event':'muted'):theme;
+        const extracted=p.icon+'@beacon-'+artworkTheme;
+        const icon = p.kind==='spot' && iconCache.has(extracted) ? extracted : baseIcon + (p.tint ? '@' + p.color : '');
         const pixels = iconCache.get(icon);
         if (pixels && node.dataset.icon !== icon) {
           node.face.getContext('2d').putImageData(pixels,0,0); node.dataset.icon=icon;
@@ -383,7 +459,7 @@ function updateEdgeBeacons() {
   const now = performance.now();
   for (const [key,node] of edgeBeacons) {
     if (selected.has(key)) continue;
-    node.style.opacity='0'; node.style.pointerEvents='none';
+    node.style.opacity='0'; node.style.pointerEvents='none';node.dataset.attention='false';
     if (node.hiddenAt == null) node.hiddenAt=now;
     if (now-node.hiddenAt>500) {node.remove();edgeBeacons.delete(key);}
   }
@@ -394,4 +470,5 @@ map?.on('render', () => {
   if (now-lastBeaconUpdate < 100) return;
   lastBeaconUpdate=now;
   updateEdgeBeacons();
+  startAlertAnimation();
 });

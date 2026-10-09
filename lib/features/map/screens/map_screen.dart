@@ -279,7 +279,7 @@ class _MapScreenState extends State<MapScreen>
     mapAlertPulseController = AnimationController(
       vsync: this,
       duration: const Duration(seconds: 3),
-    )..repeat(reverse: true);
+    );
     navigationMotionController = AnimationController(
       vsync: this,
       duration: const Duration(seconds: 1),
@@ -541,6 +541,7 @@ class _MapScreenState extends State<MapScreen>
       return null;
     },
     readMotion: () {
+      navigation.updatePredictedUserMarker();
       final own = displayedUserLocation ?? currentUserLocation;
       return {
         'position': own != null && isValidLatLng(own)
