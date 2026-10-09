@@ -709,11 +709,15 @@ class MapNavigationController implements MapNavigationActions {
         ? 0.32
         : 0.14;
 
-    host.smoothedUserHeadingDegrees = smoothHeadingDegrees(
-      host.smoothedUserHeadingDegrees,
-      targetHeading,
-      smoothingAmount,
-    );
+    // The globe applies one time-based, rate-limited turn interpolation.
+    // Do not staircase that target with a second per-GPS-fix smoothing pass.
+    host.smoothedUserHeadingDegrees = onCamera != null
+        ? targetHeading
+        : smoothHeadingDegrees(
+            host.smoothedUserHeadingDegrees,
+            targetHeading,
+            smoothingAmount,
+          );
 
     return host.smoothedUserHeadingDegrees;
   }

@@ -76,6 +76,7 @@ class _GlobeMapScreenState extends State<GlobeMapScreen>
   bool sendingMotion = false;
   String? previousMotion;
   bool ready = false, sending = false, active = true;
+  bool followActive = false;
   String? previous;
   String? error;
   bool iconsSent = false;
@@ -336,7 +337,10 @@ class _GlobeMapScreenState extends State<GlobeMapScreen>
                   lat.abs() <= 90 &&
                   lng.abs() <= 180)
                 widget.onCameraChanged?.call(lat, lng, zoom);
+            } else if (data['type'] == 'follow') {
+              setState(() => followActive = data['enabled'] == true);
             } else if (data['type'] == 'gesture') {
+              setState(() => followActive = false);
               widget.onInteraction?.call();
             } else if (data['type'] == 'pick' &&
                 data['lat'] is num &&
@@ -764,11 +768,18 @@ class _GlobeMapScreenState extends State<GlobeMapScreen>
     bool accent = false,
     bool amber = false,
     bool sharingActive = false,
+    bool followSelected = false,
+    bool large = false,
     bool fill = false,
   }) {
-    final color = amber ? const Color(0xffeeb666) : Colors.white;
+    final color = amber
+        ? const Color(0xffeeb666)
+        : followSelected
+        ? const Color(0xffa3d8b7)
+        : Colors.white;
     return Semantics(
       button: true,
+      selected: followSelected,
       label: trText(label),
       child: Tooltip(
         message: trText(label),
@@ -777,8 +788,8 @@ class _GlobeMapScreenState extends State<GlobeMapScreen>
           onTap: onTap,
           child: ConstrainedBox(
             constraints: BoxConstraints(
-              minHeight: amber ? 52 : 48,
-              minWidth: amber ? 52 : 48,
+              minHeight: (amber || large) ? 52 : 48,
+              minWidth: (amber || large) ? 52 : 48,
             ),
             child: Center(
               heightFactor: 1,
@@ -786,12 +797,12 @@ class _GlobeMapScreenState extends State<GlobeMapScreen>
               child: Opacity(
                 opacity: onTap == null ? .5 : 1,
                 child: Container(
-                  height: amber ? 44 : 36,
+                  height: (amber || large) ? 44 : 36,
                   width: fill ? double.infinity : null,
                   padding: EdgeInsets.symmetric(
                     horizontal: text
                         ? 8
-                        : amber
+                        : (amber || large)
                         ? 11
                         : 9,
                   ),
@@ -800,6 +811,8 @@ class _GlobeMapScreenState extends State<GlobeMapScreen>
                         ? null
                         : amber
                         ? const Color(0xff201a12)
+                        : followSelected
+                        ? const Color(0xff183c2d)
                         : const Color(0xff111319),
                     gradient: sharingActive
                         ? const LinearGradient(
@@ -817,6 +830,8 @@ class _GlobeMapScreenState extends State<GlobeMapScreen>
                           ? const Color(0xff635032)
                           : accent
                           ? const Color(0xff1273cc)
+                          : followSelected
+                          ? const Color(0xff467b5f)
                           : const Color(0xff33363e),
                     ),
                     borderRadius: BorderRadius.circular(11),
@@ -825,7 +840,11 @@ class _GlobeMapScreenState extends State<GlobeMapScreen>
                     mainAxisSize: MainAxisSize.min,
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Icon(icon, size: amber ? 22 : 18, color: color),
+                      Icon(
+                        icon,
+                        size: (amber || large) ? 22 : 18,
+                        color: color,
+                      ),
                       if (text) ...[
                         const SizedBox(width: 7),
                         Flexible(
@@ -1013,34 +1032,22 @@ class _GlobeMapScreenState extends State<GlobeMapScreen>
             ),
             Positioned(
               right: 8,
-              bottom: 92,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  control(
-                    'Show globe',
-                    Icons.public,
-                    ready
-                        ? () => unawaited(
-                            controller.runJavaScript('window.ccsWorld();'),
-                          )
-                        : null,
-                  ),
-                  control(
-                    'Follow my location',
-                    Icons.my_location,
-                    ready
-                        ? () async {
-                            await widget.onLocate();
-                            await refresh();
-                            if (mounted && ready)
-                              await controller.runJavaScript(
-                                'window.ccsFollow();',
-                              );
-                          }
-                        : null,
-                  ),
-                ],
+              bottom: 28,
+              child: control(
+                'Follow my location',
+                Icons.my_location,
+                ready
+                    ? () async {
+                        await widget.onLocate();
+                        await refresh();
+                        await refreshMotion();
+                        if (mounted && ready) {
+                          await controller.runJavaScript('window.ccsFollow();');
+                        }
+                      }
+                    : null,
+                large: true,
+                followSelected: followActive,
               ),
             ),
           ],

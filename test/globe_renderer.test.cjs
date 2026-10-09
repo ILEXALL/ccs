@@ -28,7 +28,7 @@ function fixture() {
   let clock=0;
   const touches={};
   const surface={addEventListener:(type,fn)=>{touches[type]=fn;}};
-  const context={performance:{now:()=>clock},requestAnimationFrame:fn=>{frames.set(++frameId,fn);return frameId;},cancelAnimationFrame:id=>frames.delete(id),Date:{now:()=>clock},setInterval:fn=>{timers.add(fn);return fn;},clearInterval:fn=>timers.delete(fn),window:{CcsGlobe:{postMessage:m=>messages.push(JSON.parse(m))}},document:{getElementById:()=>({})},maplibregl:{Map,NavigationControl:class{}}};
+  const context={performance:{now:()=>clock},requestAnimationFrame:fn=>{frames.set(++frameId,fn);return frameId;},cancelAnimationFrame:id=>frames.delete(id),Date:{now:()=>clock},setInterval:fn=>{timers.add(fn);return fn;},clearInterval:fn=>timers.delete(fn),window:{CcsGlobe:{postMessage:m=>messages.push(JSON.parse(m))}},document:{getElementById:()=>({})},maplibregl:{Map,NavigationControl:class{},AttributionControl:class{}}};
   context.document.getElementById=id=>id==='map'?surface:{};
   vm.runInNewContext(fs.readFileSync('assets/globe/beacons.js','utf8'),context);
   vm.runInNewContext(fs.readFileSync('assets/globe/globe.js','utf8'),context);
@@ -398,4 +398,28 @@ test('spot beacons use original inner artwork in both themes and retain selectio
  f.window.ccsSetStyle('positron');f.handlers['style.load']();f.run('updateEdgeBeacons()');
  assert.equal(beacon.dataset.icon,'assets/spot_icons/wash.png@beacon-light');assert.equal(layer.dataset.theme,'light');
  beacon.click({stopPropagation(){}});assert.deepEqual(f.messages.at(-1),{type:'select',kind:'spot',id:'wash'});
+});
+test('follow turning is rate limited and GPS gaps cannot snap bearing',()=>{
+ const f=fixture();f.handlers['style.load']();
+ const packet=heading=>({position:[24,57],heading,speed:12,following:true,zoom:16,gpsFresh:true});
+ f.window.ccsSetMotion(packet(350));f.tick(0);
+ f.setTime(100);f.window.ccsSetMotion(packet(80));
+ let last=350;
+ for(let t=100;t<1000;t+=33.333){
+   f.setTime(t);f.window.ccsSetMotion(packet(80));f.tick(t);
+   const next=f.moves.at(-1).bearing;
+   const delta=((next-last+540)%360)-180;
+   assert.ok(delta>=0 && delta<=75*.05+.001,'turn must take shortest arc at bounded rate');last=next;
+ }
+ f.setTime(5000);f.window.ccsSetMotion(packet(200));f.tick(5000);
+ const delta=((f.moves.at(-1).bearing-last+540)%360)-180;
+ assert.ok(Math.abs(delta)<=75*.05+.001,'long GPS gap must not snap to new heading');
+});
+test('follow state notifications track explicit follow and gesture exit',()=>{
+ const f=fixture();f.handlers['style.load']();
+ f.window.ccsSetMotion({position:[24,57],heading:0,speed:0,following:true,zoom:16,followRevision:1});
+ assert.equal(f.messages.filter(m=>m.type==='follow').at(-1).enabled,true);
+ f.handlers.dragstart();assert.equal(f.messages.filter(m=>m.type==='follow').at(-1).enabled,false);
+ f.window.ccsSetMotion({position:[24,57],heading:0,speed:0,following:true,zoom:16,followRevision:2});
+ assert.equal(f.messages.filter(m=>m.type==='follow').at(-1).enabled,true);
 });

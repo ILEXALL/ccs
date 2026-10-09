@@ -52,3 +52,6 @@ body{background:#050911 url("stars.svg") repeat;background-size:768px 768px}
 
 .ccs-camera-beacon[data-attention="true"] .ccs-camera-waves{display:block}
 @media(prefers-reduced-motion:reduce){.ccs-camera-beacon[data-attention="true"] canvas{animation:none}.ccs-camera-beacon[data-attention="true"] .ccs-camera-waves{display:none}}
+
+/* Keep attribution accessible below the native top toolbar. */
+.maplibregl-ctrl-top-left{top:var(--ccs-controls-top,0px);left:0}

@@ -12,7 +12,12 @@ window.ccsSetPatch = patch => {
 };
 let staticData={type:'FeatureCollection',features:[]}, liveData={type:'FeatureCollection',features:[]};
 let staticSignature=null, liveSignature=null;
-function syncFrameBudget() {window.ccsFrameBudget?.((motionFollowing || following) && !manualTouchActive, viewActive);}
+let notifiedFollow=null;
+function syncFrameBudget() {
+  const enabled=(motionFollowing || following) && !gestureBlocked;
+  window.ccsFrameBudget?.(enabled && !manualTouchActive, viewActive);
+  if(notifiedFollow!==enabled) {notifiedFollow=enabled;notify('follow',{enabled});}
+}
 
 let policeBeaconFrame = 0;
 let attributionPresented=false;
@@ -100,7 +105,8 @@ function animateMotion(now) {
   const target=[motionTarget.position[0]+motionVelocity[0]*ahead,motionTarget.position[1]+motionVelocity[1]*ahead];
   const blend=1-Math.exp(-dt/.065);
   motionPosition=[motionPosition[0]+shortArc(target[0]-motionPosition[0])*blend,motionPosition[1]+(target[1]-motionPosition[1])*blend];
-  motionHeading+=shortArc(motionTarget.heading-motionHeading)*(1-Math.exp(-dt/.12));
+  const turn=shortArc(motionTarget.heading-motionHeading)*(1-Math.exp(-dt/.35));
+  motionHeading+=Math.max(-75*dt,Math.min(75*dt,turn));
   const zoomTarget=speedFollowZoom(motionTarget.zoom, motionTarget.speed);
   followZoom=followZoom===null?motionTarget.zoom:followZoom+(zoomTarget-followZoom)*(1-Math.exp(-dt/1.2));
   if(Math.abs(shortArc(target[0]-motionPosition[0]))<1e-8 && Math.abs(target[1]-motionPosition[1])<1e-8) motionPosition=target.slice();
@@ -135,7 +141,8 @@ window.ccsSetMotion = data => {
     const metersPerSecond=Math.hypot(velocity[0]*Math.cos(data.position[1]*Math.PI/180),velocity[1])*111320;
     if(metersPerSecond<=70) motionVelocity=velocity;
   }
-  if(!motionPosition || seconds>3) {motionPosition=data.position.slice();if(!motionTarget || !Number.isFinite(data.speed) || data.speed>=1.5) motionHeading=data.heading;}
+  if(!motionPosition || seconds>3) motionPosition=data.position.slice();
+  if(!motionTarget) motionHeading=data.heading;
   // Freeze bearing immediately on stopping; never follow stationary course noise.
   // Older packets without speed retain their previous behavior.
   if (Number.isFinite(data.speed) && data.speed < 1.5) data={...data,heading:motionHeading};
@@ -170,6 +177,7 @@ function follow() {
 }
 window.ccsSetFeatures = data => {
   latest = data;
+  document.documentElement?.style.setProperty('--ccs-controls-top',Math.max(0,data.beaconInsets?.top || 0)+'px');
   if(!motionReceived) {
     const self=data.features.find(f=>f.properties.kind==='self');
     motionPosition=self?.geometry.coordinates||null; motionHeading=self?.properties.heading||0;
@@ -197,7 +205,7 @@ window.ccsSetFeatures = data => {
     } else if(following) follow();
   }
 };
-window.ccsFollow = () => { gestureBlocked=false; following = true; syncFrameBudget(); follow(); };
+window.ccsFollow = () => { if(!currentPosition() && !motionPosition) return;gestureBlocked=false; following = true;lastCameraSignature=null; syncFrameBudget(); if(!motionReceived) follow(); };
 window.ccsWorld = () => { gestureBlocked=true; following = false; motionFollowing=false; syncFrameBudget(); notify('gesture'); map.easeTo({zoom:1.3,pitch:0,duration:1200}); };
 window.ccsSetStyle = style => {
   if (!['dark','positron'].includes(style) || style===currentStyle) {notify('ready');return;}
@@ -259,7 +267,8 @@ function startAlertAnimation() {
   animateAlerts(); alertTimer=setInterval(animateAlerts,100);
 }
 try {
-  map = new maplibregl.Map({container:'map',style:'https://tiles.openfreemap.org/styles/dark',center:[24.1,56.95],zoom:6.5,maxZoom:18,attributionControl:{compact:true}});
+  map = new maplibregl.Map({container:'map',style:'https://tiles.openfreemap.org/styles/dark',center:[24.1,56.95],zoom:6.5,maxZoom:18,attributionControl:false});
+  map.addControl(new maplibregl.AttributionControl({compact:true}),'top-left');
   // Native compact controls own globe/follow; pinch gestures provide zoom.
   const browse = () => {gestureBlocked=true;following=false;motionFollowing=false;syncFrameBudget();updateEdgeBeacons();notify('gesture');};
   // Capture the second finger before MapLibre handles the pinch. Camera jumpTo
@@ -403,7 +412,7 @@ function updateEdgeBeacons() {
         // Do not duplicate markers already visible in the unobstructed map area.
         if (point.x >= 0 && point.x <= width && point.y >= inset.top && point.y <= height - inset.bottom) continue;
         const at = beaconPlacement(origin, point, bounds);
-        if (at && ((at.x < 75 && at.y > height-110) || (at.x > width-80 && at.y > height-230))) continue;
+        if (at && ((at.x < 75 && at.y > height-110) || (at.x > width-75 && at.y > height-110))) continue;
         if (!at || occupied.some(other => Math.hypot(other.x-at.x, other.y-at.y) < (p.kind==='live'||other.person?104:66))) continue;
         const key = p.kind + ':' + p.id;
         let node = edgeBeacons.get(key);
