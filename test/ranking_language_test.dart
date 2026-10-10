@@ -71,10 +71,18 @@ void main() {
           ),
           findsOneWidget,
         );
+        await tester.tap(
+          find.text(
+            app.xpLeaderboardPeriodLabel(app.XpLeaderboardPeriod.allTime),
+          ),
+        );
+        await tester.pumpAndSettle();
         expect(
           find.text(app.xpLeaderboardPeriodLabel(app.XpLeaderboardPeriod.week)),
           findsOneWidget,
         );
+        await tester.tapAt(const Offset(1, 1));
+        await tester.pumpAndSettle();
         for (final label in ['Level', 'Total XP', 'Weekly XP']) {
           expect(find.text(app.trText(label)), findsWidgets);
         }

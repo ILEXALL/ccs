@@ -1,3 +1,5 @@
+import 'package:ccs_app/features/events/widgets/event_editorial_actions.dart';
+import 'package:ccs_app/features/events/widgets/event_detail_overview.dart';
 import 'package:ccs_app/features/spots/widgets/spot_detail_header.dart'
     show SpotDetailCompactHeader;
 import 'package:ccs_app/features/spots/widgets/spot_detail_header.dart'
@@ -153,9 +155,15 @@ class _SpotDetailScreenState extends State<SpotDetailScreen>
         ),
       );
     return Scaffold(
-      backgroundColor: Colors.transparent,
+      backgroundColor: spot.isTemporary
+          ? const Color(0xFF0C111A)
+          : Colors.transparent,
       appBar: AppBar(
-        title: const CcsText('Spot'),
+        title: CcsText(
+          spot.isTemporary
+              ? communityText(en: 'Event', ru: 'Событие', lv: 'Pasākums')
+              : 'Spot',
+        ),
         backgroundColor: Colors.transparent,
         foregroundColor: blue,
         actions: [
@@ -221,26 +229,63 @@ class _SpotDetailScreenState extends State<SpotDetailScreen>
         ],
       ),
       body: ListView(
+        padding: EdgeInsets.only(
+          bottom: MediaQuery.paddingOf(context).bottom + 16,
+        ),
         children: [
           SpotPhotoCarousel(
             spot: spot,
-            height: math.min(MediaQuery.of(context).size.width * 0.82, 340),
+            containWithBlur: spot.isTemporary,
+            height: math.min(
+              MediaQuery.of(context).size.width *
+                  (spot.isTemporary ? 0.62 : 0.82),
+              spot.isTemporary ? 300 : 340,
+            ),
           ),
           Padding(
             padding: const EdgeInsets.fromLTRB(14, 10, 14, 20),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                SpotDetailCompactHeader(spot: spot),
-                const SizedBox(height: 8),
-                SpotDetailEngagementPanel(spot: spot),
-                const SizedBox(height: 8),
-                SpotDetailMetaRow(spot: spot),
-                const SizedBox(height: 8),
-                SpotRouteActions(
-                  spot: spot,
-                  onShowMap: controller.showSpotOnMap,
-                ),
+                if (spot.isTemporary)
+                  EventDetailOverview(
+                    spot: spot,
+                    onShowMap: controller.showSpotOnMap,
+                  )
+                else
+                  SpotDetailCompactHeader(spot: spot),
+                if (spot.isTemporary) ...[
+                  EventEditorialActions(spot: spot),
+                  const Divider(height: 1, color: Color(0xFF263647)),
+                ] else ...[
+                  const SizedBox(height: 8),
+                  SpotDetailEngagementPanel(spot: spot),
+                  const SizedBox(height: 8),
+                  SpotDetailMetaRow(spot: spot),
+                  const SizedBox(height: 8),
+                  SpotRouteActions(
+                    spot: spot,
+                    onShowMap: controller.showSpotOnMap,
+                  ),
+                ],
+                if (spot.isTemporary) ...[
+                  const SizedBox(height: 16),
+                  Wrap(
+                    spacing: 12,
+                    runSpacing: 6,
+                    children: [
+                      for (final category in spot.categories)
+                        CcsText(
+                          trText(category),
+                          style: const TextStyle(
+                            color: Color(0xFF8FC8FF),
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                    ],
+                  ),
+                ],
                 if (spot.description.trim().isNotEmpty) ...[
                   const SizedBox(height: 10),
                   CcsText(
@@ -248,33 +293,21 @@ class _SpotDetailScreenState extends State<SpotDetailScreen>
                     softWrap: true,
                     style: const TextStyle(
                       color: Colors.white70,
-                      fontSize: 13,
-                      height: 1.28,
+                      fontSize: 15,
+                      height: 1.55,
                     ),
                   ),
                 ],
                 const SizedBox(height: 10),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    if (spot.isTemporary)
-                      SpotInfoTag(
-                        fullLabel: true,
-                        label: spot.temporaryTimeLabel,
-                        icon: Icons.event,
-                      ),
-                    if (spot.isTemporary &&
-                        !spot.isTemporaryLocationAvailableNow)
-                      SpotInfoTag(
-                        fullLabel: true,
-                        label: spot.temporaryLocationAvailableAtLabel,
-                        icon: Icons.visibility_off_outlined,
-                      ),
-                    for (final category in spot.categories)
-                      SpotInfoTag(label: category, icon: Icons.local_offer),
-                  ],
-                ),
+                if (!spot.isTemporary)
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      for (final category in spot.categories)
+                        SpotInfoTag(label: category, icon: Icons.local_offer),
+                    ],
+                  ),
                 if (spot.supportsContacts) ...[
                   const SizedBox(height: 16),
                   SpotBusinessStatusCard(spot: spot),
@@ -315,6 +348,8 @@ class _SpotDetailScreenState extends State<SpotDetailScreen>
                   SpotContactSection(spot: spot),
                 ],
                 const SizedBox(height: 18),
+                if (spot.isTemporary)
+                  const Divider(height: 24, color: Color(0xFF263647)),
                 SpotReviewsSection(spot: spot),
               ],
             ),

@@ -1,17 +1,13 @@
+import 'package:ccs_app/shared/media/event_video_screen.dart'
+    show openEventVideo;
 import 'package:flutter/material.dart' hide Text;
 import 'package:ccs_app/core/localization/ccs_text.dart' show CcsText, trText;
-import 'package:ccs_app/core/platform/external_links.dart'
-    show launchExternalUrl;
 import 'package:ccs_app/features/spots/navigation/waze_route.dart'
     show openWazeRoute;
 import 'package:ccs_app/core/theme/app_theme.dart' show blue, panelGlass;
 import 'package:ccs_app/features/spots/data/spot_likes.dart'
     show toggleSpotLike, watchCurrentUserLikedSpot;
 import 'package:ccs_app/features/spots/models/car_spot.dart' show CarSpot;
-import 'package:ccs_app/core/platform/external_links.dart';
-import 'package:ccs_app/core/platform/external_links.dart'
-    show launchExternalUrl;
-import 'package:ccs_app/core/platform/external_links.dart';
 
 class SpotDetailEngagementPanel extends StatelessWidget {
   final CarSpot spot;
@@ -24,6 +20,24 @@ class SpotDetailEngagementPanel extends StatelessWidget {
       stream: watchCurrentUserLikedSpot(spot),
       builder: (context, likedSnapshot) {
         final liked = likedSnapshot.data ?? false;
+
+        if (spot.isTemporary) {
+          return Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton.icon(
+              onPressed: () => toggleSpotLike(context, spot, liked),
+              icon: Icon(
+                liked ? Icons.favorite : Icons.favorite_border,
+                size: 20,
+                color: liked ? Colors.redAccent : const Color(0xFFAFC1D7),
+              ),
+              label: CcsText(
+                '${spot.likeCount} ${trText('Likes')}',
+                style: const TextStyle(color: Colors.white70),
+              ),
+            ),
+          );
+        }
 
         return Container(
           width: double.infinity,
@@ -104,11 +118,13 @@ class SpotDetailEngagementPanel extends StatelessWidget {
 class SpotRouteActions extends StatelessWidget {
   final CarSpot spot;
   final VoidCallback onShowMap;
+  final bool showVideo;
 
   const SpotRouteActions({
     super.key,
     required this.spot,
     required this.onShowMap,
+    this.showVideo = true,
   });
 
   Widget actionButton({
@@ -163,7 +179,20 @@ class SpotRouteActions extends StatelessWidget {
   Widget build(BuildContext context) {
     final locationAvailable =
         !spot.isTemporary || spot.isTemporaryLocationAvailableNow;
-    final hasVideo = spot.reelLink.trim().isNotEmpty;
+    final hasVideo = showVideo && spot.reelLink.trim().isNotEmpty;
+
+    if (spot.isTemporary && !locationAvailable) {
+      return hasVideo
+          ? Align(
+              alignment: Alignment.centerLeft,
+              child: OutlinedButton.icon(
+                onPressed: () => openEventVideo(context, spot.reelLink),
+                icon: const Icon(Icons.play_circle_outline),
+                label: const CcsText('Video'),
+              ),
+            )
+          : const SizedBox.shrink();
+    }
 
     return Container(
       width: double.infinity,
@@ -191,14 +220,15 @@ class SpotRouteActions extends StatelessWidget {
                     ? () => openWazeRoute(context, spot)
                     : null,
               ),
-              const SizedBox(width: 8),
-              actionButton(
-                icon: Icons.play_circle_outline,
-                label: 'Video',
-                onTap: hasVideo
-                    ? () => launchExternalUrl(context, spot.reelLink)
-                    : null,
-              ),
+              if (!spot.isTemporary || hasVideo) const SizedBox(width: 8),
+              if (!spot.isTemporary || hasVideo)
+                actionButton(
+                  icon: Icons.play_circle_outline,
+                  label: 'Video',
+                  onTap: hasVideo
+                      ? () => openEventVideo(context, spot.reelLink)
+                      : null,
+                ),
             ],
           ),
           if (!locationAvailable) ...[

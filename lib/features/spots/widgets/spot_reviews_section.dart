@@ -1,3 +1,5 @@
+import 'package:ccs_app/features/community/data/community_country.dart'
+    show communityText;
 import 'package:ccs_app/features/spots/widgets/spot_review_card.dart'
     show SpotReviewCard;
 import 'dart:async';
@@ -313,61 +315,101 @@ class _SpotReviewsSectionState extends State<SpotReviewsSection>
           ],
         ),
         const SizedBox(height: 14),
-        Container(
-          width: double.infinity,
-          padding: const EdgeInsets.all(14),
-          decoration: BoxDecoration(
-            color: panelGlass,
-            borderRadius: BorderRadius.circular(18),
-            border: Border.all(color: Colors.white12),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              MentionTextField(
-                controller: commentController,
-                minLines: 2,
-                maxLines: 4,
-                style: const TextStyle(color: Colors.white),
-                decoration: InputDecoration(
-                  hintText: trText('Write a comment about this spot'),
-                  hintStyle: const TextStyle(color: Colors.white38),
-                  filled: true,
-                  fillColor: Colors.white.withValues(alpha: 0.06),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: const BorderSide(color: Colors.white12),
-                  ),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: const BorderSide(color: Colors.white12),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: const BorderSide(color: blue),
-                  ),
+        if (widget.spot.isTemporary)
+          MentionTextField(
+            controller: commentController,
+            minLines: 1,
+            maxLines: 4,
+            style: const TextStyle(color: Colors.white, fontSize: 14),
+            decoration: InputDecoration(
+              hintText: trText('Write a comment'),
+              hintStyle: const TextStyle(color: Colors.white54, fontSize: 13),
+              filled: true,
+              fillColor: const Color(0xFF142232),
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 14,
+                vertical: 14,
+              ),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(24),
+                borderSide: const BorderSide(color: Color(0xFF2A4058)),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(24),
+                borderSide: const BorderSide(color: Color(0xFF2A4058)),
+              ),
+              suffixIcon: IconButton(
+                tooltip: trText('Post Comment'),
+                onPressed: isSaving ? null : submitComment,
+                icon: Icon(
+                  isSaving ? Icons.hourglass_bottom : Icons.send_rounded,
+                  color: const Color(0xFF73BFFF),
                 ),
               ),
-              const SizedBox(height: 12),
-              SizedBox(
-                width: double.infinity,
-                height: 46,
-                child: ElevatedButton.icon(
-                  onPressed: isSaving ? null : submitComment,
-                  icon: Icon(isSaving ? Icons.hourglass_bottom : Icons.send),
-                  label: CcsText(isSaving ? 'Saving...' : 'Post Comment'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: blue,
-                    foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(9),
+            ),
+          )
+        else
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: panelGlass,
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(color: Colors.white12),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                MentionTextField(
+                  controller: commentController,
+                  minLines: 2,
+                  maxLines: 4,
+                  style: const TextStyle(color: Colors.white),
+                  decoration: InputDecoration(
+                    hintText: widget.spot.isTemporary
+                        ? communityText(
+                            en: 'Write a comment about this event',
+                            ru: 'Напишите комментарий о событии',
+                            lv: 'Rakstiet komentāru par šo pasākumu',
+                          )
+                        : trText('Write a comment about this spot'),
+                    hintStyle: const TextStyle(color: Colors.white38),
+                    filled: true,
+                    fillColor: Colors.white.withValues(alpha: 0.06),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: const BorderSide(color: Colors.white12),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: const BorderSide(color: Colors.white12),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: const BorderSide(color: blue),
                     ),
                   ),
                 ),
-              ),
-            ],
+                const SizedBox(height: 12),
+                SizedBox(
+                  width: double.infinity,
+                  height: 46,
+                  child: ElevatedButton.icon(
+                    onPressed: isSaving ? null : submitComment,
+                    icon: Icon(isSaving ? Icons.hourglass_bottom : Icons.send),
+                    label: CcsText(isSaving ? 'Saving...' : 'Post Comment'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: blue,
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(9),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
-        ),
         const SizedBox(height: 14),
         if (reviewsError != null)
           Container(
@@ -406,6 +448,18 @@ class _SpotReviewsSectionState extends State<SpotReviewsSection>
           )
         else if (reviews.isEmpty && isLoadingReviews)
           const Center(child: CircularProgressIndicator(color: blue))
+        else if (reviews.isEmpty && widget.spot.isTemporary)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            child: CcsText(
+              communityText(
+                en: 'Start the conversation.',
+                ru: 'Начните обсуждение.',
+                lv: 'Sāciet sarunu.',
+              ),
+              style: const TextStyle(color: Colors.white54, fontSize: 13),
+            ),
+          )
         else if (reviews.isEmpty)
           Container(
             width: double.infinity,
@@ -415,9 +469,15 @@ class _SpotReviewsSectionState extends State<SpotReviewsSection>
               borderRadius: BorderRadius.circular(18),
               border: Border.all(color: Colors.white12),
             ),
-            child: const CcsText(
-              'No comments yet. Be the first to comment on this spot.',
-              style: TextStyle(color: Colors.white54),
+            child: CcsText(
+              widget.spot.isTemporary
+                  ? communityText(
+                      en: 'No comments yet. Start the conversation.',
+                      ru: 'Комментариев пока нет. Начните обсуждение.',
+                      lv: 'Vēl nav komentāru. Sāciet sarunu.',
+                    )
+                  : 'No comments yet. Be the first to comment on this spot.',
+              style: const TextStyle(color: Colors.white54),
             ),
           )
         else

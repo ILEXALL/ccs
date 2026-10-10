@@ -86,7 +86,7 @@ class SpotDetailMetaRow extends StatelessWidget {
       runSpacing: 6,
       crossAxisAlignment: WrapCrossAlignment.center,
       children: [
-        if (dateText.isNotEmpty)
+        if (dateText.isNotEmpty && !spot.isTemporary)
           _SpotMiniMetaChip(icon: Icons.schedule, label: dateText),
         if (addedBy.trim().isNotEmpty)
           InkWell(

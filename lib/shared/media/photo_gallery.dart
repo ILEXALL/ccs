@@ -1,3 +1,4 @@
+import 'dart:ui' as ui;
 import 'package:flutter/material.dart' hide Text;
 import 'package:ccs_app/core/localization/ccs_text.dart' show CcsText;
 import 'package:ccs_app/core/theme/app_background.dart' show appPageRoute;
@@ -10,14 +11,20 @@ class SpotPhotoCarousel extends StatefulWidget {
   final CarSpot? spot;
   final List<String>? photoSources;
   final double height;
+  final bool containWithBlur;
 
-  const SpotPhotoCarousel({super.key, required this.spot, required this.height})
-    : photoSources = null;
+  const SpotPhotoCarousel({
+    super.key,
+    required this.spot,
+    required this.height,
+    this.containWithBlur = false,
+  }) : photoSources = null;
 
   const SpotPhotoCarousel.photos({
     super.key,
     required List<String> sources,
     required this.height,
+    this.containWithBlur = false,
   }) : spot = null,
        photoSources = sources;
 
@@ -78,12 +85,14 @@ class _SpotPhotoCarouselState extends State<SpotPhotoCarousel> {
             itemBuilder: (context, index) {
               return GestureDetector(
                 onTap: () => openGallery(index),
-                child: spotPhotoImage(
-                  sources[index],
-                  width: double.infinity,
-                  height: widget.height,
-                  fit: BoxFit.cover,
-                ),
+                child: widget.containWithBlur
+                    ? EventPosterImage(source: sources[index])
+                    : spotPhotoImage(
+                        sources[index],
+                        width: double.infinity,
+                        height: widget.height,
+                        fit: BoxFit.cover,
+                      ),
               );
             },
           ),
@@ -141,6 +150,40 @@ class _SpotPhotoCarouselState extends State<SpotPhotoCarousel> {
       ),
     );
   }
+}
+
+/// Preserve the complete poster; a blurred copy fills unused aspect-ratio space.
+class EventPosterImage extends StatelessWidget {
+  const EventPosterImage({super.key, required this.source});
+  final String source;
+  @override
+  Widget build(BuildContext context) => ClipRect(
+    child: Stack(
+      fit: StackFit.expand,
+      children: [
+        ImageFiltered(
+          imageFilter: ui.ImageFilter.blur(
+            sigmaX: 18,
+            sigmaY: 18,
+            tileMode: TileMode.clamp,
+          ),
+          child: spotPhotoImage(
+            source,
+            width: double.infinity,
+            height: double.infinity,
+            fit: BoxFit.cover,
+          ),
+        ),
+        const ColoredBox(color: Color(0x44000000)),
+        spotPhotoImage(
+          source,
+          width: double.infinity,
+          height: double.infinity,
+          fit: BoxFit.contain,
+        ),
+      ],
+    ),
+  );
 }
 
 class SpotPhotoGalleryScreen extends StatefulWidget {

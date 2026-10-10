@@ -189,8 +189,9 @@ class ExploreContent implements ExploreContentActions {
     required double width,
   }) {
     final selected = host.selectedExploreCategory == category;
-    final color = category == host.configUpcomingCategoryName
-        ? Colors.orangeAccent
+    final isEvents = category == host.configUpcomingCategoryName;
+    final color = isEvents
+        ? const Color(0xFF76BDFF)
         : spotColorForCategory(category);
 
     return InkWell(
@@ -207,11 +208,22 @@ class ExploreContent implements ExploreContentActions {
         width: width,
         padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
         decoration: BoxDecoration(
-          color: Colors.white.withValues(alpha: selected ? 0.060 : 0.035),
+          color: isEvents
+              ? null
+              : Colors.white.withValues(alpha: selected ? 0.060 : 0.035),
+          gradient: isEvents
+              ? LinearGradient(
+                  colors: selected
+                      ? const [Color(0xFF153F73), Color(0xFF123849)]
+                      : const [Color(0xFF142438), Color(0xFF102A33)],
+                )
+              : null,
           borderRadius: BorderRadius.circular(11),
           border: Border.all(
             color: selected
                 ? color.withValues(alpha: 0.82)
+                : isEvents
+                ? color.withValues(alpha: 0.32)
                 : Colors.white.withValues(alpha: 0.10),
             width: selected ? 1.45 : 1,
           ),
@@ -231,7 +243,9 @@ class ExploreContent implements ExploreContentActions {
               width: 25,
               height: 25,
               decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.050),
+                color: isEvents
+                    ? color.withValues(alpha: 0.14)
+                    : Colors.white.withValues(alpha: 0.050),
                 borderRadius: BorderRadius.circular(8),
               ),
               child: Icon(
@@ -247,11 +261,15 @@ class ExploreContent implements ExploreContentActions {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   CcsText(
-                    category,
+                    isEvents ? 'Events' : category,
                     maxLines: 1,
-                    overflow: TextOverflow.visible,
+                    overflow: TextOverflow.ellipsis,
                     style: TextStyle(
-                      color: selected ? Colors.white : Colors.white60,
+                      color: selected
+                          ? Colors.white
+                          : isEvents
+                          ? const Color(0xFFB9DDFF)
+                          : Colors.white60,
                       fontSize: 12,
                       fontWeight: FontWeight.w900,
                     ),

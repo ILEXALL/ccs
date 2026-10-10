@@ -17,11 +17,12 @@ import 'package:ccs_app/features/progression/data/leaderboard.dart'
         XpLeaderboardPeriod,
         loadXpLeaderboardEntries,
         xpLeaderboardEmptyTitle,
+        xpLeaderboardPeriodLabel,
         xpLeaderboardTitle;
 import 'package:ccs_app/features/progression/models/leaderboard_entry.dart'
     show XpLeaderboardEntry;
 import 'package:ccs_app/features/progression/widgets/leaderboard_widgets.dart'
-    show XpLeaderboardPeriodSelector, XpLeaderboardTile;
+    show XpLeaderboardTile;
 import 'package:ccs_app/shared/models/countries.dart' show localizedCountryName;
 
 class XpLeaderboardScreen extends StatefulWidget {
@@ -170,50 +171,151 @@ class _XpLeaderboardScreenState extends State<XpLeaderboardScreen>
       body: Column(
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
-            child: Column(
+            padding: const EdgeInsets.fromLTRB(16, 10, 16, 6),
+            child: Row(
               children: [
-                TextField(
-                  key: const ValueKey('ranking-search'),
-                  controller: _searchController,
-                  onChanged: _searchChanged,
-                  maxLength: 31,
-                  textInputAction: TextInputAction.search,
-                  onSubmitted: (_) {
-                    if (_search.isEmpty || _search.runes.length >= 2) {
-                      unawaited(_load(reset: true));
-                    }
-                  },
-                  decoration: InputDecoration(
-                    counterText: '',
-                    hintText: t(
-                      'Search by nickname',
-                      'Поиск по нику',
-                      'Meklēt pēc lietotājvārda',
-                    ),
-                    prefixIcon: const Icon(Icons.search),
-                    suffixIcon: _searchController.text.isEmpty
-                        ? null
-                        : IconButton(
-                            tooltip: t(
-                              'Clear search',
-                              'Очистить поиск',
-                              'Notīrīt meklēšanu',
+                Expanded(
+                  child: TextField(
+                    key: const ValueKey('ranking-search'),
+                    controller: _searchController,
+                    onChanged: _searchChanged,
+                    maxLength: 31,
+                    style: const TextStyle(color: Colors.white, fontSize: 13),
+                    textInputAction: TextInputAction.search,
+                    onSubmitted: (_) {
+                      if (_search.isEmpty || _search.runes.length >= 2) {
+                        unawaited(_load(reset: true));
+                      }
+                    },
+                    decoration: InputDecoration(
+                      counterText: '',
+                      isDense: true,
+                      filled: true,
+                      fillColor: const Color(0xFF111925),
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 14,
+                      ),
+                      hintStyle: const TextStyle(
+                        color: Colors.white54,
+                        fontSize: 13,
+                      ),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: const BorderSide(color: Color(0xFF293747)),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: const BorderSide(color: Color(0xFF293747)),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: const BorderSide(color: blue),
+                      ),
+                      prefixIconConstraints: const BoxConstraints(
+                        minWidth: 36,
+                        minHeight: 48,
+                      ),
+                      hintText: t(
+                        'Search by nickname',
+                        'Поиск по нику',
+                        'Meklēt pēc lietotājvārda',
+                      ),
+                      prefixIcon: const Icon(
+                        Icons.search,
+                        size: 19,
+                        color: Colors.white54,
+                      ),
+                      suffixIcon: _searchController.text.isEmpty
+                          ? null
+                          : IconButton(
+                              tooltip: t(
+                                'Clear search',
+                                'Очистить поиск',
+                                'Notīrīt meklēšanu',
+                              ),
+                              icon: const Icon(Icons.clear),
+                              onPressed: () {
+                                _searchController.clear();
+                                _searchChanged('');
+                              },
                             ),
-                            icon: const Icon(Icons.clear),
-                            onPressed: () {
-                              _searchController.clear();
-                              _searchChanged('');
-                            },
-                          ),
+                    ),
                   ),
                 ),
-                const SizedBox(height: 12),
-                XpLeaderboardPeriodSelector(
-                  selectedPeriod: selectedPeriod,
-                  onChanged: selectPeriod,
+                const SizedBox(width: 8),
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 145),
+                  child: Material(
+                    color: const Color(0xFF14263C),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      side: const BorderSide(color: Color(0xFF2C4A6D)),
+                    ),
+                    child: PopupMenuButton<XpLeaderboardPeriod>(
+                      tooltip: t(
+                        'Ranking period',
+                        'Период рейтинга',
+                        'Reitinga periods',
+                      ),
+                      initialValue: selectedPeriod,
+                      onSelected: selectPeriod,
+                      position: PopupMenuPosition.under,
+                      color: const Color(0xFF152131),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      itemBuilder: (context) => [
+                        for (final period in XpLeaderboardPeriod.values)
+                          PopupMenuItem(
+                            value: period,
+                            child: Row(
+                              children: [
+                                Icon(
+                                  period == selectedPeriod
+                                      ? Icons.check
+                                      : Icons.schedule,
+                                  size: 18,
+                                  color: const Color(0xFF8FC7FF),
+                                ),
+                                const SizedBox(width: 10),
+                                CcsText(xpLeaderboardPeriodLabel(period)),
+                              ],
+                            ),
+                          ),
+                      ],
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 14,
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Flexible(
+                              child: CcsText(
+                                xpLeaderboardPeriodLabel(selectedPeriod),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  color: Color(0xFFB5D8FF),
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 4),
+                            const Icon(
+                              Icons.expand_more,
+                              size: 20,
+                              color: Color(0xFF8FC7FF),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
                 ),
-                const SizedBox(height: 8),
               ],
             ),
           ),

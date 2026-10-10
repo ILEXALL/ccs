@@ -64,8 +64,6 @@ const int firebaseTemporarySpotsListenLimit = 500;
 
 const int firebaseMySpotsListenLimit = 100;
 
-const int firebaseAdminReviewSpotsListenLimit = 250;
-
 StreamSubscription<QuerySnapshot<Map<String, dynamic>>>?
 adminReviewSpotSubscription;
 
@@ -374,7 +372,11 @@ void startAdminReviewSpotSync({bool forceRestart = false}) {
   adminReviewSpotSubscription =
       trackedQuerySnapshots(
         'spots listener: admin review',
-        reviewQuery.limit(firebaseAdminReviewSpotsListenLimit),
+        // A shared limit across statuses lets approved records crowd pending
+        // submissions out of the queue (Firestore defaults to document-ID order).
+        // Staff must receive the full authorized queue; this listener exists
+        // only while the review panel is open.
+        reviewQuery,
       ).listen(
         (snapshot) {
           if (generation != _adminReviewListenerGeneration ||

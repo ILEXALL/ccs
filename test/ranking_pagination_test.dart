@@ -243,10 +243,10 @@ void main() {
             : Future.value(page(0, prefix: 'weekly'));
       });
       await tester.pump();
-      final selector = tester.widget<app.XpLeaderboardPeriodSelector>(
-        find.byType(app.XpLeaderboardPeriodSelector),
-      );
-      selector.onChanged(app.XpLeaderboardPeriod.week);
+      await tester.tap(find.byType(PopupMenuButton<app.XpLeaderboardPeriod>));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.tap(find.text('This week'));
       await tester.pumpAndSettle();
       old.complete(page(0, prefix: 'stale'));
       await tester.pumpAndSettle();
@@ -271,7 +271,10 @@ void main() {
     await tester.pump(const Duration(milliseconds: 400));
     await tester.pumpAndSettle();
     expect(find.text('No matching users in this ranking.'), findsOneWidget);
-    expect(find.byType(app.XpLeaderboardPeriodSelector), findsOneWidget);
+    expect(
+      find.byType(PopupMenuButton<app.XpLeaderboardPeriod>),
+      findsOneWidget,
+    );
     expect(find.byTooltip('Clear search'), findsOneWidget);
   });
   testWidgets('expired cursor offers a fresh first page', (tester) async {
