@@ -124,7 +124,6 @@ class _GlobeMapScreenState extends State<GlobeMapScreen>
   Object? selectionToken;
   final _proximityAudio = MapProximityAudio();
   List<Map<String, Object?>> cameras = [];
-  bool camerasEnabled = true;
 
   final _avatarImages = <String, Map<String, String>>{};
   final _avatarLoading = <String>{};
@@ -237,7 +236,6 @@ class _GlobeMapScreenState extends State<GlobeMapScreen>
                 ),
               )
               as Map;
-      final prefs = await SharedPreferences.getInstance();
       if (!mounted) return;
       cameras = (data['cameras'] as List)
           .map(
@@ -257,49 +255,13 @@ class _GlobeMapScreenState extends State<GlobeMapScreen>
             },
           )
           .toList();
-      camerasEnabled = prefs.getBool('ccsSpeedCamerasVisible') ?? true;
       await refresh();
     } catch (error) {
       debugPrint('Camera snapshot could not be loaded: $error');
     }
   }
 
-  Future<void> showFilters() async {
-    final spots = await showModalBottomSheet<bool>(
-      context: context,
-      builder: (context) => SafeArea(
-        child: StatefulBuilder(
-          builder: (context, update) => Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              SwitchListTile(
-                title: CcsText('Speed cameras'),
-                subtitle: CcsText('Mapped fixed cameras in Latvia'),
-                value: camerasEnabled,
-                onChanged: (value) async {
-                  update(() => camerasEnabled = value);
-                  if (!value && selectedKind == 'camera') {
-                    selectedId = null;
-                    selectedKind = null;
-                  }
-                  unawaited(refresh());
-                  final prefs = await SharedPreferences.getInstance();
-                  await prefs.setBool('ccsSpeedCamerasVisible', value);
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.filter_list),
-                title: CcsText('Spot filters'),
-                trailing: const Icon(Icons.chevron_right),
-                onTap: () => Navigator.pop(context, true),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-    if (spots == true && mounted) await widget.onFilter();
-  }
+  Future<void> showFilters() => widget.onFilter();
 
   Widget cameraCard() => Material(
     color: const Color(0xff101820),
@@ -580,9 +542,7 @@ class _GlobeMapScreenState extends State<GlobeMapScreen>
         iconsSent = true;
       }
       final frame = Map<String, Object?>.from(widget.readFeatures());
-      if (widget.showControls &&
-          camerasEnabled &&
-          frame['routePreview'] != true) {
+      if (widget.showControls && frame['routePreview'] != true) {
         frame['features'] = [...(frame['features'] as List), ...cameras];
       }
       frame['features'] = withBeaconAvatars(frame['features'] as List);
