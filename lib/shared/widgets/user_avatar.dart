@@ -1,3 +1,6 @@
+import 'package:ccs_app/shared/media/remote_image_cache.dart'
+    show cachedAppImage;
+import 'package:ccs_app/shared/media/image_fade.dart' show fadeInLoadedImage;
 import 'dart:async';
 import 'dart:io';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -63,8 +66,10 @@ class UserAvatarCircle extends StatelessWidget {
         child: localFileExists(user.avatarPath)
             ? Image.file(File(user.avatarPath!), fit: BoxFit.cover)
             : isNetworkUrl(user.photoUrl)
-            ? Image.network(
-                user.photoUrl!,
+            ? Image(
+                image: cachedAppImage(user.photoUrl!),
+                key: ValueKey(user.photoUrl!),
+                frameBuilder: fadeInLoadedImage,
                 fit: BoxFit.cover,
                 errorBuilder: (_, _, _) => Center(
                   child: CcsText(

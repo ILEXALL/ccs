@@ -471,7 +471,7 @@ test('live nicknames have their own source and fade by viewport ground area',()=
 
 test('globe dwell ring follows server progress and disappears on departure',()=>{
  const f=fixture(),nodes=[];
- f.document.createElement=()=>{const n={style:{setProperty(k,v){this[k]=v;}}};nodes.push(n);return n;};
+ f.document.createElement=()=>{const n={dataset:{},appendChild(){},style:{setProperty(k,v){this[k]=v;}}};nodes.push(n);return n;};
  f.document.body={appendChild(){}};
  f.run('map.project=()=>({x:100,y:200})');
  f.handlers['style.load']();
@@ -525,4 +525,43 @@ test('CCS car badge and number shrink together at distant zoom levels',()=>{
   const pixels=f.run('carCountBadgeImage()');
   assert.equal(pixels.data[3],0);
   assert.equal(pixels.data[(32*96+48)*4+3],255);
+});
+
+test('event waves animate only authorized visible event features and pause with map',()=>{
+ const f=fixture();f.handlers['style.load']();
+ f.run('map.zoom=14; map.project=()=>({x:200,y:300})');
+ const event={properties:{kind:'spot',id:'event',event:true},geometry:{type:'Point',coordinates:[24,57]}};
+ f.window.ccsSetFeatures({type:'FeatureCollection',features:[event]});
+ assert.equal(f.timers.size,1);
+ assert.ok(f.paints.some(p=>p[0]==='ccs-event-wave-0'&&p[1]==='circle-radius'));
+ const layer=f.layers.find(l=>l.id==='ccs-event-wave-0');assert.match(JSON.stringify(layer.filter),/event/);
+ assert.ok(f.layers.find(l=>l.id==='ccs-visited'));
+ f.window.ccsSetActive(false);assert.equal(f.timers.size,0);
+ f.window.ccsSetActive(true);assert.equal(f.timers.size,1);
+ f.window.ccsSetFeatures({type:'FeatureCollection',features:[]});assert.equal(f.timers.size,0);
+});
+test('Calm Pulse celebrates completion once, then hides instead of replaying on refresh',()=>{
+ const f=fixture(),nodes=[];
+ f.document.createElement=()=>{const n={dataset:{},appendChild(){},style:{setProperty(k,v){this[k]=v;}}};nodes.push(n);return n;};
+ f.document.body={appendChild(){}};f.run('map.project=()=>({x:100,y:200})');f.handlers['style.load']();
+ const feature={properties:{kind:'spot',id:'s'},geometry:{type:'Point',coordinates:[24,57]}};
+ const data=done=>({type:'FeatureCollection',features:[feature],dwell:{spotId:'s',fraction:done?1:.9,completed:done}});
+ f.window.ccsSetFeatures(data(false));f.window.ccsSetFeatures(data(true));
+ const ring=nodes.find(n=>n.className==='ccs-dwell-ring');assert.equal(ring.dataset.completed,'true');assert.equal(ring.style.display,'block');
+ f.setTime(2500);f.window.ccsSetFeatures(data(true));assert.equal(ring.style.display,'none');
+ f.setTime(5000);f.window.ccsSetFeatures(data(true));assert.equal(ring.style.display,'none');
+});
+test('grouped people beacon shows live count, selects every member, and updates after a member leaves',()=>{
+ const f=fixture(),nodes=[];
+ function element(){return {style:{setProperty(k,v){this[k]=v;}},dataset:{},children:[],appendChild(child){this.children.push(child);this.lastChild=child;},addEventListener(name,fn){this[name]=fn;},getBoundingClientRect(){},getContext(){return {putImageData(){}};},setAttribute(){},remove(){}};}
+ f.document.createElement=()=>{const node=element();nodes.push(node);return node;};f.document.body=element();f.handlers['style.load']();
+ f.run("map.project=point=>({x:200+(point[0]-24)*100000,y:400});iconCache.set('ccs-person',{});");
+ const person=(id,lng)=>({properties:{kind:'live',id,label:id},geometry:{type:'Point',coordinates:[lng,57]}});
+ const self={properties:{kind:'self'},geometry:{type:'Point',coordinates:[24,57]}};
+ f.window.ccsSetFeatures({type:'FeatureCollection',features:[self,person('a',24.01),person('b',24.0101)]});f.window.ccsFollow();f.run('updateEdgeBeacons()');
+ const node=nodes.find(n=>n.className==='ccs-beacon ccs-person-beacon');assert.equal(node.countBadge.textContent,'2');
+ node.click({stopPropagation(){}});assert.deepEqual(f.messages.at(-1),{type:'selectPeople',ids:['a','b']});
+ f.window.ccsSetFeatures({type:'FeatureCollection',features:[self,person('a',24.01)]});f.run('updateEdgeBeacons()');
+ assert.equal(node.countBadge.style.display,'none');node.click({stopPropagation(){}});
+ assert.deepEqual(f.messages.at(-1),{type:'select',kind:'live',id:'a'});
 });

@@ -1,3 +1,6 @@
+import 'package:ccs_app/shared/media/remote_image_cache.dart'
+    show cachedAppImage;
+import 'package:ccs_app/shared/media/image_fade.dart' show fadeInLoadedImage;
 import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart' hide Text;
@@ -182,8 +185,10 @@ class _PartnerListCard extends StatelessWidget {
                   borderRadius: BorderRadius.circular(12),
                   border: Border.all(color: Colors.white10),
                 ),
-                child: Image.network(
-                  partner.logoUrl,
+                child: Image(
+                  image: cachedAppImage(partner.logoUrl),
+                  key: ValueKey(partner.logoUrl),
+                  frameBuilder: fadeInLoadedImage,
                   fit: BoxFit.contain,
                   errorBuilder: (_, _, _) =>
                       const Icon(Icons.handshake_outlined, color: blue),

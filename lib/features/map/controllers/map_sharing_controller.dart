@@ -38,7 +38,7 @@ import 'package:ccs_app/features/notifications/data/friend_location_notification
 import 'package:ccs_app/features/notifications/data/push_events.dart'
     show sendPushNotificationEvent;
 import 'package:ccs_app/features/progression/data/visit_tracking.dart'
-    show checkGpsCountryAchievement, checkGpsSpotVisits;
+    show checkGpsCountryAchievement, checkGpsSpotVisits, visitDwellProgress;
 import 'package:ccs_app/shared/models/user_role.dart' show roleName;
 import 'package:ccs_app/shared/widgets/region_unavailable_dialog.dart'
     show showRegionFeatureUnavailableDialog;
@@ -536,6 +536,7 @@ class MapSharingController implements MapSharingActions {
 
   @override
   Future<void> stopLiveLocationSharing() async {
+    visitDwellProgress.value = null;
     final firebaseUser = FirebaseAuth.instance.currentUser;
 
     host.liveLocationUploadTimer?.cancel();
@@ -616,7 +617,7 @@ class MapSharingController implements MapSharingActions {
       position,
       renewWindow: true,
       headingDegrees: heading,
-      shareDuration: host.liveLocationShareDuration,
+      shareDuration: const Duration(hours: 1),
       visibleToUserIds: publicLiveLocationVisibleToUserIds(firebaseUser.uid),
       visibleToChatId: '',
       visibleToChatName: '',
@@ -679,7 +680,7 @@ class MapSharingController implements MapSharingActions {
             style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900),
           ),
           content: CcsText(
-            'Your live location has been shared for ${liveLocationDurationLabel(host.liveLocationShareDuration)}. Keep sharing it for another ${liveLocationDurationLabel(host.liveLocationShareDuration)}?',
+            'Your live location has been shared for ${liveLocationDurationLabel(host.liveLocationShareDuration)}. Keep sharing it for another ${liveLocationDurationLabel(const Duration(hours: 1))}?',
             style: const TextStyle(color: Colors.white70, height: 1.35),
           ),
           actions: [

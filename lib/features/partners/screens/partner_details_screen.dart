@@ -1,3 +1,6 @@
+import 'package:ccs_app/shared/media/remote_image_cache.dart'
+    show cachedAppImage;
+import 'package:ccs_app/shared/media/image_fade.dart' show fadeInLoadedImage;
 import 'package:ccs_app/shared/media/photo_gallery.dart' show SpotPhotoCarousel;
 import 'dart:async';
 import 'package:ccs_app/features/partners/widgets/partner_view_counter.dart';
@@ -113,8 +116,10 @@ class PartnerDetailsScreen extends StatelessWidget {
                 borderRadius: BorderRadius.circular(20),
                 border: Border.all(color: blue.withValues(alpha: 0.28)),
               ),
-              child: Image.network(
-                partner.logoUrl,
+              child: Image(
+                image: cachedAppImage(partner.logoUrl),
+                key: ValueKey(partner.logoUrl),
+                frameBuilder: fadeInLoadedImage,
                 fit: BoxFit.contain,
                 errorBuilder: (_, _, _) =>
                     const Icon(Icons.handshake_outlined, color: blue, size: 52),

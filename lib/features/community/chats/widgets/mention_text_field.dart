@@ -1,3 +1,6 @@
+import 'package:ccs_app/shared/media/remote_image_cache.dart'
+    show cachedAppImage;
+import 'package:ccs_app/shared/media/image_fade.dart' show fadeInLoadedImage;
 import 'dart:async';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart' hide Text;
@@ -171,8 +174,10 @@ class _MentionTextFieldState extends State<MentionTextField> {
                             backgroundColor: blue.withValues(alpha: 0.2),
                             child: ClipOval(
                               child: user.photoUrl?.isNotEmpty == true
-                                  ? Image.network(
-                                      user.photoUrl!,
+                                  ? Image(
+                                      image: cachedAppImage(user.photoUrl!),
+                                      key: ValueKey(user.photoUrl!),
+                                      frameBuilder: fadeInLoadedImage,
                                       width: 36,
                                       height: 36,
                                       fit: BoxFit.cover,

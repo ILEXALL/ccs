@@ -1,4 +1,6 @@
 const russianTranslations = <String, String>{
+  'Extend sharing by 1 hour': 'Продлить на 1 час',
+  'Event location revealed': 'Локация события открыта',
   'Speed cameras': 'Камеры скорости',
   'Mapped fixed cameras in Latvia': 'Стационарные камеры в Латвии',
   'Fixed speed camera': 'Стационарная камера',

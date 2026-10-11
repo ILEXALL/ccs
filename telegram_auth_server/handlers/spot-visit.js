@@ -2,7 +2,7 @@ const {syncWeeklyTasks, syncAdminRewardClaims} = require('../lib/xp/weekly-tasks
 const {assessLocation} = require('../lib/location-integrity');
 const {syncAchievements} = require('../lib/xp/achievements');
 const {admin, db} = require('../lib/firebase-admin');
-const {recordSpotVisit} = require('../lib/spot-visits');
+const {recordSpotVisit, visitStatus} = require('../lib/spot-visits');
 
 module.exports = async (req, res) => {
   if (req.method !== 'POST') { res.setHeader('Allow', 'POST'); return res.status(405).json({ok: false}); }
@@ -13,6 +13,7 @@ module.exports = async (req, res) => {
     token = await admin.auth().verifyIdToken(header.slice(7), true);
   } catch (_) { return res.status(401).json({ok: false}); }
   try {
+    if (req.body?.action === 'status') return res.status(200).json({ok: true, result: await visitStatus(db, token.uid)});
     const stored = req.body?.gpsFix ? null : (await db.collection('live_locations').doc(token.uid).get()).data();
     const fix = req.body?.gpsFix || (stored && {latitude: stored.lat, longitude: stored.lng,
       accuracy: stored.accuracy, isMocked: stored.isMocked,

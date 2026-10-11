@@ -1,3 +1,6 @@
+import 'package:ccs_app/shared/media/remote_image_cache.dart'
+    show cachedAppImage;
+import 'package:ccs_app/shared/media/image_fade.dart' show fadeInLoadedImage;
 import 'dart:async';
 import 'package:flutter/material.dart' hide Text;
 import 'package:ccs_app/features/profile/navigation/profile_navigation.dart'
@@ -32,8 +35,10 @@ class GroupSettingsContent implements GroupSettingsContentActions {
   Widget avatarPreview() {
     if (isNetworkUrl(host.photoUrl)) {
       return ClipOval(
-        child: Image.network(
-          host.photoUrl,
+        child: Image(
+          image: cachedAppImage(host.photoUrl),
+          key: ValueKey(host.photoUrl),
+          frameBuilder: fadeInLoadedImage,
           width: 96,
           height: 96,
           fit: BoxFit.cover,

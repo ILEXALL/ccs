@@ -18,10 +18,11 @@ function distanceMeters(a, b) {
     Math.cos(a.lat * rad) * Math.cos(b.lat * rad) * Math.sin((b.lng - a.lng) * rad / 2) ** 2;
   return 6371000 * 2 * Math.asin(Math.sqrt(Math.min(1, h)));
 }
+const dayFormatter = new Intl.DateTimeFormat('en-GB', {
+  timeZone: 'Europe/Riga', year: 'numeric', month: '2-digit', day: '2-digit',
+});
 function rigaDay(now) {
-  const parts = Object.fromEntries(new Intl.DateTimeFormat('en-GB', {
-    timeZone: 'Europe/Riga', year: 'numeric', month: '2-digit', day: '2-digit',
-  }).formatToParts(new Date(now)).map(part => [part.type, part.value]));
+  const parts = Object.fromEntries(dayFormatter.formatToParts(new Date(now)).map(part => [part.type, part.value]));
   return `${parts.year}-${parts.month}-${parts.day}`;
 }
 
@@ -35,7 +36,7 @@ async function recordSpotVisit(db, userId, spotId, now = Date.now(), gpsFix = nu
   const result = await db.runTransaction(async tx => {
     const userDoc = await tx.get(db.collection('users').doc(userId));
     const spotDoc = await tx.get(db.collection('spots').doc(spotId));
-    const liveDoc = gpsFix == null ? await tx.get(db.collection('live_locations').doc(userId)) : null;
+    const liveDoc = await tx.get(db.collection('live_locations').doc(userId));
     const recordRef = db.collection('spot_visit_records').doc(id);
     const existing = await tx.get(recordRef);
     const sessionRef = db.collection('spot_visit_sessions').doc(userId);
@@ -61,6 +62,14 @@ async function recordSpotVisit(db, userId, spotId, now = Date.now(), gpsFix = nu
         (spot.isTemporary === true && (millis(spot.expiresAt) <= now || millis(spot.startsAt) > now))) {
       throw new Error('Spot unavailable');
     }
+    const sharing = liveDoc.data();
+    const sharingUpdatedAt = millis(sharing?.updatedAt);
+    const sharingSession = millis(liveDoc.createTime);
+    if (!sharing || millis(sharing.expiresAt) <= now || sharing.isMocked === true ||
+        sharingUpdatedAt <= 0 || sharingUpdatedAt > now || now - sharingUpdatedAt > MAX_SAMPLE_AGE_MS) {
+      tx.delete(sessionRef);
+      return {recorded: false, status: 'sharing_required', spotId, elapsedMs: 0, requiredMs: DWELL_MS};
+    }
     const position = coordinates(live || {}); const target = coordinates(spot);
     const sample = live?.recordedAtMillis ?? millis(live?.updatedAt);
     if (!position || !target || millis(live?.expiresAt) <= now || sample <= 0 || sample > now ||
@@ -71,12 +80,12 @@ async function recordSpotVisit(db, userId, spotId, now = Date.now(), gpsFix = nu
       return {recorded: false, status: 'outside_or_invalid', spotId, elapsedMs: 0, requiredMs: DWELL_MS};
     }
     const rewards = await prepareNearbyAdminRewards(db, tx, {userId, user, position, sample, now, session, candidates, distanceMeters, coordinates});
-    const continuous = session.spotId === spotId && session.dayKey === dayKey &&
+    const continuous = session.spotId === spotId && session.dayKey === dayKey && session.sharingSession === sharingSession &&
       now >= session.lastSeenAt && now - session.lastSeenAt <= MAX_DWELL_GAP_MS &&
       sample >= session.lastSampleAt && sample - session.lastSampleAt <= MAX_DWELL_GAP_MS;
     const elapsedMs = continuous ? Math.min(DWELL_MS, (session.elapsedMs || 0) +
       Math.max(0, Math.min(now - session.lastSeenAt, sample - session.lastSampleAt))) : 0;
-    const state = {rewardDwell: rewards.progress, spotId, dayKey, elapsedMs, lastSeenAt: now, lastSampleAt: sample,
+    const state = {sharingSession, rewardDwell: rewards.progress, spotId, dayKey, elapsedMs, lastSeenAt: now, lastSampleAt: sample,
       startedAt: continuous ? session.startedAt : now};
     const alreadyVisited = existing.exists && (spot.isTemporary === true || (existing.data().lastVisitDay || existing.data().dayKey) === dayKey);
     const progress = {dayKey, rewardClaimed: rewards.claimed, spotId, elapsedMs, requiredMs: DWELL_MS};
@@ -106,3 +115,24 @@ async function recordSpotVisit(db, userId, spotId, now = Date.now(), gpsFix = nu
   return result;
 }
 module.exports = {recordSpotVisit, coordinates, distanceMeters, rigaDay, VISIT_RADIUS_METERS, DWELL_MS, MAX_DWELL_GAP_MS};
+
+// Server-owned day boundary, including Riga daylight-saving transitions.
+function nextVisitDayAt(now) {
+  const day = rigaDay(now);
+  let lo = now, hi = now + 27 * 3600000;
+  while (hi - lo > 1) {
+    const mid = Math.floor((lo + hi) / 2);
+    if (rigaDay(mid) === day) lo = mid; else hi = mid;
+  }
+  return hi;
+}
+async function visitStatus(db, userId, now = Date.now()) {
+  const dayKey = rigaDay(now);
+  const records = await db.collection('spot_visit_records').where('userId', '==', userId).get();
+  const spotIds = records.docs.map(doc => doc.data()).filter(record =>
+    record.status === 'verified' && (record.lastVisitDay || record.dayKey) === dayKey
+  ).map(record => record.spotId);
+  return {dayKey, serverNow: now, expiresAt: nextVisitDayAt(now), spotIds};
+}
+module.exports.visitStatus = visitStatus;
+module.exports.nextVisitDayAt = nextVisitDayAt;

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:ccs_app/shared/media/photo_gallery.dart' show SpotPhotoCarousel;
 import 'package:ccs_app/core/time/trusted_clock.dart' show trustedClock;
 import 'package:ccs_app/features/spots/navigation/waze_route.dart'
     show openWazeRoute;
@@ -12,8 +13,14 @@ import 'package:ccs_app/shared/utils/date_formatting.dart'
 import '../models/event_date_format.dart';
 
 class EventDetailOverview extends StatefulWidget {
-  const EventDetailOverview({super.key, required this.spot, this.onShowMap});
+  const EventDetailOverview({
+    super.key,
+    required this.spot,
+    this.onShowMap,
+    this.actions,
+  });
   final CarSpot spot;
+  final Widget? actions;
   final VoidCallback? onShowMap;
   @override
   State<EventDetailOverview> createState() => _EventDetailOverviewState();
@@ -55,13 +62,13 @@ class _EventDetailOverviewState extends State<EventDetailOverview> {
   Widget detail(IconData icon, String label) => Row(
     mainAxisSize: MainAxisSize.min,
     children: [
-      Icon(icon, size: 18, color: const Color(0xFF67B7FF)),
+      Icon(icon, size: 18, color: const Color(0xFFE7C580)),
       const SizedBox(width: 7),
       Flexible(
         child: CcsText(
           label,
           style: const TextStyle(
-            color: Color(0xFFD4E0EE),
+            color: Color(0xFFE8DFCE),
             fontSize: 14,
             height: 1.4,
           ),
@@ -91,33 +98,100 @@ class _EventDetailOverviewState extends State<EventDetailOverview> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        CcsText(
-          spot.name,
-          style: const TextStyle(
-            color: Colors.white,
-            fontSize: 26,
-            height: 1.2,
-            fontWeight: FontWeight.w800,
-            letterSpacing: -.4,
-          ),
-        ),
-        const SizedBox(height: 14),
-        Wrap(
-          spacing: 20,
-          runSpacing: 8,
-          children: [
-            detail(
-              Icons.calendar_month_outlined,
-              start == null ? spot.temporaryTimeLabel : formatEventDate(start),
-            ),
-            if (start != null)
-              detail(
-                Icons.schedule,
-                '${formatClockTime(start)}${end == null ? '' : ' – ${isSameLocalDate(start, end) ? '' : '${formatEventDate(end)} · '}${formatClockTime(end)}'}',
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final posterWidth = (constraints.maxWidth * .44).clamp(
+              100.0,
+              230.0,
+            );
+            return IntrinsicHeight(
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  SizedBox(
+                    width: posterWidth,
+                    child: Container(
+                      foregroundDecoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: const Color(0xB3E7C580),
+                          width: 1,
+                        ),
+                      ),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(12),
+                        child: SpotPhotoCarousel(
+                          spot: spot,
+                          height: posterWidth * 1.5,
+                          containWithBlur: true,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        CcsText(
+                          spot.name,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 20,
+                            height: 1.2,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: -.3,
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+                        detail(
+                          Icons.calendar_month_outlined,
+                          start == null
+                              ? spot.temporaryTimeLabel
+                              : formatEventDate(start),
+                        ),
+                        if (start != null) ...[
+                          const SizedBox(height: 10),
+                          detail(
+                            Icons.schedule,
+                            '${formatClockTime(start)}${end == null ? '' : ' – ${isSameLocalDate(start, end) ? '' : '${formatEventDate(end)} · '}${formatClockTime(end)}'}',
+                          ),
+                        ],
+                        if (spot.categories.isNotEmpty) ...[
+                          const Padding(
+                            padding: EdgeInsets.symmetric(vertical: 12),
+                            child: Divider(height: 1, color: Color(0xFF4D412D)),
+                          ),
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 6,
+                            children: [
+                              for (final category in spot.categories)
+                                CcsText(
+                                  category,
+                                  style: const TextStyle(
+                                    color: Color(0xFFE7C580),
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ],
+                        if (widget.actions != null) ...[
+                          const Spacer(),
+                          const SizedBox(height: 10),
+                          widget.actions!,
+                        ],
+                      ],
+                    ),
+                  ),
+                ],
               ),
-          ],
+            );
+          },
         ),
-        const SizedBox(height: 14),
+        const SizedBox(height: 12),
         if (available)
           Row(
             children: [
@@ -133,8 +207,8 @@ class _EventDetailOverviewState extends State<EventDetailOverview> {
                   label: const CcsText('Map'),
                   style: OutlinedButton.styleFrom(
                     minimumSize: const Size(0, 48),
-                    foregroundColor: const Color(0xFF9BCFFF),
-                    side: const BorderSide(color: Color(0xFF325A7D)),
+                    foregroundColor: const Color(0xFFE7C580),
+                    side: const BorderSide(color: Color(0xFF75603B)),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(10),
                     ),
@@ -152,7 +226,7 @@ class _EventDetailOverviewState extends State<EventDetailOverview> {
                   label: const CcsText('Waze'),
                   style: FilledButton.styleFrom(
                     minimumSize: const Size(0, 48),
-                    backgroundColor: const Color(0xFF175FBE),
+                    backgroundColor: const Color(0xFF80602D),
                     foregroundColor: Colors.white,
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(10),
@@ -165,11 +239,13 @@ class _EventDetailOverviewState extends State<EventDetailOverview> {
         else
           Container(
             width: double.infinity,
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
             decoration: BoxDecoration(
-              color: const Color(0xFF132334),
+              gradient: const LinearGradient(
+                colors: [Color(0xFF493922), Color(0xFF2B251C)],
+              ),
               borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: const Color(0xFF29435C)),
+              border: Border.all(color: const Color(0xFF685432)),
             ),
             child: detail(
               available ? Icons.place_outlined : Icons.lock_outline,
@@ -180,6 +256,23 @@ class _EventDetailOverviewState extends State<EventDetailOverview> {
                   : '$revealLabel – ${formatEventDate(reveal)} · ${formatClockTime(reveal)}',
             ),
           ),
+        if (spot.description.trim().isNotEmpty) ...[
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            child: CcsText(
+              spot.description,
+              key: const ValueKey('event-full-width-description'),
+              softWrap: true,
+              style: const TextStyle(
+                color: Colors.white70,
+                fontSize: 15,
+                height: 1.45,
+              ),
+            ),
+          ),
+          const SizedBox(height: 6),
+        ],
       ],
     );
   }

@@ -155,7 +155,7 @@ class MapLayersController implements MapLayersActions {
       final color = closedNow && !spot.isTemporaryActiveNow
           ? Colors.grey.shade700
           : spot.isTemporaryActiveNow || spot.isTemporaryUpcomingOnMap
-          ? Colors.orangeAccent
+          ? const Color(0xFFE7C580)
           : spotColorForSpot(spot);
 
       final bucket = buckets.putIfAbsent(key, SpotFogBucket.new);
@@ -251,7 +251,7 @@ class MapLayersController implements MapLayersActions {
       final markerColor = closedNow && !isTemporaryActive
           ? Colors.grey.shade700
           : isTemporaryActive || isTemporaryUpcoming
-          ? Colors.orangeAccent
+          ? const Color(0xFFE7C580)
           : spotColorForSpot(spot);
       final baseMarkerSize = showFullIcons ? fullMarkerSize : compactMarkerSize;
       final markerVisualSize = isTemporaryActive || isTemporaryUpcoming
@@ -304,7 +304,7 @@ class MapLayersController implements MapLayersActions {
         final rawIcon = SizedBox(
           width: markerVisualSize,
           height: markerVisualSize,
-          child: closedNow || isTemporaryUpcoming
+          child: closedNow || isTemporaryUpcoming || isTemporaryActive
               ? Opacity(
                   opacity: markerOpacity,
                   child: ColorFiltered(
@@ -424,7 +424,7 @@ class MapLayersController implements MapLayersActions {
                     overflow: TextOverflow.ellipsis,
                     textAlign: TextAlign.center,
                     style: const TextStyle(
-                      color: Colors.orangeAccent,
+                      color: Color(0xFFE7C580),
                       fontSize: 9,
                       fontWeight: FontWeight.w900,
                       shadows: [Shadow(color: Colors.black, blurRadius: 6)],

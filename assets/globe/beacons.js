@@ -39,3 +39,26 @@ function cameraAhead(origin, target, heading, speed) {
   return Math.abs(((bearing-heading+540)%360)-180)<=60;
 }
 if(typeof module!=='undefined') module.exports.cameraAhead=cameraAhead;
+
+// Cluster only offscreen people at the same physical place, not unrelated
+// destinations that happen to point toward the same screen edge.
+function groupPeopleBeacons(features, radius = 50) {
+  const other = features.filter(f => f.properties.kind !== 'live');
+  const people = features.filter(f => f.properties.kind === 'live')
+    .slice().sort((a,b) => String(a.properties.id).localeCompare(String(b.properties.id)));
+  const groups = [];
+  for (const person of people) {
+    let group = groups.find(g => beaconDistance(g[0].geometry.coordinates, person.geometry.coordinates) <= radius);
+    if (!group) {group=[];groups.push(group);}
+    group.push(person);
+  }
+  for (const group of groups) {
+    const first=group[0];
+    if (group.length===1) {other.push(first);continue;}
+    other.push({...first,properties:{...first.properties,
+      memberIds:group.map(f=>f.properties.id),count:group.length,
+      label:group.slice(0,3).map(f=>f.properties.label || 'User').join(', ')+(group.length>3?' +'+(group.length-3):'')}});
+  }
+  return other;
+}
+if(typeof module!=='undefined') module.exports.groupPeopleBeacons=groupPeopleBeacons;

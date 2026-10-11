@@ -1,4 +1,6 @@
 const latvianTranslations = <String, String>{
+  'Extend sharing by 1 hour': 'Pagarināt par 1 stundu',
+  'Event location revealed': 'Pasākuma atrašanās vieta ir atklāta',
   'Speed cameras': 'Ātruma kameras',
   'Mapped fixed cameras in Latvia': 'Stacionārās kameras Latvijā',
   'Fixed speed camera': 'Stacionārā ātruma kamera',

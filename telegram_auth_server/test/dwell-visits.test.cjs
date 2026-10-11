@@ -4,7 +4,7 @@ const {fixture} = require('./support');
 const now = Date.parse('2026-09-22T12:00:00Z');
 const fix = (time, lat = 56.9496) => ({latitude:lat, longitude:24.1052,accuracy:10,isMocked:false,recordedAtMillis:time});
 function setup() {return fixture({'users/admin':{role:'admin'}, 'app_config/xp':{levels_enabled:true,xp_awards_enabled:true,achievements_enabled:true,enabledUserIds:['*'],weeklyLimit:3000}, 'spots/s':{status:'approved',lat:56.9496,lng:24.1052}, 'spots/other':{status:'approved',lat:56.9496,lng:24.1052}});}
-async function sample(f, time, spot='s', gps=fix(time)) {return f.load('../lib/spot-visits.js').recordSpotVisit(f.db,'tester',spot,time,gps);}
+async function sample(f, time, spot='s', gps=fix(time)) {f.rows.set('live_locations/tester',{updatedAt:time,expiresAt:time+60000,isMocked:false});return f.load('../lib/spot-visits.js').recordSpotVisit(f.db,'tester',spot,time,gps);}
 test('five minutes of fresh fixes required before XP, country badge, visit or admin claim', async () => {
  const f=setup();
  f.rows.set('admin_rewards/r',{enabled:true,spotId:'s',startsAt:now,createdAt:now,endsAt:now+3600000,xp:200,title:{en:'Stay',ru:'Стой',lv:'Paliec'}});

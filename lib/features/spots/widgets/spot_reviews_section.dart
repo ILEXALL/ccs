@@ -325,25 +325,25 @@ class _SpotReviewsSectionState extends State<SpotReviewsSection>
               hintText: trText('Write a comment'),
               hintStyle: const TextStyle(color: Colors.white54, fontSize: 13),
               filled: true,
-              fillColor: const Color(0xFF142232),
+              fillColor: const Color(0xFF30291E),
               contentPadding: const EdgeInsets.symmetric(
                 horizontal: 14,
                 vertical: 14,
               ),
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(24),
-                borderSide: const BorderSide(color: Color(0xFF2A4058)),
+                borderSide: const BorderSide(color: Color(0xFF685432)),
               ),
               enabledBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(24),
-                borderSide: const BorderSide(color: Color(0xFF2A4058)),
+                borderSide: const BorderSide(color: Color(0xFF685432)),
               ),
               suffixIcon: IconButton(
                 tooltip: trText('Post Comment'),
                 onPressed: isSaving ? null : submitComment,
                 icon: Icon(
                   isSaving ? Icons.hourglass_bottom : Icons.send_rounded,
-                  color: const Color(0xFF73BFFF),
+                  color: const Color(0xFFE7C580),
                 ),
               ),
             ),

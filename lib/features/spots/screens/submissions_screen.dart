@@ -1,3 +1,6 @@
+import 'package:ccs_app/shared/media/remote_image_cache.dart'
+    show cachedAppImage;
+import 'package:ccs_app/shared/media/image_fade.dart' show fadeInLoadedImage;
 import 'package:flutter/material.dart' hide Text;
 import 'package:ccs_app/shared/widgets/app_bar_actions.dart'
     show ccsAppBarActions;
@@ -118,8 +121,10 @@ Widget chatAvatarWidget(ChatThreadData chat, String currentUid) {
 
   if (!chat.isGroup && isNetworkUrl(photoUrl)) {
     return ClipOval(
-      child: Image.network(
-        photoUrl,
+      child: Image(
+        image: cachedAppImage(photoUrl),
+        key: ValueKey(photoUrl),
+        frameBuilder: fadeInLoadedImage,
         width: 46,
         height: 46,
         fit: BoxFit.cover,
@@ -131,8 +136,10 @@ Widget chatAvatarWidget(ChatThreadData chat, String currentUid) {
 
   if (chat.isGroup && isNetworkUrl(photoUrl)) {
     return ClipOval(
-      child: Image.network(
-        photoUrl,
+      child: Image(
+        image: cachedAppImage(photoUrl),
+        key: ValueKey(photoUrl),
+        frameBuilder: fadeInLoadedImage,
         width: 46,
         height: 46,
         fit: BoxFit.cover,

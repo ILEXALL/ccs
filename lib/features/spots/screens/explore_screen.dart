@@ -11,7 +11,7 @@ import 'package:ccs_app/core/localization/app_language.dart'
 import 'package:ccs_app/core/localization/ccs_text.dart' show trText;
 import 'package:ccs_app/core/theme/app_theme.dart' show blue;
 import 'package:ccs_app/features/events/widgets/upcoming_events.dart'
-    show UpcomingTemporarySpotsSection;
+    show EventsFeedBackdrop, UpcomingTemporarySpotsSection;
 import 'package:ccs_app/features/partners/widgets/partners_header_button.dart'
     show PartnersHeaderButton;
 import 'package:ccs_app/features/spots/data/spot_filters.dart'
@@ -228,29 +228,31 @@ class _ExploreScreenState extends State<ExploreScreen>
                           if (selectedExploreCategory == upcomingCategoryName) {
                             final groups = controller
                                 .upcomingTemporarySpotGroups();
-                            return RefreshIndicator(
-                              onRefresh: controller.refreshUpcomingSpotFeed,
-                              color: blue,
-                              child: ListView(
-                                controller: spotCardScrollController,
-                                physics: const AlwaysScrollableScrollPhysics(
-                                  parent: BouncingScrollPhysics(),
-                                ),
-                                padding: const EdgeInsets.only(bottom: 14),
-                                children: [
-                                  if (groups.isEmpty)
-                                    EmptyStateCard(
-                                      icon: Icons.event_available_outlined,
-                                      title: trText('No upcoming spots'),
-                                      text: trText(
-                                        'No upcoming spots match your filters. Check countries, saved-only mode, or search. Pull down to refresh.',
+                            return EventsFeedBackdrop(
+                              child: RefreshIndicator(
+                                onRefresh: controller.refreshUpcomingSpotFeed,
+                                color: blue,
+                                child: ListView(
+                                  controller: spotCardScrollController,
+                                  physics: const AlwaysScrollableScrollPhysics(
+                                    parent: BouncingScrollPhysics(),
+                                  ),
+                                  padding: const EdgeInsets.only(bottom: 14),
+                                  children: [
+                                    if (groups.isEmpty)
+                                      EmptyStateCard(
+                                        icon: Icons.event_available_outlined,
+                                        title: trText('No upcoming spots'),
+                                        text: trText(
+                                          'No upcoming spots match your filters. Check countries, saved-only mode, or search. Pull down to refresh.',
+                                        ),
+                                      )
+                                    else
+                                      UpcomingTemporarySpotsSection(
+                                        groups: groups,
                                       ),
-                                    )
-                                  else
-                                    UpcomingTemporarySpotsSection(
-                                      groups: groups,
-                                    ),
-                                ],
+                                  ],
+                                ),
                               ),
                             );
                           }

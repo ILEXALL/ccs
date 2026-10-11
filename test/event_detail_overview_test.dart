@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:ccs_app/shared/media/photo_gallery.dart' show SpotPhotoCarousel;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ccs_app/core/localization/app_language.dart';
 import 'package:ccs_app/core/time/trusted_clock.dart';
@@ -62,8 +63,14 @@ void main() {
                   ),
                   child: SingleChildScrollView(
                     child: EventDetailOverview(
+                      actions: const SizedBox(
+                        key: ValueKey('event-actions'),
+                        height: 100,
+                      ),
                       spot: event().copyWith(
                         name: 'BMW meets Latvia — long event title',
+                        description:
+                            'A longer description that must span the full page width below the location reveal.',
                         showOnMapAtMillis: 2000000000000,
                       ),
                     ),
@@ -77,6 +84,22 @@ void main() {
       expect(find.text('BMW meets Latvia — long event title'), findsOneWidget);
       expect(find.byIcon(Icons.lock_outline), findsOneWidget);
       expect(find.text('Riga, Latvia'), findsNothing);
+      final poster = tester.getRect(find.byType(SpotPhotoCarousel));
+      final title = tester.getRect(
+        find.text('BMW meets Latvia — long event title'),
+      );
+      final description = tester.getRect(
+        find.byKey(const ValueKey('event-full-width-description')),
+      );
+      final revealIcon = tester.getRect(find.byIcon(Icons.lock_outline));
+      expect(poster.right, lessThan(title.left));
+      final actions = tester.getRect(
+        find.byKey(const ValueKey('event-actions')),
+      );
+      expect(actions.bottom, closeTo(poster.bottom, .1));
+      expect(actions.left, closeTo(title.left, .1));
+      expect(description.top, greaterThan(revealIcon.bottom));
+      expect(description.width, closeTo(290, .1));
       expect(tester.takeException(), isNull);
     });
   }

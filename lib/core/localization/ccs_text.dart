@@ -34,6 +34,15 @@ String trText(String value, {AppLanguage? language}) {
         '@${mention.group(1)} jūs pieminēja: ${mention.group(2)}',
     };
   }
+  const revealSuffix = ' — the location is now available on the map.';
+  if (value.endsWith(revealSuffix)) {
+    final name = value.substring(0, value.length - revealSuffix.length);
+    return switch (selectedLanguage) {
+      AppLanguage.en => value,
+      AppLanguage.ru => '$name — локация теперь доступна на карте.',
+      AppLanguage.lv => '$name — atrašanās vieta tagad ir pieejama kartē.',
+    };
+  }
   final exact = translations[value];
 
   if (exact != null) {

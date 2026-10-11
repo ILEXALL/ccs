@@ -1,3 +1,4 @@
+import 'daily_visit_status.dart';
 import 'dart:async';
 import 'dart:io';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -138,7 +139,8 @@ Future<void> checkGpsSpotVisits(Position position) async {
     if (response['ok'] == true) {
       _creditedSpotVisits[key] = now;
       final result = response['result'] as Map;
-      if (result['status'] == 'outside_or_invalid') {
+      if ((result['status'] == 'outside_or_invalid' ||
+          result['status'] == 'sharing_required')) {
         visitDwellProgress.value = null;
       } else {
         final wasCompleted =
@@ -152,8 +154,18 @@ Future<void> checkGpsSpotVisits(Position position) async {
               result['recorded'] == true || result['alreadyVisited'] == true,
           receivedAt: DateTime.now(),
         );
-        if (result['recorded'] == true && !wasCompleted)
-          await xpScreenRequest('visit_country', fix);
+        if ((result['recorded'] == true || result['alreadyVisited'] == true) &&
+            !wasCompleted) {
+          unawaited(dailyVisitStatus.refresh(force: true));
+          if (result['recorded'] == true) {
+            unawaited(
+              xpScreenRequest(
+                'visit_country',
+                fix,
+              ).catchError((_) => <String, dynamic>{}),
+            );
+          }
+        }
       }
     }
   } catch (error) {

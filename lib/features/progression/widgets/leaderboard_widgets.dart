@@ -1,3 +1,6 @@
+import 'package:ccs_app/shared/media/remote_image_cache.dart'
+    show cachedAppImage;
+import 'package:ccs_app/shared/media/image_fade.dart' show fadeInLoadedImage;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart' hide Text;
@@ -124,8 +127,10 @@ class XpLeaderboardTile extends StatelessWidget {
       ),
       child: ClipOval(
         child: imageUrl.isNotEmpty
-            ? Image.network(
-                imageUrl,
+            ? Image(
+                image: cachedAppImage(imageUrl),
+                key: ValueKey(imageUrl),
+                frameBuilder: fadeInLoadedImage,
                 fit: BoxFit.cover,
                 errorBuilder: (_, _, _) => fallback(),
               )

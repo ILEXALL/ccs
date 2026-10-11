@@ -75,8 +75,10 @@ void main() {
       await tester.tap(find.byType(VisitDwellMarker));
       expect(taps, 1);
       await render(true);
+      expect(find.byIcon(Icons.check_rounded), findsOneWidget);
       expect(find.byType(CircularProgressIndicator), findsNothing);
       await tester.pump(const Duration(seconds: 10));
+      expect(find.byIcon(Icons.check_rounded), findsNothing);
       expect(find.byType(CircularProgressIndicator), findsNothing);
       await tester.pumpWidget(const SizedBox());
     },

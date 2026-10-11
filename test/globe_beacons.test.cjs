@@ -61,3 +61,14 @@ test('radar attention follows driving bearing, not map rotation, and stops at re
  assert.equal(cameraAhead([24,57],[24,57.003],0,0),false);
  assert.equal(cameraAhead([24,57],[24,57.003],NaN,15),false);
 });
+
+test('colocated people collapse with exact membership and split as they move apart',()=>{
+ const {groupPeopleBeacons}=require('../assets/globe/beacons.js');
+ const person=(id,x)=>({properties:{kind:'live',id,label:id},geometry:{coordinates:[x,0]}});
+ const spot={properties:{kind:'spot',id:'spot'},geometry:{coordinates:[0,0]}};
+ const result=groupPeopleBeacons([person('b',.0001),person('a',0),person('c',.01),spot]);
+ assert.equal(result.length,3);assert.equal(result[0],spot);
+ const group=result.find(f=>f.properties.count===2);
+ assert.deepEqual(group.properties.memberIds,['a','b']);assert.equal(group.properties.label,'a, b');
+ assert.equal(groupPeopleBeacons([person('a',0),person('b',.01)]).length,2);
+});

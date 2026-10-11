@@ -246,6 +246,7 @@ NotificationCenterItem notificationCenterItemFromDocument(
           'new_spot' => 'New spots',
           'temporary_event' => 'Events',
           'temporary_spot_today' => 'Event starts in 5 hours',
+          'event_location_revealed' => 'Event location revealed',
           'global_chat_message' || 'global_chat_admin' => 'Global chat',
           'forum_topic_created' => pickString('title', 'New forum topic'),
           'forum_reply' => pickString('title', 'Forum'),

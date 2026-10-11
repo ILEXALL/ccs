@@ -191,7 +191,7 @@ class ExploreContent implements ExploreContentActions {
     final selected = host.selectedExploreCategory == category;
     final isEvents = category == host.configUpcomingCategoryName;
     final color = isEvents
-        ? const Color(0xFF76BDFF)
+        ? const Color(0xFFE7C580)
         : spotColorForCategory(category);
 
     return InkWell(
@@ -214,8 +214,8 @@ class ExploreContent implements ExploreContentActions {
           gradient: isEvents
               ? LinearGradient(
                   colors: selected
-                      ? const [Color(0xFF153F73), Color(0xFF123849)]
-                      : const [Color(0xFF142438), Color(0xFF102A33)],
+                      ? const [Color(0xFF70542B), Color(0xFF40301D)]
+                      : const [Color(0xFF392E1F), Color(0xFF272119)],
                 )
               : null,
           borderRadius: BorderRadius.circular(11),
@@ -268,7 +268,7 @@ class ExploreContent implements ExploreContentActions {
                       color: selected
                           ? Colors.white
                           : isEvents
-                          ? const Color(0xFFB9DDFF)
+                          ? const Color(0xFFF1D9AA)
                           : Colors.white60,
                       fontSize: 12,
                       fontWeight: FontWeight.w900,

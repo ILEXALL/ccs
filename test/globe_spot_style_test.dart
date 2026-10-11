@@ -16,7 +16,7 @@ void main() {
       );
     }
   });
-  test('active events keep the standard orange highlight', () {
+  test('active events use golden artwork and highlight', () {
     const now = 2000000060000;
     trustedClock.setSampleForTesting(now);
     addTearDown(() => trustedClock.setSampleForTesting(null));
@@ -28,6 +28,8 @@ void main() {
       ),
     );
     expect(style['event'], true);
-    expect(style['color'], '#ffab40');
+    expect(style['color'], '#e7c580');
+    expect(style['tint'], false);
+    expect(style['opacity'], 1.0);
   });
 }

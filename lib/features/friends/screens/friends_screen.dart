@@ -1,3 +1,6 @@
+import 'package:ccs_app/shared/media/remote_image_cache.dart'
+    show cachedAppImage;
+import 'package:ccs_app/shared/media/image_fade.dart' show fadeInLoadedImage;
 import 'dart:async';
 import 'dart:io';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -198,8 +201,10 @@ class _FriendsScreenState extends State<FriendsScreen>
             child: localFileExists(avatarPath)
                 ? Image.file(File(avatarPath!), fit: BoxFit.cover)
                 : (photoUrl != null && photoUrl.trim().isNotEmpty)
-                ? Image.network(
-                    photoUrl,
+                ? Image(
+                    image: cachedAppImage(photoUrl),
+                    key: ValueKey(photoUrl),
+                    frameBuilder: fadeInLoadedImage,
                     fit: BoxFit.cover,
                     errorBuilder: (_, _, _) => Center(
                       child: CcsText(

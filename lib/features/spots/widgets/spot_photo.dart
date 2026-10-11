@@ -1,3 +1,6 @@
+import 'package:ccs_app/shared/media/remote_image_cache.dart'
+    show cachedAppImage;
+import 'package:ccs_app/shared/media/image_fade.dart' show fadeInLoadedImage;
 import 'package:flutter/material.dart' hide Text;
 import 'package:ccs_app/core/theme/app_theme.dart' show blue;
 import 'package:ccs_app/features/spots/models/car_spot.dart' show CarSpot;
@@ -41,10 +44,13 @@ Widget spotPhotoImage(
   double? width,
   double? height,
   BoxFit fit = BoxFit.cover,
+  bool fadeIn = false,
 }) {
   if (isLocalSpotPhotoSource(source)) {
     return Image.file(
       File(localPhotoPathFromSource(source)),
+      key: ValueKey(source),
+      frameBuilder: fadeIn ? fadeInLoadedImage : null,
       width: width,
       height: height,
       fit: fit,
@@ -53,8 +59,10 @@ Widget spotPhotoImage(
     );
   }
 
-  return Image.network(
-    source,
+  return Image(
+    image: cachedAppImage(source),
+    key: ValueKey(source),
+    frameBuilder: fadeInLoadedImage,
     width: width,
     height: height,
     fit: fit,

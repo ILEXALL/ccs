@@ -92,7 +92,9 @@ IconData notificationCenterIcon(NotificationCenterItem item) {
     'spot_approved_by_admin' => Icons.check_circle,
     'spot_rejected_by_admin' => Icons.cancel,
     'new_spot' => Icons.add_location_alt,
-    'temporary_event' || 'temporary_spot_today' => Icons.event_available,
+    'event_location_revealed' ||
+    'temporary_event' ||
+    'temporary_spot_today' => Icons.event_available,
     'friend_request' => Icons.person_add_alt_1,
     'friend_nearby' ||
     'friend_at_spot' ||
@@ -128,7 +130,9 @@ Color notificationCenterColor(NotificationCenterItem item) {
     'forum_reply_admin' => blue,
     'user_report_new' => Colors.orangeAccent,
     'new_spot' => const Color(0xFF9B35FF),
-    'temporary_event' || 'temporary_spot_today' => const Color(0xFFFF7A00),
+    'event_location_revealed' ||
+    'temporary_event' ||
+    'temporary_spot_today' => const Color(0xFFFF7A00),
     'friend_request' => blue,
     'friend_nearby' ||
     'friend_at_spot' ||

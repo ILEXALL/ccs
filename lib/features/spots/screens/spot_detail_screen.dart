@@ -1,3 +1,5 @@
+import 'package:ccs_app/features/events/widgets/event_cover_background.dart';
+import 'package:ccs_app/features/progression/data/daily_visit_status.dart';
 import 'package:ccs_app/features/events/widgets/event_editorial_actions.dart';
 import 'package:ccs_app/features/events/widgets/event_detail_overview.dart';
 import 'package:ccs_app/features/spots/widgets/spot_detail_header.dart'
@@ -91,6 +93,7 @@ class _SpotDetailScreenState extends State<SpotDetailScreen>
   @override
   void initState() {
     super.initState();
+    dailyVisitStatus.attach();
     spot = widget.spot;
     final updates =
         widget.spotUpdates ??
@@ -130,6 +133,7 @@ class _SpotDetailScreenState extends State<SpotDetailScreen>
 
   @override
   void dispose() {
+    dailyVisitStatus.detach();
     memberSpotGroups.removeListener(controller.groupAccessChanged);
     spotSubscription?.cancel();
     super.dispose();
@@ -156,7 +160,7 @@ class _SpotDetailScreenState extends State<SpotDetailScreen>
       );
     return Scaffold(
       backgroundColor: spot.isTemporary
-          ? const Color(0xFF0C111A)
+          ? const Color(0xFF151410)
           : Colors.transparent,
       appBar: AppBar(
         title: CcsText(
@@ -165,7 +169,7 @@ class _SpotDetailScreenState extends State<SpotDetailScreen>
               : 'Spot',
         ),
         backgroundColor: Colors.transparent,
-        foregroundColor: blue,
+        foregroundColor: spot.isTemporary ? const Color(0xFFE7C580) : blue,
         actions: [
           Padding(
             padding: const EdgeInsets.only(right: 6),
@@ -228,133 +232,143 @@ class _SpotDetailScreenState extends State<SpotDetailScreen>
             ),
         ],
       ),
-      body: ListView(
-        padding: EdgeInsets.only(
-          bottom: MediaQuery.paddingOf(context).bottom + 16,
-        ),
-        children: [
-          SpotPhotoCarousel(
-            spot: spot,
-            containWithBlur: spot.isTemporary,
-            height: math.min(
-              MediaQuery.of(context).size.width *
-                  (spot.isTemporary ? 0.62 : 0.82),
-              spot.isTemporary ? 300 : 340,
-            ),
+      body: EventCoverBackground(
+        spot: spot,
+        child: ListView(
+          padding: EdgeInsets.only(
+            bottom: MediaQuery.paddingOf(context).bottom + 16,
           ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(14, 10, 14, 20),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                if (spot.isTemporary)
-                  EventDetailOverview(
-                    spot: spot,
-                    onShowMap: controller.showSpotOnMap,
-                  )
-                else
-                  SpotDetailCompactHeader(spot: spot),
-                if (spot.isTemporary) ...[
-                  EventEditorialActions(spot: spot),
-                  const Divider(height: 1, color: Color(0xFF263647)),
-                ] else ...[
-                  const SizedBox(height: 8),
-                  SpotDetailEngagementPanel(spot: spot),
-                  const SizedBox(height: 8),
-                  SpotDetailMetaRow(spot: spot),
-                  const SizedBox(height: 8),
-                  SpotRouteActions(
-                    spot: spot,
-                    onShowMap: controller.showSpotOnMap,
+          children: [
+            if (!spot.isTemporary)
+              SpotPhotoCarousel(
+                spot: spot,
+                height: math.min(MediaQuery.of(context).size.width * .82, 340),
+              ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(14, 10, 14, 20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (spot.isTemporary)
+                    EventDetailOverview(
+                      spot: spot,
+                      actions: EventEditorialActions(spot: spot),
+                      onShowMap: controller.showSpotOnMap,
+                    )
+                  else
+                    SpotDetailCompactHeader(spot: spot),
+                  ListenableBuilder(
+                    listenable: dailyVisitStatus,
+                    builder: (context, _) => dailyVisitStatus.contains(spot.id)
+                        ? Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 10),
+                            child: Row(
+                              children: [
+                                const Icon(
+                                  Icons.check_circle_rounded,
+                                  size: 18,
+                                  color: Color(0xFF84D5AC),
+                                ),
+                                const SizedBox(width: 7),
+                                CcsText(
+                                  communityText(
+                                    en: 'Visited today',
+                                    ru: 'Посещено сегодня',
+                                    lv: 'Šodien apmeklēts',
+                                  ),
+                                  style: const TextStyle(
+                                    color: Color(0xFF84D5AC),
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          )
+                        : const SizedBox.shrink(),
                   ),
-                ],
-                if (spot.isTemporary) ...[
-                  const SizedBox(height: 16),
-                  Wrap(
-                    spacing: 12,
-                    runSpacing: 6,
-                    children: [
-                      for (final category in spot.categories)
-                        CcsText(
-                          trText(category),
-                          style: const TextStyle(
-                            color: Color(0xFF8FC8FF),
-                            fontSize: 13,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                    ],
-                  ),
-                ],
-                if (spot.description.trim().isNotEmpty) ...[
-                  const SizedBox(height: 10),
-                  CcsText(
-                    spot.description,
-                    softWrap: true,
-                    style: const TextStyle(
-                      color: Colors.white70,
-                      fontSize: 15,
-                      height: 1.55,
+                  if (!spot.isTemporary) ...[
+                    const SizedBox(height: 8),
+                    SpotDetailEngagementPanel(spot: spot),
+                    const SizedBox(height: 8),
+                    SpotDetailMetaRow(spot: spot),
+                    const SizedBox(height: 8),
+                    SpotRouteActions(
+                      spot: spot,
+                      onShowMap: controller.showSpotOnMap,
                     ),
-                  ),
-                ],
-                const SizedBox(height: 10),
-                if (!spot.isTemporary)
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      for (final category in spot.categories)
-                        SpotInfoTag(label: category, icon: Icons.local_offer),
-                    ],
-                  ),
-                if (spot.supportsContacts) ...[
-                  const SizedBox(height: 16),
-                  SpotBusinessStatusCard(spot: spot),
-                ],
-                if (currentUserCanManageSpotBusiness(spot)) ...[
-                  const SizedBox(height: 12),
-                  SizedBox(
-                    width: double.infinity,
-                    child: OutlinedButton.icon(
-                      onPressed: () async {
-                        final updatedSpot = await Navigator.push<CarSpot>(
-                          context,
-                          appPageRoute(
-                            builder: (_) =>
-                                ServiceSpotBusinessEditScreen(spot: spot),
-                          ),
-                        );
-
-                        if (updatedSpot != null && mounted) {
-                          setState(() => spot = updatedSpot);
-                        }
-                      },
-                      icon: const Icon(Icons.edit_note),
-                      label: const CcsText('Edit Service Info'),
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: blue,
-                        side: const BorderSide(color: blue),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(16),
-                        ),
-                        padding: const EdgeInsets.symmetric(vertical: 14),
+                  ],
+                  if (!spot.isTemporary &&
+                      spot.description.trim().isNotEmpty) ...[
+                    const SizedBox(height: 10),
+                    CcsText(
+                      spot.description,
+                      softWrap: true,
+                      style: const TextStyle(
+                        color: Colors.white70,
+                        fontSize: 15,
+                        height: 1.55,
                       ),
                     ),
-                  ),
+                  ],
+                  const SizedBox(height: 10),
+                  if (!spot.isTemporary)
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        for (final category in spot.categories)
+                          SpotInfoTag(label: category, icon: Icons.local_offer),
+                      ],
+                    ),
+                  if (spot.supportsContacts) ...[
+                    const SizedBox(height: 16),
+                    SpotBusinessStatusCard(spot: spot),
+                  ],
+                  if (currentUserCanManageSpotBusiness(spot)) ...[
+                    const SizedBox(height: 12),
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        onPressed: () async {
+                          final updatedSpot = await Navigator.push<CarSpot>(
+                            context,
+                            appPageRoute(
+                              builder: (_) =>
+                                  ServiceSpotBusinessEditScreen(spot: spot),
+                            ),
+                          );
+
+                          if (updatedSpot != null && mounted) {
+                            setState(() => spot = updatedSpot);
+                          }
+                        },
+                        icon: const Icon(Icons.edit_note),
+                        label: const CcsText('Edit Service Info'),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: blue,
+                          side: const BorderSide(color: blue),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                        ),
+                      ),
+                    ),
+                  ],
+                  if (spot.hasContactInfo) ...[
+                    const SizedBox(height: 16),
+                    SpotContactSection(spot: spot),
+                  ],
+                  SizedBox(height: spot.isTemporary ? 2 : 18),
+                  if (spot.isTemporary)
+                    const Divider(height: 16, color: Color(0xFF4D412D)),
+                  SpotReviewsSection(spot: spot),
                 ],
-                if (spot.hasContactInfo) ...[
-                  const SizedBox(height: 16),
-                  SpotContactSection(spot: spot),
-                ],
-                const SizedBox(height: 18),
-                if (spot.isTemporary)
-                  const Divider(height: 24, color: Color(0xFF263647)),
-                SpotReviewsSection(spot: spot),
-              ],
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

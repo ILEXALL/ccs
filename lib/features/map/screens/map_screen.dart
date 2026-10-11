@@ -1,3 +1,4 @@
+import 'package:ccs_app/features/progression/data/daily_visit_status.dart';
 import '../controllers/map_session.dart';
 import 'globe_map_screen.dart';
 import '../models/globe_spot_style.dart';
@@ -275,6 +276,8 @@ class _MapScreenState extends State<MapScreen>
   @override
   void initState() {
     super.initState();
+    dailyVisitStatus.attach();
+    dailyVisitStatus.addListener(appearance.refreshMap);
     unawaited(setScreenAwakeForMap(widget.isVisible));
     mapAlertPulseController = AnimationController(
       vsync: this,
@@ -397,6 +400,8 @@ class _MapScreenState extends State<MapScreen>
 
   @override
   void dispose() {
+    dailyVisitStatus.removeListener(appearance.refreshMap);
+    dailyVisitStatus.detach();
     unawaited(setScreenAwakeForMap(false));
     visitDwellTimer?.cancel();
     temporarySpotRefreshTimer?.cancel();
@@ -626,13 +631,10 @@ class _MapScreenState extends State<MapScreen>
             },
           for (final spot in layers.visibleSpots)
             if (isValidLatLng(spot.coordinates))
-              point(
-                'spot',
-                spot.id,
-                spot.name,
-                spot.coordinates,
-                globeSpotStyle(spot),
-              ),
+              point('spot', spot.id, spot.name, spot.coordinates, {
+                ...globeSpotStyle(spot),
+                'visitedToday': dailyVisitStatus.contains(spot.id),
+              }),
           for (final location in liveLocations)
             if (location.uid != FirebaseAuth.instance.currentUser?.uid &&
                 presence.liveLocationShouldStayVisibleOnMap(location) &&

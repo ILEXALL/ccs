@@ -11,7 +11,7 @@ Map<String, Object> globeSpotStyle(CarSpot spot) {
   final color = closed && !spot.isTemporaryActiveNow
       ? Colors.grey.shade700
       : event
-      ? Colors.orangeAccent
+      ? const Color(0xFFE7C580)
       : spotColorForSpot(spot);
   return {
     'icon': spotIconAssetPathForSpot(spot, mapStyle: CcsMapStyle.dark),

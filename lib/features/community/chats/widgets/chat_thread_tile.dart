@@ -1,3 +1,6 @@
+import 'package:ccs_app/shared/media/remote_image_cache.dart'
+    show cachedAppImage;
+import 'package:ccs_app/shared/media/image_fade.dart' show fadeInLoadedImage;
 import 'package:ccs_app/features/community/chats/widgets/chat_actions.dart'
     show currentUserCanDeleteGroupChat;
 import 'package:ccs_app/features/community/chats/widgets/chat_actions.dart'
@@ -69,8 +72,10 @@ class GlobalSmallAvatar extends StatelessWidget {
 
     if (isNetworkUrl(avatarUrl)) {
       return ClipOval(
-        child: Image.network(
-          avatarUrl,
+        child: Image(
+          image: cachedAppImage(avatarUrl),
+          key: ValueKey(avatarUrl),
+          frameBuilder: fadeInLoadedImage,
           width: size,
           height: size,
           fit: BoxFit.cover,
@@ -395,8 +400,10 @@ class _ChatThreadTileState extends State<ChatThreadTile> {
       final photoUrl = chat.photoUrl.trim();
       if (isNetworkUrl(photoUrl)) {
         return ClipOval(
-          child: Image.network(
-            photoUrl,
+          child: Image(
+            image: cachedAppImage(photoUrl),
+            key: ValueKey(photoUrl),
+            frameBuilder: fadeInLoadedImage,
             width: 46,
             height: 46,
             fit: BoxFit.cover,

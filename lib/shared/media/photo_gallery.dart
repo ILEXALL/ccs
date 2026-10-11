@@ -169,6 +169,7 @@ class EventPosterImage extends StatelessWidget {
           ),
           child: spotPhotoImage(
             source,
+            fadeIn: true,
             width: double.infinity,
             height: double.infinity,
             fit: BoxFit.cover,
@@ -177,6 +178,7 @@ class EventPosterImage extends StatelessWidget {
         const ColoredBox(color: Color(0x44000000)),
         spotPhotoImage(
           source,
+          fadeIn: true,
           width: double.infinity,
           height: double.infinity,
           fit: BoxFit.contain,

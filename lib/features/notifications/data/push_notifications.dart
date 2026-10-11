@@ -118,6 +118,7 @@ String notificationPreferenceKeyForRemoteMessage(RemoteMessage message) {
     'xp_reward' => 'xpNotifications',
     'new_spot' ||
     'temporary_event' ||
+    'event_location_revealed' ||
     'temporary_spot_today' => 'newSpotNotifications',
     'friend_nearby' || 'friend_at_spot' => 'friendAtSpotNotifications',
     'friend_live_sharing' => 'friendLiveShareNotifications',

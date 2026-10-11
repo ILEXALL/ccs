@@ -1,3 +1,6 @@
+import 'package:ccs_app/shared/media/remote_image_cache.dart'
+    show cachedAppImage;
+import 'package:ccs_app/shared/media/image_fade.dart' show fadeInLoadedImage;
 import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart' hide Text;
@@ -142,8 +145,10 @@ class _PartnersHeaderButtonState extends State<PartnersHeaderButton> {
                               onPageChanged: (page) => currentLoopPage = page,
                               itemBuilder: (context, page) {
                                 final partner = partners[page % partnerCount];
-                                return Image.network(
-                                  partner.logoUrl,
+                                return Image(
+                                  image: cachedAppImage(partner.logoUrl),
+                                  key: ValueKey(partner.logoUrl),
+                                  frameBuilder: fadeInLoadedImage,
                                   width: double.infinity,
                                   height: double.infinity,
                                   fit: BoxFit.cover,

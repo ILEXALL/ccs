@@ -2,7 +2,7 @@ const test=require('node:test');const assert=require('node:assert/strict');const
 const now=Date.parse('2026-09-19T12:00:00Z');
 function setup(){return fixture({'app_config/xp':{levels_enabled:true,xp_awards_enabled:true,achievements_enabled:true,enabledUserIds:['*'],weeklyLimit:3000,timezone:'Europe/Riga'},'users/tester':{role:'user',verified:true},'spots/s':{status:'approved',lat:0,lng:0}});}
 const gps={latitude:0,longitude:0,accuracy:10,isMocked:false,recordedAtMillis:now};
-test('GPS button records without live sharing, once across days and account sessions',async()=>{
+test('GPS visits require sharing and retain one lifetime record across days',async()=>{
  const f=setup();const {recordSpotVisit}=f.load('../lib/spot-visits.js');const achievements=f.load('../lib/xp/achievements.js');
  completedDwell(f,'tester','s',now);
  assert.equal((await recordSpotVisit(f.db,'tester','s',now,gps)).duplicate,false);

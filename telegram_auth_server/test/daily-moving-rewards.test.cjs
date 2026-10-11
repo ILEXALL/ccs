@@ -4,12 +4,13 @@ const {fixture}=require('./support');
 const start=Date.parse('2026-10-10T12:00:00Z');
 function setup(){return fixture({'spots/s':{status:'approved',lat:0,lng:0}});}
 const fix=t=>({latitude:0,longitude:0,accuracy:5,isMocked:false,recordedAtMillis:t});
-async function stay(f,t){let r;for(let i=0;i<=300000;i+=30000)r=await f.load('../lib/spot-visits.js').recordSpotVisit(f.db,'tester','s',t+i,fix(t+i));return r;}
+async function sample(f,t){f.rows.set('live_locations/tester',{updatedAt:t,expiresAt:t+60000,isMocked:false});return f.load('../lib/spot-visits.js').recordSpotVisit(f.db,'tester','s',t,fix(t));}
+async function stay(f,t){let r;for(let i=0;i<=300000;i+=30000)r=await sample(f,t+i);return r;}
 test('daily visit requires five minutes and awards once per server calendar day',async()=>{
  const f=setup();await stay(f,start);await stay(f,start+600000);
  let rows=[...f.rows.values()].filter(r=>r.action==='visit.daily');assert.equal(rows.length,1);assert.equal(rows[0].amount,50);
  const next=start+86400000;
- const first=await f.load('../lib/spot-visits.js').recordSpotVisit(f.db,'tester','s',next,fix(next));
+ const first=await sample(f,next);
  assert.equal(first.alreadyVisited,false);assert.equal(first.elapsedMs,0);
  await stay(f,next);rows=[...f.rows.values()].filter(r=>r.action==='visit.daily');assert.equal(rows.length,2);
 });

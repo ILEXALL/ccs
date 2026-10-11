@@ -1,3 +1,6 @@
+import 'package:ccs_app/shared/media/remote_image_cache.dart'
+    show cachedAppImage;
+import 'package:ccs_app/shared/media/image_fade.dart' show fadeInLoadedImage;
 import 'dart:async';
 import 'dart:io';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -327,8 +330,10 @@ class _AddPartnerScreenState extends State<AddPartnerScreen> {
                     : existingLogoUrl.isNotEmpty
                     ? Padding(
                         padding: const EdgeInsets.all(6),
-                        child: Image.network(
-                          existingLogoUrl,
+                        child: Image(
+                          image: cachedAppImage(existingLogoUrl),
+                          key: ValueKey(existingLogoUrl),
+                          frameBuilder: fadeInLoadedImage,
                           fit: BoxFit.contain,
                           errorBuilder: (_, _, _) => const Icon(
                             Icons.add_photo_alternate_outlined,
@@ -446,8 +451,12 @@ class _AddPartnerScreenState extends State<AddPartnerScreen> {
                       ClipRRect(
                         borderRadius: BorderRadius.circular(12),
                         child: remote
-                            ? Image.network(
-                                existingGalleryUrls[index],
+                            ? Image(
+                                image: cachedAppImage(
+                                  existingGalleryUrls[index],
+                                ),
+                                key: ValueKey(existingGalleryUrls[index]),
+                                frameBuilder: fadeInLoadedImage,
                                 fit: BoxFit.cover,
                                 errorBuilder: (_, _, _) => Container(
                                   color: Colors.white10,

@@ -16,6 +16,41 @@ import 'package:ccs_app/features/spots/widgets/explore_spot_card.dart'
 import 'package:ccs_app/features/spots/widgets/spot_photo.dart' show SpotPhoto;
 import 'package:ccs_app/shared/utils/date_formatting.dart' show formatClockTime;
 
+/// A translucent surface unifies the feed while retaining the map texture.
+/// Painted gradients avoid the cost of a full-screen backdrop blur.
+class EventsFeedBackdrop extends StatelessWidget {
+  final Widget child;
+
+  const EventsFeedBackdrop({super.key, required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    return ClipRRect(
+      borderRadius: const BorderRadius.vertical(top: Radius.circular(22)),
+      child: DecoratedBox(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [Color(0x99182332), Color(0x80101823), Color(0x660B1018)],
+            stops: [0, .48, 1],
+          ),
+        ),
+        child: DecoratedBox(
+          decoration: const BoxDecoration(
+            gradient: RadialGradient(
+              center: Alignment(-.9, -.85),
+              radius: 1.35,
+              colors: [Color(0x245F482A), Color(0x005F482A)],
+            ),
+          ),
+          child: child,
+        ),
+      ),
+    );
+  }
+}
+
 class UpcomingTemporarySpotsSection extends StatelessWidget {
   final Map<String, List<CarSpot>> groups;
 
@@ -23,48 +58,33 @@ class UpcomingTemporarySpotsSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final totalCount = groups.values.fold<int>(
-      0,
-      (count, spots) => count + spots.length,
-    );
     return Padding(
-      padding: const EdgeInsets.fromLTRB(4, 12, 4, 12),
+      padding: const EdgeInsets.fromLTRB(4, 18, 4, 20),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              const Expanded(
-                child: CcsText(
-                  'Events',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 28,
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: -.7,
-                  ),
-                ),
+          const Center(
+            child: CcsText(
+              'Events',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 23,
+                fontWeight: FontWeight.w800,
+                letterSpacing: -.4,
               ),
-              CcsText(
-                '$totalCount',
-                style: const TextStyle(
-                  color: Color(0xFF74B7FF),
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ],
+            ),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 2),
           for (final entry in groups.entries) ...[
             Padding(
-              padding: const EdgeInsets.only(top: 20, bottom: 6),
+              padding: const EdgeInsets.only(top: 16, bottom: 10),
               child: Row(
                 children: [
                   Container(
                     width: 3,
                     height: 16,
-                    color: const Color(0xFF2684FF),
+                    color: const Color(0xFFAC9670),
                   ),
                   const SizedBox(width: 9),
                   CcsText(
@@ -133,143 +153,186 @@ class UpcomingTemporarySpotNewsCard extends StatelessWidget {
       76.0,
       108.0,
     );
+    final privateEvent = spot.isGroupSpot;
+    final accent = privateEvent
+        ? const Color(0xFF8BD9E5)
+        : const Color(0xFFE7C580);
+    final cardGradient = LinearGradient(
+      begin: Alignment.topLeft,
+      end: Alignment.bottomRight,
+      colors: privateEvent
+          ? const [Color(0xFF17333C), Color(0xFF102129), Color(0xFF111A22)]
+          : const [Color(0xFF68502A), Color(0xFF46341F), Color(0xFF2B241B)],
+    );
     return Material(
-      color: const Color(0xFF111925),
+      color: Colors.transparent,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(18),
-        side: const BorderSide(color: Color(0xFF293B50)),
+        side: BorderSide(
+          color: accent.withValues(alpha: privateEvent ? .28 : .52),
+        ),
       ),
       clipBehavior: Clip.antiAlias,
-      child: InkWell(
-        onTap: () => Navigator.push(
-          context,
-          appPageRoute(builder: (_) => SpotDetailScreen(spot: spot)),
-        ),
-        borderRadius: BorderRadius.circular(18),
-        child: Padding(
-          padding: const EdgeInsets.all(12),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Padding(
-                padding: const EdgeInsets.only(top: 3),
-                child: SpotPhoto(
-                  spot: spot,
-                  width: posterWidth,
-                  height: posterWidth * 1.3,
-                  borderRadius: BorderRadius.circular(12),
+      child: Ink(
+        decoration: BoxDecoration(gradient: cardGradient),
+        child: InkWell(
+          onTap: () => Navigator.push(
+            context,
+            appPageRoute(builder: (_) => SpotDetailScreen(spot: spot)),
+          ),
+          borderRadius: BorderRadius.circular(18),
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.only(top: 3),
+                  child: SpotPhoto(
+                    spot: spot,
+                    width: posterWidth,
+                    height: posterWidth * 1.3,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
                 ),
-              ),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    if (starts != null) ...[
-                      CcsText(
-                        date,
-                        style: const TextStyle(
-                          color: Color(0xFF91C5FF),
-                          fontSize: 16,
-                          fontWeight: FontWeight.w700,
-                          letterSpacing: .3,
-                        ),
-                      ),
-                      const SizedBox(height: 3),
-                      Wrap(
-                        crossAxisAlignment: WrapCrossAlignment.center,
-                        spacing: 7,
-                        children: [
-                          CcsText(
-                            formatClockTime(starts),
-                            style: const TextStyle(
-                              color: Colors.white70,
-                              fontSize: 14,
-                              fontWeight: FontWeight.w600,
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (privateEvent) ...[
+                        Row(
+                          children: [
+                            Icon(
+                              Icons.lock_outline_rounded,
+                              size: 12,
+                              color: accent,
                             ),
+                            const SizedBox(width: 5),
+                            Expanded(
+                              child: CcsText(
+                                communityText(
+                                  en: 'Private event',
+                                  ru: 'Закрытое событие',
+                                  lv: 'Privāts pasākums',
+                                ),
+                                style: TextStyle(
+                                  color: accent,
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                      ],
+                      if (starts != null) ...[
+                        CcsText(
+                          date,
+                          style: TextStyle(
+                            color: accent,
+                            fontSize: 16,
+                            fontWeight: FontWeight.w700,
+                            letterSpacing: .3,
                           ),
-                          if (endLabel != null)
+                        ),
+                        const SizedBox(height: 3),
+                        Wrap(
+                          crossAxisAlignment: WrapCrossAlignment.center,
+                          spacing: 7,
+                          children: [
                             CcsText(
-                              '– $endLabel',
+                              formatClockTime(starts),
                               style: const TextStyle(
                                 color: Colors.white70,
                                 fontSize: 14,
                                 fontWeight: FontWeight.w600,
                               ),
                             ),
+                            if (endLabel != null)
+                              CcsText(
+                                '– $endLabel',
+                                style: const TextStyle(
+                                  color: Colors.white70,
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                          ],
+                        ),
+                      ] else
+                        CcsText(spot.temporaryTimeLabel),
+                      const SizedBox(height: 5),
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Expanded(
+                            child: CcsText(
+                              spot.name,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 15,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                          if (spotCountryFilters.value.length > 1) ...[
+                            const SizedBox(width: 6),
+                            SpotCountryFlagBadge(spot: spot),
+                          ],
                         ],
                       ),
-                    ] else
-                      CcsText(spot.temporaryTimeLabel),
-                    const SizedBox(height: 5),
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Expanded(
-                          child: CcsText(
-                            spot.name,
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 15,
-                              fontWeight: FontWeight.w700,
+                      if (spot.isGroupSpot) ...[
+                        const SizedBox(height: 6),
+                        SpotGroupLabels(spot: spot, useChips: true),
+                      ],
+                      const SizedBox(height: 8),
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Padding(
+                            padding: const EdgeInsets.only(top: 1),
+                            child: Icon(
+                              locationAvailable
+                                  ? Icons.location_on_outlined
+                                  : Icons.lock_outline,
+                              size: 14,
+                              color: accent.withValues(alpha: .8),
                             ),
                           ),
-                        ),
-                        if (spotCountryFilters.value.length > 1) ...[
-                          const SizedBox(width: 6),
-                          SpotCountryFlagBadge(spot: spot),
+                          const SizedBox(width: 5),
+                          Expanded(
+                            child: CcsText(
+                              locationAvailable
+                                  ? spot.cityCountry
+                                  : reveal == null
+                                  ? spot.temporaryLocationAvailableAtLabel
+                                  : '$revealLabel – ${formatEventDate(reveal)} · ${formatClockTime(reveal)}',
+                              style: const TextStyle(
+                                color: Color(0xFFCEC9BE),
+                                fontSize: 11.5,
+                                height: 1.4,
+                              ),
+                            ),
+                          ),
                         ],
-                      ],
-                    ),
-                    if (spot.isGroupSpot) ...[
-                      const SizedBox(height: 6),
-                      SpotGroupLabels(spot: spot),
+                      ),
                     ],
-                    const SizedBox(height: 8),
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Padding(
-                          padding: const EdgeInsets.only(top: 1),
-                          child: Icon(
-                            locationAvailable
-                                ? Icons.location_on_outlined
-                                : Icons.lock_outline,
-                            size: 14,
-                            color: const Color(0xFF8EA6C2),
-                          ),
-                        ),
-                        const SizedBox(width: 5),
-                        Expanded(
-                          child: CcsText(
-                            locationAvailable
-                                ? spot.cityCountry
-                                : reveal == null
-                                ? spot.temporaryLocationAvailableAtLabel
-                                : '$revealLabel – ${formatEventDate(reveal)} · ${formatClockTime(reveal)}',
-                            style: const TextStyle(
-                              color: Color(0xFFADB9C9),
-                              fontSize: 11.5,
-                              height: 1.4,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
+                  ),
                 ),
-              ),
-              const Padding(
-                padding: EdgeInsets.only(left: 6, top: 31),
-                child: Icon(
-                  Icons.chevron_right,
-                  size: 19,
-                  color: Colors.white54,
+                const Padding(
+                  padding: EdgeInsets.only(left: 6, top: 31),
+                  child: Icon(
+                    Icons.chevron_right,
+                    size: 19,
+                    color: Colors.white54,
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),

@@ -1,3 +1,6 @@
+import 'package:ccs_app/shared/media/remote_image_cache.dart'
+    show cachedAppImage;
+import 'package:ccs_app/shared/media/image_fade.dart' show fadeInLoadedImage;
 import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart' hide Text;
@@ -329,8 +332,10 @@ class _ForumCategoryPageState extends State<ForumCategoryPage>
               avatar: ClipRRect(
                 borderRadius: BorderRadius.circular(12),
                 child: isNetworkUrl(avatarUrl)
-                    ? Image.network(
-                        avatarUrl,
+                    ? Image(
+                        image: cachedAppImage(avatarUrl),
+                        key: ValueKey(avatarUrl),
+                        frameBuilder: fadeInLoadedImage,
                         width: 64,
                         height: 64,
                         fit: BoxFit.cover,

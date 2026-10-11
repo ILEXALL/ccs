@@ -1,3 +1,6 @@
+import 'package:ccs_app/shared/media/remote_image_cache.dart'
+    show cachedAppImage;
+import 'package:ccs_app/shared/media/image_fade.dart' show fadeInLoadedImage;
 import 'dart:io';
 import 'package:flutter/material.dart' hide Text;
 import 'package:ccs_app/core/theme/app_theme.dart' show blue;
@@ -21,8 +24,10 @@ Widget garagePhotoImage(
   }
 
   if (isNetworkUrl(source)) {
-    return Image.network(
-      source,
+    return Image(
+      image: cachedAppImage(source),
+      key: ValueKey(source),
+      frameBuilder: fadeInLoadedImage,
       width: width,
       height: height,
       fit: fit,

@@ -1,3 +1,6 @@
+import 'package:ccs_app/shared/media/remote_image_cache.dart'
+    show cachedAppImage;
+import 'package:ccs_app/shared/media/image_fade.dart' show fadeInLoadedImage;
 import 'dart:io';
 import 'package:flutter/material.dart' hide Text;
 import 'package:ccs_app/core/localization/ccs_text.dart' show CcsText, trText;
@@ -22,8 +25,10 @@ class ChatPhotoViewerScreen extends StatelessWidget {
         child: InteractiveViewer(
           minScale: 0.8,
           maxScale: 4,
-          child: Image.network(
-            imageUrl,
+          child: Image(
+            image: cachedAppImage(imageUrl),
+            key: ValueKey(imageUrl),
+            frameBuilder: fadeInLoadedImage,
             fit: BoxFit.contain,
             errorBuilder: (context, error, stack) {
               return const Icon(
@@ -73,8 +78,10 @@ class ChatAttachmentImage extends StatelessWidget {
             maxWidth: 270,
             maxHeight: 340,
           ),
-          child: Image.network(
-            cleanUrl,
+          child: Image(
+            image: cachedAppImage(cleanUrl),
+            key: ValueKey(cleanUrl),
+            frameBuilder: fadeInLoadedImage,
             fit: BoxFit.cover,
             loadingBuilder: (context, child, progress) {
               if (progress == null) {

@@ -1,3 +1,6 @@
+import 'package:ccs_app/shared/media/remote_image_cache.dart'
+    show cachedAppImage;
+import 'package:ccs_app/shared/media/image_fade.dart' show fadeInLoadedImage;
 import 'package:flutter/material.dart' hide Text;
 import 'package:ccs_app/core/localization/ccs_text.dart' show CcsText, trText;
 import 'package:ccs_app/core/theme/app_theme.dart' show blue, panelGlass;
@@ -25,8 +28,10 @@ class ChatTitleAvatar extends StatelessWidget {
 
     if (isNetworkUrl(photoUrl)) {
       return ClipOval(
-        child: Image.network(
-          photoUrl,
+        child: Image(
+          image: cachedAppImage(photoUrl),
+          key: ValueKey(photoUrl),
+          frameBuilder: fadeInLoadedImage,
           width: 34,
           height: 34,
           fit: BoxFit.cover,

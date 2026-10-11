@@ -1,3 +1,5 @@
+import 'package:ccs_app/shared/media/remote_image_cache.dart'
+    show cachedAppImage;
 import '../data/map_proximity_audio.dart';
 import 'package:ccs_app/core/localization/ccs_text.dart'
     show CcsText, trText, LanguageReactiveState;
@@ -139,9 +141,11 @@ class _GlobeMapScreenState extends State<GlobeMapScreen>
     ui.Image? output;
     ui.Picture? picture;
     try {
+      final provider = cachedAppImage(url);
+      final cached = await provider.wasCached;
       final completer = Completer<ImageInfo>();
       stream = ResizeImage(
-        NetworkImage(url),
+        provider,
         width: 128,
         height: 128,
       ).resolve(ImageConfiguration.empty);
@@ -180,7 +184,8 @@ class _GlobeMapScreenState extends State<GlobeMapScreen>
       output = await picture.toImage(128, 128);
       final bytes = await output.toByteData(format: ui.ImageByteFormat.png);
       if (!mounted || bytes == null) return;
-      final id = 'ccs-avatar-${_avatarSequence++}';
+      final id =
+          'ccs-avatar-${cached ? 'cached-' : 'new-'}${_avatarSequence++}';
       final png =
           'data:image/png;base64,${base64Encode(bytes.buffer.asUint8List(bytes.offsetInBytes, bytes.lengthInBytes))}';
       _avatarImages[url] = {'id': id, 'png': png};
@@ -742,7 +747,7 @@ class _GlobeMapScreenState extends State<GlobeMapScreen>
             ),
             ListTile(
               leading: const Icon(Icons.more_time),
-              title: CcsText(trText('Extend sharing')),
+              title: CcsText(trText('Extend sharing by 1 hour')),
               onTap: () => Navigator.pop(context, 'extend'),
             ),
           ],

@@ -1,3 +1,6 @@
+import 'package:ccs_app/shared/media/remote_image_cache.dart'
+    show cachedAppImage;
+import 'package:ccs_app/shared/media/image_fade.dart' show fadeInLoadedImage;
 import 'dart:io';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart' hide Text;
@@ -102,8 +105,10 @@ class _SpotOwnerSelectorState extends State<SpotOwnerSelector>
         child: localFileExists(user.avatarPath)
             ? Image.file(File(user.avatarPath!), fit: BoxFit.cover)
             : (user.photoUrl != null && user.photoUrl!.trim().isNotEmpty)
-            ? Image.network(
-                user.photoUrl!,
+            ? Image(
+                image: cachedAppImage(user.photoUrl!),
+                key: ValueKey(user.photoUrl!),
+                frameBuilder: fadeInLoadedImage,
                 fit: BoxFit.cover,
                 errorBuilder: (_, _, _) => Center(
                   child: CcsText(

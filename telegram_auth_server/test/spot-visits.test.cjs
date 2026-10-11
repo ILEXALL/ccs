@@ -79,7 +79,7 @@ test('endpoint binds visit to authenticated UID and rejects missing or invalid t
         if (token !== 'valid') throw new Error('Invalid token');
         return {uid: 'authenticated-user'};
       }})},
-    } : name.includes('weekly-tasks') ? {syncWeeklyTasks: async()=>({}),syncAdminRewardClaims:async()=>({})} : name.includes('location-integrity') ? {assessLocation: async()=>true} : name.includes('xp-firestore') ? {awardXp: async()=>({})} : name.includes('achievements') ? {syncAchievements: async()=>({})} : {recordSpotVisit: async (_, uid, spotId) => {calls.push({uid, spotId}); return {recorded: true};}},
+    } : name.includes('weekly-tasks') ? {syncWeeklyTasks: async()=>({}),syncAdminRewardClaims:async()=>({})} : name.includes('location-integrity') ? {assessLocation: async()=>true} : name.includes('xp-firestore') ? {awardXp: async()=>({})} : name.includes('achievements') ? {syncAchievements: async()=>({})} : {visitStatus: async (_,uid)=>({userId:uid,spotIds:[]}),recordSpotVisit: async (_, uid, spotId) => {calls.push({uid, spotId}); return {recorded: true};}},
   });
   const response = () => ({code: 0, setHeader() {}, status(code) {this.code = code; return this;}, json(value) {this.value = value; return this;}});
   for (const header of ['', 'Bearer invalid']) {
@@ -93,4 +93,7 @@ test('endpoint binds visit to authenticated UID and rejects missing or invalid t
   assert.equal(calls.length, 1);
   assert.equal(calls[0].uid, 'authenticated-user');
   assert.equal(calls[0].spotId, 's');
+  const statusRes=response();
+  await module.exports({method:'POST',headers:{authorization:'Bearer valid'},body:{action:'status',userId:'victim'}},statusRes);
+  assert.equal(statusRes.code,200);assert.equal(statusRes.value.result.userId,'authenticated-user');
 });

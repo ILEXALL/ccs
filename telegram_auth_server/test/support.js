@@ -9,12 +9,13 @@ const { createRequire } = require('node:module');
 function fixture(extra = {}) {
   let nextId = 0;
   const reads = [];
+  const createTimes = new Map();
   const rows = new Map(Object.entries({
     'app_config/xp': { levels_enabled: true, xp_awards_enabled: true,
       enabledUserIds: ['tester'], weeklyLimit: 3000, timezone: 'Europe/Riga' },
     'users/tester': { name: 'Tester' }, ...extra,
   }));
-  const snapshot = (key) => ({ id: key.split('/')[1], exists: rows.has(key),
+  const snapshot = (key) => ({ createTime: createTimes.get(key) || 0, id: key.split('/')[1], exists: rows.has(key),
     data: () => structuredClone(rows.get(key)) });
   const db = {
     async getAll(...refs) {
@@ -37,7 +38,7 @@ function fixture(extra = {}) {
         },
         orderBy(field, direction) { order = [field, direction]; return query; },
         limit(value) { count = value; return query; },
-        startAfter(doc) { afterId = doc.id; return query; },
+        startAfter(doc) { afterId = typeof doc === 'string' ? doc : doc.id; return query; },
         async get() {
           const entries = [...rows].filter(([key, value]) => key.startsWith(`${name}/`) &&
             filters.every(([field, expected]) => value[field] === expected));
@@ -96,7 +97,7 @@ function fixture(extra = {}) {
     }, { filename });
     return module.exports;
   }
-  return { db, rows, load, reads, awards: load('../lib/xp/xp-firestore.js') };
+  return { db, rows, createTimes, load, reads, awards: load('../lib/xp/xp-firestore.js') };
 }
 module.exports = { fixture };
 
@@ -104,7 +105,9 @@ module.exports = { fixture };
 // dwell-visits.test.cjs separately exercises the complete real sample sequence.
 function completedDwell(f, uid, spotId, now) {
   const {rigaDay} = require('../lib/spot-visits');
-  f.rows.set(`spot_visit_sessions/${uid}`, {spotId,dayKey:rigaDay(now),elapsedMs:300000,
+  const spot=f.rows.get(`spots/${spotId}`) || {};
+  f.rows.set(`live_locations/${uid}`, {lat:spot.lat,lng:spot.lng,coordinates:spot.coordinates,updatedAt:now,expiresAt:now+60000,accuracy:10,isMocked:false});
+  f.rows.set(`spot_visit_sessions/${uid}`, {sharingSession: f.createTimes.get(`live_locations/${uid}`) || 0,spotId,dayKey:rigaDay(now),elapsedMs:300000,
     startedAt:now-300000,lastSeenAt:now,lastSampleAt:now});
 }
 module.exports.completedDwell = completedDwell;

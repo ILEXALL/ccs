@@ -1,3 +1,6 @@
+import 'package:ccs_app/shared/media/remote_image_cache.dart'
+    show cachedAppImage;
+import 'package:ccs_app/shared/media/image_fade.dart' show fadeInLoadedImage;
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart' hide Text;
@@ -231,10 +234,18 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                           : (isNetworkUrl(avatarPath) ||
                                 (currentUser.photoUrl?.trim().isNotEmpty ??
                                     false))
-                          ? Image.network(
-                              isNetworkUrl(avatarPath)
-                                  ? avatarPath!
-                                  : currentUser.photoUrl!,
+                          ? Image(
+                              image: cachedAppImage(
+                                isNetworkUrl(avatarPath)
+                                    ? avatarPath!
+                                    : currentUser.photoUrl!,
+                              ),
+                              key: ValueKey(
+                                isNetworkUrl(avatarPath)
+                                    ? avatarPath!
+                                    : currentUser.photoUrl!,
+                              ),
+                              frameBuilder: fadeInLoadedImage,
                               fit: BoxFit.cover,
                               errorBuilder: (_, _, _) {
                                 return const Icon(

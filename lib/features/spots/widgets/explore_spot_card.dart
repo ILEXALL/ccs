@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'spot_card_photo.dart';
 import 'package:flutter/material.dart' hide Text;
 import 'package:ccs_app/core/localization/ccs_text.dart' show CcsText;
 import 'package:ccs_app/core/theme/app_background.dart' show appPageRoute;
@@ -23,7 +24,6 @@ import 'package:ccs_app/features/spots/widgets/comment_composer.dart'
     show SpotCommentComposerSheet;
 import 'package:ccs_app/features/spots/widgets/spot_icon_style.dart'
     show spotColorForSpot;
-import 'package:ccs_app/features/spots/widgets/spot_photo.dart' show SpotPhoto;
 import 'package:ccs_app/shared/models/countries.dart'
     show countryFlagEmoji, localizedCountryName;
 import 'package:ccs_app/shared/utils/date_formatting.dart' show formatShortDate;
@@ -87,6 +87,8 @@ class ExploreSpotCard extends StatelessWidget {
         : spot.isTemporary
         ? Colors.orangeAccent
         : spotColorForSpot(spot);
+    final auroraColor = spotColorForSpot(spot);
+    const auroraBase = Color(0xFF0B111C);
     final addedDateText = spot.createdAtMillis > 0
         ? 'Added ${formatShortDate(DateTime.fromMillisecondsSinceEpoch(spot.createdAtMillis))}'
         : 'Added date unknown';
@@ -114,11 +116,23 @@ class ExploreSpotCard extends StatelessWidget {
             },
             borderRadius: BorderRadius.circular(12),
             child: Container(
-              padding: const EdgeInsets.fromLTRB(7, 6, 7, 6),
               decoration: BoxDecoration(
                 color: spot.isGroupSpot
                     ? const Color(0xFF09252D)
                     : const Color(0xFF0D111A).withValues(alpha: 0.88),
+                gradient: spot.isTemporary
+                    ? null
+                    : LinearGradient(
+                        begin: Alignment.topRight,
+                        end: Alignment.bottomLeft,
+                        colors: [
+                          Color.lerp(auroraBase, auroraColor, .30)!,
+                          Color.lerp(auroraBase, auroraColor, .035)!,
+                          Color.lerp(auroraBase, auroraColor, .055)!,
+                          Color.lerp(auroraBase, auroraColor, .24)!,
+                        ],
+                        stops: [0, .28, .68, 1],
+                      ),
                 borderRadius: BorderRadius.circular(12),
                 border: Border.all(
                   color: categoryColor.withValues(alpha: 0.50),
@@ -138,88 +152,111 @@ class ExploreSpotCard extends StatelessWidget {
                   ),
                 ],
               ),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
+              child: Stack(
+                fit: StackFit.expand,
                 children: [
-                  SpotPhoto(
-                    spot: spot,
-                    width: 103,
-                    height: double.infinity,
-                    fit: BoxFit.cover,
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  const SizedBox(width: 13),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Expanded(
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Flexible(
-                                    child: CcsText(
-                                      spot.name,
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: const TextStyle(
-                                        color: Colors.white,
-                                        fontSize: 13,
-                                        fontWeight: FontWeight.w900,
-                                        letterSpacing: -0.25,
-                                      ),
-                                    ),
-                                  ),
-                                  if (spot.verifiedOnly) ...[
-                                    const SizedBox(width: 5),
-                                    const VerifiedSpotBadge(size: 14),
-                                  ],
-                                  if (spotCountryFilters.value.length > 1) ...[
-                                    const SizedBox(width: 5),
-                                    SpotCountryFlagBadge(spot: spot),
-                                  ],
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 2),
-                        _SpotMetaLine(
-                          icon: Icons.location_on_outlined,
-                          text: spot.cityCountry,
-                        ),
-                        const SizedBox(height: 1),
-                        _SpotMetaLine(
-                          icon: Icons.calendar_month_outlined,
-                          text: addedDateText,
-                        ),
-                        const SizedBox(height: 1),
-                        _SpotMetaLine(
-                          icon: Icons.person_outline,
-                          text: addedByText,
-                        ),
-                        const SizedBox(height: 2),
-                        CcsText(
-                          spot.description,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            color: Colors.white70,
-                            fontSize: 10.4,
-                            height: 1.0,
+                  if (!spot.isTemporary)
+                    Positioned.fill(
+                      child: IgnorePointer(
+                        child: Opacity(
+                          opacity: .32,
+                          child: SpotCardPhoto(
+                            spot: spot,
+                            width: double.infinity,
+                            height: double.infinity,
+                            borderRadius: BorderRadius.circular(12),
+                            echoOnly: true,
                           ),
                         ),
-                        const Spacer(),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.end,
-                          children: [
-                            ExploreSpotStatsRow(spot: spot),
-                            const SizedBox(width: 7),
-                            SaveSpotButton(spot: spot, compact: true),
-                          ],
+                      ),
+                    ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(7, 6, 7, 6),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        SpotCardPhoto(
+                          spot: spot,
+                          width: 103,
+                          height: double.infinity,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        const SizedBox(width: 13),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Expanded(
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Flexible(
+                                          child: CcsText(
+                                            spot.name,
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: const TextStyle(
+                                              color: Colors.white,
+                                              fontSize: 13,
+                                              fontWeight: FontWeight.w900,
+                                              letterSpacing: -0.25,
+                                            ),
+                                          ),
+                                        ),
+                                        if (spot.verifiedOnly) ...[
+                                          const SizedBox(width: 5),
+                                          const VerifiedSpotBadge(size: 14),
+                                        ],
+                                        if (spotCountryFilters.value.length >
+                                            1) ...[
+                                          const SizedBox(width: 5),
+                                          SpotCountryFlagBadge(spot: spot),
+                                        ],
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 2),
+                              _SpotMetaLine(
+                                icon: Icons.location_on_outlined,
+                                text: spot.cityCountry,
+                              ),
+                              const SizedBox(height: 1),
+                              _SpotMetaLine(
+                                icon: Icons.calendar_month_outlined,
+                                text: addedDateText,
+                              ),
+                              const SizedBox(height: 1),
+                              _SpotMetaLine(
+                                icon: Icons.person_outline,
+                                text: addedByText,
+                              ),
+                              const SizedBox(height: 2),
+                              CcsText(
+                                spot.description,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  color: Colors.white70,
+                                  fontSize: 10.4,
+                                  height: 1.0,
+                                ),
+                              ),
+                              const Spacer(),
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.end,
+                                children: [
+                                  ExploreSpotStatsRow(spot: spot),
+                                  const SizedBox(width: 7),
+                                  SaveSpotButton(spot: spot, compact: true),
+                                ],
+                              ),
+                            ],
+                          ),
                         ),
                       ],
                     ),

@@ -31,6 +31,7 @@ function collapseInitialAttribution() {
   control.querySelector('summary')?.addEventListener('click',()=>clearTimeout(timeout),{once:true});
 }
 const iconCache = new Map();
+const revealedAvatars = new Set();
 // Extract the original neutral-colour illustration inside the coloured pin.
 // This runs once per loaded asset, not during navigation or beacon animation.
 function cacheBeaconArtwork(id, image) {
@@ -47,7 +48,7 @@ function cacheBeaconArtwork(id, image) {
     if(pixels.data[i+3]>24) {left=Math.min(left,x);right=Math.max(right,x);top=Math.min(top,y);bottom=Math.max(bottom,y);}
   }
   if(right<=left || bottom<=top) return;
-  for(const [theme,color] of [['dark',[255,255,255]],['light',[24,35,51]],['muted',[97,97,97]],['event',[178,99,0]]]) {
+  for(const [theme,color] of [['dark',[255,255,255]],['light',[24,35,51]],['muted',[97,97,97]],['event',[231,197,128]]]) {
     for(let i=0;i<pixels.data.length;i+=4) {pixels.data[i]=color[0];pixels.data[i+1]=color[1];pixels.data[i+2]=color[2];}
     context.putImageData(pixels,0,0);
     const out=document.createElement('canvas');out.width=128;out.height=128;
@@ -64,7 +65,7 @@ window.ccsSetIcons = icons => {
     const image = new Image();
     image.onload = () => {
       cacheBeaconArtwork(id,image);
-      for (const tint of (!id.startsWith('assets/spot_icons/') ? [''] : ['', '#616161', '#ffab40'])) {
+      for (const tint of (!id.startsWith('assets/spot_icons/') ? [''] : ['', '#616161', '#e7c580'])) {
         const canvas = document.createElement('canvas'); canvas.width=128; canvas.height=128;
         const ctx = canvas.getContext('2d');
         const scale = Math.min(128/image.width,128/image.height);
@@ -284,7 +285,7 @@ window.ccsSetStyle = style => {
 };
 let alertTimer=null, viewActive=true;
 function stopAlertAnimation() { if(alertTimer!==null) clearInterval(alertTimer); alertTimer=null; }
-window.ccsSetActive = active => {viewActive=!!active;document.documentElement?.classList.toggle('ccs-paused',!viewActive);syncFrameBudget();updateEdgeBeacons(); if(viewActive) startAlertAnimation(); else {stopAlertAnimation();stopMotion();}};
+window.ccsSetActive = active => {viewActive=!!active;document.documentElement?.classList.toggle('ccs-paused',!viewActive);syncFrameBudget();updateEdgeBeacons();updateDwellRing(); if(viewActive) startAlertAnimation(); else {stopAlertAnimation();stopMotion();}};
 function alertRadius(kind) {
   const stops=['interpolate',['linear'],['zoom']];
   for(const z of [1,4,5,7,9,11,12,14.19,14.2,15,16,17,18]) {
@@ -322,10 +323,16 @@ function animateAlerts() {
   map.setPaintProperty('ccs-sos-glow','circle-opacity',0.34+p*0.22);
   map.setPaintProperty('ccs-sos-core','circle-opacity',['step',['zoom'],0.82+p*0.14,14.2,0.18+p*0.12]);
   map.setPaintProperty('ccs-sos-core','circle-stroke-opacity',0.82+p*0.18);
+  for(let i=0;i<2;i++) {
+    const phase=((Date.now()+i*1400)%2800)/2800;
+    map.setPaintProperty('ccs-event-wave-'+i,'circle-radius',
+      ['interpolate',['linear'],['zoom'],7,3+phase*12,11.25,10+phase*24,16,16+phase*30]);
+    map.setPaintProperty('ccs-event-wave-'+i,'circle-stroke-opacity',(1-phase)*.55);
+  }
 }
 function startAlertAnimation() {
   const visible=ready && viewActive && latest.features.some(f=> {
-    if(!['police','sos'].includes(f.properties.kind)) return false;
+    if(!['police','sos'].includes(f.properties.kind) && !(f.properties.kind==='spot' && f.properties.event && map.getZoom()>=7)) return false;
     // Keep offscreen alerts animating only when their edge beacon is in range.
     if((motionFollowing || following) && motionPosition && beaconDistance(motionPosition,f.geometry.coordinates)<beaconRange(f.properties.kind)[0]) return true;
     if(!map.project) return true;
@@ -373,6 +380,11 @@ try {
       'icon-allow-overlap':true,'icon-ignore-placement':true,'icon-pitch-alignment':'viewport','icon-rotation-alignment':'viewport'}});
     map.addLayer({id:'ccs-route',type:'line',source:'ccs-live',filter:['==',['get','kind'],'route'],paint:{'line-color':'#008dff','line-width':3,'line-dasharray':[2,2]}});
     const spots=['==',['get','kind'],'spot'];
+    for (let i=0;i<2;i++) map.addLayer({id:'ccs-event-wave-'+i,type:'circle',source:'ccs',minzoom:7,
+      filter:['all',spots,['==',['get','event'],true]],paint:{
+        'circle-radius':12,'circle-opacity':0,'circle-stroke-width':1.5,
+        'circle-stroke-color':'#e7c580','circle-stroke-opacity':0}});
+
     const dotSize=['interpolate',['linear'],['zoom']];
     for(const z of [1,3,5,7,9,10,11.25,18]) {
       const p=Math.max(0,Math.min(1,(z-3)/(11.25-3)));
@@ -395,8 +407,8 @@ try {
       'circle-color':['coalesce',['get','color'],'#4d90ff'],
       'circle-opacity':['case',['get','tint'],0.58,1],
       'circle-stroke-opacity':0.8,
-      'circle-stroke-color':['case',['get','event'],'#ffab40','#ffffff'],
-      'circle-stroke-width':['interpolate',['linear'],['zoom'],3,0.35,11.25,0.65]}});
+      'circle-stroke-color':['case',['==',['get','visitedToday'],true],'#84d5ac',['get','event'],'#e7c580','#ffffff'],
+      'circle-stroke-width':['interpolate',['linear'],['zoom'],3,['case',['==',['get','visitedToday'],true],.9,.35],11.25,['case',['==',['get','visitedToday'],true],1.3,.65]]}});
     const iconSize=['interpolate',['linear'],['zoom']];
     for(const z of [11.25,12,13,14,15,16,18]) {
       const p=Math.max(0,Math.min(1,(z-11.25)/(16-11.25)));
@@ -404,7 +416,7 @@ try {
     }
     const spotIcon=['get',currentStyle==='positron'?'lightIcon':'icon'];
     map.addLayer({id:'ccs-spot-icons',type:'symbol',source:'ccs',filter:spots,minzoom:11.25,layout:{
-      'icon-image':['case',['get','tint'],['concat',spotIcon,'@',['get','color']],spotIcon],
+      'icon-image':['case',['any',['get','tint'],['get','event']],['concat',spotIcon,'@',['get','color']],spotIcon],
       'icon-size':iconSize,'icon-allow-overlap':true,'icon-ignore-placement':true,
       'icon-pitch-alignment':'viewport','icon-rotation-alignment':'viewport'},
       paint:{'icon-opacity':['coalesce',['get','opacity'],1]}});
@@ -424,6 +436,11 @@ try {
       'icon-pitch-alignment':'viewport','icon-allow-overlap':true,'icon-ignore-placement':true}});
     addAlertLayers();
     const labelFont=map.getStyle().layers.find(l=>l.layout?.['text-font'])?.layout['text-font'] || ['Noto Sans Regular'];
+    map.addLayer({id:'ccs-visited',type:'symbol',source:'ccs',minzoom:10,
+      filter:['all',['==',['get','kind'],'spot'],['==',['get','visitedToday'],true]],
+      layout:{'text-font':labelFont,'text-field':'✓','text-size':['interpolate',['linear'],['zoom'],10,10,14,15],
+        'text-offset':[.9,.1],'text-allow-overlap':true,'text-ignore-placement':true},
+      paint:{'text-color':'#84d5ac','text-halo-color':currentStyle==='positron'?'#fff':'#0d1920','text-halo-width':2}});
     map.addLayer({id:'ccs-live-labels',type:'symbol',source:'ccs-live',filter:['==',['get','kind'],'live'],layout:{
       'text-font':labelFont,'text-field':['coalesce',['get','label'],''],
       'text-size':12,'text-anchor':'bottom','text-offset':[0,-1.8],
@@ -495,7 +512,15 @@ function updateEdgeBeacons() {
     if (bounds.right > bounds.left && bounds.bottom > bounds.top) {
       const projected = map.project(position);
       const origin = {x: Math.max(bounds.left, Math.min(bounds.right, projected.x)), y: Math.max(bounds.top, Math.min(bounds.bottom, projected.y))};
-      const candidates = latest.features.filter(f => ['spot','live','camera','police','sos'].includes(f.properties.kind) && f.geometry.type === 'Point')
+      const offscreen = latest.features.filter(f => {
+        if (!['spot','live','camera','police','sos'].includes(f.properties.kind) || f.geometry.type !== 'Point') return false;
+        if (f.properties.kind !== 'live') return true;
+        if (beaconDistance(position,f.geometry.coordinates)>=2000) return false;
+        const c=f.geometry.coordinates;
+        const p=map.project([position[0]+shortArc(c[0]-position[0]),c[1]]);
+        return !(p.x>=0 && p.x<=width && p.y>=inset.top && p.y<=height-inset.bottom);
+      });
+      const candidates = groupPeopleBeacons(offscreen)
         .map(f => ({f, distance: beaconDistance(position, f.geometry.coordinates)}))
         .filter(item => Number.isFinite(item.distance) && item.distance < beaconRange(item.f.properties.kind)[0])
         .sort((a,b) => a.distance - b.distance || String(a.f.properties.id).localeCompare(String(b.f.properties.id)));
@@ -518,6 +543,8 @@ function updateEdgeBeacons() {
             node.className+=' ccs-person-beacon';
             const name=document.createElement('strong');name.className='ccs-beacon-name';
             node.appendChild(name);node.nickname=name;
+            const count=document.createElement('b');count.className='ccs-beacon-count';
+            node.appendChild(count);node.countBadge=count;
           }
           if(p.kind==='camera') {
             node.className+=' ccs-camera-beacon';
@@ -527,11 +554,13 @@ function updateEdgeBeacons() {
           node.face=face;
           const label = document.createElement('span');
           node.appendChild(face); node.appendChild(label);
-          node.addEventListener('click', e => {e.stopPropagation(); notify('select', {kind:p.kind,id:p.id});});
+          node.addEventListener('click', e => {e.stopPropagation(); if(node.members?.length>1) notify('selectPeople',{ids:node.members}); else notify('select', {kind:node.target.kind,id:node.target.id});});
           beaconLayer.appendChild(node); edgeBeacons.set(key,node);
           // Establish the transparent initial state before starting the fade.
           node.getBoundingClientRect();
         }
+        node.target=p;node.members=p.memberIds;
+        if(node.countBadge) {node.countBadge.textContent=p.count>1?String(p.count):'';node.countBadge.style.display=p.count>1?'block':'none';}
         if(p.kind==='camera') {
           const fresh=motionTarget?.gpsFresh===true && performance.now()-motionAt<1500;
           node.dataset.attention=String(fresh && cameraAhead(position,coordinate,motionHeading,motionTarget?.speed));
@@ -540,12 +569,18 @@ function updateEdgeBeacons() {
         if(node.nickname) node.nickname.textContent=String(p.label || 'User');
         const baseIcon = p.kind === 'live' ? (p.avatarIcon || 'ccs-person') : p.kind === 'police' ? 'ccs-police-' + policeBeaconFrame : p.kind === 'sos' ? 'ccs-sos' : p.icon;
         const theme=currentStyle==='positron'?'light':'dark';
-        const artworkTheme=p.tint?(p.event?'event':'muted'):theme;
+        const artworkTheme=p.event?'event':p.tint?'muted':theme;
         const extracted=p.icon+'@beacon-'+artworkTheme;
-        const icon = p.kind==='spot' && iconCache.has(extracted) ? extracted : baseIcon + (p.tint ? '@' + p.color : '');
+        const icon = p.kind==='spot' && iconCache.has(extracted) ? extracted : baseIcon + (p.tint || p.event ? '@' + p.color : '');
         const pixels = iconCache.get(icon);
         if (pixels && node.dataset.icon !== icon) {
           node.face.getContext('2d').putImageData(pixels,0,0); node.dataset.icon=icon;
+          if (icon.startsWith('ccs-avatar-new-') && !revealedAvatars.has(icon)) {
+            revealedAvatars.add(icon);
+            node.avatarFade?.cancel();
+            node.avatarFade = node.face.animate?.([{opacity:0},{opacity:1}],
+              {duration:1000,easing:'ease-in-out'});
+          }
         }
         if (!pixels) continue;
         node.style.setProperty('--beacon-color', p.kind === 'sos' ? '#ff3355' : p.kind === 'police' ? (policeBeaconFrame < 8 ? '#1565ff' : '#ff2d55') : /^#[0-9a-f]{6}$/i.test(p.color || '') ? p.color : '#00b8ff');
@@ -587,25 +622,32 @@ function updateLiveLabelOpacity() {
   liveLabelOpacity=opacity;
   map.setPaintProperty('ccs-live-labels','text-opacity',opacity);
 }
-let dwellRing, dwellCompletedKey=null, dwellCompletedAt=0;
+let dwellRing, dwellCompletedKey=null, dwellActiveKey=null, dwellCompletedAt=0;
 function updateDwellRing() {
   if(!document.createElement || !map?.project) return;
   if(!dwellRing) {
     dwellRing=document.createElement('div');
     dwellRing.className='ccs-dwell-ring';
+    const check=document.createElement('b');check.textContent='✓';dwellRing.appendChild(check);
     document.body.appendChild(dwellRing);
   }
   const dwell=latest.dwell;
   const spot=dwell && latest.features.find(f=>f.properties.kind==='spot' && f.properties.id===dwell.spotId);
-  if(dwell?.completed && dwellCompletedKey!==dwell.spotId) {dwellCompletedKey=dwell.spotId;dwellCompletedAt=performance.now();}
-  if(!dwell?.completed) dwellCompletedKey=null;
-  if(!ready || !viewActive || !spot || (dwell.completed && performance.now()-dwellCompletedAt>1500) || !(dwell.fraction>0)) {
+  if(dwell && !dwell.completed) {dwellActiveKey=dwell.spotId;dwellCompletedKey=null;}
+  if(dwell?.completed && dwellCompletedKey!==dwell.spotId && dwellActiveKey===dwell.spotId) {
+    dwellCompletedKey=dwell.spotId;dwellCompletedAt=performance.now();dwellActiveKey=null;
+  }
+  if(!ready || !viewActive || !spot || (dwell.completed && (dwellCompletedKey!==dwell.spotId || performance.now()-dwellCompletedAt>2400)) || !(dwell.fraction>0)) {
     dwellRing.style.display='none';return;
   }
   const p=map.project(spot.geometry.coordinates);
   const fraction=dwell.completed?1:Math.max(0,Math.min(.99,dwell.fraction));
+  dwellRing.dataset.completed=String(!!dwell.completed);
   dwellRing.style.display='block';
   dwellRing.style.left=p.x+'px';dwellRing.style.top=p.y+'px';
+  const z=map.getZoom(), zoomProgress=Math.max(0,Math.min(1,(z-11.25)/4.75));
+  const size=z<11.25?30:(38+27*(1-Math.pow(1-zoomProgress,3)))*(spot.properties.event?1.16:1)+8;
+  dwellRing.style.setProperty('--dwell-size',size+'px');
   dwellRing.style.setProperty('--dwell-angle',(fraction*360)+'deg');
 }
 let lastBeaconUpdate = -Infinity;

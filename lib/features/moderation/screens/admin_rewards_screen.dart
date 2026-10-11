@@ -1,3 +1,6 @@
+import 'package:ccs_app/shared/media/remote_image_cache.dart'
+    show cachedAppImage;
+import 'package:ccs_app/shared/media/image_fade.dart' show fadeInLoadedImage;
 import 'dart:async';
 import 'package:intl/intl.dart';
 import 'package:flutter/material.dart';
@@ -490,8 +493,10 @@ class _RewardEditorState extends State<_RewardEditor> {
                           (item['photoUrl'] as String).startsWith('https://')
                       ? ClipRRect(
                           borderRadius: BorderRadius.circular(8),
-                          child: Image.network(
-                            item['photoUrl'],
+                          child: Image(
+                            image: cachedAppImage(item['photoUrl']),
+                            key: ValueKey(item['photoUrl']),
+                            frameBuilder: fadeInLoadedImage,
                             fit: BoxFit.cover,
                             errorBuilder: (_, __, ___) => Icon(
                               item['event'] == true ? Icons.event : Icons.place,

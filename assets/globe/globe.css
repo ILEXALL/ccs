@@ -57,4 +57,18 @@ body{background:#050911 url("stars.svg") repeat;background-size:768px 768px}
 .maplibregl-ctrl-top-left{top:var(--ccs-controls-top,0px);left:0}
 
 /* Progress is server-confirmed; this overlay cannot award XP. */
-.ccs-dwell-ring{position:absolute;width:48px;height:48px;transform:translate(-50%,-75%);pointer-events:none;z-index:2;border-radius:50%;background:conic-gradient(#36dcff var(--dwell-angle),#36dcff25 0);mask:radial-gradient(transparent 62%,#000 65%);-webkit-mask:radial-gradient(transparent 62%,#000 65%);}
+
+.ccs-dwell-ring{position:absolute;width:var(--dwell-size,54px);height:var(--dwell-size,54px);transform:translate(-50%,-50%);pointer-events:none;z-index:2;border-radius:50%;filter:drop-shadow(0 0 5px #36dcff66)}
+.ccs-dwell-ring::before{content:'';position:absolute;inset:0;border-radius:50%;background:conic-gradient(#83edff var(--dwell-angle),#328eb344 0);mask:radial-gradient(transparent 55%,#000 57%);-webkit-mask:radial-gradient(transparent 55%,#000 57%);animation:ccs-calm-breathe 2.8s ease-in-out infinite}
+.ccs-dwell-ring::after{content:'';position:absolute;inset:-4px;border:1px solid #72deff55;border-radius:50%;animation:ccs-calm-breathe 2.8s ease-in-out infinite}
+.ccs-dwell-ring b{display:none}
+.ccs-dwell-ring[data-completed="true"]{animation:ccs-calm-finish 2.4s ease-out both;filter:drop-shadow(0 0 9px #90edbbaa)}
+.ccs-dwell-ring[data-completed="true"]::before{background:#91edbc;animation:none}
+.ccs-dwell-ring[data-completed="true"]::after{border:2px solid #b4ffda;animation:ccs-calm-ripple 1.4s ease-out both}
+.ccs-dwell-ring[data-completed="true"] b{display:grid;position:absolute;inset:9px;place-items:center;border-radius:50%;background:#15352d;color:#b4ffda;font:700 25px system-ui}
+@keyframes ccs-calm-breathe{0%,100%{opacity:.7}50%{opacity:1}}
+@keyframes ccs-calm-ripple{0%{transform:scale(.95);opacity:1}100%{transform:scale(1.9);opacity:0}}
+@keyframes ccs-calm-finish{0%{opacity:1;filter:drop-shadow(0 0 15px #e1ffed)}20%,70%{opacity:1}100%{opacity:0}}
+.ccs-paused .ccs-dwell-ring,.ccs-paused .ccs-dwell-ring::before,.ccs-paused .ccs-dwell-ring::after{animation-play-state:paused}
+.ccs-person-beacon .ccs-beacon-count{position:absolute;right:-4px;top:24px;min-width:16px;padding:2px 4px;border:1px solid #86dfff;border-radius:7px;background:#135681;color:#fff;font:700 10px system-ui;box-shadow:0 1px 4px #0005}
+@media(prefers-reduced-motion:reduce){.ccs-dwell-ring,.ccs-dwell-ring::before,.ccs-dwell-ring::after{animation:none}.ccs-dwell-ring[data-completed="true"]::after{display:none}}

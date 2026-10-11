@@ -1,3 +1,6 @@
+import 'package:ccs_app/shared/media/remote_image_cache.dart'
+    show cachedAppImage;
+import 'package:ccs_app/shared/media/image_fade.dart' show fadeInLoadedImage;
 import 'group_settings_screen.dart';
 import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -392,8 +395,10 @@ class _PrivateGroupDirectoryState extends State<PrivateGroupDirectory>
                 children: [
                   ClipOval(
                     child: isNetworkUrl(photoUrl)
-                        ? Image.network(
-                            photoUrl,
+                        ? Image(
+                            image: cachedAppImage(photoUrl),
+                            key: ValueKey(photoUrl),
+                            frameBuilder: fadeInLoadedImage,
                             width: 58,
                             height: 58,
                             fit: BoxFit.cover,
@@ -484,8 +489,10 @@ class _PrivateGroupDirectoryState extends State<PrivateGroupDirectory>
                       height: 58,
                       child: ClipOval(
                         child: isNetworkUrl(photoUrl)
-                            ? Image.network(
-                                photoUrl,
+                            ? Image(
+                                image: cachedAppImage(photoUrl),
+                                key: ValueKey(photoUrl),
+                                frameBuilder: fadeInLoadedImage,
                                 fit: BoxFit.cover,
                                 errorBuilder: (_, _, _) => fallback,
                                 loadingBuilder: (context, child, progress) =>

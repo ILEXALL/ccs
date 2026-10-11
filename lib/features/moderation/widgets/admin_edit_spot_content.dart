@@ -1,3 +1,6 @@
+import 'package:ccs_app/shared/media/remote_image_cache.dart'
+    show cachedAppImage;
+import 'package:ccs_app/shared/media/image_fade.dart' show fadeInLoadedImage;
 import 'dart:io';
 import 'package:flutter/material.dart' hide Text;
 import 'package:ccs_app/core/localization/ccs_text.dart' show CcsText;
@@ -28,8 +31,10 @@ class AdminEditSpotContent implements AdminEditSpotContentActions {
             errorBuilder: (_, _, _) =>
                 SpotPhotoPlaceholder(width: 88, height: 88),
           )
-        : Image.network(
-            source,
+        : Image(
+            image: cachedAppImage(source),
+            key: ValueKey(source),
+            frameBuilder: fadeInLoadedImage,
             width: 88,
             height: 88,
             fit: BoxFit.cover,

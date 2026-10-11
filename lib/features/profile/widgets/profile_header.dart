@@ -1,3 +1,6 @@
+import 'package:ccs_app/shared/media/remote_image_cache.dart'
+    show cachedAppImage;
+import 'package:ccs_app/shared/media/image_fade.dart' show fadeInLoadedImage;
 import 'dart:io';
 import 'package:flutter/material.dart' hide Text;
 import 'package:ccs_app/core/localization/ccs_text.dart' show CcsText;
@@ -75,8 +78,10 @@ class ProfileHeader extends StatelessWidget {
                           },
                         )
                       : isNetworkUrl(profile.photoUrl)
-                      ? Image.network(
-                          profile.photoUrl!,
+                      ? Image(
+                          image: cachedAppImage(profile.photoUrl!),
+                          key: ValueKey(profile.photoUrl!),
+                          frameBuilder: fadeInLoadedImage,
                           fit: BoxFit.cover,
                           errorBuilder: (_, _, _) {
                             return const Center(

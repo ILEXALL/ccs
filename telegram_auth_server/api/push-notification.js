@@ -1,3 +1,4 @@
+import reveals from '../lib/event-reveal.js';
 import {deliveryTokens, removeDeliveryTokens} from '../lib/private-profile.js';
 import publications from '../lib/forum-publications.js';
 import crypto from 'node:crypto';
@@ -111,7 +112,7 @@ const countryAliasesToIso = (() => {
   return aliases;
 })();
 
-function countryKey(value) {
+export function countryKey(value) {
   const normalized = cleanText(value).toLocaleLowerCase('en-US');
   return countryAliasesToIso.get(normalized) || normalized;
 }
@@ -302,8 +303,13 @@ export async function sendPushToUser({
       if (!members.includes(userId) && notificationCollection !== 'admin_notifications') return 0;
     }
   }
+  let revealSpot;
   if (data.spotId) {
     const source = await db.collection('spots').doc(data.spotId).get();
+    if (data.type === 'event_location_revealed') {
+      revealSpot=source.data();
+      if (!reveals.revealIsDue(revealSpot,Date.now(),1)) return 0;
+    }
     if (source.exists && groupSpot(source.data())) {
       const members = await groupSpotMemberIds(source.data());
       if (!members.includes(userId) && notificationCollection !== 'admin_notifications') return 0;
@@ -317,6 +323,7 @@ export async function sendPushToUser({
   }
 
   const user = userSnapshot.data() || {};
+  if (revealSpot && !reveals.recipientMatches(user,revealSpot,countryKey)) return 0;
 
   if (
     user.deleted === true ||
