@@ -345,8 +345,10 @@ class _GlobeMapScreenState extends State<GlobeMapScreen>
                 widget.onCameraChanged?.call(lat, lng, zoom);
             } else if (data['type'] == 'follow') {
               setState(() => followActive = data['enabled'] == true);
+              _proximityAudio.setFollowing(followActive);
             } else if (data['type'] == 'gesture') {
               setState(() => followActive = false);
+              _proximityAudio.setFollowing(false);
               widget.onInteraction?.call();
             } else if (data['type'] == 'pick' &&
                 data['lat'] is num &&
@@ -556,6 +558,7 @@ class _GlobeMapScreenState extends State<GlobeMapScreen>
           _proximityAudio.update(
             frame['features'] as List,
             widget.readMotion?.call(),
+            following: followActive,
           ),
         );
       }

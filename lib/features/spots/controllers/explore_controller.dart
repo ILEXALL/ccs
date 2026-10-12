@@ -658,34 +658,4 @@ class ExploreController implements ExploreControllerActions {
       ),
     );
   }
-
-  @override
-  void snapSpotCards(double itemExtent) {
-    if (!host.spotCardScrollController.hasClients || itemExtent <= 0) {
-      return;
-    }
-
-    final position = host.spotCardScrollController.position;
-    if (position.maxScrollExtent <= 0) {
-      return;
-    }
-
-    final current = position.pixels;
-    final target = (current / itemExtent).round() * itemExtent;
-    final clampedTarget = target
-        .clamp(0.0, position.maxScrollExtent)
-        .toDouble();
-
-    if ((clampedTarget - current).abs() < 2.5) {
-      return;
-    }
-
-    unawaited(
-      host.spotCardScrollController.animateTo(
-        clampedTarget,
-        duration: const Duration(milliseconds: 260),
-        curve: Curves.easeOutCubic,
-      ),
-    );
-  }
 }

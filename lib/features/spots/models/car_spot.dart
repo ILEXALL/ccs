@@ -226,7 +226,7 @@ class CarSpot {
 
   bool get hasOwner => ownerUid.trim().isNotEmpty;
 
-  bool get hasOpeningHours => openingHours.isNotEmpty;
+  bool get hasOpeningHours => !isTemporary && openingHours.isNotEmpty;
 
   bool get hasContactInfo =>
       supportsContacts &&

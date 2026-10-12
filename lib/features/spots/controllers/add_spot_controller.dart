@@ -994,7 +994,9 @@ class AddSpotController implements AddSpotControllerActions {
             ? host.instagramController.text.trim()
             : '',
         contactEmail: supportsContacts ? host.emailController.text.trim() : '',
-        openingHours: supportsContacts ? host.openingHours : const {},
+        openingHours: supportsContacts && !host.isTemporarySpot
+            ? host.openingHours
+            : const {},
         ownerUid: supportsContacts ? (owner?.uid ?? '') : '',
         ownerUsername: supportsContacts ? (owner?.username ?? '') : '',
         bestTime: 'Not reviewed',

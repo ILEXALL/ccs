@@ -84,7 +84,7 @@ class _ServiceSpotBusinessEditScreenState
         contactPhone: phoneController.text.trim(),
         contactInstagram: instagramController.text.trim(),
         contactEmail: emailController.text.trim(),
-        openingHours: openingHours,
+        openingHours: widget.spot.isTemporary ? const {} : openingHours,
       );
 
       await spotsCollection().doc(widget.spot.id).debugUpdate({
@@ -193,15 +193,16 @@ class _ServiceSpotBusinessEditScreenState
             ],
           ),
           const SizedBox(height: 16),
-          AddSpotSection(
-            title: 'Opening hours',
-            children: [
-              OpeningHoursEditor(
-                openingHours: openingHours,
-                onChanged: (value) => setState(() => openingHours = value),
-              ),
-            ],
-          ),
+          if (!widget.spot.isTemporary)
+            AddSpotSection(
+              title: 'Opening hours',
+              children: [
+                OpeningHoursEditor(
+                  openingHours: openingHours,
+                  onChanged: (value) => setState(() => openingHours = value),
+                ),
+              ],
+            ),
           const SizedBox(height: 22),
           SizedBox(
             height: 54,

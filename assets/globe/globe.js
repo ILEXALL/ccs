@@ -16,6 +16,7 @@ let notifiedFollow=null;
 function syncFrameBudget() {
   const enabled=(motionFollowing || following) && !gestureBlocked;
   window.ccsFrameBudget?.(enabled && !manualTouchActive, viewActive);
+  if(!enabled) updateEdgeBeacons();
   if(notifiedFollow!==enabled) {notifiedFollow=enabled;notify('follow',{enabled});}
 }
 
@@ -48,7 +49,7 @@ function cacheBeaconArtwork(id, image) {
     if(pixels.data[i+3]>24) {left=Math.min(left,x);right=Math.max(right,x);top=Math.min(top,y);bottom=Math.max(bottom,y);}
   }
   if(right<=left || bottom<=top) return;
-  for(const [theme,color] of [['dark',[255,255,255]],['light',[24,35,51]],['muted',[97,97,97]],['event',[231,197,128]]]) {
+  for(const [theme,color] of [['dark',[255,255,255]],['light',[24,35,51]],['muted',[97,97,97]],['event',[255,212,90]]]) {
     for(let i=0;i<pixels.data.length;i+=4) {pixels.data[i]=color[0];pixels.data[i+1]=color[1];pixels.data[i+2]=color[2];}
     context.putImageData(pixels,0,0);
     const out=document.createElement('canvas');out.width=128;out.height=128;
@@ -61,11 +62,11 @@ function cacheBeaconArtwork(id, image) {
 // Reuse the bundled CCS category PNGs; never fetch icons.
 window.ccsSetIcons = icons => {
   for (const [id, uri] of Object.entries(icons)) {
-    if ((!id.startsWith('assets/spot_icons/') && !/^assets\/user_cars\/car_(green|blue|purple)\.png$/.test(id) && !/^ccs-(self-arrow|pin-(blue|amber|red)|police-([0-9]|1[0-6])|sos|speed-camera|person|avatar-[0-9]+)$/.test(id)) || !uri.startsWith('data:image/png;base64,')) continue;
+    if ((!id.startsWith('assets/spot_icons/') && !/^assets\/user_cars\/car_(green|blue|purple)\.png$/.test(id) && !/^ccs-(self-arrow|pin-(blue|amber|red)|police-([0-9]|1[0-6])|sos|speed-camera|person|avatar-(?:(?:cached|new)-)?[0-9]+)$/.test(id)) || !uri.startsWith('data:image/png;base64,')) continue;
     const image = new Image();
     image.onload = () => {
       cacheBeaconArtwork(id,image);
-      for (const tint of (!id.startsWith('assets/spot_icons/') ? [''] : ['', '#616161', '#e7c580'])) {
+      for (const tint of (!id.startsWith('assets/spot_icons/') ? [''] : ['', '#616161', '#ffd45a'])) {
         const canvas = document.createElement('canvas'); canvas.width=128; canvas.height=128;
         const ctx = canvas.getContext('2d');
         const scale = Math.min(128/image.width,128/image.height);
@@ -332,7 +333,7 @@ function animateAlerts() {
 }
 function startAlertAnimation() {
   const visible=ready && viewActive && latest.features.some(f=> {
-    if(!['police','sos'].includes(f.properties.kind) && !(f.properties.kind==='spot' && f.properties.event && map.getZoom()>=7)) return false;
+    if(!['police','sos'].includes(f.properties.kind) && !(f.properties.kind==='spot' && f.properties.eventActive && map.getZoom()>=7)) return false;
     // Keep offscreen alerts animating only when their edge beacon is in range.
     if((motionFollowing || following) && motionPosition && beaconDistance(motionPosition,f.geometry.coordinates)<beaconRange(f.properties.kind)[0]) return true;
     if(!map.project) return true;
@@ -381,9 +382,9 @@ try {
     map.addLayer({id:'ccs-route',type:'line',source:'ccs-live',filter:['==',['get','kind'],'route'],paint:{'line-color':'#008dff','line-width':3,'line-dasharray':[2,2]}});
     const spots=['==',['get','kind'],'spot'];
     for (let i=0;i<2;i++) map.addLayer({id:'ccs-event-wave-'+i,type:'circle',source:'ccs',minzoom:7,
-      filter:['all',spots,['==',['get','event'],true]],paint:{
+      filter:['all',spots,['==',['get','eventActive'],true]],paint:{
         'circle-radius':12,'circle-opacity':0,'circle-stroke-width':1.5,
-        'circle-stroke-color':'#e7c580','circle-stroke-opacity':0}});
+        'circle-stroke-color':'#ffd45a','circle-stroke-opacity':0}});
 
     const dotSize=['interpolate',['linear'],['zoom']];
     for(const z of [1,3,5,7,9,10,11.25,18]) {
@@ -393,21 +394,21 @@ try {
     // A small, soft halo keeps distant spots legible without enlarging the dot.
     // Fade with zoom; muted/visited markers keep their subdued appearance.
     map.addLayer({id:'ccs-spot-glow',type:'circle',source:'ccs',filter:spots,paint:{
-      'circle-radius':['interpolate',['linear'],['zoom'],1,4,7,5,10,7,11.25,9,13,12,16,14,18,14],
+      'circle-radius':['interpolate',['linear'],['zoom'],1,4,7,5,10,7,11.25,['case',['get','event'],20,9],13,['case',['get','event'],28,12],16,['case',['get','event'],36,14],18,['case',['get','event'],36,14]],
       'circle-color':['coalesce',['get','color'],'#4d90ff'],
       'circle-blur':0.85,
       'circle-opacity':['interpolate',['linear'],['zoom'],
         1,['case',['get','tint'],0.12,0.30],
         9,['case',['get','tint'],0.09,0.23],
-        11.25,['case',['get','tint'],0.065,0.16],
-        14,['case',['get','tint'],0.025,0.065],
-        18,0.015]}});
+        11.25,['case',['get','event'],0.28,['get','tint'],0.065,0.16],
+        14,['case',['get','event'],0.32,['get','tint'],0.025,0.065],
+        18,['case',['get','event'],0.30,0.015]]}});
     map.addLayer({id:'ccs-points',type:'circle',source:'ccs',filter:spots,maxzoom:11.25,paint:{
       'circle-radius':dotSize,
       'circle-color':['coalesce',['get','color'],'#4d90ff'],
       'circle-opacity':['case',['get','tint'],0.58,1],
       'circle-stroke-opacity':0.8,
-      'circle-stroke-color':['case',['==',['get','visitedToday'],true],'#84d5ac',['get','event'],'#e7c580','#ffffff'],
+      'circle-stroke-color':['case',['==',['get','visitedToday'],true],'#84d5ac',['get','event'],'#ffd45a','#ffffff'],
       'circle-stroke-width':['interpolate',['linear'],['zoom'],3,['case',['==',['get','visitedToday'],true],.9,.35],11.25,['case',['==',['get','visitedToday'],true],1.3,.65]]}});
     const iconSize=['interpolate',['linear'],['zoom']];
     for(const z of [11.25,12,13,14,15,16,18]) {
@@ -436,6 +437,14 @@ try {
       'icon-pitch-alignment':'viewport','icon-allow-overlap':true,'icon-ignore-placement':true}});
     addAlertLayers();
     const labelFont=map.getStyle().layers.find(l=>l.layout?.['text-font'])?.layout['text-font'] || ['Noto Sans Regular'];
+    map.addLayer({id:'ccs-event-start',type:'symbol',source:'ccs',minzoom:11.25,
+      filter:['all',spots,['==',['get','event'],true]],
+      layout:{'text-font':labelFont,'text-field':['get','eventStartLabel'],
+        'text-size':11,'text-anchor':'top','text-offset':[0,3.6],
+        'text-allow-overlap':true,'text-ignore-placement':true,
+        'text-pitch-alignment':'viewport','text-rotation-alignment':'viewport'},
+      paint:{'text-color':'#f1d69c','text-halo-color':'#24201a',
+        'text-halo-width':4,'text-halo-blur':0.5}});
     map.addLayer({id:'ccs-visited',type:'symbol',source:'ccs',minzoom:10,
       filter:['all',['==',['get','kind'],'spot'],['==',['get','visitedToday'],true]],
       layout:{'text-font':labelFont,'text-field':'✓','text-size':['interpolate',['linear'],['zoom'],10,10,14,15],
@@ -652,10 +661,11 @@ function updateDwellRing() {
 }
 let lastBeaconUpdate = -Infinity;
 map?.on('render', () => {
+  // Position must share the map frame; only non-positional overlays are throttled.
+  updateDwellRing();
   const now = performance.now();
   if (now-lastBeaconUpdate < 100) return;
   lastBeaconUpdate=now;
-  updateDwellRing();
   updateLiveClusters();
   updateLiveLabelOpacity();
   updateEdgeBeacons();

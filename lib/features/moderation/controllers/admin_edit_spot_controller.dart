@@ -701,7 +701,9 @@ class AdminEditSpotController implements AdminEditSpotControllerActions {
         contactPhone: supportsContacts ? cleanPhone : '',
         contactInstagram: supportsContacts ? cleanInstagram : '',
         contactEmail: supportsContacts ? cleanEmail : '',
-        openingHours: supportsContacts ? host.openingHours : const {},
+        openingHours: supportsContacts && !host.isTemporarySpot
+            ? host.openingHours
+            : const {},
         ownerUid: supportsContacts
             ? (owner?.uid ?? '')
             : host.widget.spot.ownerUid,

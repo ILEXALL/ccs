@@ -373,16 +373,17 @@ class _AddSpotScreenState extends State<AddSpotScreen>
                   ],
                 ),
                 const SizedBox(height: 10),
-                AddSpotSection(
-                  title: 'Opening hours',
-                  children: [
-                    OpeningHoursEditor(
-                      openingHours: openingHours,
-                      onChanged: (value) =>
-                          setState(() => openingHours = value),
-                    ),
-                  ],
-                ),
+                if (!isTemporarySpot)
+                  AddSpotSection(
+                    title: 'Opening hours',
+                    children: [
+                      OpeningHoursEditor(
+                        openingHours: openingHours,
+                        onChanged: (value) =>
+                            setState(() => openingHours = value),
+                      ),
+                    ],
+                  ),
                 const SizedBox(height: 10),
               ],
               AddSpotSection(

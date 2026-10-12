@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show compute;
 import 'package:ccs_app/shared/media/remote_image_cache.dart'
     show cachedAppImage, imageWasCached;
 import 'dart:io';
@@ -62,6 +63,49 @@ Rect spotPhotoContentRect(Uint8List rgba, int width, int height) {
     (width - right).toDouble(),
     (height - bottom).toDouble(),
   );
+}
+
+// Cover and Photo Echo receive clones of the same decoded image. Share their
+// analysis and retain only a small working set for scrolling back through cards.
+class _PhotoAnalysis {
+  _PhotoAnalysis(this.identity, this.crop);
+  final ui.Image identity;
+  final Future<Rect?> crop;
+}
+
+final _photoAnalyses = <_PhotoAnalysis>[];
+
+Rect _scanPhoto((Uint8List, int, int) input) =>
+    spotPhotoContentRect(input.$1, input.$2, input.$3);
+
+Future<Rect?> _readPhotoCrop(ui.Image image) async {
+  try {
+    final data = await image.toByteData(format: ui.ImageByteFormat.rawRgba);
+    if (data == null) return null;
+    return await compute(_scanPhoto, (
+      data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes),
+      image.width,
+      image.height,
+    ));
+  } finally {
+    image.dispose();
+  }
+}
+
+Future<Rect?> sharedSpotPhotoCrop(ui.Image image) {
+  final index = _photoAnalyses.indexWhere(
+    (entry) => entry.identity.isCloneOf(image),
+  );
+  if (index >= 0) {
+    final entry = _photoAnalyses.removeAt(index);
+    _photoAnalyses.add(entry);
+    return entry.crop;
+  }
+  final entry = _PhotoAnalysis(image.clone(), _readPhotoCrop(image.clone()));
+  _photoAnalyses.add(entry);
+  // At 640px maximum, 16 decoded images retain at most about 25 MiB.
+  if (_photoAnalyses.length > 16) _photoAnalyses.removeAt(0).identity.dispose();
+  return entry.crop;
 }
 
 class SpotCardPhoto extends StatefulWidget {
@@ -137,23 +181,11 @@ class _SpotCardPhotoState extends State<SpotCardPhoto>
       (info, synchronousCall) async {
         try {
           final skipFade = synchronousCall || await cached;
-          final data = await info.image.toByteData(
-            format: ui.ImageByteFormat.rawRgba,
-          );
+          final rect = await sharedSpotPhotoCrop(info.image);
           if (!mounted || generation != _generation) {
             info.dispose();
             return;
           }
-          final rect = data == null
-              ? null
-              : spotPhotoContentRect(
-                  data.buffer.asUint8List(
-                    data.offsetInBytes,
-                    data.lengthInBytes,
-                  ),
-                  info.image.width,
-                  info.image.height,
-                );
           setState(() {
             _info?.dispose();
             _info = info;
@@ -203,6 +235,7 @@ class _SpotCardPhotoState extends State<SpotCardPhoto>
               opacity: _opacity,
               child: RepaintBoundary(
                 child: CustomPaint(
+                  isComplex: true,
                   painter: _CardPhotoPainter(
                     _info!.image,
                     _sourceRect,

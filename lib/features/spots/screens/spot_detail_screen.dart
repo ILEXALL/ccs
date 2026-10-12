@@ -321,7 +321,7 @@ class _SpotDetailScreenState extends State<SpotDetailScreen>
                           SpotInfoTag(label: category, icon: Icons.local_offer),
                       ],
                     ),
-                  if (spot.supportsContacts) ...[
+                  if (!spot.isTemporary && spot.supportsContacts) ...[
                     const SizedBox(height: 16),
                     SpotBusinessStatusCard(spot: spot),
                   ],

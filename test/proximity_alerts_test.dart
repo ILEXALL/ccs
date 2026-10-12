@@ -22,6 +22,7 @@ void main() {
     heading: heading,
     speed: speed,
     now: at ?? now,
+    followMode: true,
   );
   test(
     'police alerts inside 500m in any direction, including when stopped',
@@ -54,6 +55,20 @@ void main() {
       expect((own['properties'] as Map)['kind'], 'police');
     },
   );
+  test('radar is silent in browse mode without suppressing police', () {
+    final tracker = ProximityAlertTracker();
+    ProximityAlert? next(String kind, bool following) => tracker.next(
+      features: [point(kind, 'one', 200)],
+      position: [0.0, 0.0],
+      heading: 0,
+      speed: 10,
+      now: now,
+      followMode: following,
+    );
+    expect(next('camera', false), isNull);
+    expect(next('camera', true)?.kind, 'camera');
+    expect(next('police', false)?.kind, 'police');
+  });
   test('radar requires proximity, movement and a forward direction', () {
     final tracker = ProximityAlertTracker();
     expect(check(tracker, 'camera', 501), isNull);
@@ -92,6 +107,7 @@ void main() {
       heading: 0,
       speed: 10,
       now: now,
+      followMode: true,
     )!;
     expect(first.key, 'camera:b');
     tracker.markPlayed(first, now);
@@ -115,4 +131,3 @@ void main() {
     expect(proximitySound('camera', 'ru'), 'radar.mp3');
   });
 }
-

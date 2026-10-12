@@ -327,15 +327,16 @@ class _AdminEditSpotScreenState extends State<AdminEditSpotScreen>
               ],
             ),
             const SizedBox(height: 16),
-            AddSpotSection(
-              title: 'Opening hours',
-              children: [
-                OpeningHoursEditor(
-                  openingHours: openingHours,
-                  onChanged: (value) => setState(() => openingHours = value),
-                ),
-              ],
-            ),
+            if (!isTemporarySpot)
+              AddSpotSection(
+                title: 'Opening hours',
+                children: [
+                  OpeningHoursEditor(
+                    openingHours: openingHours,
+                    onChanged: (value) => setState(() => openingHours = value),
+                  ),
+                ],
+              ),
             const SizedBox(height: 16),
           ],
           AddSpotSection(

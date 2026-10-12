@@ -17,6 +17,7 @@ class ProximityAlertTracker {
     required double heading,
     required double speed,
     required DateTime now,
+    bool followMode = false,
   }) {
     final candidates = <ProximityAlert>[];
     for (final feature in features) {
@@ -55,6 +56,7 @@ class ProximityAlertTracker {
               now.difference(last) < const Duration(minutes: 2)))
         continue;
       if (p['kind'] == 'camera') {
+        if (!followMode) continue;
         // Ahead means within a 120-degree forward cone, not behind the driver.
         if (!heading.isFinite || !speed.isFinite || speed < 1.5) continue;
         final bearing =

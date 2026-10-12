@@ -1,3 +1,4 @@
+import 'package:flutter/rendering.dart' show ScrollCacheExtent;
 import 'package:ccs_app/features/spots/models/explore_sort.dart';
 import 'package:ccs_app/features/spots/controllers/explore_view_state.dart';
 import 'package:ccs_app/features/spots/widgets/explore_content.dart';
@@ -269,34 +270,26 @@ class _ExploreScreenState extends State<ExploreScreen>
                             );
                           }
 
-                          final cards = <Widget>[
-                            for (final spot in feedSpots)
-                              Padding(
-                                padding: const EdgeInsets.only(bottom: 8),
-                                child: ExploreSpotCard(spot: spot),
-                              ),
-                          ];
-
                           return LayoutBuilder(
                             builder: (context, constraints) {
                               final itemExtent = constraints.maxHeight / 3;
 
-                              return NotificationListener<
-                                ScrollEndNotification
-                              >(
-                                onNotification: (_) {
-                                  controller.snapSpotCards(itemExtent);
-                                  return false;
-                                },
-                                child: ListView.builder(
-                                  controller: spotCardScrollController,
-                                  physics: const BouncingScrollPhysics(
-                                    parent: AlwaysScrollableScrollPhysics(),
+                              return ListView.builder(
+                                controller: spotCardScrollController,
+                                physics: const BouncingScrollPhysics(
+                                  parent: AlwaysScrollableScrollPhysics(),
+                                ),
+                                padding: EdgeInsets.zero,
+                                itemExtent: itemExtent,
+                                scrollCacheExtent:
+                                    const ScrollCacheExtent.viewport(1),
+                                itemCount: feedSpots.length,
+                                itemBuilder: (context, index) => Padding(
+                                  key: ValueKey(feedSpots[index].id),
+                                  padding: const EdgeInsets.only(bottom: 8),
+                                  child: ExploreSpotCard(
+                                    spot: feedSpots[index],
                                   ),
-                                  padding: EdgeInsets.zero,
-                                  itemExtent: itemExtent,
-                                  itemCount: cards.length,
-                                  itemBuilder: (context, index) => cards[index],
                                 ),
                               );
                             },

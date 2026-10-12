@@ -28,8 +28,28 @@ void main() {
       ),
     );
     expect(style['event'], true);
-    expect(style['color'], '#e7c580');
+    expect(style['eventActive'], true);
+    expect(style['eventStartLabel'], isNotEmpty);
+    expect(style['color'], '#ffd45a');
     expect(style['tint'], false);
     expect(style['opacity'], 1.0);
+  });
+  test('revealed future event is golden with start badge but no waves', () {
+    const now = 2000000060000;
+    trustedClock.setSampleForTesting(now);
+    addTearDown(() => trustedClock.setSampleForTesting(null));
+    final spot = event().copyWith(
+      startsAtMillis: now + 3600000,
+      expiresAtMillis: now + 7200000,
+      showOnMapAtMillis: now - 1000,
+    );
+    final style = globeSpotStyle(spot);
+    expect(style['event'], true);
+    expect(style['eventActive'], false);
+    expect(style['opacity'], 1.0);
+    expect(style['tint'], false);
+    expect(style['eventStartLabel'], isNotEmpty);
+    expect(style['color'], '#ffd45a');
+    expect(spot.hasOpeningHours, false);
   });
 }

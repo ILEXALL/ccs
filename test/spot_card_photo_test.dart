@@ -1,3 +1,4 @@
+import 'dart:ui' as ui;
 import 'dart:io';
 import 'package:image/image.dart' as img;
 import 'group_temporary_spots_test.dart' show event;
@@ -79,6 +80,33 @@ void main() {
       expect(tester.takeException(), isNull);
     },
   );
+
+  testWidgets('cover and echo share analysis across cloned decoded images', (
+    tester,
+  ) async {
+    await tester.runAsync(() async {
+      final recorder = ui.PictureRecorder();
+      final canvas = Canvas(recorder);
+      canvas.drawRect(
+        const Rect.fromLTWH(0, 0, 100, 100),
+        Paint()..color = Colors.blue,
+      );
+      final picture = recorder.endRecording();
+      final image = await picture.toImage(100, 100);
+      final clone = image.clone();
+      try {
+        final first = sharedSpotPhotoCrop(image);
+        final echo = sharedSpotPhotoCrop(clone);
+        expect(identical(first, echo), isTrue);
+        expect(await first, const Rect.fromLTWH(0, 0, 100, 100));
+        expect(identical(sharedSpotPhotoCrop(clone), first), isTrue);
+      } finally {
+        clone.dispose();
+        image.dispose();
+        picture.dispose();
+      }
+    });
+  });
 
   Uint8List photo({int top = 0, int bottom = 0, int left = 0, int right = 0}) {
     final pixels = Uint8List(100 * 100 * 4);

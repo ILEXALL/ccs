@@ -530,11 +530,15 @@ test('CCS car badge and number shrink together at distant zoom levels',()=>{
 test('event waves animate only authorized visible event features and pause with map',()=>{
  const f=fixture();f.handlers['style.load']();
  f.run('map.zoom=14; map.project=()=>({x:200,y:300})');
- const event={properties:{kind:'spot',id:'event',event:true},geometry:{type:'Point',coordinates:[24,57]}};
+ const event={properties:{kind:'spot',id:'event',event:true,eventActive:false,eventStartLabel:'Tomorrow · 20:00'},geometry:{type:'Point',coordinates:[24,57]}};
+ f.window.ccsSetFeatures({type:'FeatureCollection',features:[event]});
+ assert.equal(f.timers.size,0);
+ event.properties.eventActive=true;
  f.window.ccsSetFeatures({type:'FeatureCollection',features:[event]});
  assert.equal(f.timers.size,1);
  assert.ok(f.paints.some(p=>p[0]==='ccs-event-wave-0'&&p[1]==='circle-radius'));
- const layer=f.layers.find(l=>l.id==='ccs-event-wave-0');assert.match(JSON.stringify(layer.filter),/event/);
+ const layer=f.layers.find(l=>l.id==='ccs-event-wave-0');assert.match(JSON.stringify(layer.filter),/eventActive/);
+ assert.ok(f.layers.find(l=>l.id==='ccs-event-start'));
  assert.ok(f.layers.find(l=>l.id==='ccs-visited'));
  f.window.ccsSetActive(false);assert.equal(f.timers.size,0);
  f.window.ccsSetActive(true);assert.equal(f.timers.size,1);
@@ -564,4 +568,33 @@ test('grouped people beacon shows live count, selects every member, and updates 
  f.window.ccsSetFeatures({type:'FeatureCollection',features:[self,person('a',24.01)]});f.run('updateEdgeBeacons()');
  assert.equal(node.countBadge.style.display,'none');node.click({stopPropagation(){}});
  assert.deepEqual(f.messages.at(-1),{type:'select',kind:'live',id:'a'});
+});
+
+
+test('dwell ring follows every rendered frame even inside the overlay throttle',()=>{
+ const f=fixture(),nodes=[];
+ f.document.createElement=()=>{const n={dataset:{},appendChild(){},style:{setProperty(k,v){this[k]=v;}}};nodes.push(n);return n;};
+ f.document.body={appendChild(){}};
+ f.run('map.project=()=>({x:100,y:200});map.zoom=14');f.handlers['style.load']();
+ f.window.ccsSetFeatures({type:'FeatureCollection',features:[{properties:{kind:'spot',id:'s'},geometry:{type:'Point',coordinates:[24,57]}}],dwell:{spotId:'s',fraction:.5,completed:false}});
+ const ring=nodes.find(n=>n.className==='ccs-dwell-ring');
+ f.setTime(1000);f.handlers.render();
+ for(const dt of [16,33,50,66]) {
+   f.run(`map.project=()=>({x:${100+dt},y:${200+dt}});map.zoom=15`);
+   f.setTime(1000+dt);f.handlers.render();
+   assert.equal(ring.style.left,(100+dt)+'px');
+   assert.equal(ring.style.top,(200+dt)+'px');
+ }
+});
+
+test('leaving follow mode disables radar attention immediately',()=>{
+ const f=fixture();
+ f.document.createElement=()=>({dataset:{},appendChild(){}});
+ f.document.body={appendChild(){}};
+ f.run('map.project=()=>({x:100,y:200})');
+ f.handlers['style.load']();
+ f.run("edgeBeacons.set('camera:x',{style:{},dataset:{attention:'true'},remove(){}});following=true");
+ f.window.ccsWorld();
+ assert.equal(f.run("edgeBeacons.get('camera:x').dataset.attention"),'false');
+ assert.equal(f.run("edgeBeacons.get('camera:x').style.opacity"),'0');
 });
