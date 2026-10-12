@@ -1,3 +1,4 @@
+import 'package:ccs_app/shared/widgets/transient_snack_bar.dart';
 import 'dart:async';
 import 'package:ccs_app/core/network/json_http.dart' show postJsonToUrl;
 import 'package:ccs_app/core/config/app_config.dart' show telegramAuthBaseUrl;
@@ -1145,8 +1146,13 @@ class AddSpotController implements AddSpotControllerActions {
           ? 'Admin spot added. It is live now.'
           : 'Spot submitted for review. Admins have been notified.';
 
-      ScaffoldMessenger.of(viewContext).showSnackBar(
+      showTransientSnackBar(
+        viewContext,
         SnackBar(
+          duration: const Duration(seconds: 3),
+          persist: false,
+          showCloseIcon: true,
+          closeIconColor: Colors.white,
           backgroundColor: blue,
           content: CcsText(
             trText(message),
@@ -1164,8 +1170,13 @@ class AddSpotController implements AddSpotControllerActions {
       }
 
       if (committed) resetSpotFormAfterSubmit();
-      ScaffoldMessenger.of(viewContext).showSnackBar(
+      showTransientSnackBar(
+        viewContext,
         SnackBar(
+          duration: const Duration(seconds: 3),
+          persist: false,
+          showCloseIcon: true,
+          closeIconColor: Colors.white,
           backgroundColor: committed ? blue : Colors.redAccent,
           content: CcsText(
             trText(
