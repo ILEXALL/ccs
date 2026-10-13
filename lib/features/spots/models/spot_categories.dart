@@ -31,6 +31,9 @@ const contactEnabledSpotCategories = {
   'Scrap',
 };
 
+bool spotCategoryRequiresPhone(String category) =>
+    const {'Service', 'Detailing'}.contains(category.trim());
+
 bool spotCategorySupportsContacts(String category) {
   return contactEnabledSpotCategories.contains(category.trim());
 }

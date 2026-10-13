@@ -27,7 +27,7 @@ import 'package:ccs_app/features/spots/data/spot_regions.dart'
 import 'package:ccs_app/features/spots/models/opening_hours.dart'
     show OpeningHoursData, defaultServiceOpeningHours;
 import 'package:ccs_app/features/spots/models/spot_categories.dart'
-    show spotCategorySupportsContacts;
+    show spotCategorySupportsContacts, spotCategoryRequiresPhone;
 import 'package:ccs_app/features/spots/models/spot_status.dart' show SpotStatus;
 import 'package:ccs_app/features/spots/widgets/opening_hours_editor.dart'
     show OpeningHoursEditor;
@@ -45,8 +45,10 @@ class AddSpotScreen extends StatefulWidget implements AddSpotInputs {
   final bool eventMode;
   @override
   final bool privateEvent;
+  final LatLng? initialLocation;
   const AddSpotScreen({
     super.key,
+    this.initialLocation,
     this.eventMode = false,
     this.privateEvent = false,
   });
@@ -136,6 +138,11 @@ class _AddSpotScreenState extends State<AddSpotScreen>
       temporaryExpiresAt = temporaryStartsAt!.add(const Duration(hours: 3));
     }
     memberSpotGroups.addListener(controller.groupMembershipChanged);
+    if (widget.initialLocation != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) controller.applySelectedLocation(widget.initialLocation!);
+      });
+    }
   }
 
   @override
@@ -345,7 +352,9 @@ class _AddSpotScreenState extends State<AddSpotScreen>
                   children: [
                     CcsTextField(
                       controller: phoneController,
-                      label: 'Phone',
+                      label: spotCategoryRequiresPhone(selectedCategory)
+                          ? 'Phone (required)'
+                          : 'Phone',
                       hint: '+371 20 000 000',
                       icon: Icons.phone,
                       keyboardType: TextInputType.phone,

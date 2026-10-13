@@ -63,7 +63,10 @@ import 'package:ccs_app/features/spots/models/car_spot.dart' show CarSpot;
 import 'package:ccs_app/features/spots/models/opening_hours.dart'
     show defaultServiceOpeningHours;
 import 'package:ccs_app/features/spots/models/spot_categories.dart'
-    show spotCategoryOptions, spotCategorySupportsContacts;
+    show
+        spotCategoryOptions,
+        spotCategorySupportsContacts,
+        spotCategoryRequiresPhone;
 import 'package:ccs_app/features/spots/models/spot_status.dart' show SpotStatus;
 import 'package:ccs_app/shared/media/entity_photos.dart' show uploadSpotPhoto;
 import 'package:ccs_app/shared/media/photo_picker.dart' show pickPhotoFromPhone;
@@ -695,6 +698,21 @@ class AddSpotController implements AddSpotControllerActions {
                 color: Colors.white,
                 fontWeight: FontWeight.w700,
               ),
+            ),
+          ),
+        );
+        return;
+      }
+
+      if (spotCategoryRequiresPhone(host.selectedCategory) &&
+          host.phoneController.text.trim().isEmpty) {
+        showTransientSnackBar(
+          viewContext,
+          const SnackBar(
+            duration: Duration(seconds: 4),
+            backgroundColor: Colors.redAccent,
+            content: CcsText(
+              'A phone number is required for Service and Detailing spots.',
             ),
           ),
         );

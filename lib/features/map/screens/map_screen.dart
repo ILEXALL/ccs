@@ -1,3 +1,4 @@
+import 'package:ccs_app/core/location/startup_location.dart';
 import 'package:ccs_app/features/progression/data/daily_visit_status.dart';
 import '../controllers/map_session.dart';
 import 'globe_map_screen.dart';
@@ -48,7 +49,9 @@ import 'package:ccs_app/features/spots/models/car_spot.dart' show CarSpot;
 class MapScreen extends StatefulWidget {
   final bool isVisible;
 
-  const MapScreen({super.key, required this.isVisible});
+  final Future<void> Function(LatLng)? onCreateAt;
+
+  const MapScreen({super.key, required this.isVisible, this.onCreateAt});
 
   @override
   State<MapScreen> createState() => _MapScreenState();
@@ -276,6 +279,7 @@ class _MapScreenState extends State<MapScreen>
   @override
   void initState() {
     super.initState();
+    unawaited(preloadMapPosition());
     dailyVisitStatus.attach();
     dailyVisitStatus.addListener(appearance.refreshMap);
     unawaited(setScreenAwakeForMap(widget.isVisible));
@@ -344,6 +348,31 @@ class _MapScreenState extends State<MapScreen>
       navigation.restoreMapCamera();
       navigation.handleMapFocusRequest();
       unawaited(startMapOpeningFollow());
+    });
+  }
+
+  Future<void> preloadMapPosition() async {
+    await initializeStartupLocation();
+    final position = await startupPosition;
+    if (!mounted ||
+        widget.isVisible ||
+        position == null ||
+        mapCameraChangedByUser)
+      return;
+    final location = LatLng(position.latitude, position.longitude);
+    if (!isValidLatLng(location)) return;
+    setState(() {
+      currentUserLocation = location;
+      displayedUserLocation = location;
+      currentMapCenter = location;
+      currentMapZoom = 16.35;
+      defaultMapUsesSpots = false;
+      initialProfileCityFocusApplied = true;
+      globeCamera = {
+        'revision': ++globeCameraRevision,
+        'center': [location.longitude, location.latitude],
+        'zoom': currentMapZoom,
+      };
     });
   }
 
@@ -438,8 +467,21 @@ class _MapScreenState extends State<MapScreen>
   Map<String, Object?>? globeCamera;
   int globeFollowRevision = 0;
 
+  bool _choosingCreation = false;
+  Future<void> createAtMapLocation(double lat, double lng) async {
+    if (_choosingCreation || !widget.isVisible) return;
+    _choosingCreation = true;
+    navigation.pauseFollowForMapGesture();
+    try {
+      await widget.onCreateAt?.call(LatLng(lat, lng));
+    } finally {
+      _choosingCreation = false;
+    }
+  }
+
   Widget buildGlobeMap() => GlobeMapScreen(
     isVisible: widget.isVisible,
+    onLongPress: createAtMapLocation,
     routeDistanceLabel: routePreviewMode
         ? navigation.routePreviewDistanceLabel()
         : null,

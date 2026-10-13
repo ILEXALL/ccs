@@ -1,3 +1,4 @@
+import 'package:latlong2/latlong.dart' show LatLng;
 import 'dart:async';
 import 'package:ccs_app/app/gates/terms_acceptance_gate.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -127,6 +128,9 @@ class _MainScreenState extends State<_MainContentScreen>
   final List<int> tabHistory = [];
   bool creatingEvent = false;
   bool creatingPrivateEvent = false;
+  LatLng? creationLocation;
+  int creationLocationRevision = 0;
+  bool _creationMenuOpen = false;
   bool hasOpenedMap = false;
   bool hasOpenedChat = false;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>?
@@ -139,11 +143,39 @@ class _MainScreenState extends State<_MainContentScreen>
   Timer? onlinePresenceRefreshTimer;
   bool isCheckingFriendLocationNotifications = false;
 
+  Future<void> openCreationMenu({LatLng? location}) async {
+    if (_creationMenuOpen) return;
+    _creationMenuOpen = true;
+    try {
+      final kind = await showCreationMenu(context);
+      if (!mounted || kind == null) return;
+      setState(() {
+        creatingEvent = kind != CreationKind.spot;
+        creatingPrivateEvent = kind == CreationKind.privateEvent;
+        // A held point starts a fresh form; regular + creation never inherits it.
+        if (location != null || creationLocation != null)
+          creationLocationRevision++;
+        creationLocation = location;
+      });
+      selectBottomTab(2);
+    } finally {
+      _creationMenuOpen = false;
+    }
+  }
+
   List<Widget> get screens => [
     ExploreScreen(isVisible: index == 0),
-    hasOpenedMap ? MapScreen(isVisible: index == 1) : const SizedBox.shrink(),
+    hasOpenedMap
+        ? MapScreen(
+            isVisible: index == 1,
+            onCreateAt: (location) => openCreationMenu(location: location),
+          )
+        : const SizedBox.shrink(),
     AddSpotScreen(
-      key: ValueKey('$creatingEvent/$creatingPrivateEvent'),
+      key: ValueKey(
+        '$creatingEvent/$creatingPrivateEvent/$creationLocationRevision',
+      ),
+      initialLocation: creationLocation,
       eventMode: creatingEvent,
       privateEvent: creatingPrivateEvent,
     ),
@@ -159,6 +191,7 @@ class _MainScreenState extends State<_MainContentScreen>
           !accountSigningOut.value &&
           FirebaseAuth.instance.currentUser != null) {
         unawaited(initializeStartupLocation());
+        if (!hasOpenedMap) setState(() => hasOpenedMap = true);
       }
     });
     index = widget.initialIndex.clamp(0, 4).toInt();
@@ -649,16 +682,7 @@ class _MainScreenState extends State<_MainContentScreen>
                                 iconSize: 36,
                                 prominentAction: true,
                                 selected: index == 2,
-                                onTap: () async {
-                                  final event = await showCreationMenu(context);
-                                  if (!mounted || event == null) return;
-                                  setState(() {
-                                    creatingEvent = event != CreationKind.spot;
-                                    creatingPrivateEvent =
-                                        event == CreationKind.privateEvent;
-                                  });
-                                  selectBottomTab(2);
-                                },
+                                onTap: () => openCreationMenu(),
                               ),
                             ),
                             Expanded(

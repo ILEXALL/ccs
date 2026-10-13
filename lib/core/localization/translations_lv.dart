@@ -1,4 +1,7 @@
 const latvianTranslations = <String, String>{
+  'Phone (required)': 'Tālrunis (obligāts)',
+  'A phone number is required for Service and Detailing spots.':
+      'Servisa un auto kopšanas vietām ir jānorāda tālruņa numurs.',
   'Extend sharing by 1 hour': 'Pagarināt par 1 stundu',
   'Event location revealed': 'Pasākuma atrašanās vieta ir atklāta',
   'Speed cameras': 'Ātruma kameras',

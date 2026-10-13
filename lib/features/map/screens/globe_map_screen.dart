@@ -33,6 +33,7 @@ class GlobeMapScreen extends StatefulWidget {
     this.onInteraction,
     this.onCameraChanged,
     this.onPick,
+    this.onLongPress,
     this.onDismissRoute,
     this.routeDistanceLabel,
     this.showControls = true,
@@ -55,6 +56,7 @@ class GlobeMapScreen extends StatefulWidget {
   final String? routeDistanceLabel;
   final void Function(double, double, double)? onCameraChanged;
   final void Function(double latitude, double longitude)? onPick;
+  final void Function(double latitude, double longitude)? onLongPress;
   final bool showControls;
   final bool isSharing, sharingBusy, isVisible;
   final DateTime? sharingExpiresAt;
@@ -78,6 +80,7 @@ class _GlobeMapScreenState extends State<GlobeMapScreen>
   bool sendingMotion = false;
   String? previousMotion;
   bool ready = false, sending = false, active = true;
+  bool _hiddenPreloadDirty = true;
   bool followActive = false;
   String? previous;
   String? error;
@@ -350,7 +353,8 @@ class _GlobeMapScreenState extends State<GlobeMapScreen>
               setState(() => followActive = false);
               _proximityAudio.setFollowing(false);
               widget.onInteraction?.call();
-            } else if (data['type'] == 'pick' &&
+            } else if ((data['type'] == 'pick' ||
+                    data['type'] == 'longPress') &&
                 data['lat'] is num &&
                 data['lng'] is num) {
               final lat = (data['lat'] as num).toDouble(),
@@ -359,7 +363,11 @@ class _GlobeMapScreenState extends State<GlobeMapScreen>
                   lng.isFinite &&
                   lat.abs() <= 90 &&
                   lng.abs() <= 180)
-                widget.onPick?.call(lat, lng);
+                if (data['type'] == 'longPress') {
+                  widget.onLongPress?.call(lat, lng);
+                } else {
+                  widget.onPick?.call(lat, lng);
+                }
             } else if (data['type'] == 'error') {
               setState(
                 () => error =
@@ -367,6 +375,7 @@ class _GlobeMapScreenState extends State<GlobeMapScreen>
               );
             } else if (data['type'] == 'ready') {
               ready = true;
+              _hiddenPreloadDirty = true;
               unawaited(syncAnimationVisibility());
               error = null;
               unawaited(applySavedStyle());
@@ -487,7 +496,9 @@ class _GlobeMapScreenState extends State<GlobeMapScreen>
   String? previousFixedFeatures, previousMovingFeatures;
 
   Future<void> refresh() async {
-    if (!mounted || !ready || !active || !widget.isVisible || sending) return;
+    if (!mounted || !ready || !active || sending) return;
+    if (!widget.isVisible && !_hiddenPreloadDirty) return;
+    _hiddenPreloadDirty = false;
     sending = true;
     try {
       if (!iconsSent) {
@@ -553,7 +564,7 @@ class _GlobeMapScreenState extends State<GlobeMapScreen>
         frame['features'] = [...(frame['features'] as List), ...cameras];
       }
       frame['features'] = withBeaconAvatars(frame['features'] as List);
-      if (widget.showControls) {
+      if (widget.showControls && widget.isVisible) {
         unawaited(
           _proximityAudio.update(
             frame['features'] as List,
@@ -587,7 +598,7 @@ class _GlobeMapScreenState extends State<GlobeMapScreen>
           if (full || movingJson != previousMovingFeatures) 'moving': mobile,
         };
         await controller.runJavaScript(
-          'window.ccsSetPatch(JSON.parse(${jsonEncode(jsonEncode(patch))}));',
+          'window.ccsSetPatch(JSON.parse(${jsonEncode(jsonEncode(patch))}));${!widget.isVisible ? 'window.ccsPreload?.();' : ''}',
         );
         previousFixedFeatures = fixedJson;
         previousMovingFeatures = movingJson;
@@ -626,6 +637,7 @@ class _GlobeMapScreenState extends State<GlobeMapScreen>
   @override
   void didUpdateWidget(covariant GlobeMapScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
+    _hiddenPreloadDirty = true;
     if (oldWidget.isVisible != widget.isVisible) {
       previousMotion = null;
       unawaited(syncAnimationVisibility());

@@ -40,6 +40,56 @@ void main() {
     expect(find.text('Spot added'), findsNothing);
   });
 
+  testWidgets('close works after switching tabs with animations disabled', (
+    tester,
+  ) async {
+    late BuildContext context;
+    var tab = 0;
+    late StateSetter update;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: StatefulBuilder(
+          builder: (c, setState) {
+            context = c;
+            update = setState;
+            return TickerMode(
+              enabled: false,
+              child: Scaffold(
+                body: IndexedStack(
+                  index: tab,
+                  children: const [Text('Create'), Text('Map')],
+                ),
+              ),
+            );
+          },
+        ),
+      ),
+    );
+    showTransientSnackBar(
+      context,
+      const SnackBar(
+        content: Text('Published'),
+        duration: Duration(seconds: 3),
+      ),
+    );
+    update(() => tab = 1);
+    await tester.pump();
+    expect(find.text('Published'), findsOneWidget);
+    await tester.tap(find.byIcon(Icons.close));
+    await tester.pump();
+    expect(find.text('Published'), findsNothing);
+    showTransientSnackBar(
+      context,
+      const SnackBar(
+        content: Text('Published again'),
+        duration: Duration(seconds: 3),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 4));
+    expect(find.text('Published again'), findsNothing);
+  });
+
   testWidgets('old timeout cannot remove a newer snackbar', (tester) async {
     late BuildContext context;
     await tester.pumpWidget(

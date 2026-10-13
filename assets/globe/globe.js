@@ -59,6 +59,14 @@ function cacheBeaconArtwork(id, image) {
   }
 }
 
+// Less crowding at city scale; retain the close navigation marker sizes.
+function citySpotScale(zoom) {
+  if(zoom<=7) return 1;
+  if(zoom<9) return 1-(zoom-7)*.1;
+  if(zoom<=12) return .8;
+  return Math.min(1,.8+(zoom-12)*(.2/3));
+}
+
 // Reuse the bundled CCS category PNGs; never fetch icons.
 window.ccsSetIcons = icons => {
   for (const [id, uri] of Object.entries(icons)) {
@@ -72,12 +80,27 @@ window.ccsSetIcons = icons => {
         const scale = Math.min(128/image.width,128/image.height);
         const w=image.width*scale,h=image.height*scale;
         ctx.drawImage(image,(128-w)/2,(128-h)/2,w,h);
+        if(id.startsWith('assets/spot_icons/')) {
+          // Normalize the actual pin width, ignoring transparent asset margins
+          // and the category caption beneath the pin.
+          const raw=ctx.getImageData(0,0,128,128).data;
+          let left=128,right=-1;
+          for(let y=0;y<92;y++) for(let x=0;x<128;x++) {
+            if(raw[(y*128+x)*4+3]>32) {left=Math.min(left,x);right=Math.max(right,x);}
+          }
+          if(right>=left) {
+            const factor=Math.min(1.3,64/(right-left+1));
+            ctx.clearRect(0,0,128,128);
+            ctx.drawImage(image,(128-w*factor)/2,(128-h*factor)/2,w*factor,h*factor);
+          }
+        }
         if(tint) {ctx.globalCompositeOperation='source-atop';ctx.fillStyle=tint;ctx.fillRect(0,0,128,128);}
         const key=id+(tint?'@'+tint:'');
         const pixels=ctx.getImageData(0,0,128,128);
         iconCache.set(key,pixels);
         if(ready && !map.hasImage(key)) map.addImage(key,pixels,{pixelRatio:2});
       }
+      if(!viewActive) window.ccsPreload?.();
     };
     image.onerror = () => {statusBox.textContent='Some spot icons could not load. Retry the map.';statusBox.hidden=false;};
     image.src=uri;
@@ -286,6 +309,14 @@ window.ccsSetStyle = style => {
 };
 let alertTimer=null, viewActive=true;
 function stopAlertAnimation() { if(alertTimer!==null) clearInterval(alertTimer); alertTimer=null; }
+// Render hidden preload updates only until tiles settle, with a bounded fallback.
+let preloadTimer=null;
+window.ccsPreload=()=>{
+  if(viewActive || !ready) return;
+  if(preloadTimer!==null) clearTimeout(preloadTimer);
+  window.ccsFrameBudget?.(true,true);
+  preloadTimer=setTimeout(()=>{preloadTimer=null;syncFrameBudget();},8000);
+};
 window.ccsSetActive = active => {viewActive=!!active;document.documentElement?.classList.toggle('ccs-paused',!viewActive);syncFrameBudget();updateEdgeBeacons();updateDwellRing(); if(viewActive) startAlertAnimation(); else {stopAlertAnimation();stopMotion();}};
 function alertRadius(kind) {
   const stops=['interpolate',['linear'],['zoom']];
@@ -360,10 +391,38 @@ try {
   for(const type of ['touchstart','touchmove','touchend','touchcancel']) {
     surface.addEventListener?.(type,touch,{capture:true,passive:true});
   }
+  let holdTimer=null,holdStart=null,suppressClickUntil=0;
+  const cancelHold=()=>{if(holdTimer!==null) clearTimeout(holdTimer);holdTimer=null;holdStart=null;};
+  surface.addEventListener?.('touchstart',e=>{
+    cancelHold();
+    if(e.touches.length!==1) return;
+    const t=e.touches[0];holdStart={x:t.clientX,y:t.clientY};
+    const rect=surface.getBoundingClientRect();
+    const point={x:t.clientX-rect.left,y:t.clientY-rect.top};
+    holdTimer=setTimeout(()=>{
+      holdTimer=null;holdStart=null;
+      if(!ready) return;
+      const location=map.unproject(point);
+      suppressClickUntil=performance.now()+800;
+      browse();map.stop?.();
+      notify('longPress',{lat:location.lat,lng:location.lng});
+    },550);
+  },{passive:true});
+  surface.addEventListener?.('touchmove',e=>{
+    if(!holdStart) return;
+    if(e.touches.length!==1 || Math.hypot(e.touches[0].clientX-holdStart.x,e.touches[0].clientY-holdStart.y)>10) cancelHold();
+  },{passive:true});
+  for(const type of ['touchend','touchcancel']) surface.addEventListener?.(type,cancelHold,{passive:true});
+  map.on('contextmenu',e=>{e.preventDefault?.();});
   map.on('dragstart', browse);
   map.on('zoomstart', e => {if(e.originalEvent) browse();});
   map.on('rotatestart', e => {if(e.originalEvent) browse();});
   map.on('pitchstart', e => {if(e.originalEvent) browse();});
+  map.on('idle',()=>{
+    if(!viewActive && preloadTimer!==null) {
+      clearTimeout(preloadTimer);preloadTimer=null;syncFrameBudget();
+    }
+  });
   map.on('moveend', () => {if(motionFollowing) return; const p=map.getCenter(); notify('camera',{lat:p.lat,lng:p.lng,zoom:map.getZoom()});});
   map.on('error', () => {notify('error');statusBox.textContent='Map could not load. Check your connection or retry the map.';statusBox.hidden=false;});
   map.on('style.load', () => {
@@ -389,7 +448,7 @@ try {
     const dotSize=['interpolate',['linear'],['zoom']];
     for(const z of [1,3,5,7,9,10,11.25,18]) {
       const p=Math.max(0,Math.min(1,(z-3)/(11.25-3)));
-      dotSize.push(z,['*',(3.2+7.2*Math.pow(p,2.7))/2,['case',['get','event'],1.04,1]]);
+      dotSize.push(z,['*',(3.2+7.2*Math.pow(p,2.7))/2*citySpotScale(z),['case',['get','event'],1.04,1]]);
     }
     // A small, soft halo keeps distant spots legible without enlarging the dot.
     // Fade with zoom; muted/visited markers keep their subdued appearance.
@@ -413,7 +472,7 @@ try {
     const iconSize=['interpolate',['linear'],['zoom']];
     for(const z of [11.25,12,13,14,15,16,18]) {
       const p=Math.max(0,Math.min(1,(z-11.25)/(16-11.25)));
-      iconSize.push(z,['*',(38+27*(1-Math.pow(1-p,3)))/64,['case',['get','event'],1.16,1]]);
+      iconSize.push(z,['*',(38+27*(1-Math.pow(1-p,3)))/64*citySpotScale(z),['case',['get','event'],1.16,1]]);
     }
     const spotIcon=['get',currentStyle==='positron'?'lightIcon':'icon'];
     map.addLayer({id:'ccs-spot-icons',type:'symbol',source:'ccs',filter:spots,minzoom:11.25,layout:{
@@ -484,7 +543,7 @@ try {
   });
   map.on('rotate', syncMarkerBearing);
   map.on('click', e => {
-    if(!ready) return;
+    if(!ready || performance.now()<suppressClickUntil) return;
     if(latest.routePreview) {
       latest.routePreview=false;
       notify('dismissRoute');
@@ -655,7 +714,7 @@ function updateDwellRing() {
   dwellRing.style.display='block';
   dwellRing.style.left=p.x+'px';dwellRing.style.top=p.y+'px';
   const z=map.getZoom(), zoomProgress=Math.max(0,Math.min(1,(z-11.25)/4.75));
-  const size=z<11.25?30:(38+27*(1-Math.pow(1-zoomProgress,3)))*(spot.properties.event?1.16:1)+8;
+  const size=z<11.25?30*citySpotScale(z):(38+27*(1-Math.pow(1-zoomProgress,3)))*citySpotScale(z)*(spot.properties.event?1.16:1)+8;
   dwellRing.style.setProperty('--dwell-size',size+'px');
   dwellRing.style.setProperty('--dwell-angle',(fraction*360)+'deg');
 }

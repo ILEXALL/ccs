@@ -1,4 +1,7 @@
 const russianTranslations = <String, String>{
+  'Phone (required)': 'Телефон (обязательно)',
+  'A phone number is required for Service and Detailing spots.':
+      'Для спотов «Сервис» и «Детейлинг» необходимо указать номер телефона.',
   'Extend sharing by 1 hour': 'Продлить на 1 час',
   'Event location revealed': 'Локация события открыта',
   'Speed cameras': 'Камеры скорости',
