@@ -1261,3 +1261,16 @@ test('city spot icons and dots shrink 20 percent while close navigation keeps it
  const at=dots.indexOf(11.25);
  assert.ok(Math.abs(dots[at+1][1]-5.2*.8)<1e-9);
 });
+
+
+test('main camera snapshot preserves follow viewport and picker bearing and pitch',()=>{
+ const f=fixture();f.handlers['style.load']();
+ f.run('motionFollowing=true;map.zoom=13.2;map.bearing=72;map.getPitch=()=>25;map.getCenter=()=>({lat:56.95,lng:24.1})');
+ f.window.ccsCaptureViewport();
+ const snapshot=f.messages.find(m=>m.type==='viewport');
+ assert.equal(snapshot.lat,56.95);assert.equal(snapshot.zoom,13.2);
+ assert.equal(snapshot.bearing,72);assert.equal(snapshot.pitch,25);
+ f.run('motionFollowing=false');
+ f.window.ccsSetFeatures({type:'FeatureCollection',features:[],camera:{revision:10,center:[24.1,56.95],zoom:13.2,bearing:72,pitch:25}});
+ assert.equal(f.moves.at(-1).bearing,72);assert.equal(f.moves.at(-1).pitch,25);
+});

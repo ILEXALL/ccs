@@ -1,3 +1,4 @@
+import '../models/map_viewport.dart';
 import 'package:ccs_app/features/map/data/globe_context_spots.dart';
 import 'package:ccs_app/features/map/data/map_overview.dart'
     show currentMapStartLocation;
@@ -24,12 +25,14 @@ import 'package:ccs_app/features/spots/data/spot_regions.dart'
 
 class LocationPickerScreen extends StatefulWidget {
   final LatLng? initialLocation;
+  final MapViewport? initialViewport;
 
   final bool restrictSpotRegions;
 
   const LocationPickerScreen({
     super.key,
     this.initialLocation,
+    this.initialViewport,
     this.restrictSpotRegions = false,
   });
 
@@ -100,7 +103,10 @@ class _LocationPickerScreenState extends State<LocationPickerScreen>
   }
 
   Future<void> loadProfileCenter() async {
-    if (widget.initialLocation == null) {
+    if (widget.initialViewport != null) {
+      defaultCenter = widget.initialViewport!.center;
+      defaultZoom = widget.initialViewport!.zoom;
+    } else if (widget.initialLocation == null) {
       final location = await currentMapStartLocation();
       if (!mounted) return;
       defaultCenter = location ?? loadedSpotsMapCenter();
@@ -151,10 +157,18 @@ class _LocationPickerScreenState extends State<LocationPickerScreen>
                       'camera': {
                         'revision': 0,
                         'center': [
-                          (widget.initialLocation ?? defaultCenter).longitude,
-                          (widget.initialLocation ?? defaultCenter).latitude,
+                          (widget.initialViewport?.center ??
+                                  widget.initialLocation ??
+                                  defaultCenter)
+                              .longitude,
+                          (widget.initialViewport?.center ??
+                                  widget.initialLocation ??
+                                  defaultCenter)
+                              .latitude,
                         ],
                         'zoom': defaultZoom,
+                        'bearing': widget.initialViewport?.bearing ?? 0,
+                        'pitch': widget.initialViewport?.pitch ?? 0,
                       },
                       'features': [
                         ...globeContextSpots(),

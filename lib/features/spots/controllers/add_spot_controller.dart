@@ -1,3 +1,4 @@
+import 'package:ccs_app/features/map/models/map_viewport.dart';
 import 'package:ccs_app/shared/widgets/transient_snack_bar.dart';
 import 'dart:async';
 import 'package:ccs_app/core/network/json_http.dart' show postJsonToUrl;
@@ -154,6 +155,7 @@ class AddSpotController implements AddSpotControllerActions {
       viewContext,
       appPageRoute(
         builder: (_) => LocationPickerScreen(
+          initialViewport: mainMapViewport,
           initialLocation: host.selectedLocation,
           restrictSpotRegions: true,
         ),

@@ -296,9 +296,14 @@ window.ccsSetFeatures = data => {
         motionFollowing=false;following=false;gestureBlocked=true;syncFrameBudget();
         map.fitBounds(bounds,{padding:{top:100,bottom:160,left:45,right:45},bearing:0,pitch:0,maxZoom:15.6,duration:500});
       }
-      else if(!motionFollowing && !manualTouchActive) map.easeTo({center:camera.center,zoom:camera.zoom,...(!gestureBlocked?{bearing:camera.bearing||0}:{}),duration:250});
+      else if(!motionFollowing && !manualTouchActive) map.easeTo({center:camera.center,zoom:camera.zoom,pitch:camera.pitch||0,...(!gestureBlocked?{bearing:camera.bearing||0}:{}),duration:250});
     } else if(following) follow();
   }
+};
+window.ccsCaptureViewport=()=>{
+  if(!ready) return;
+  const p=map.getCenter();
+  notify('viewport',{lat:p.lat,lng:p.lng,zoom:map.getZoom(),bearing:map.getBearing(),pitch:map.getPitch?.()||0});
 };
 window.ccsFollow = () => { if(!currentPosition() && !motionPosition) return;gestureBlocked=false; following = true;lastCameraSignature=null; syncFrameBudget(); if(!motionReceived) follow(); };
 window.ccsWorld = () => { gestureBlocked=true; following = false; motionFollowing=false; syncFrameBudget(); notify('gesture'); map.easeTo({zoom:1.3,pitch:0,duration:1200}); };
@@ -423,7 +428,7 @@ try {
       clearTimeout(preloadTimer);preloadTimer=null;syncFrameBudget();
     }
   });
-  map.on('moveend', () => {if(motionFollowing) return; const p=map.getCenter(); notify('camera',{lat:p.lat,lng:p.lng,zoom:map.getZoom()});});
+  map.on('moveend', () => {if(motionFollowing) return; window.ccsCaptureViewport(); const p=map.getCenter(); notify('camera',{lat:p.lat,lng:p.lng,zoom:map.getZoom()});});
   map.on('error', () => {notify('error');statusBox.textContent='Map could not load. Check your connection or retry the map.';statusBox.hidden=false;});
   map.on('style.load', () => {
     map.setProjection({type:'globe'});

@@ -1,3 +1,5 @@
+import '../models/map_viewport.dart';
+import 'package:latlong2/latlong.dart';
 import 'package:ccs_app/shared/media/remote_image_cache.dart'
     show cachedAppImage;
 import '../data/map_proximity_audio.dart';
@@ -333,6 +335,26 @@ class _GlobeMapScreenState extends State<GlobeMapScreen>
           try {
             final data = jsonDecode(message.message);
             if (data is! Map) return;
+            if (widget.showControls && data['type'] == 'viewport') {
+              final lat = (data['lat'] as num?)?.toDouble();
+              final lng = (data['lng'] as num?)?.toDouble();
+              final zoom = (data['zoom'] as num?)?.toDouble();
+              final bearing = (data['bearing'] as num?)?.toDouble() ?? 0;
+              final pitch = (data['pitch'] as num?)?.toDouble() ?? 0;
+              if (lat != null &&
+                  lng != null &&
+                  zoom != null &&
+                  [lat, lng, zoom, bearing, pitch].every((v) => v.isFinite) &&
+                  lat.abs() <= 90 &&
+                  lng.abs() <= 180) {
+                mainMapViewport = MapViewport(
+                  LatLng(lat, lng),
+                  zoom,
+                  bearing,
+                  pitch,
+                );
+              }
+            }
             if (data['type'] == 'camera' &&
                 data['lat'] is num &&
                 data['lng'] is num &&
@@ -627,7 +649,7 @@ class _GlobeMapScreenState extends State<GlobeMapScreen>
     if (!ready) return;
     try {
       await controller.runJavaScript(
-        'window.ccsSetActive(${active && widget.isVisible});',
+        '${widget.showControls ? 'window.ccsCaptureViewport?.();' : ''}window.ccsSetActive(${active && widget.isVisible});',
       );
     } catch (_) {
       /* The platform view may already be closing. */
