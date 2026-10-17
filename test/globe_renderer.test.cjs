@@ -16,6 +16,10 @@ function fixture() {
 
     constructor() {this.zoom=1;}
 
+    resize() {this.resizes=(this.resizes||0)+1;}
+
+    triggerRepaint() {this.repaints=(this.repaints||0)+1;}
+
     addControl() {}
 
     addImage() {}
@@ -1273,4 +1277,30 @@ test('main camera snapshot preserves follow viewport and picker bearing and pitc
  f.run('motionFollowing=false');
  f.window.ccsSetFeatures({type:'FeatureCollection',features:[],camera:{revision:10,center:[24.1,56.95],zoom:13.2,bearing:72,pitch:25}});
  assert.equal(f.moves.at(-1).bearing,72);assert.equal(f.moves.at(-1).pitch,25);
+});
+
+
+test('hidden style load resumes and resizes when opened before ready',()=>{
+ const f=fixture(),budgets=[];
+ f.window.ccsFrameBudget=(follow,visible)=>budgets.push(visible);
+ f.window.ccsSetActive(false);
+ assert.equal(budgets.at(-1),true);
+ f.handlers['style.load']();
+ f.handlers.idle();
+ assert.equal(budgets.at(-1),false);
+ f.window.ccsSetStyle('positron');
+ assert.equal(f.run('ready'),false);
+ assert.equal(budgets.at(-1),true);
+ // A follow-state update must not cancel the hidden preload render budget.
+ f.run('syncFrameBudget()');
+ assert.equal(budgets.at(-1),true);
+ for(const fn of [...f.holdTimers.values()]) fn();
+ assert.equal(budgets.at(-1),false);
+ f.window.ccsSetActive(true);
+ assert.equal(f.run('ready'),false);
+ assert.equal(budgets.at(-1),true);
+ assert.equal(f.run('map.resizes'),1);
+ assert.equal(f.run('map.repaints'),1);
+ f.handlers['style.load']();
+ assert.equal(f.run('ready'),true);
 });

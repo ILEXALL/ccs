@@ -15,7 +15,7 @@ let staticSignature=null, liveSignature=null;
 let notifiedFollow=null;
 function syncFrameBudget() {
   const enabled=(motionFollowing || following) && !gestureBlocked;
-  window.ccsFrameBudget?.(enabled && !manualTouchActive, viewActive);
+  window.ccsFrameBudget?.(enabled && !manualTouchActive, viewActive || preloadTimer!==null);
   if(!enabled) updateEdgeBeacons();
   if(notifiedFollow!==enabled) {notifiedFollow=enabled;notify('follow',{enabled});}
 }
@@ -311,18 +311,35 @@ window.ccsSetStyle = style => {
   if (!['dark','positron'].includes(style) || style===currentStyle) {notify('ready');return;}
   stopAlertAnimation(); currentStyle=style; ready=false;
   map.setStyle('https://tiles.openfreemap.org/styles/'+style);
+  window.ccsPreload();
 };
 let alertTimer=null, viewActive=true;
 function stopAlertAnimation() { if(alertTimer!==null) clearInterval(alertTimer); alertTimer=null; }
 // Render hidden preload updates only until tiles settle, with a bounded fallback.
 let preloadTimer=null;
 window.ccsPreload=()=>{
-  if(viewActive || !ready) return;
+  if(viewActive) return;
   if(preloadTimer!==null) clearTimeout(preloadTimer);
   window.ccsFrameBudget?.(true,true);
   preloadTimer=setTimeout(()=>{preloadTimer=null;syncFrameBudget();},8000);
 };
-window.ccsSetActive = active => {viewActive=!!active;document.documentElement?.classList.toggle('ccs-paused',!viewActive);syncFrameBudget();updateEdgeBeacons();updateDwellRing(); if(viewActive) startAlertAnimation(); else {stopAlertAnimation();stopMotion();}};
+window.ccsSetActive = active => {
+  viewActive=!!active;
+  document.documentElement?.classList.toggle('ccs-paused',!viewActive);
+  if(viewActive && preloadTimer!==null) {clearTimeout(preloadTimer);preloadTimer=null;}
+  syncFrameBudget();
+  if(viewActive) {
+    // An Android WebView mounted offstage can retain its old canvas dimensions.
+    // Resume before resizing, including when style.load has not fired yet.
+    map?.resize();
+    map?.triggerRepaint();
+    startAlertAnimation();
+  } else {
+    stopAlertAnimation();stopMotion();
+    if(!ready) window.ccsPreload();
+  }
+  updateEdgeBeacons();updateDwellRing();
+};
 function alertRadius(kind) {
   const stops=['interpolate',['linear'],['zoom']];
   for(const z of [1,4,5,7,9,11,12,14.19,14.2,15,16,17,18]) {

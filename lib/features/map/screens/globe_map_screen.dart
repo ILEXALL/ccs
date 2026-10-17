@@ -443,6 +443,7 @@ class _GlobeMapScreenState extends State<GlobeMapScreen>
       )
       ..setNavigationDelegate(
         NavigationDelegate(
+          onPageFinished: (_) => unawaited(syncAnimationVisibility()),
           onNavigationRequest: (request) {
             final uri = Uri.tryParse(request.url);
             if (uri?.scheme == 'file' || request.url == 'about:blank') {
@@ -646,10 +647,11 @@ class _GlobeMapScreenState extends State<GlobeMapScreen>
 
   Future<void> syncAnimationVisibility() async {
     if (!active || !widget.isVisible) unawaited(_proximityAudio.stop());
-    if (!ready) return;
+    // Visibility must resume the renderer even while a style is still loading.
     try {
       await controller.runJavaScript(
-        '${widget.showControls ? 'window.ccsCaptureViewport?.();' : ''}window.ccsSetActive(${active && widget.isVisible});',
+        'window.ccsSetActive?.(${active && widget.isVisible});'
+        '${widget.showControls ? 'window.ccsCaptureViewport?.();' : ''}',
       );
     } catch (_) {
       /* The platform view may already be closing. */
