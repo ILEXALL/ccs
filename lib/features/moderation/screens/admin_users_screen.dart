@@ -4,6 +4,7 @@ import 'package:ccs_app/features/moderation/controllers/admin_users_view_state.d
 import 'package:ccs_app/features/moderation/widgets/admin_users_content.dart';
 import 'package:ccs_app/features/moderation/controllers/admin_users_controller.dart';
 import 'dart:async';
+import 'package:ccs_app/features/moderation/screens/admin_ban_history_screen.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart' hide Text;
 import 'package:ccs_app/core/firestore/firestore_tracking.dart'
@@ -82,6 +83,7 @@ class _AdminUsersScreenState extends State<AdminUsersScreen>
 
   @override
   Widget build(BuildContext context) {
+    if (bannedOnly) return const AdminBanHistoryScreen();
     return Scaffold(
       backgroundColor: Colors.transparent,
       appBar: AppBar(

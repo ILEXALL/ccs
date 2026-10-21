@@ -35,7 +35,7 @@ class EventCoverBackground extends StatelessWidget {
             gradient: LinearGradient(
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
-              colors: [Color(0xFF493722), Color(0xFF151923)],
+              colors: [Color(0xFF404040), Color(0xFF262626)],
             ),
           ),
         ),
@@ -44,27 +44,61 @@ class EventCoverBackground extends StatelessWidget {
             child: IgnorePointer(
               child: RepaintBoundary(
                 child: ClipRect(
-                  child: ImageFiltered(
-                    imageFilter: ui.ImageFilter.blur(
-                      sigmaX: 48,
-                      sigmaY: 48,
-                      tileMode: TileMode.clamp,
-                    ),
-                    child: Image(
-                      key: ValueKey(source),
-                      frameBuilder: fadeInLoadedImage,
-                      image: ResizeImage(
-                        provider,
-                        width: 192,
-                        height: 192,
-                        policy: ResizeImagePolicy.fit,
+                  child: ColorFiltered(
+                    // Scale the normalized color field to a maximum of 0.5
+                    // per RGB channel; alpha remains unchanged for image fades.
+                    colorFilter: const ColorFilter.matrix([
+                      0.5,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0.5,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0.5,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      1,
+                      0,
+                    ]),
+                    child: ColorFiltered(
+                      // Keep the cover's hue/saturation, but replace its
+                      // luminance with neutral gray before limiting brightness.
+                      colorFilter: const ColorFilter.mode(
+                        Color(0xFF808080),
+                        BlendMode.luminosity,
                       ),
-                      // Stretch the already blurred colour field so the entire
-                      // poster palette remains visible, including its edges.
-                      fit: BoxFit.fill,
-                      excludeFromSemantics: true,
-                      filterQuality: FilterQuality.low,
-                      errorBuilder: (_, _, _) => const SizedBox.expand(),
+                      child: ImageFiltered(
+                        imageFilter: ui.ImageFilter.blur(
+                          sigmaX: 48,
+                          sigmaY: 48,
+                          tileMode: TileMode.clamp,
+                        ),
+                        child: Image(
+                          key: ValueKey(source),
+                          frameBuilder: fadeInLoadedImage,
+                          image: ResizeImage(
+                            provider,
+                            width: 192,
+                            height: 192,
+                            policy: ResizeImagePolicy.fit,
+                          ),
+                          // Stretch the already blurred colour field so the entire
+                          // poster palette remains visible, including its edges.
+                          fit: BoxFit.fill,
+                          excludeFromSemantics: true,
+                          filterQuality: FilterQuality.low,
+                          errorBuilder: (_, _, _) => const SizedBox.expand(),
+                        ),
+                      ),
                     ),
                   ),
                 ),
@@ -78,18 +112,15 @@ class EventCoverBackground extends StatelessWidget {
                 begin: Alignment.topCenter,
                 end: Alignment.bottomCenter,
                 colors: [
-                  Color(0x59080B10),
-                  Color(0x73080B10),
-                  Color(0xA6080B10),
+                  Color(0x26000000),
+                  Color(0x40000000),
+                  Color(0x73000000),
                 ],
                 stops: [0, .55, 1],
               ),
             ),
           ),
         ),
-        // A faint neutral veil lifts crushed blacks without tinting the poster
-        // or controls, which are painted above this background-only layer.
-        const IgnorePointer(child: ColoredBox(color: Color(0x244E5056))),
         child,
       ],
     );

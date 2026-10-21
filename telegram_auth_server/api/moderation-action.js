@@ -5,7 +5,7 @@ const {drainForumPublications} = require('../lib/forum-publications');
 const { admin, db } = require('../lib/firebase-admin');
 const { spotReviewAction } = require('../lib/spot-review');
 const { forumReviewAction } = require('../lib/forum-review');
-const { banUserAction } = require('../lib/user-ban');
+const { banUserAction, unbanUserAction, listBansAction } = require('../lib/user-ban');
 const { canModerateCountry, communityCountry } = require('../lib/regional-moderation');
 
 function cleanString(value, fallback = '') {
@@ -526,6 +526,8 @@ async function deleteForumReply({ actor, body }) {
 const handlers = {
   delete_spot: deleteSpotAction,
   ban_user: banUserAction,
+  unban_user: unbanUserAction,
+  list_bans: listBansAction,
   country_review: countryReviewAction,
   spot_review_countries: saveReviewCountries,
   spot_review: spotReviewAction,

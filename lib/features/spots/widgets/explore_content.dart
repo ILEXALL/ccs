@@ -2,8 +2,7 @@ import 'package:ccs_app/features/spots/models/explore_sort.dart';
 import 'dart:async';
 import 'package:flutter/material.dart' hide Text;
 import 'package:ccs_app/core/localization/ccs_text.dart' show CcsText, trText;
-import 'package:ccs_app/core/theme/app_theme.dart'
-    show blue, ccsBlueCyanGradient, ccsGradientEnd;
+import 'package:ccs_app/core/theme/app_theme.dart' show blue;
 import 'package:ccs_app/features/spots/models/spot_categories.dart'
     show spotColorForCategory;
 import 'package:ccs_app/features/spots/controllers/explore_view_state.dart';
@@ -74,15 +73,31 @@ class ExploreContent implements ExploreContentActions {
           duration: const Duration(milliseconds: 180),
           padding: const EdgeInsets.symmetric(vertical: 10),
           decoration: BoxDecoration(
-            gradient: selected ? ccsBlueCyanGradient : null,
-            color: selected ? null : Colors.transparent,
+            gradient: selected
+                ? const LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [
+                      Color(0xFF153C81),
+                      Color(0xFF145A83),
+                      Color(0xFF176B7A),
+                    ],
+                    stops: [0, 0.55, 1],
+                  )
+                : null,
+            color: selected ? null : Colors.white.withValues(alpha: 0.055),
+            border: Border.all(
+              color: selected
+                  ? const Color(0xFF397795)
+                  : Colors.white.withValues(alpha: 0.12),
+            ),
             borderRadius: BorderRadius.circular(12),
             boxShadow: selected
                 ? [
                     BoxShadow(
-                      color: ccsGradientEnd.withValues(alpha: 0.24),
-                      blurRadius: 16,
-                      offset: const Offset(0, 8),
+                      color: const Color(0x14287994),
+                      blurRadius: 10,
+                      offset: const Offset(0, 3),
                     ),
                   ]
                 : null,
@@ -118,20 +133,15 @@ class ExploreContent implements ExploreContentActions {
 
   @override
   Widget sortSegmentedControl() {
-    return Container(
-      padding: const EdgeInsets.all(4),
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.055),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
-      ),
-      child: Row(
-        children: [
-          sortPill(ExploreSortMode.popular, Icons.trending_up),
-          sortPill(ExploreSortMode.newest, Icons.auto_awesome),
-          sortPill(ExploreSortMode.nearest, Icons.near_me_outlined),
-        ],
-      ),
+    // Match the category strip: three equal columns with the same gutters.
+    return Row(
+      children: [
+        sortPill(ExploreSortMode.popular, Icons.trending_up),
+        SizedBox(width: host.configCategoryCardGap),
+        sortPill(ExploreSortMode.newest, Icons.auto_awesome),
+        SizedBox(width: host.configCategoryCardGap),
+        sortPill(ExploreSortMode.nearest, Icons.near_me_outlined),
+      ],
     );
   }
 

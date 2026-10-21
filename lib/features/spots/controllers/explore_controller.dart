@@ -529,9 +529,7 @@ class ExploreController implements ExploreControllerActions {
   List<String> orderedExploreCategories(Map<String, int> counts) {
     final hasUpcoming = (counts[host.configUpcomingCategoryName] ?? 0) > 0;
     final normalCategories =
-        spotCategoryOptions
-            .where((category) => (counts[category] ?? 0) > 0)
-            .toList()
+        spotCategoryOptions.where(spotCategoryFilters.value.contains).toList()
           ..sort((first, second) {
             final countCompare = (counts[second] ?? 0).compareTo(
               counts[first] ?? 0,
@@ -548,11 +546,10 @@ class ExploreController implements ExploreControllerActions {
       return [host.configUpcomingCategoryName, ...normalCategories];
     }
 
-    // With no upcoming events, Photo is always the first/default chamber even
-    // when it currently has zero results. Keep the remaining populated
-    // categories after it, and keep Upcoming reachable at the far end.
+    // Keep enabled categories available even with zero results. Events is a
+    // separate entry, not a permanent-spot category in the filter panel.
     return [
-      'Photo',
+      if (spotCategoryFilters.value.contains('Photo')) 'Photo',
       ...normalCategories.where((category) => category != 'Photo'),
       host.configUpcomingCategoryName,
     ];
@@ -561,10 +558,9 @@ class ExploreController implements ExploreControllerActions {
   @override
   void normalizeSelectedExploreCategory(Map<String, int> counts) {
     final categories = orderedExploreCategories(counts);
-    final hasUpcoming = (counts[host.configUpcomingCategoryName] ?? 0) > 0;
-    final defaultCategory = hasUpcoming
-        ? host.configUpcomingCategoryName
-        : 'Photo';
+    final defaultCategory = categories.isNotEmpty
+        ? categories.first
+        : host.configUpcomingCategoryName;
 
     if (host.pendingSpotsEntryDefaultCategory) {
       host.selectedExploreCategory = defaultCategory;

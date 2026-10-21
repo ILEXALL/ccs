@@ -296,9 +296,11 @@ export async function sendPushToUser({
   let revealSpot;
   if (data.spotId) {
     const source = await db.collection('spots').doc(data.spotId).get();
-    if (data.type === 'event_location_revealed') {
+    if (['event_location_revealed', 'temporary_spot_today'].includes(data.type)) {
       revealSpot=source.data();
-      if (!reveals.revealIsDue(revealSpot,Date.now(),1)) return 0;
+      const due = data.type === 'temporary_spot_today' ? reveals.reminderIsDue : reveals.revealIsDue;
+      if (!due(revealSpot,Date.now(),1)) return 0;
+      if (data.type === 'temporary_spot_today' && timestampToMillis(revealSpot.startsAt) !== data.startsAtMillis) return 0;
     }
     if (source.exists && groupSpot(source.data())) {
       const members = await groupSpotMemberIds(source.data());
@@ -1021,74 +1023,16 @@ async function runTemporaryReminderOnce(eventKey, dispatch) {
 
 async function handleTemporarySpotReminder(userId, payload) {
   await requireStaff(userId);
-
   const spotId = cleanText(payload.spotId);
-  const spotSnapshot = await db.collection('spots').doc(spotId).get();
-  if (!spotSnapshot.exists) {
-    return [];
-  }
-
-  const spot = spotSnapshot.data() || {};
-  const startsAtMillis = timestampToMillis(spot.startsAt);
-  const nowMillis = Date.now();
-  const reminderAtMillis = startsAtMillis - 5 * 60 * 60 * 1000;
-  if (
-    spot.isTemporary !== true ||
-    spot.status !== 'approved' ||
-    !startsAtMillis ||
-    nowMillis < reminderAtMillis ||
-    nowMillis >= startsAtMillis
-  ) {
-    return [];
-  }
-
-  return runTemporaryReminderOnce(
-    `temporary_spot_reminder:${spotId}:${startsAtMillis}`,
-    async () => {
-      let recipientUserIds = cleanStringArray(payload.recipientUserIds).filter(
-        (recipientUserId) => recipientUserId !== userId,
-      );
-      if (!recipientUserIds.length) {
-        const usersSnapshot = await db.collection('users').limit(500).get();
-        recipientUserIds = usersSnapshot.docs
-          .map((doc) => doc.id)
-          .filter((recipientUserId) => recipientUserId !== userId);
-      }
-
-      const spotName = cleanText(spot.name, 'Event');
-      const cityCountry = cleanText(spot.cityCountry);
-      const spotCountry = countryFromCityCountry(cityCountry);
-      const locationSuffix = cityCountry ? ` in ${cityCountry}` : '';
-      const title = 'Event starts in 5 hours';
-      const body = `${spotName} starts in about 5 hours${locationSuffix}.`;
-      const notificationBaseId = `temporary_spot_reminder_${spotId}_${startsAtMillis}`;
-
-      const outcomes = await Promise.allSettled(
-        recipientUserIds.map((recipientUserId) =>
-          sendPushToUser({
-            userId: recipientUserId,
-            settingName: 'newSpotNotifications',
-            spotCountry,
-            deliveryKey: `temporary_spot_reminder:${spotId}:${startsAtMillis}`,
-            notificationId: `${notificationBaseId}_${recipientUserId}`,
-            title,
-            body,
-            data: {
-              type: 'temporary_spot_today',
-              preferenceKey: 'newSpotNotifications',
-              spotId,
-              spotName,
-              cityCountry,
-              startsAtMillis,
-            },
-          }),
-        ),
-      );
-      const failure = outcomes.find((outcome) => outcome.status === 'rejected');
-      if (failure) throw failure.reason;
-      return outcomes.map((outcome) => outcome.value);
-    },
-  );
+  if (!spotId) return [];
+  // Older apps may still request reminders. Use the same paginated scheduler,
+  // country eligibility and delivery keys instead of a second broadcast path.
+  const result = await reveals.dispatchEventNotifications({
+    db, send: sendPushToUser, countryKey, since: 1,
+    kinds: ['reminder'], spotId,
+  });
+  if (result.busy) throw new Error('Event dispatch in progress; retry later.');
+  return [result.processed];
 }
 
 async function handleSpotPendingReview(userId, payload) {

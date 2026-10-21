@@ -13,8 +13,7 @@ import 'package:flutter/material.dart' hide Text;
 import 'package:flutter/services.dart';
 import 'package:ccs_app/features/profile/navigation/profile_navigation.dart'
     show openUserProfile;
-import 'package:ccs_app/core/firestore/collections.dart'
-    show deviceBansCollection, usersCollection;
+import 'package:ccs_app/core/firestore/collections.dart' show usersCollection;
 import 'package:ccs_app/core/firestore/firestore_tracking.dart'
     show FirestoreDebugDocumentReferenceExtension, FirestoreDebugQueryExtension;
 import 'package:ccs_app/core/localization/ccs_text.dart' show CcsText, trText;
@@ -725,30 +724,10 @@ class AdminUsersController implements AdminUsersControllerActions {
     }
 
     try {
-      await usersCollection().doc(user.uid).debugSet({
-        'banned': false,
-        'bannedUntil': FieldValue.delete(),
-        'banReason': FieldValue.delete(),
-        'knownDeviceIdsAtBan': FieldValue.delete(),
-        'unbannedByUid': currentUser.uid,
-        'unbannedBy': currentUser.username,
-        'unbannedAt': FieldValue.serverTimestamp(),
-        'updatedAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
-
-      for (final deviceId in user.deviceIds) {
-        final cleanDeviceId = deviceId.trim();
-        if (cleanDeviceId.isEmpty) {
-          continue;
-        }
-        await deviceBansCollection().doc(cleanDeviceId).debugSet({
-          'banned': false,
-          'unbannedByUid': currentUser.uid,
-          'unbannedBy': currentUser.username,
-          'unbannedAt': FieldValue.serverTimestamp(),
-          'updatedAt': FieldValue.serverTimestamp(),
-        }, SetOptions(merge: true));
-      }
+      await sendModerationAction({
+        'action': 'unban_user',
+        'targetUserId': user.uid,
+      });
 
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
