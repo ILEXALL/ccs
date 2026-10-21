@@ -1,3 +1,7 @@
+import 'package:ccs_app/features/spots/data/spot_filters.dart'
+    show availableCommunityCountryCodes;
+import 'package:ccs_app/app/gates/maintenance_state.dart'
+    show maintenanceModeConfig;
 import 'package:ccs_app/features/moderation/models/admin_user_sort.dart';
 import 'package:ccs_app/features/moderation/screens/admin_xp_grant_screen.dart';
 import 'package:ccs_app/features/progression/data/xp_api.dart'
@@ -29,11 +33,7 @@ import 'package:ccs_app/features/moderation/widgets/spot_actions.dart'
 import 'package:ccs_app/features/profile/models/user_settings.dart'
     show UserSettingsData;
 import 'package:ccs_app/shared/models/countries.dart'
-    show
-        allSupportedCountryNames,
-        countryFlagEmoji,
-        countryIsoCode,
-        localizedCountryName;
+    show countryFlagEmoji, countryNamesByIso, localizedCountryName;
 import 'package:ccs_app/shared/models/user_role.dart' show UserRole;
 import 'package:ccs_app/features/moderation/controllers/admin_users_view_state.dart';
 
@@ -235,186 +235,201 @@ class AdminUsersController implements AdminUsersControllerActions {
     AdminUserData user,
   ) async {
     final searchController = TextEditingController();
-    final selectedCodes = <String>{...user.moderatorCountryCodes};
+    final selectedCodes = user.moderatorCountryCodes.intersection(
+      availableCommunityCountryCodes().toSet(),
+    );
     String searchQuery = '';
     String? errorText;
 
     try {
       return await showDialog<Set<String>>(
         context: context,
-        builder: (dialogContext) => StatefulBuilder(
-          builder: (context, setDialogState) {
-            final query = searchQuery.trim().toLowerCase();
-            final countries = allSupportedCountryNames()
-                .where(
-                  (country) =>
-                      query.isEmpty ||
-                      localizedCountryName(
-                        country,
-                      ).toLowerCase().contains(query) ||
-                      country.toLowerCase().contains(query),
-                )
-                .toList(growable: false);
+        builder: (dialogContext) => ListenableBuilder(
+          listenable: maintenanceModeConfig,
+          builder: (_, _) => StatefulBuilder(
+            builder: (context, setDialogState) {
+              final query = searchQuery.trim().toLowerCase();
+              final available = availableCommunityCountryCodes();
+              selectedCodes.retainAll(available);
+              final countries = available
+                  .where(
+                    (country) =>
+                        query.isEmpty ||
+                        localizedCountryName(
+                          country,
+                        ).toLowerCase().contains(query) ||
+                        country.toLowerCase().contains(query) ||
+                        (countryNamesByIso[country]?.any(
+                              (name) => name.toLowerCase().contains(query),
+                            ) ??
+                            false),
+                  )
+                  .toList(growable: false);
 
-            void toggleCountry(String code) {
-              setDialogState(() {
-                errorText = null;
-                if (!selectedCodes.remove(code)) {
-                  if (selectedCodes.length >= 30) {
-                    errorText = trText(
-                      'A moderator can be assigned to up to 30 countries.',
-                    );
-                    return;
-                  }
-                  selectedCodes.add(code);
-                }
-              });
-            }
-
-            return AlertDialog(
-              backgroundColor: panelGlass,
-              title: CcsText(trText('Assign moderator countries')),
-              content: SizedBox(
-                width: 620,
-                height: math.min(540, MediaQuery.sizeOf(context).height * 0.7),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    CcsText(
-                      trText(
-                        'This moderator can review spots only in the selected countries.',
-                      ),
-                      style: const TextStyle(
-                        color: Colors.white70,
-                        height: 1.35,
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: searchController,
-                      onChanged: (value) =>
-                          setDialogState(() => searchQuery = value),
-                      style: const TextStyle(color: Colors.white),
-                      decoration: InputDecoration(
-                        hintText: trText('Search countries'),
-                        prefixIcon: const Icon(
-                          Icons.search,
-                          color: Colors.white54,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    CcsText(
-                      '${selectedCodes.length} ${trText('assigned countries')}',
-                      style: const TextStyle(
-                        color: blue,
-                        fontWeight: FontWeight.w900,
-                      ),
-                    ),
-                    if (errorText != null) ...[
-                      const SizedBox(height: 6),
-                      CcsText(
-                        errorText!,
-                        style: const TextStyle(
-                          color: Colors.redAccent,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    ],
-                    const SizedBox(height: 8),
-                    Expanded(
-                      child: GridView.builder(
-                        itemCount: countries.length,
-                        gridDelegate:
-                            const SliverGridDelegateWithMaxCrossAxisExtent(
-                              maxCrossAxisExtent: 260,
-                              mainAxisExtent: 52,
-                              crossAxisSpacing: 8,
-                              mainAxisSpacing: 8,
-                            ),
-                        itemBuilder: (context, index) {
-                          final country = countries[index];
-                          final code = countryIsoCode(country)!;
-                          final selected = selectedCodes.contains(code);
-                          return Material(
-                            color: selected
-                                ? blue.withValues(alpha: 0.14)
-                                : Colors.white.withValues(alpha: 0.04),
-                            borderRadius: BorderRadius.circular(12),
-                            child: InkWell(
-                              onTap: () => toggleCountry(code),
-                              borderRadius: BorderRadius.circular(12),
-                              child: Container(
-                                padding: const EdgeInsets.only(right: 8),
-                                decoration: BoxDecoration(
-                                  borderRadius: BorderRadius.circular(12),
-                                  border: Border.all(
-                                    color: selected ? blue : Colors.white12,
-                                  ),
-                                ),
-                                child: Row(
-                                  children: [
-                                    Checkbox(
-                                      value: selected,
-                                      activeColor: blue,
-                                      visualDensity: VisualDensity.compact,
-                                      onChanged: (_) => toggleCountry(code),
-                                    ),
-                                    CcsText(
-                                      countryFlagEmoji(code),
-                                      style: const TextStyle(fontSize: 18),
-                                    ),
-                                    const SizedBox(width: 7),
-                                    Expanded(
-                                      child: CcsText(
-                                        localizedCountryName(code),
-                                        maxLines: 2,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: const TextStyle(
-                                          color: Colors.white,
-                                          fontSize: 12.5,
-                                          fontWeight: FontWeight.w800,
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          );
-                        },
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(dialogContext),
-                  child: CcsText(trText('Cancel')),
-                ),
-                ElevatedButton.icon(
-                  onPressed: () {
-                    if (selectedCodes.isEmpty) {
-                      setDialogState(
-                        () => errorText = trText(
-                          'Select at least one country for the moderator.',
-                        ),
+              void toggleCountry(String code) {
+                setDialogState(() {
+                  errorText = null;
+                  if (!selectedCodes.remove(code)) {
+                    if (selectedCodes.length >= 30) {
+                      errorText = trText(
+                        'A moderator can be assigned to up to 30 countries.',
                       );
                       return;
                     }
-                    Navigator.pop(dialogContext, <String>{...selectedCodes});
-                  },
-                  icon: const Icon(Icons.save_outlined),
-                  label: CcsText(trText('Save assignment')),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: blue,
-                    foregroundColor: Colors.white,
+                    selectedCodes.add(code);
+                  }
+                });
+              }
+
+              return AlertDialog(
+                backgroundColor: panelGlass,
+                title: CcsText(trText('Assign moderator countries')),
+                content: SizedBox(
+                  width: 620,
+                  height: math.min(
+                    540,
+                    MediaQuery.sizeOf(context).height * 0.7,
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      CcsText(
+                        trText(
+                          'This moderator can review spots only in the selected countries.',
+                        ),
+                        style: const TextStyle(
+                          color: Colors.white70,
+                          height: 1.35,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: searchController,
+                        onChanged: (value) =>
+                            setDialogState(() => searchQuery = value),
+                        style: const TextStyle(color: Colors.white),
+                        decoration: InputDecoration(
+                          hintText: trText('Search countries'),
+                          prefixIcon: const Icon(
+                            Icons.search,
+                            color: Colors.white54,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      CcsText(
+                        '${selectedCodes.length} ${trText('assigned countries')}',
+                        style: const TextStyle(
+                          color: blue,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                      if (errorText != null) ...[
+                        const SizedBox(height: 6),
+                        CcsText(
+                          errorText!,
+                          style: const TextStyle(
+                            color: Colors.redAccent,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
+                      const SizedBox(height: 8),
+                      Expanded(
+                        child: GridView.builder(
+                          itemCount: countries.length,
+                          gridDelegate:
+                              const SliverGridDelegateWithMaxCrossAxisExtent(
+                                maxCrossAxisExtent: 260,
+                                mainAxisExtent: 52,
+                                crossAxisSpacing: 8,
+                                mainAxisSpacing: 8,
+                              ),
+                          itemBuilder: (context, index) {
+                            final country = countries[index];
+                            final code = country;
+                            final selected = selectedCodes.contains(code);
+                            return Material(
+                              color: selected
+                                  ? blue.withValues(alpha: 0.14)
+                                  : Colors.white.withValues(alpha: 0.04),
+                              borderRadius: BorderRadius.circular(12),
+                              child: InkWell(
+                                onTap: () => toggleCountry(code),
+                                borderRadius: BorderRadius.circular(12),
+                                child: Container(
+                                  padding: const EdgeInsets.only(right: 8),
+                                  decoration: BoxDecoration(
+                                    borderRadius: BorderRadius.circular(12),
+                                    border: Border.all(
+                                      color: selected ? blue : Colors.white12,
+                                    ),
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      Checkbox(
+                                        value: selected,
+                                        activeColor: blue,
+                                        visualDensity: VisualDensity.compact,
+                                        onChanged: (_) => toggleCountry(code),
+                                      ),
+                                      CcsText(
+                                        countryFlagEmoji(code),
+                                        style: const TextStyle(fontSize: 18),
+                                      ),
+                                      const SizedBox(width: 7),
+                                      Expanded(
+                                        child: CcsText(
+                                          localizedCountryName(code),
+                                          maxLines: 2,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: const TextStyle(
+                                            color: Colors.white,
+                                            fontSize: 12.5,
+                                            fontWeight: FontWeight.w800,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-              ],
-            );
-          },
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(dialogContext),
+                    child: CcsText(trText('Cancel')),
+                  ),
+                  ElevatedButton.icon(
+                    onPressed: () {
+                      selectedCodes.retainAll(availableCommunityCountryCodes());
+                      if (selectedCodes.isEmpty) {
+                        setDialogState(
+                          () => errorText = trText(
+                            'Select at least one country for the moderator.',
+                          ),
+                        );
+                        return;
+                      }
+                      Navigator.pop(dialogContext, <String>{...selectedCodes});
+                    },
+                    icon: const Icon(Icons.save_outlined),
+                    label: CcsText(trText('Save assignment')),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: blue,
+                      foregroundColor: Colors.white,
+                    ),
+                  ),
+                ],
+              );
+            },
+          ),
         ),
       );
     } finally {

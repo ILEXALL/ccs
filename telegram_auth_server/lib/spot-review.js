@@ -1,3 +1,4 @@
+const { leaseData, tokenValid } = require('./country-review');
 const { admin, db } = require('./firebase-admin');
 const LEASE_MS = 90000;
 const text = value => typeof value === 'string' ? value.trim() : '';
@@ -28,25 +29,44 @@ async function spotReviewAction({ actor, body }) {
     const [spotSnapshot, lockSnapshot, userSnapshot] = await Promise.all([
       transaction.get(spotRef), transaction.get(lockRef), transaction.get(userRef),
     ]);
+    const spot = spotSnapshot.data() || {};
+    const code = text(spot.countryCode).toUpperCase();
+    const countryRef = db.collection('country_review_locks').doc(code || 'UNKNOWN');
+    const countrySnapshot = await transaction.get(countryRef);
+    const countryLock = countrySnapshot.data() || {};
+    const countrySessionId = text(body.countrySessionId) ||
+      (operation !== 'acquire' ? text(lockSnapshot.data()?.countrySessionId) : '') || sessionId;
+    if (!tokenValid(countrySessionId)) throw new Error('Invalid country review session');
     const now = Date.now();
+    const countryAlive = millis(countryLock.expiresAt) > now;
+    const ownsCountry = countryLock.reviewerUid === actor.uid && countryLock.sessionId === countrySessionId;
     const lock = lockSnapshot.data() || {};
     const owns = lock.reviewerUid === actor.uid && lock.sessionId === sessionId;
     const alive = millis(lock.expiresAt) > now;
     if (operation === 'release') {
       if (owns) transaction.delete(lockRef);
+      if (ownsCountry && countrySessionId === sessionId) transaction.delete(countryRef);
       return { released: owns };
     }
     if (!spotSnapshot.exists) throw new Error('Spot is no longer available');
-    const spot = spotSnapshot.data();
     const user = userSnapshot.data();
     if (!userSnapshot.exists || !canReview(user, spot, now)) {
       throw new Error('No permission to review this spot');
+    }
+    if (countryAlive && !ownsCountry) {
+      if (operation === 'acquire') return {acquired:false,reviewerUsername:text(countryLock.reviewerUsername)};
+      throw new Error('This country is being reviewed by another reviewer');
+    }
+    if ((body.countrySessionId || operation !== 'acquire') && (!ownsCountry || !countryAlive)) {
+      throw new Error('Country review lock expired');
     }
     if (operation === 'acquire') {
       if (alive && !owns) return {
         acquired: false, reviewerUsername: text(lock.reviewerUsername),
       };
+      if (countrySessionId === sessionId) transaction.set(countryRef, leaseData(actor, user, countrySessionId, now));
       transaction.set(lockRef, {
+        countryCode: code, countrySessionId,
         reviewerUid: actor.uid, reviewerUsername: text(user.username), sessionId,
         expiresAt: admin.firestore.Timestamp.fromMillis(now + LEASE_MS),
         heartbeatAt: admin.firestore.Timestamp.fromMillis(now),
@@ -56,6 +76,7 @@ async function spotReviewAction({ actor, body }) {
     }
     if (!owns || !alive) throw new Error('Review lock expired or belongs to another reviewer');
     if (operation === 'renew') {
+      if (countrySessionId === sessionId) transaction.set(countryRef, leaseData(actor, user, countrySessionId, now));
       transaction.update(lockRef, {
         expiresAt: admin.firestore.Timestamp.fromMillis(now + LEASE_MS),
         heartbeatAt: admin.firestore.Timestamp.fromMillis(now),
@@ -100,6 +121,7 @@ async function spotReviewAction({ actor, body }) {
     }
     transaction.update(spotRef, {
       status, rejectionReason: reason,
+      approvalMethod: status === 'approved' ? 'manual' : 'rejected',
       reviewedBy: text(user.username), reviewedByUid: actor.uid,
       reviewedAt: admin.firestore.FieldValue.serverTimestamp(),
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),

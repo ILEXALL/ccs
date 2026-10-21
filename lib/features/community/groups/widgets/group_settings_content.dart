@@ -1,3 +1,6 @@
+import 'package:ccs_app/features/community/chats/models/chat_thread.dart'
+    show ChatThreadData;
+import 'package:flutter/foundation.dart' show listEquals;
 import 'package:ccs_app/shared/media/remote_image_cache.dart'
     show cachedAppImage;
 import 'package:ccs_app/shared/media/image_fade.dart' show fadeInLoadedImage;
@@ -29,7 +32,25 @@ import 'package:ccs_app/features/community/groups/controllers/group_settings_vie
 /// Renders reusable sections for GroupSettingsScreen.
 class GroupSettingsContent implements GroupSettingsContentActions {
   final GroupSettingsViewState host;
-  GroupSettingsContent(this.host);
+  GroupSettingsContent(this.host, {this.loadMembers = loadChatMembers});
+
+  final Future<List<FriendUserData>> Function(ChatThreadData) loadMembers;
+
+  List<String>? _loadedMemberIds;
+  String? _loadedForUid;
+  Future<List<FriendUserData>>? _membersFuture;
+
+  Future<List<FriendUserData>> membersFuture() {
+    final chat = host.controller.localChatData;
+    if (_membersFuture == null ||
+        _loadedForUid != currentUser.uid ||
+        !listEquals(_loadedMemberIds, chat.memberIds)) {
+      _loadedForUid = currentUser.uid;
+      _loadedMemberIds = List.of(chat.memberIds);
+      _membersFuture = loadMembers(chat);
+    }
+    return _membersFuture!;
+  }
 
   @override
   Widget avatarPreview() {
@@ -193,7 +214,7 @@ class GroupSettingsContent implements GroupSettingsContentActions {
   @override
   Widget membersSection() {
     return FutureBuilder<List<FriendUserData>>(
-      future: loadChatMembers(host.controller.localChatData),
+      future: membersFuture(),
       builder: (context, snapshot) {
         final chatData = host.controller.localChatData;
         final members =

@@ -11,6 +11,8 @@ import 'package:ccs_app/features/moderation/data/moderation_api.dart'
 
 class SpotReviewLease extends ChangeNotifier {
   final String spotId;
+  final String? countryCode;
+  final String? countrySessionId;
   final String uid = FirebaseAuth.instance.currentUser?.uid ?? '';
   final String sessionId = spotsCollection().doc().id;
   final Stopwatch _confirmedAge = Stopwatch();
@@ -23,7 +25,10 @@ class SpotReviewLease extends ChangeNotifier {
   String reviewerUsername = '';
   String errorText = '';
 
-  SpotReviewLease(this.spotId);
+  SpotReviewLease(this.spotId, {this.countrySessionId}) : countryCode = null;
+  SpotReviewLease.country(this.countryCode)
+    : spotId = '',
+      countrySessionId = null;
   bool get active =>
       !_closed &&
       _foreground &&
@@ -36,9 +41,10 @@ class SpotReviewLease extends ChangeNotifier {
       throw StateError('Review account changed');
     }
     return sendModerationAction({
-      'action': 'spot_review',
+      'action': countryCode == null ? 'spot_review' : 'country_review',
       'operation': operation,
-      'spotId': spotId,
+      if (countryCode == null) 'spotId': spotId else 'countryCode': countryCode,
+      if (countrySessionId != null) 'countrySessionId': countrySessionId,
       'sessionId': sessionId,
     }).timeout(const Duration(seconds: 15));
   }
@@ -148,8 +154,14 @@ class SpotReviewLease extends ChangeNotifier {
   Future<void> resume() async {
     _foreground = true;
     try {
-      await renew();
-    } catch (_) {}
+      if (countryCode != null) {
+        await acquire();
+      } else {
+        await renew();
+      }
+    } catch (error) {
+      markLost(error: error);
+    }
   }
 
   Future<void> runAction(Future<void> Function() action) async {

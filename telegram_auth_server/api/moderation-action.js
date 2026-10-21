@@ -1,3 +1,4 @@
+const { countryReviewAction, saveReviewCountries } = require('../lib/country-review');
 const {notifyGroupMembers} = require('../lib/group-notifications');
 const {deleteSpotAction} = require('../lib/spot-delete');
 const {drainForumPublications} = require('../lib/forum-publications');
@@ -525,6 +526,8 @@ async function deleteForumReply({ actor, body }) {
 const handlers = {
   delete_spot: deleteSpotAction,
   ban_user: banUserAction,
+  country_review: countryReviewAction,
+  spot_review_countries: saveReviewCountries,
   spot_review: spotReviewAction,
   forum_review: forumReviewAction,
   set_chat_moderator: setChatModerator,

@@ -213,21 +213,11 @@ function userIsStaff(user = {}) {
 }
 
 function userCanModerateSpotCountry(user = {}, spotCountryCode = '') {
-  const role = cleanText(user.role);
-  if (role === 'admin') {
-    return true;
-  }
-  if (role !== 'moderator') {
-    return false;
-  }
-
-  const countryCode = countryKey(spotCountryCode);
-  if (!countryCode) {
-    return false;
-  }
-  return cleanStringArray(user.moderatorCountryCodes)
-    .map(countryKey)
-    .includes(countryCode);
+  const code = countryKey(spotCountryCode);
+  if (!code) return false;
+  const field = cleanText(user.role) === 'admin' ? 'adminSpotReviewCountryCodes'
+    : cleanText(user.role) === 'moderator' ? 'moderatorCountryCodes' : null;
+  return field !== null && cleanStringArray(user[field]).map(countryKey).includes(code);
 }
 
 async function friendshipAccepted(firstUid, secondUid) {
@@ -1006,9 +996,7 @@ async function handleTemporarySpotReminder(userId, payload) {
 
 async function handleSpotPendingReview(userId, payload) {
   const spotId = cleanText(payload.spotId);
-  const recipientUserIds = cleanStringArray(payload.recipientUserIds).filter(
-    (recipientUserId) => recipientUserId !== userId,
-  );
+  const recipientUserIds = await activeStaffUserIdsExcept(userId);
   const spotSnapshot = await db.collection('spots').doc(spotId).get();
 
   if (!spotSnapshot.exists || !recipientUserIds.length) {

@@ -1,4 +1,49 @@
 const russianTranslations = <String, String>{
+  'Spot added. It is live now.': 'Спот добавлен и уже опубликован.',
+  'Contact details': 'Контактные данные',
+  'Submission details': 'Информация о заявке',
+  'At least 10 characters': 'Не менее 10 символов',
+  'Description must contain at least 10 characters.':
+      'Описание должно содержать не менее 10 символов.',
+  'Review countries': 'Страны для проверки',
+  'Select countries': 'Выберите страны',
+  'Apply selection': 'Применить выбор',
+  "Load review countries": "Загрузить страны для проверки",
+  "Could not save countries. Please try again.":
+      "Не удалось сохранить страны. Повторите попытку.",
+  "Selected countries also control spot review notifications.":
+      "Выбранные страны также определяют уведомления о проверке спотов.",
+  "Switch country?": "Сменить страну?",
+  "Changing country clears unsubmitted decisions.":
+      "При смене страны неотправленные решения будут сброшены.",
+  "Switch country": "Сменить страну",
+  "Country is being reviewed by": "Страну проверяет",
+  "Country review is not active. Try again to continue.":
+      "Проверка страны неактивна. Повторите попытку, чтобы продолжить.",
+  "No available countries assigned": "Нет назначенных доступных стран",
+  "Clear decisions": "Сбросить решения",
+  "This country is no longer available for review.":
+      "Эта страна больше недоступна для проверки.",
+  "Panel tools": "Инструменты панели",
+  "Tap to edit": "Нажмите для редактирования",
+  "Clear decision": "Сбросить решение",
+  "Submit decisions": "Отправить решения",
+  "Decisions submitted": "Решений отправлено",
+  "Check the marked cards and try again.":
+      "Проверьте отмеченные карточки и повторите попытку.",
+  "Discard review decisions?": "Отменить выбранные решения?",
+  "Your decisions have not been submitted yet.":
+      "Ваши решения ещё не отправлены.",
+  "Spot changed. Clear the selection and review it again.":
+      "Спот изменился. Сбросьте выбор и проверьте его заново.",
+  "Could not submit decision. Please try again.":
+      "Не удалось отправить решение. Повторите попытку.",
+  "Created": "Создано",
+  "Starts": "Начало",
+  "Ends": "Окончание",
+  "Public": "Публичный",
+  "Coordinates": "Координаты",
+  "Access": "Доступ",
   'Phone (required)': 'Телефон (обязательно)',
   'A phone number is required for Service and Detailing spots.':
       'Для спотов «Сервис» и «Детейлинг» необходимо указать номер телефона.',

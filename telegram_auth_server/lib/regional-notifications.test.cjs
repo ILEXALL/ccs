@@ -7,7 +7,7 @@ const crypto = require('node:crypto');
 
 function fixture(sourcePath) {
   const records = new Map(Object.entries({
-    'users/owner': {country:'Latvia',role:'admin',fcmTokens:['owner-token']},
+    'users/owner': {country:'Latvia',role:'admin',adminSpotReviewCountryCodes:['EE'],fcmTokens:['owner-token']},
     'users/alice': {country:'Latvia',fcmTokens:['alice-token']},
     'users/bob': {country:'Latvia',fcmTokens:['bob-token']},
   }));
@@ -46,13 +46,15 @@ function fixture(sourcePath) {
     pushes.push(payload);return {successCount:payload.tokens.length,responses:payload.tokens.map(()=>({success:true}))};
   }})};
   const source=fs.readFileSync(sourcePath,'utf8')
+    .replace("import reveals from '../lib/event-reveal.js';", '')
+    .replace("import {deliveryTokens, removeDeliveryTokens} from '../lib/private-profile.js';", '')
     .replace("import publications from '../lib/forum-publications.js';", '')
     .replace("import crypto from 'node:crypto';",'')
     .replace("import admin from 'firebase-admin';",'')
     .replace('export default async function handler','async function handler')
-    .replaceAll('export async function ', 'async function ');
+    .replaceAll('export async function ', 'async function ').replaceAll('export function ', 'function ');
   const publications = { drainForumPublications() { throw new Error('Outbox draining is outside this delivery fixture'); } };
-  const context={publications,crypto,admin,console,process,Date:class extends Date {static now(){return now;}},exports:{}};
+  const context={deliveryTokens:async(db,uid,user)=>user.fcmTokens||[],removeDeliveryTokens:async()=>{},publications,crypto,admin,console,process,Date:class extends Date {static now(){return now;}},exports:{}};
   vm.runInNewContext(source+'\nexports.publish = notifyUsersAboutNewSpot; exports.pending=handleForumTopicPending; exports.global=handleGlobalChatAdmin; exports.spot=handleSpotPendingReview;',context);
   async function publish(id,temporary=false,type=temporary?'temporary_event':'new_spot') {
     return context.exports.publish({spotId:id,spot:{name:id,cityCountry:'Riga, Latvia',addedByUid:'owner',isTemporary:temporary},notificationType:type,deliveryKey:'caller-supplied:'+id});
@@ -92,14 +94,28 @@ for(const source of ['../api/push-notification.js','../../api/push-notification.
     await f.spot('alice',{spotId:'spot',countryCode:'LV',recipientUserIds:['ee','lv','empty','owner','community']});
     assert.deepEqual(tokens(f),['ee-token','owner-token']);
   });
-  test(`${source}: missing spot country is admin-only; legacy community belongs to LV`,async()=>{
+  test(`${source}: admin review push follows saved selections and ignores caller recipients`,async()=>{
+    const f=setup();
+    f.records.get('users/owner').adminSpotReviewCountryCodes=['LV'];
+    await f.spot('alice',{spotId:'spot',recipientUserIds:['owner']});
+    assert.deepEqual(tokens(f),['ee-token']);
+    const g=setup();
+    g.records.get('users/owner').adminSpotReviewCountryCodes=[];
+    await g.spot('alice',{spotId:'spot'});
+    assert.deepEqual(tokens(g),['ee-token']);
+    const h=setup();
+    h.records.get('users/owner').adminSpotReviewCountryCodes=['LV','EE'];
+    await h.spot('alice',{spotId:'spot'});
+    assert.deepEqual(tokens(h),['ee-token','owner-token']);
+  });
+  test(`${source}: missing spot country sends no review alert; legacy community belongs to LV`,async()=>{
     const f=setup();
     delete f.records.get('spots/spot').countryCode;
     f.records.get('spots/spot').cityCountry='Tallinn, Estonia';
     await f.spot('alice',{spotId:'spot',recipientUserIds:['ee','owner']});
-    assert.deepEqual(tokens(f),['owner-token']);
+    assert.deepEqual(tokens(f),[]);
     delete f.records.get('forum_topics/topic').countryCode;
     await f.pending('alice',{topicId:'topic'});
-    assert.deepEqual(tokens(f),['lv-token','owner-token','owner-token']);
+    assert.deepEqual(tokens(f),['lv-token','owner-token']);
   });
 }

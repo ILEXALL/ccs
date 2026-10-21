@@ -1,3 +1,4 @@
+const {manuallyApprovedPermanentSpot} = require('./user-eligibility');
 const {countryCode, profileCountry} = require('./private-groups');
 const {canModerateCountry} = require('./regional-moderation');
 const {createHash} = require('node:crypto');
@@ -61,7 +62,12 @@ async function createSpot(db, admin, uid, input, publicBase, now = Date.now()) {
       if (!owner || owner.deleted || owner.banned) fail('Invalid owner');
     }
     const timestamp = admin.firestore.FieldValue.serverTimestamp();
-    const status = staff ? 'approved' : 'pending';
+    let trustedCreator = false;
+    if (!temporary && !staff) {
+      const history = await tx.get(db.collection('spots').where('addedByUid', '==', uid));
+      trustedCreator = history.docs.filter(doc => manuallyApprovedPermanentSpot(doc.data(), uid)).length >= 5;
+    }
+    const status = staff || trustedCreator ? 'approved' : 'pending';
     const data = {
       name: text(source.name, 120, true), description: text(source.description, 4000),
       cityCountry: text(source.cityCountry, 200, true), countryCode: code,
@@ -69,6 +75,7 @@ async function createSpot(db, admin, uid, input, publicBase, now = Date.now()) {
       categories: source.categories, photoUrls: photos, photoUrl: photos[0] || '',
       visibility, sharedGroupIds: groupIds,
       sharedGroups: groups.map(group => ({id: group.id, name: group.data().name || 'Group', avatarUrl: group.data().avatarUrl || group.data().photoUrl || ''})),
+      approvalMethod: staff ? 'staff_creation' : trustedCreator ? 'trusted_creator' : 'pending',
       addedByUid: uid, addedBy: actor.username || actor.name || 'Driver', status,
       verifiedOnly: source.verifiedOnly === true, isTemporary: temporary,
       startsAt: temporary ? admin.firestore.Timestamp.fromMillis(source.startsAt) : null,

@@ -276,7 +276,9 @@ Future<void> stopAdminReviewSpotSync() async {
   _adminReviewListenerScope = null;
   _adminReviewListenerGeneration++;
   firebaseSpotCacheBySource.remove('admin review');
-  publishFirebaseSpotCaches();
+  // dispose() runs while Flutter locks the widget tree. Publish the latest
+  // shared caches after unmounting, without delaying listener invalidation.
+  scheduleMicrotask(publishFirebaseSpotCaches);
   await previous?.cancel();
 }
 

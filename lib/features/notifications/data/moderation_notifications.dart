@@ -146,72 +146,12 @@ Future<void> createAdminUserReportNotifications({
 }
 
 Future<void> createAdminSpotReviewNotification(CarSpot spot) async {
-  if (spot.id.trim().isEmpty || spot.status != SpotStatus.pending) {
-    return;
-  }
-
-  final staffUids = await spotReviewStaffUserIdsExcept(
-    spot,
-    excludedUid: spot.addedByUid,
-  );
-
-  if (staffUids.isEmpty) {
-    return;
-  }
-
-  final nowMillis = DateTime.now().millisecondsSinceEpoch;
-  try {
-    final batch = FirebaseFirestore.instance.batch();
-
-    for (final staffUid in staffUids) {
-      final notificationId = 'admin_${spot.id}_review_$staffUid';
-      final notificationData = {
-        'userId': staffUid,
-        'type': 'spot_pending_review',
-        'title': 'Spot review updates',
-        'body': '${spot.name} is waiting for review.',
-        'actorUserId': spot.addedByUid,
-        'actorUsername': spot.addedBy,
-        'spotId': spot.id,
-        'spotName': spot.name,
-        'cityCountry': spot.cityCountry,
-        'countryCode': spot.effectiveCountryCode,
-        'addedBy': spot.addedBy,
-        'addedByUid': spot.addedByUid,
-        'read': false,
-        'createdAt': FieldValue.serverTimestamp(),
-        'createdAtMillis': nowMillis,
-      };
-
-      batch.debugSet(
-        adminNotificationsCollection().doc(notificationId),
-        notificationData,
-        SetOptions(merge: true),
-      );
-    }
-
-    await batch.debugCommit();
-  } catch (error, stack) {
-    debugPrint('Pending spot admin notification documents failed: $error');
-    debugPrint('$stack');
-  }
-
-  final delivered = await trySendPushNotificationEvent({
+  if (spot.id.trim().isEmpty || spot.status != SpotStatus.pending) return;
+  // The server owns recipient selection, country preferences, bell entries and push.
+  await trySendPushNotificationEvent({
     'type': 'spot_pending_review',
-    'notificationId': 'spot_pending_review_${spot.id}',
     'spotId': spot.id,
-    'spotName': spot.name,
-    'cityCountry': spot.cityCountry,
-    'countryCode': spot.effectiveCountryCode,
-    'addedBy': spot.addedBy,
-    'addedByUid': spot.addedByUid,
-    'recipientUserIds': staffUids,
-    'title': 'Spot waiting for review',
-    'body': '${spot.name} was submitted by @${spot.addedBy}.',
   });
-  if (!delivered) {
-    debugPrint('Pending spot admin push was not delivered: ${spot.id}');
-  }
 }
 
 Future<void> createAdminSpotEditReviewNotification(CarSpot spot) async {

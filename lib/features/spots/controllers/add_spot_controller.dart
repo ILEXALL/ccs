@@ -765,12 +765,12 @@ class AddSpotController implements AddSpotControllerActions {
         return;
       }
 
-      if (cleanDescription.isEmpty) {
+      if (cleanDescription.characters.length < 10) {
         ScaffoldMessenger.of(viewContext).showSnackBar(
           const SnackBar(
             backgroundColor: Colors.redAccent,
             content: CcsText(
-              'Description is required.',
+              'Description must contain at least 10 characters.',
               style: TextStyle(
                 color: Colors.white,
                 fontWeight: FontWeight.w700,
@@ -1119,23 +1119,24 @@ class AddSpotController implements AddSpotControllerActions {
       if (FirebaseAuth.instance.currentUser?.uid != firebaseUser.uid) return;
       upsertSpotIntoLocalImmediateCache(savedNewSpot);
 
-      if (canCreateApprovedSpot) {
+      final publishedImmediately = savedNewSpot.status == SpotStatus.approved;
+      if (publishedImmediately) {
         await notifyAllUsersIfTemporarySpotIsToday(savedNewSpot);
 
         await sendNewSpotPushToEligibleUsers(savedNewSpot);
       }
 
-      if (canCreateApprovedSpot && savedNewSpot.categories.contains('Meet')) {
+      if (publishedImmediately && savedNewSpot.categories.contains('Meet')) {
         await createMeetSpotNotificationsForNearbyUsers(savedNewSpot);
       }
 
-      if (canCreateApprovedSpot) {
+      if (publishedImmediately) {
         unawaited(
           syncXpWithServer({'action': 'sync_spot', 'spotId': savedNewSpot.id}),
         );
       }
 
-      if (!canCreateApprovedSpot) {
+      if (!publishedImmediately) {
         try {
           await createAdminSpotReviewNotification(savedNewSpot);
         } catch (error, stack) {

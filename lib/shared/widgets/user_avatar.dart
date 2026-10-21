@@ -185,21 +185,23 @@ List<FriendUserData> chatMembersFromSnapshot(
 Future<List<FriendUserData>> loadChatMembers(ChatThreadData chat) async {
   final members = <FriendUserData>[];
 
-  for (final uid in chat.memberIds) {
-    if (uid.trim().isEmpty) {
-      continue;
-    }
-
-    try {
-      final snapshot = await usersCollection().doc(uid).debugGet();
-      members.add(
-        snapshot.exists
-            ? FriendUserData.fromFirestore(snapshot)
-            : fallbackChatMember(chat, uid),
-      );
-    } catch (_) {
-      members.add(fallbackChatMember(chat, uid));
-    }
+  final ids = chat.memberIds.where((uid) => uid.trim().isNotEmpty).toList();
+  // Bound concurrent requests so large groups do not flood the connection.
+  for (var start = 0; start < ids.length; start += 8) {
+    members.addAll(
+      await Future.wait(
+        ids.skip(start).take(8).map((uid) async {
+          try {
+            final snapshot = await usersCollection().doc(uid).debugGet();
+            return snapshot.exists
+                ? FriendUserData.fromFirestore(snapshot)
+                : fallbackChatMember(chat, uid);
+          } catch (_) {
+            return fallbackChatMember(chat, uid);
+          }
+        }),
+      ),
+    );
   }
 
   return members;

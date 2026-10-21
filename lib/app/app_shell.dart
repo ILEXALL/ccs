@@ -28,7 +28,6 @@ import 'package:ccs_app/core/localization/app_language.dart'
 import 'package:ccs_app/core/localization/ccs_text.dart' show CcsText, trText;
 import 'package:ccs_app/core/platform/platform_bridges.dart'
     show setAppIconBadgeCount;
-import 'package:ccs_app/core/theme/app_background.dart' show appPageRoute;
 import 'package:ccs_app/core/theme/app_theme.dart' show blue, panelGlass;
 import 'package:ccs_app/features/auth/data/auth_state.dart'
     show accountSigningOut, communityCountrySelection, currentUser;
@@ -43,12 +42,8 @@ import 'package:ccs_app/features/map/controllers/map_focus.dart'
 import 'package:ccs_app/features/map/data/live_presence.dart'
     show updateCurrentUserOnlinePresence;
 import 'package:ccs_app/features/map/screens/map_screen.dart' show MapScreen;
-import 'package:ccs_app/features/moderation/data/debug_preferences.dart'
-    show firestoreDebugButtonVisible, loadFirestoreDebugButtonPreference;
 import 'package:ccs_app/features/moderation/data/regional_access.dart'
     show currentUserRegionIsRestricted, moderationNotificationAllowed;
-import 'package:ccs_app/features/moderation/screens/firestore_debug_screen.dart'
-    show FirestoreDebugScreen;
 import 'package:ccs_app/features/notifications/data/badge_state.dart'
     show
         activityChatTabIndex,
@@ -84,7 +79,7 @@ import 'package:ccs_app/features/spots/screens/add_spot_screen.dart'
 import 'package:ccs_app/features/spots/screens/explore_screen.dart'
     show ExploreScreen;
 import 'package:ccs_app/shared/models/user_role.dart'
-    show UserRole, userRoleIsStaff;
+    show userRoleIsStaff;
 import 'package:ccs_app/shared/widgets/region_unavailable_dialog.dart'
     show showRegionFeatureUnavailableDialog;
 
@@ -220,7 +215,6 @@ class _MainScreenState extends State<_MainContentScreen>
         }
       });
     }
-    unawaited(loadFirestoreDebugButtonPreference());
     unawaited(initializePushNotificationsForCurrentUser());
     startNotificationCenterUnreadWatcher();
     updateCurrentUserOnlinePresence(isOnline: true);
@@ -594,49 +588,7 @@ class _MainScreenState extends State<_MainContentScreen>
             resizeToAvoidBottomInset: false,
             backgroundColor: Colors.transparent,
             extendBody: false,
-            body: Stack(
-              children: [
-                IndexedStack(index: index, children: screens),
-                ValueListenableBuilder<bool>(
-                  valueListenable: firestoreDebugButtonVisible,
-                  builder: (context, visible, _) {
-                    if (!visible || currentUser.role != UserRole.admin) {
-                      return const SizedBox.shrink();
-                    }
-
-                    return Positioned(
-                      left: 12,
-                      top: MediaQuery.of(context).padding.top + 8,
-                      child: Material(
-                        color: blue.withValues(alpha: 0.88),
-                        shape: const CircleBorder(),
-                        elevation: 10,
-                        child: InkWell(
-                          customBorder: const CircleBorder(),
-                          onTap: () {
-                            Navigator.push(
-                              context,
-                              appPageRoute(
-                                builder: (_) => const FirestoreDebugScreen(),
-                              ),
-                            );
-                          },
-                          child: const SizedBox(
-                            width: 42,
-                            height: 42,
-                            child: Icon(
-                              Icons.bug_report_outlined,
-                              color: Colors.white,
-                              size: 20,
-                            ),
-                          ),
-                        ),
-                      ),
-                    );
-                  },
-                ),
-              ],
-            ),
+            body: IndexedStack(index: index, children: screens),
             bottomNavigationBar: keyboardOpen
                 ? null
                 : SafeArea(

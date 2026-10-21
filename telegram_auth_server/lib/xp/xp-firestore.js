@@ -1,3 +1,4 @@
+const {verificationFields} = require('../user-eligibility');
 const {deliverRewardPush, rewardReason} = require('../reward-notifications');
 const { admin, db } = require('../firebase-admin');
 const {
@@ -182,6 +183,8 @@ async function awardXp(input, options = {}) {
       : numberValue(user.xpTotal);
     const nextTotalXp = currentTotalXp + appliedAmount;
     const nextLevel = calculateLevel(nextTotalXp);
+    const verification = verificationFields(user, nextTotalXp, admin.firestore.FieldValue.serverTimestamp());
+    if (verification) transaction.update(userRef, verification);
     const partialReason =
       appliedAmount < normalized.amount ? 'WEEKLY_LIMIT_PARTIAL' : undefined;
 

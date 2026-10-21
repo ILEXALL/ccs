@@ -128,3 +128,23 @@ test('uploads reject traversal, unclaimed shared spot paths, other owners and de
   await db.doc('account_deletions/owner').set({status:'queued'});
   assert.ok(await authorizeUpload(db,'owner','users/owner/avatar.jpg'));
 });
+
+
+test('five manual approvals unlock permanent publication but never event publication', async () => {
+  await consent();
+  for (let i=0;i<4;i++) await db.doc(`spots/manual-${i}`).set({addedByUid:'owner',status:'approved',isTemporary:false,reviewedByUid:'admin',reviewedAt:admin.firestore.Timestamp.now()});
+  const make = id => ({...request(),id});
+  assert.equal((await createSpot(db,admin,'owner',make('four-history'),'https://images.example.invalid')).status,'pending');
+  await db.doc('spots/automatic').set({addedByUid:'owner',status:'approved',reviewedByUid:'admin',reviewedAt:admin.firestore.Timestamp.now(),approvalMethod:'trusted_creator'});
+  assert.equal((await createSpot(db,admin,'owner',make('still-four'),'https://images.example.invalid')).status,'pending');
+  await db.doc('spots/manual-4').set({addedByUid:'owner',status:'approved',reviewedByUid:'admin',reviewedAt:admin.firestore.Timestamp.now(),approvalMethod:'manual'});
+  const trusted=make('trusted-spot');
+  assert.equal((await createSpot(db,admin,'owner',trusted,'https://images.example.invalid')).status,'approved');
+  assert.equal((await db.doc('spots/trusted-spot').get()).data().approvalMethod,'trusted_creator');
+  assert.equal((await createSpot(db,admin,'owner',trusted,'https://images.example.invalid')).status,'approved');
+  const event=make('trusted-event');event.spot.isTemporary=true;event.spot.startsAt=Date.now()+60000;event.spot.expiresAt=Date.now()+3600000;
+  assert.equal((await createSpot(db,admin,'owner',event,'https://images.example.invalid')).status,'pending');
+  assert.equal((await db.doc('forum_topics/temporary_spot_trusted-event').get()).data().status,'pending');
+  await db.doc('spots/manual-4').update({status:'rejected'});
+  assert.equal((await createSpot(db,admin,'owner',make('revoked-history'),'https://images.example.invalid')).status,'pending');
+});

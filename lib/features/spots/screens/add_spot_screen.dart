@@ -273,7 +273,7 @@ class _AddSpotScreenState extends State<AddSpotScreen>
                   CcsTextField(
                     controller: descriptionController,
                     label: 'Description',
-                    hint: '',
+                    hint: 'At least 10 characters',
                     icon: Icons.notes,
                     maxLines: 3,
                   ),

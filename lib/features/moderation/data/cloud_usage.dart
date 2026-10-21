@@ -12,6 +12,8 @@ import 'package:ccs_app/features/auth/data/auth_state.dart' show currentUser;
 import 'package:ccs_app/shared/models/user_role.dart' show UserRole;
 
 class FirestoreCloudUsageSnapshot {
+  final double? monthlyEstimateEur;
+  final String? pricingChecked;
   final int reads;
   final int writes;
   final int deletes;
@@ -23,6 +25,8 @@ class FirestoreCloudUsageSnapshot {
   final String windowLabel;
 
   const FirestoreCloudUsageSnapshot({
+    this.monthlyEstimateEur,
+    this.pricingChecked,
     required this.reads,
     required this.writes,
     required this.deletes,
@@ -35,12 +39,18 @@ class FirestoreCloudUsageSnapshot {
   });
 
   factory FirestoreCloudUsageSnapshot.fromJson(Map<String, dynamic> json) {
+    final estimate = mapFromFirebase(json['monthlyEstimate']);
     final totals = mapFromFirebase(json['totals']);
     final readTypes = mapFromFirebase(json['readTypes']);
     final network = mapFromFirebase(json['network']);
     final generatedAtMillis = (json['generatedAtMillis'] as num?)?.toInt();
 
     return FirestoreCloudUsageSnapshot(
+      monthlyEstimateEur:
+          estimate['amountEur'] is num && estimate['currency'] == 'EUR'
+          ? (estimate['amountEur'] as num).toDouble()
+          : null,
+      pricingChecked: estimate['pricingChecked'] as String?,
       reads: intFromFirebase(totals['reads'], 0),
       writes: intFromFirebase(totals['writes'], 0),
       deletes: intFromFirebase(totals['deletes'], 0),
@@ -105,6 +115,7 @@ class FirestoreCloudUsageSnapshot {
 class FirestoreCloudUsageController extends ChangeNotifier {
   FirestoreCloudUsageSnapshot? snapshot;
   FirestoreCloudUsageSnapshot baseline = FirestoreCloudUsageSnapshot.zero;
+  String selectedPeriod = 'day';
   bool isLoading = false;
   String? errorMessage;
   DateTime? lastFetchedAt;
@@ -127,6 +138,19 @@ class FirestoreCloudUsageController extends ChangeNotifier {
     }
   }
 
+  Future<void> selectPeriod(String period) async {
+    if (isLoading ||
+        period == selectedPeriod ||
+        !['day', 'week', 'month'].contains(period)) {
+      return;
+    }
+    selectedPeriod = period;
+    snapshot = null;
+    lastFetchedAt = null;
+    errorMessage = null;
+    await refresh();
+  }
+
   Future<void> refresh() async {
     if (currentUser.role != UserRole.admin) return;
     if (isLoading) {
@@ -138,7 +162,9 @@ class FirestoreCloudUsageController extends ChangeNotifier {
     notifyListeners();
 
     try {
-      final uri = Uri.parse(firestoreUsageUrl);
+      final uri = Uri.parse(
+        firestoreUsageUrl,
+      ).replace(queryParameters: {'period': selectedPeriod});
       final client = HttpClient();
       try {
         final token = await FirebaseAuth.instance.currentUser?.getIdToken();
@@ -169,6 +195,11 @@ class FirestoreCloudUsageController extends ChangeNotifier {
           );
         }
 
+        if ((decoded['periodKey'] ?? 'day') != selectedPeriod) {
+          throw StateError(
+            'The server did not return the selected period. Update the usage backend.',
+          );
+        }
         snapshot = FirestoreCloudUsageSnapshot.fromJson(decoded);
         lastFetchedAt = DateTime.now();
       } finally {

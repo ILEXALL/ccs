@@ -1,3 +1,4 @@
+const {estimateOperations} = require('../lib/firestore-cost');
 const {debugAccessStatus} = require('../lib/debug-access');
 const { monitoringConfig } = require('../lib/monitoring-config');
 const { GoogleAuth } = require('google-auth-library');
@@ -5,10 +6,15 @@ const { GoogleAuth } = require('google-auth-library');
 const MONITORING_SCOPE = 'https://www.googleapis.com/auth/monitoring.read';
 const MONITORING_BASE = 'https://monitoring.googleapis.com/v3';
 
-function startOfTodayIso() {
-  const now = new Date();
-  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())).toISOString();
+function reportingPeriod(period = 'day', now = new Date()) {
+  if (!['day', 'week', 'month'].includes(period)) throw new Error('Invalid reporting period');
+  const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  if (period === 'week') start.setUTCDate(start.getUTCDate() - (start.getUTCDay() + 6) % 7);
+  if (period === 'month') start.setUTCDate(1);
+  return {key: period, startTime: start.toISOString(), endTime: now.toISOString(),
+    label: {day: 'Today (UTC)', week: 'This week (UTC)', month: 'This month (UTC)'}[period]};
 }
+function startOfTodayIso() { return reportingPeriod().startTime; }
 
 function secondsAgoIso(seconds) {
   return new Date(Date.now() - seconds * 1000).toISOString();
@@ -50,9 +56,10 @@ async function listTimeSeries({
   reducer,
   groupByFields = [],
   onSample,
+  resourceFilter = '',
 }) {
   const url = new URL(`${MONITORING_BASE}/projects/${projectId}/timeSeries`);
-  url.searchParams.set('filter', `metric.type="${metricType}" AND resource.type="firestore.googleapis.com/Database"`);
+  url.searchParams.set('filter', `metric.type="${metricType}" AND resource.type="firestore.googleapis.com/Database"${resourceFilter}`);
   url.searchParams.set('interval.startTime', startTime);
   url.searchParams.set('interval.endTime', endTime);
   url.searchParams.set('view', 'FULL');
@@ -131,6 +138,25 @@ async function readGaugeMetric(args) {
   return latestGaugeSum(series);
 }
 
+let monthlyCostCache;
+async function monthlyCost(token, projectId, endTime) {
+  if (projectId !== 'ccsv1-63537') throw new Error('Cost pricing is not configured for this project');
+  const monthStart = reportingPeriod('month', new Date(endTime)).startTime;
+  const key = `${projectId}:${monthStart}`;
+  if (monthlyCostCache?.key === key && Date.now() - monthlyCostCache.at < 300000) return monthlyCostCache.value;
+  const operations = ['reads', 'writes', 'deletes'];
+  const series = await Promise.all(['read', 'write', 'delete'].map(operation => listTimeSeries({
+    token, projectId, metricType: `firestore.googleapis.com/document/${operation}_ops_count`,
+    startTime: new Date(Date.parse(monthStart) - 86400000).toISOString(), endTime,
+    aligner: 'ALIGN_SUM', reducer: 'REDUCE_SUM',
+    resourceFilter: ' AND resource.labels.database_id="(default)" AND resource.labels.location="europe-north2"',
+  })));
+  const value = {...estimateOperations(Object.fromEntries(operations.map((op, i) => [op, series[i]])), Date.parse(monthStart)),
+    throughMillis: Date.parse(endTime)};
+  monthlyCostCache = {key, at: Date.now(), value};
+  return value;
+}
+
 module.exports = async function handler(req, res) {
   if (req.method !== 'GET') {
     res.setHeader('Allow', 'GET');
@@ -143,6 +169,9 @@ module.exports = async function handler(req, res) {
   try {
     const access = await debugAccessStatus(req);
     if (access !== 200) return res.status(access).json({ok: false, error: access === 401 ? 'Unauthorized' : 'Admin access required'});
+    const periodKey = req.query?.period ?? 'day';
+    if (!['day', 'week', 'month'].includes(periodKey)) return res.status(400).json({ok: false, error: 'Invalid reporting period'});
+    const period = reportingPeriod(periodKey);
     const { credentials, projectId } = monitoringConfig();
 
     const auth = new GoogleAuth({
@@ -153,8 +182,8 @@ module.exports = async function handler(req, res) {
     const client = await auth.getClient();
     const token = (await client.getAccessToken()).token;
 
-    const endTime = new Date().toISOString();
-    const dayStart = startOfTodayIso();
+    const endTime = period.endTime;
+    const dayStart = period.startTime;
     const recentStart = secondsAgoIso(10 * 60);
 
     let sampledThroughMillis = 0;
@@ -207,16 +236,20 @@ module.exports = async function handler(req, res) {
       }),
     ]);
 
-    if (!sampledThroughMillis) throw new Error('No Firestore metric samples are available for today yet.');
+    if (!sampledThroughMillis) throw new Error('No Firestore metric samples are available for this period yet.');
+    let monthlyEstimate = null;
+    try { monthlyEstimate = await monthlyCost(token, projectId, endTime); } catch (_) { /* Keep usage available if cost metrics fail. */ }
     return res.status(200).json({
+      monthlyEstimate,
       sampledThroughMillis,
       ok: true,
       source: 'google_cloud_monitoring',
-      window: 'Today (UTC)',
+      window: period.label,
+      periodKey: period.key,
       generatedAtMillis: Date.now(),
       period: {
         startMillis: new Date(dayStart).getTime(),
-        endMillis: Date.now(),
+        endMillis: new Date(endTime).getTime(),
       },
       totals: {
         reads,

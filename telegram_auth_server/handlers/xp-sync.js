@@ -1,3 +1,4 @@
+const {syncAutomaticVerification} = require('../lib/user-eligibility');
 const adminRewards = require('../lib/xp/admin-rewards');
 const {grantXp, grantTarget, grantRequest} = require('../lib/xp/admin-grants');
 const {syncWeeklyTasks} = require('../lib/xp/weekly-tasks');
@@ -73,7 +74,9 @@ async function syncCurrentUser(actor) {
   ];
 
   await syncWeeklyTasks(actor.uid);
-  return [...await settlePendingXp(actor.uid), ...await awardManyXp(awards)];
+  const results = [...await settlePendingXp(actor.uid), ...await awardManyXp(awards)];
+  await syncAutomaticVerification(db, admin, actor.uid);
+  return results;
 }
 
 async function syncUser(actor, body) {
@@ -97,7 +100,9 @@ async function syncUser(actor, body) {
     ...evaluateFirstCarXp(userId, user),
   ];
 
-  return [...await settlePendingXp(userId), ...await awardManyXp(awards)];
+  const results = [...await settlePendingXp(userId), ...await awardManyXp(awards)];
+  await syncAutomaticVerification(db, admin, userId);
+  return results;
 }
 
 async function syncSpot(actor, body) {

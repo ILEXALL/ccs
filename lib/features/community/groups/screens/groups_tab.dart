@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:flutter/material.dart' hide Text;
 import 'package:ccs_app/core/localization/ccs_text.dart'
     show LanguageReactiveState;
@@ -33,12 +34,7 @@ class _GroupsTabState extends State<GroupsTab>
       padding: const EdgeInsets.fromLTRB(20, 18, 20, 92),
       children: [
         PrivateGroupDirectory(
-          membershipRevision: widget.chats
-              .map(
-                (chat) =>
-                    '${chat.id}:${chat.isPrivate}:${chat.memberIds.join(',')}',
-              )
-              .join('|'),
+          membershipRevision: groupMembershipRevision(widget.chats),
           chats: widget.chats,
           currentUid: widget.currentUid,
           unreadCountsByChatId: widget.unreadCountsByChatId,
@@ -46,4 +42,14 @@ class _GroupsTabState extends State<GroupsTab>
       ],
     );
   }
+}
+
+// Message activity reorders chats; it must not reload the group directory.
+String groupMembershipRevision(List<ChatThreadData> chats) {
+  final groups = chats.where((chat) => chat.isGroup).toList()
+    ..sort((a, b) => a.id.compareTo(b.id));
+  return jsonEncode([
+    for (final chat in groups)
+      [chat.id, chat.isPrivate, (List.of(chat.memberIds)..sort())],
+  ]);
 }

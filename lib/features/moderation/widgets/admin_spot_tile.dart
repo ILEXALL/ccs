@@ -15,8 +15,9 @@ import 'package:ccs_app/features/spots/widgets/spot_photo.dart' show SpotPhoto;
 
 class AdminSpotTile extends StatelessWidget {
   final CarSpot spot;
+  final String? countrySessionId;
 
-  const AdminSpotTile({super.key, required this.spot});
+  const AdminSpotTile({super.key, required this.spot, this.countrySessionId});
 
   @override
   Widget build(BuildContext context) {
@@ -24,7 +25,12 @@ class AdminSpotTile extends StatelessWidget {
       onTap: () {
         Navigator.push(
           context,
-          appPageRoute(builder: (_) => AdminSpotReviewScreen(spot: spot)),
+          appPageRoute(
+            builder: (_) => AdminSpotReviewScreen(
+              spot: spot,
+              countrySessionId: countrySessionId,
+            ),
+          ),
         );
       },
       borderRadius: BorderRadius.circular(18),

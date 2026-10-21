@@ -216,21 +216,11 @@ function userIsStaff(user = {}) {
 }
 
 function userCanModerateSpotCountry(user = {}, spotCountryCode = '') {
-  const role = cleanText(user.role);
-  if (role === 'admin') {
-    return true;
-  }
-  if (role !== 'moderator') {
-    return false;
-  }
-
-  const countryCode = countryKey(spotCountryCode);
-  if (!countryCode) {
-    return false;
-  }
-  return cleanStringArray(user.moderatorCountryCodes)
-    .map(countryKey)
-    .includes(countryCode);
+  const code = countryKey(spotCountryCode);
+  if (!code) return false;
+  const field = cleanText(user.role) === 'admin' ? 'adminSpotReviewCountryCodes'
+    : cleanText(user.role) === 'moderator' ? 'moderatorCountryCodes' : null;
+  return field !== null && cleanStringArray(user[field]).map(countryKey).includes(code);
 }
 
 async function friendshipAccepted(firstUid, secondUid) {
@@ -1126,9 +1116,7 @@ async function handleSpotPendingReview(userId, payload) {
   // Counters can update updatedAt independently, so editedAt identifies review.
   const editRevision = isEdited ? timestampToMillis(spot.editedAt) : 0;
   if (isEdited && !editRevision) return [];
-  const recipientUserIds = isEdited
-    ? await activeStaffUserIdsExcept(userId)
-    : cleanStringArray(payload.recipientUserIds).filter(id => id !== userId);
+  const recipientUserIds = await activeStaffUserIdsExcept(userId);
 
   const spotName = cleanText(spot.name, cleanText(payload.spotName, 'New spot'));
   const addedBy = cleanText(spot.addedBy, cleanText(payload.addedBy, 'driver'));

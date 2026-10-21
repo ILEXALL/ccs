@@ -32,7 +32,12 @@ import 'package:ccs_app/features/spots/widgets/spot_photo.dart' show SpotPhoto;
 
 class AdminSpotReviewScreen extends StatefulWidget {
   final CarSpot spot;
-  const AdminSpotReviewScreen({super.key, required this.spot});
+  final String? countrySessionId;
+  const AdminSpotReviewScreen({
+    super.key,
+    required this.spot,
+    this.countrySessionId,
+  });
   @override
   State<AdminSpotReviewScreen> createState() => _AdminSpotReviewScreenState();
 }
@@ -46,7 +51,10 @@ class _AdminSpotReviewScreenState extends State<AdminSpotReviewScreen>
   @override
   void initState() {
     super.initState();
-    _lease = SpotReviewLease(widget.spot.id);
+    _lease = SpotReviewLease(
+      widget.spot.id,
+      countrySessionId: widget.countrySessionId,
+    );
     WidgetsBinding.instance.addObserver(this);
     unawaited(_load());
   }

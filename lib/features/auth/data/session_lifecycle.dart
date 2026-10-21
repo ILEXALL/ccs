@@ -1,3 +1,5 @@
+import 'package:ccs_app/features/progression/data/xp_api.dart'
+    show syncXpWithServer;
 import 'package:ccs_app/features/auth/models/app_user_document.dart'
     show appUserFromCurrentUserDocument;
 import 'dart:async';
@@ -169,6 +171,9 @@ void startCurrentUserDocumentWatcher() {
           if (snapshot.metadata.isFromCache && receivedServerProfile) return;
           if (!snapshot.metadata.isFromCache &&
               !snapshot.metadata.hasPendingWrites) {
+            if (!receivedServerProfile) {
+              unawaited(syncXpWithServer({'action': 'sync_me'}));
+            }
             receivedServerProfile = true;
             _profileWatcherRetryAttempt = 0;
           }

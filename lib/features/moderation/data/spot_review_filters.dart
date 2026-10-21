@@ -1,3 +1,5 @@
+import 'package:ccs_app/features/spots/data/spot_filters.dart'
+    show availableCommunityCountryCodes;
 import 'package:ccs_app/features/auth/data/auth_state.dart' show currentUser;
 import 'package:ccs_app/features/moderation/data/regional_access.dart'
     show currentUserCanModerateSpot;
@@ -23,7 +25,20 @@ String adminSpotFilterLabel(AdminSpotFilter filter) {
   }
 }
 
-List<CarSpot> adminSpotsForFilter(AdminSpotFilter filter) {
+/// Uses the same enabled-country list as the app's country selector.
+List<String> adminReviewCountryCodes() => availableCommunityCountryCodes()
+    .where(
+      (code) =>
+          currentUser.role == UserRole.admin ||
+          (currentUser.role == UserRole.moderator &&
+              currentUser.moderatorCountryCodes.contains(code)),
+    )
+    .toList();
+
+List<CarSpot> adminSpotsForFilter(
+  AdminSpotFilter filter, {
+  String? countryCode,
+}) {
   final manageableSpots = currentUser.role == UserRole.admin
       ? reviewSpots.value
       : reviewSpots.value.where(currentUserCanModerateSpot).toList();
@@ -53,6 +68,10 @@ List<CarSpot> adminSpotsForFilter(AdminSpotFilter filter) {
         : spot.createdAtMillis;
   }
 
+  if (countryCode != null) {
+    spots.removeWhere((spot) => spot.effectiveCountryCode != countryCode);
+  }
+
   spots.sort((first, second) {
     final timeCompare = latestAdminSortMillis(
       second,
@@ -67,8 +86,8 @@ List<CarSpot> adminSpotsForFilter(AdminSpotFilter filter) {
   return spots;
 }
 
-int adminSpotCount(AdminSpotFilter filter) {
-  return adminSpotsForFilter(filter).length;
+int adminSpotCount(AdminSpotFilter filter, {String? countryCode}) {
+  return adminSpotsForFilter(filter, countryCode: countryCode).length;
 }
 
 String adminEmptyTitle(AdminSpotFilter filter) {

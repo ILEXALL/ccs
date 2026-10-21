@@ -1,4 +1,49 @@
 const latvianTranslations = <String, String>{
+  'Spot added. It is live now.': 'Vieta pievienota un publicēta.',
+  'Contact details': 'Kontaktinformācija',
+  'Submission details': 'Iesnieguma informācija',
+  'At least 10 characters': 'Vismaz 10 rakstzīmes',
+  'Description must contain at least 10 characters.':
+      'Aprakstā jābūt vismaz 10 rakstzīmēm.',
+  'Review countries': 'Pārskatāmās valstis',
+  'Select countries': 'Izvēlieties valstis',
+  'Apply selection': 'Lietot izvēli',
+  "Load review countries": "Ielādēt pārskatāmās valstis",
+  "Could not save countries. Please try again.":
+      "Neizdevās saglabāt valstis. Mēģiniet vēlreiz.",
+  "Selected countries also control spot review notifications.":
+      "Izvēlētās valstis nosaka arī paziņojumus par vietu pārskatīšanu.",
+  "Switch country?": "Mainīt valsti?",
+  "Changing country clears unsubmitted decisions.":
+      "Mainot valsti, neiesniegtie lēmumi tiks notīrīti.",
+  "Switch country": "Mainīt valsti",
+  "Country is being reviewed by": "Valsti pārskata",
+  "Country review is not active. Try again to continue.":
+      "Valsts pārskatīšana nav aktīva. Mēģiniet vēlreiz, lai turpinātu.",
+  "No available countries assigned": "Nav piešķirtu pieejamu valstu",
+  "Clear decisions": "Notīrīt lēmumus",
+  "This country is no longer available for review.":
+      "Šī valsts vairs nav pieejama pārskatīšanai.",
+  "Panel tools": "Paneļa rīki",
+  "Tap to edit": "Pieskarieties, lai rediģētu",
+  "Clear decision": "Notīrīt lēmumu",
+  "Submit decisions": "Iesniegt lēmumus",
+  "Decisions submitted": "Iesniegtie lēmumi",
+  "Check the marked cards and try again.":
+      "Pārbaudiet atzīmētās kartītes un mēģiniet vēlreiz.",
+  "Discard review decisions?": "Atmest pārskatīšanas lēmumus?",
+  "Your decisions have not been submitted yet.":
+      "Jūsu lēmumi vēl nav iesniegti.",
+  "Spot changed. Clear the selection and review it again.":
+      "Vieta ir mainīta. Notīriet izvēli un pārskatiet to vēlreiz.",
+  "Could not submit decision. Please try again.":
+      "Neizdevās iesniegt lēmumu. Mēģiniet vēlreiz.",
+  "Created": "Izveidots",
+  "Starts": "Sākums",
+  "Ends": "Beigas",
+  "Public": "Publisks",
+  "Coordinates": "Koordinātas",
+  "Access": "Piekļuve",
   'Phone (required)': 'Tālrunis (obligāts)',
   'A phone number is required for Service and Detailing spots.':
       'Servisa un auto kopšanas vietām ir jānorāda tālruņa numurs.',

@@ -177,3 +177,62 @@ test('[rules groups] descriptions required and only actual non-banned members ca
   await seed({'chats/new':{...group,memberIds:['owner'],memberUsernames:['owner'],description:'Group',bannedMemberIds:['other']}});
   await assertFails(updateDoc(doc(client('owner'),'chats/new'),{memberIds:['owner','other'],memberUsernames:['owner','other']}));
 });
+
+
+test('[rules moderation] country lock blocks other staff only in that country', async () => {
+  await seed({'spots/lv':spot(), 'spots/ru':{...spot(),countryCode:'RU'},
+    'users/ru':{role:'moderator',moderatorCountryCodes:['RU']},
+    'country_review_locks/LV':{reviewerUid:'mod',sessionId:'panel-session-0001',expiresAt:Timestamp.fromMillis(Date.now()+600000)}});
+  await assertFails(updateDoc(doc(client('mod2'),'spots/lv'),decision('mod2')));
+  await assertFails(updateDoc(doc(client('admin'),'spots/lv'),decision('admin')));
+  await assertSucceeds(updateDoc(doc(client('ru'),'spots/ru'),decision('ru')));
+  await assertSucceeds(updateDoc(doc(client('mod'),'spots/lv'),decision('mod')));
+  await assertFails(setDoc(doc(client('admin'),'country_review_locks/RU'),{reviewerUid:'admin'}));
+});
+
+test('[moderation] country transactions admit one reviewer, independent countries, expiry and ownership', async () => {
+  const admin = require('firebase-admin');
+  if (!admin.apps.length) admin.initializeApp({projectId});
+  const {countryReviewAction} = require('../lib/country-review');
+  const {spotReviewAction} = require('../lib/spot-review');
+  const call = (uid,operation,countryCode,sessionId) => countryReviewAction({actor:{uid},body:{operation,countryCode,sessionId}});
+  await seed({'users/ru':{role:'moderator',moderatorCountryCodes:['RU']},'spots/lv':spot()});
+  const a='country-session-0001', b='country-session-0002', r='country-session-0003';
+  const result=await Promise.all([call('mod','acquire','LV',a),call('mod2','acquire','LV',b),call('ru','acquire','RU',r)]);
+  assert.equal(result.slice(0,2).filter(x=>x.acquired).length,1);
+  assert.equal(result[2].acquired,true);
+  const winner=result[0].acquired?'mod':'mod2', loser=winner==='mod'?'mod2':'mod';
+  const token=winner==='mod'?a:b;
+  assert.equal((await call('admin','acquire','LV','admin-session-0001')).acquired,false);
+  await assert.rejects(call('ru','acquire','LV',r),/permission/);
+  await call(loser,'release','LV',token);
+  assert.equal((await call('admin','acquire','LV','admin-session-0001')).acquired,false);
+  assert.equal((await call(winner,'renew','LV',token)).renewed,true);
+  const spotToken='individual-spot-0001';
+  assert.equal((await spotReviewAction({actor:{uid:loser},body:{operation:'acquire',spotId:'lv',sessionId:'individual-spot-0002'}})).acquired,false);
+  assert.equal((await spotReviewAction({actor:{uid:winner},body:{operation:'acquire',spotId:'lv',sessionId:spotToken,countrySessionId:token}})).acquired,true);
+  // Decision requests resolve their parent country session from the owned spot lease.
+  await spotReviewAction({actor:{uid:winner},body:{operation:'decide',spotId:'lv',sessionId:spotToken,status:'approved'}});
+  await spotReviewAction({actor:{uid:winner},body:{operation:'release',spotId:'lv',sessionId:spotToken}});
+  assert.equal((await call('admin','acquire','LV','admin-session-0001')).acquired,false);
+  await call(winner,'release','LV',token);
+  assert.equal((await call('admin','acquire','LV','admin-session-0001')).acquired,true);
+  await seed({'country_review_locks/LV':{reviewerUid:'admin',sessionId:'admin-session-0001',expiresAt:Timestamp.fromMillis(Date.now()-1)}});
+  await assert.rejects(call('admin','renew','LV','admin-session-0001'),/expired/);
+  assert.equal((await call(loser,'acquire','LV','replacement-session-01')).acquired,true);
+});
+
+
+test('[moderation] admin notification country selections persist and reject unauthorized or disabled assignments', async () => {
+  const admin = require('firebase-admin');
+  if (!admin.apps.length) admin.initializeApp({projectId});
+  const {saveReviewCountries} = require('../lib/country-review');
+  const save=(uid,countryCodes)=>saveReviewCountries({actor:{uid},body:{countryCodes}});
+  await save('admin',['LV','RU']);
+  assert.deepEqual((await admin.firestore().doc('users/admin').get()).data().adminSpotReviewCountryCodes,['LV','RU']);
+  await assert.rejects(save('mod',['LV']),/permission/);
+  await seed({'app_config/main':{bannedCountryCodes:['RU']}});
+  await assert.rejects(save('admin',['RU']),/not enabled/);
+  await save('admin',[]);
+  assert.deepEqual((await admin.firestore().doc('users/admin').get()).data().adminSpotReviewCountryCodes,[]);
+});

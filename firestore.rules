@@ -1902,13 +1902,20 @@ service cloud.firestore {
       return exists(path) && get(path).data.expiresAt > request.time;
     }
 
+    function countryReviewOwnerAllowed() {
+      let code = resource.data.get('countryCode', 'UNKNOWN');
+      let path = /databases/$(database)/documents/country_review_locks/$(code);
+      return !exists(path) || get(path).data.expiresAt <= request.time
+        || get(path).data.reviewerUid == currentUid();
+    }
+
     function spotReviewEditorAllowed(spotId) {
       let path = /databases/$(database)/documents/spot_review_locks/$(spotId);
       let token = request.resource.data.get('reviewSessionId', '');
-      return (token == '' && !spotReviewLocked(spotId))
+      return countryReviewOwnerAllowed() && ((token == '' && !spotReviewLocked(spotId))
         || (spotReviewLocked(spotId)
           && get(path).data.reviewerUid == currentUid()
-          && get(path).data.sessionId == token);
+          && get(path).data.sessionId == token));
     }
 
     function spotReviewDecisionUnchanged() {
@@ -1925,7 +1932,7 @@ service cloud.firestore {
     }
 
     function spotReviewDecisionUpdateAllowed(spotId) {
-      return spotReviewLockOwnerAllowed(spotId)
+      return countryReviewOwnerAllowed() && spotReviewLockOwnerAllowed(spotId)
         && resource.data.status in ['pending', 'edited']
         && request.resource.data.status in ['approved', 'rejected']
         && request.resource.data.reviewedByUid == currentUid()

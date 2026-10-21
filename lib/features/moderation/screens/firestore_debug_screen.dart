@@ -81,6 +81,16 @@ class _FirestoreDebugScreenState extends State<FirestoreDebugScreen> {
                 }
                 return second.value.total.compareTo(first.value.total);
               });
+        final operationTotal = entries.fold<int>(
+          0,
+          (sum, entry) =>
+              sum +
+              (_sortBy == 'Writes'
+                  ? entry.value.writes
+                  : _sortBy == 'Deletes'
+                  ? entry.value.deletes
+                  : entry.value.reads),
+        );
         final logs = firestoreDebugTracker.recentEvents;
         final unlabeledEvents = firestoreDebugTracker.unlabeledEvents;
         final hasUnlabeledCalls = unlabeledEvents > 0;
@@ -215,7 +225,7 @@ class _FirestoreDebugScreenState extends State<FirestoreDebugScreen> {
               ),
               const SizedBox(height: 14),
               const CcsText(
-                'Feature costs on this device',
+                'Read sources on this device',
                 style: TextStyle(
                   color: Colors.white,
                   fontSize: 18,
@@ -223,6 +233,14 @@ class _FirestoreDebugScreenState extends State<FirestoreDebugScreen> {
                 ),
               ),
               const SizedBox(height: 8),
+              const CcsText(
+                'Estimated activity from this device only, highest first. These figures do not break down the project-wide cloud total.',
+                style: TextStyle(
+                  color: Colors.white60,
+                  fontSize: 12,
+                  height: 1.4,
+                ),
+              ),
               DropdownButton<String>(
                 value: _sortBy,
                 dropdownColor: panel,
@@ -245,7 +263,13 @@ class _FirestoreDebugScreenState extends State<FirestoreDebugScreen> {
                   text: 'Use the app for a minute, then return here.',
                 )
               else
-                ...entries.map((entry) {
+                ...entries.indexed.map((ranked) {
+                  final (index, entry) = ranked;
+                  final count = _sortBy == 'Writes'
+                      ? entry.value.writes
+                      : _sortBy == 'Deletes'
+                      ? entry.value.deletes
+                      : entry.value.reads;
                   return Container(
                     margin: const EdgeInsets.only(bottom: 8),
                     padding: const EdgeInsets.all(12),
@@ -258,11 +282,17 @@ class _FirestoreDebugScreenState extends State<FirestoreDebugScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         CcsText(
-                          entry.key,
+                          '${index + 1}. ${entry.key}',
                           style: const TextStyle(
                             color: Colors.white,
                             fontWeight: FontWeight.w800,
                           ),
+                        ),
+                        const SizedBox(height: 8),
+                        _ReadShareBar(
+                          count: count,
+                          total: operationTotal,
+                          estimated: true,
                         ),
                         const SizedBox(height: 6),
                         CcsText(
@@ -325,6 +355,38 @@ class _FirestoreCloudUsageCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final snapshot = controller.snapshot;
     final error = controller.errorMessage;
+    final readSources =
+        snapshot == null
+              ? <({String title, String description, int count})>[]
+              : [
+                  (
+                    title: 'Query reads',
+                    description:
+                        'Documents read by queries, such as lists and filtered results.',
+                    count: snapshot.queryReads,
+                  ),
+                  (
+                    title: 'Document lookups',
+                    description: 'Documents fetched directly by their IDs.',
+                    count: snapshot.lookupReads,
+                  ),
+                  if (snapshot.reads >
+                      snapshot.queryReads + snapshot.lookupReads)
+                    (
+                      title: 'Other / not attributed',
+                      description:
+                          'Reads not covered by the reported query and lookup totals.',
+                      count:
+                          snapshot.reads -
+                          snapshot.queryReads -
+                          snapshot.lookupReads,
+                    ),
+                ]
+          ..sort((a, b) => b.count.compareTo(a.count));
+    final breakdownTotal = readSources.fold<int>(
+      0,
+      (sum, row) => sum + row.count,
+    );
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -359,9 +421,34 @@ class _FirestoreCloudUsageCard extends StatelessWidget {
           ),
           const SizedBox(height: 8),
           const CcsText(
-            'Project-wide • all users and backend • today (UTC). Google metrics can arrive several minutes late; these are operation counts, not a final invoice.',
+            'Project-wide • all users and backend • UTC. Google metrics can arrive several minutes late; these are operation counts, not a final invoice.',
             style: TextStyle(color: Colors.white60, height: 1.4, fontSize: 12),
           ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (final option in const {
+                'day': 'Today',
+                'week': 'This week',
+                'month': 'This month',
+              }.entries)
+                ChoiceChip(
+                  label: CcsText(option.value),
+                  selected: controller.selectedPeriod == option.key,
+                  onSelected: controller.isLoading
+                      ? null
+                      : (_) => unawaited(controller.selectPeriod(option.key)),
+                ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          CcsText(switch (controller.selectedPeriod) {
+            'week' => 'Monday 00:00 UTC to now',
+            'month' => '1st of this month, 00:00 UTC to now',
+            _ => 'Today 00:00 UTC to now',
+          }, style: const TextStyle(color: Colors.white60, fontSize: 12)),
           if (error != null) ...[
             const SizedBox(height: 12),
             CcsText(
@@ -389,6 +476,55 @@ class _FirestoreCloudUsageCard extends StatelessWidget {
             ),
           if (snapshot != null) ...[
             const SizedBox(height: 16),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: blue.withValues(alpha: .12),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const CcsText(
+                    'Estimated charges so far this month:',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  CcsText(
+                    snapshot.monthlyEstimateEur == null
+                        ? 'Estimate unavailable'
+                        : '€${snapshot.monthlyEstimateEur!.toStringAsFixed(2)}',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 24,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  const CcsText(
+                    'Document operations so far this month, after daily free allowances. Excludes storage, network traffic, backups, other charges and taxes. Not the full invoice or a month-end forecast.',
+                    style: TextStyle(
+                      color: Colors.white60,
+                      fontSize: 12,
+                      height: 1.4,
+                    ),
+                  ),
+                  if (snapshot.pricingChecked != null)
+                    CcsText(
+                      'EUR prices checked: ${snapshot.pricingChecked}',
+                      style: const TextStyle(
+                        color: Colors.white38,
+                        fontSize: 11,
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
             Row(
               children: [
                 Expanded(
@@ -415,13 +551,62 @@ class _FirestoreCloudUsageCard extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 12),
-            CcsText(
-              'Read breakdown: query ${snapshot.queryReads} • lookup ${snapshot.lookupReads}',
-              style: const TextStyle(color: Colors.white70, fontSize: 12),
+            const CcsText(
+              'What causes reads',
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w800,
+              ),
             ),
             const SizedBox(height: 6),
+            const CcsText(
+              'Ranked by measured read volume, highest first — not a monetary cost estimate. Google does not attribute these totals to app screens or collections.',
+              style: TextStyle(
+                color: Colors.white60,
+                fontSize: 12,
+                height: 1.4,
+              ),
+            ),
+            for (final ranked in readSources.indexed)
+              Padding(
+                padding: const EdgeInsets.only(top: 14),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    CcsText(
+                      '${ranked.$1 + 1}. ${ranked.$2.title}',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    CcsText(
+                      ranked.$2.description,
+                      style: const TextStyle(
+                        color: Colors.white60,
+                        fontSize: 12,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    _ReadShareBar(
+                      count: ranked.$2.count,
+                      total: breakdownTotal,
+                    ),
+                  ],
+                ),
+              ),
+            if (snapshot.reads < snapshot.queryReads + snapshot.lookupReads)
+              const Padding(
+                padding: EdgeInsets.only(top: 8),
+                child: CcsText(
+                  'The total and breakdown were sampled separately and may differ while metrics update.',
+                  style: TextStyle(color: Colors.white60, fontSize: 12),
+                ),
+              ),
+            const SizedBox(height: 6),
             CcsText(
-              'Connections: ${snapshot.activeConnections} • listeners: ${snapshot.snapshotListeners}',
+              'Recent 10 minutes • connections: ${snapshot.activeConnections} • listeners: ${snapshot.snapshotListeners}',
               style: const TextStyle(color: Colors.white70, fontSize: 12),
             ),
             const SizedBox(height: 6),
@@ -467,6 +652,44 @@ class _FirestoreDebugTotal extends StatelessWidget {
             color: Colors.white54,
             fontSize: 11,
             fontWeight: FontWeight.w700,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _ReadShareBar extends StatelessWidget {
+  const _ReadShareBar({
+    required this.count,
+    required this.total,
+    this.estimated = false,
+  });
+  final int count;
+  final int total;
+  final bool estimated;
+
+  @override
+  Widget build(BuildContext context) {
+    final share = total > 0 ? (count / total).clamp(0.0, 1.0) : 0.0;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        CcsText(
+          '${estimated ? '~' : ''}$count • ${(share * 100).toStringAsFixed(1)}%',
+          style: const TextStyle(
+            color: Colors.white70,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        const SizedBox(height: 6),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(4),
+          child: LinearProgressIndicator(
+            value: share,
+            minHeight: 5,
+            color: blue,
+            backgroundColor: Colors.white10,
           ),
         ),
       ],
