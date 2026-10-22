@@ -17,7 +17,7 @@ import 'package:ccs_app/features/auth/models/app_user.dart' show AppUser;
 import 'package:ccs_app/features/community/groups/data/group_spot_access.dart'
     show canViewGroupSpot;
 import 'package:ccs_app/features/moderation/data/regional_access.dart'
-    show currentUserCanUseVerifiedOnlySpots, moderatorCountryCodesFromFirebase;
+    show currentUserCanUseVerifiedOnlySpots;
 import 'package:ccs_app/features/spots/data/spot_state.dart' show reviewSpots;
 import 'package:ccs_app/features/spots/data/spot_feed_state.dart'
     show firebaseSpotCacheBySource;
@@ -33,8 +33,6 @@ import 'package:ccs_app/shared/models/countries.dart'
         localizedCountryName,
         spotCountryFromCityCountry,
         spotCountryKey;
-import 'package:ccs_app/shared/models/user_role.dart'
-    show UserRole, roleFromFirebase;
 
 const spotCategoryFiltersKey = 'spot_category_filters';
 
@@ -131,15 +129,10 @@ bool userDataAllowsSpotCountry(Map<String, dynamic> data, String spotCountry) {
   if (countryKey.isEmpty) {
     return true;
   }
-  if (roleFromFirebase(data['role']) == UserRole.moderator) {
-    return moderatorCountryCodesFromFirebase(
-      data['moderatorCountryCodes'],
-    ).contains(countryKey.toUpperCase());
-  }
   final selected = spotCountryFiltersFromUserData(data);
   if (selected.isEmpty) {
-    // Preserve delivery for legacy/incomplete profiles that have no country.
-    return true;
+    // No selected or registered country means there is no matching audience.
+    return false;
   }
   return selected.map(spotCountryKey).contains(countryKey);
 }

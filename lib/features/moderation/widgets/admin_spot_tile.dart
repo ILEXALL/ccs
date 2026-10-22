@@ -74,7 +74,13 @@ class AdminSpotTile extends StatelessWidget {
                   if (spot.status == SpotStatus.approved ||
                       spot.status == SpotStatus.rejected)
                     CcsText(
-                      spot.reviewedBy.isNotEmpty
+                      spot.isAutoApproved
+                          ? trText(
+                              spot.approvalMethod == 'trusted_creator'
+                                  ? 'Auto Approved — trusted creator'
+                                  : 'Auto Approved — published by staff',
+                            )
+                          : spot.reviewedBy.isNotEmpty
                           ? '${trText(spot.status == SpotStatus.approved ? 'Approved by' : 'Rejected by')}: ${displayUsername(spot.reviewedBy)}'
                           : trText('Reviewer not recorded'),
                       style: const TextStyle(

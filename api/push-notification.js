@@ -120,12 +120,6 @@ function userAllowsSpotCountry(user, spotCountry) {
     return true;
   }
 
-  if (cleanText(user.role) === 'moderator') {
-    return cleanStringArray(user.moderatorCountryCodes)
-      .map(countryKey)
-      .includes(targetCountry);
-  }
-
   const selectedCountries = cleanStringArray(user.spotCountryFilters)
     .map(countryKey)
     .filter(Boolean);
@@ -136,7 +130,7 @@ function userAllowsSpotCountry(user, spotCountry) {
   // Existing users who have not opened the new filter yet default to the
   // country already stored on their profile.
   const profileCountry = countryKey(user.country);
-  return profileCountry ? profileCountry === targetCountry : true;
+  return !!profileCountry && profileCountry === targetCountry;
 }
 
 function userMatchesCommunityCountry(user, communityCountry) {
@@ -549,7 +543,9 @@ async function notifyUsersAboutNewSpot({
   const ownerUid = spotNotificationOwnerUid(spot);
   const spotName = cleanText(spot.name, 'New car spot');
   const cityCountry = cleanText(spot.cityCountry);
-  const spotCountry = countryFromCityCountry(cityCountry);
+  const spotCountry = countryKey(spot.countryCode) || countryKey(countryFromCityCountry(cityCountry));
+  // Public publications must have a country; never broadcast unknown locations globally.
+  if (!spotCountry) return [];
   const locationSuffix = cityCountry ? ` in ${cityCountry}` : '';
   const isTemporary = spot.isTemporary === true;
   notificationType = isTemporary ? 'temporary_event' : 'new_spot';
@@ -889,11 +885,13 @@ async function handleNewSpot(userId, payload) {
 
   const spot = spotSnapshot.data();
 
-  if (spot.status !== 'approved' || spot.addedByUid !== userId) {
+  if (spot.status !== 'approved' || spot.deleted === true || spot.addedByUid !== userId) {
     return [];
   }
 
-  await requireStaff(userId);
+  // Approval is authoritative server data; trusted regular creators may publish too.
+  const creator = await db.collection('users').doc(userId).get();
+  if (!creator.exists || creator.data().deleted === true || userHasActiveBan(creator.data())) return [];
 
   return notifyUsersAboutNewSpot({
     spotId,

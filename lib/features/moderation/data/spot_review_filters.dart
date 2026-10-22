@@ -8,7 +8,7 @@ import 'package:ccs_app/features/spots/models/car_spot.dart' show CarSpot;
 import 'package:ccs_app/features/spots/models/spot_status.dart' show SpotStatus;
 import 'package:ccs_app/shared/models/user_role.dart' show UserRole;
 
-enum AdminSpotFilter { pending, edited, approved, rejected, all }
+enum AdminSpotFilter { pending, edited, approved, autoApproved, rejected, all }
 
 String adminSpotFilterLabel(AdminSpotFilter filter) {
   switch (filter) {
@@ -16,6 +16,8 @@ String adminSpotFilterLabel(AdminSpotFilter filter) {
       return 'Pending';
     case AdminSpotFilter.edited:
       return 'Edited';
+    case AdminSpotFilter.autoApproved:
+      return 'Auto Approved';
     case AdminSpotFilter.approved:
       return 'Approved';
     case AdminSpotFilter.rejected:
@@ -55,6 +57,8 @@ List<CarSpot> adminSpotsForFilter(
       manageableSpots
           .where((spot) => spot.status == SpotStatus.approved)
           .toList(),
+    AdminSpotFilter.autoApproved =>
+      manageableSpots.where((spot) => spot.isAutoApproved).toList(),
     AdminSpotFilter.rejected =>
       manageableSpots
           .where((spot) => spot.status == SpotStatus.rejected)
@@ -96,6 +100,8 @@ String adminEmptyTitle(AdminSpotFilter filter) {
       return 'No pending spots';
     case AdminSpotFilter.edited:
       return 'No edited spots';
+    case AdminSpotFilter.autoApproved:
+      return 'No auto approved spots';
     case AdminSpotFilter.approved:
       return 'No approved spots';
     case AdminSpotFilter.rejected:
@@ -111,6 +117,8 @@ String adminEmptyText(AdminSpotFilter filter) {
       return 'New user submitted spots will appear here first.';
     case AdminSpotFilter.edited:
       return 'User spot edits will appear here for approval.';
+    case AdminSpotFilter.autoApproved:
+      return 'Spots published directly by trusted creators or staff without a review will appear here.';
     case AdminSpotFilter.approved:
       return 'Approved spots will appear here after moderation.';
     case AdminSpotFilter.rejected:

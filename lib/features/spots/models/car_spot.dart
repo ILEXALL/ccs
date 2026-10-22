@@ -67,6 +67,12 @@ class CarSpot {
   final bool verifiedOnly;
   final String rejectionReason;
   final String reviewedBy, reviewedByUid;
+  final String approvalMethod;
+
+  bool get isAutoApproved =>
+      status == SpotStatus.approved &&
+      (approvalMethod == 'trusted_creator' ||
+          approvalMethod == 'staff_creation');
 
   const CarSpot({
     this.id = '',
@@ -112,6 +118,7 @@ class CarSpot {
     this.rejectionReason = '',
     this.reviewedBy = '',
     this.reviewedByUid = '',
+    this.approvalMethod = '',
   });
 
   CarSpot copyWith({
@@ -155,6 +162,7 @@ class CarSpot {
     String? rejectionReason,
     String? reviewedBy,
     String? reviewedByUid,
+    String? approvalMethod,
     bool clearTemporarySchedule = false,
     bool clearTemporaryMapReveal = false,
   }) {
@@ -208,6 +216,7 @@ class CarSpot {
       rejectionReason: rejectionReason ?? this.rejectionReason,
       reviewedBy: reviewedBy ?? this.reviewedBy,
       reviewedByUid: reviewedByUid ?? this.reviewedByUid,
+      approvalMethod: approvalMethod ?? this.approvalMethod,
     );
   }
 
@@ -433,6 +442,7 @@ class CarSpot {
       rejectionReason: stringFromFirebase(data['rejectionReason'], ''),
       reviewedBy: stringFromFirebase(data['reviewedBy'], ''),
       reviewedByUid: stringFromFirebase(data['reviewedByUid'], ''),
+      approvalMethod: stringFromFirebase(data['approvalMethod'], ''),
     );
   }
 }

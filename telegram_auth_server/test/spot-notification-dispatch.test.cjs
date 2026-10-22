@@ -5,14 +5,14 @@ const path = require('node:path');
 const vm = require('node:vm');
 
 // Exercise the actual endpoint orchestration without credentials or real pushes.
-function fixture(overrides = {}) {
-  const spot = { addedByUid: 'owner', reviewedByUid: 'moderator', status: 'approved', name: 'Test spot', ...overrides };
+function fixture(overrides = {}, creator = {role: 'moderator'}) {
+  const spot = { countryCode: 'LV', addedByUid: 'owner', reviewedByUid: 'moderator', status: 'approved', name: 'Test spot', ...overrides };
   const calls = [];
   const docs = ['owner', ...Array.from({ length: 650 }, (_, i) => `user${i}`)]
     .map(id => ({ id }));
   const db = { collection: name => ({
     get: async () => ({ docs }),
-    doc: id => ({ get: async () => ({ exists: true, data: () => name === 'spots' ? spot : { role: 'moderator' } }) }),
+    doc: id => ({ get: async () => ({ exists: true, data: () => name === 'spots' ? spot : creator }) }),
   }) };
   const context = vm.createContext({
     admin: { apps: [true], firestore: () => db }, console,
@@ -64,4 +64,28 @@ test('the redundant creation request from a non-owner moderator has no audience'
   const { calls, context } = fixture();
   await context.handleNewSpot('moderator', { spotId: 's' });
   assert.equal(calls.length, 0);
+});
+
+
+test('trusted regular creators dispatch to the full publication audience', async () => {
+  const {calls, context} = fixture({approvalMethod: 'trusted_creator'}, {role: 'user'});
+  await context.handleNewSpot('owner', {spotId: 's'});
+  assert.equal(calls.length, 650);
+  assert.equal(calls.at(-1).userId, 'user649');
+});
+
+for (const status of ['pending', 'rejected']) {
+  test(`regular creators cannot announce ${status} spots`, async () => {
+    const {calls, context} = fixture({status}, {role: 'user'});
+    await context.handleNewSpot('owner', {spotId: 's'});
+    assert.equal(calls.length, 0);
+  });
+}
+
+test('deleted spots and banned creators cannot announce publications', async () => {
+  for (const [spot, creator] of [[{deleted: true}, {role: 'user'}], [{}, {role: 'user', banned: true}]]) {
+    const {calls, context} = fixture(spot, creator);
+    await context.handleNewSpot('owner', {spotId: 's'});
+    assert.equal(calls.length, 0);
+  }
 });

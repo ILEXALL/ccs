@@ -42,22 +42,57 @@ function fixture(sourcePath) {
     pushes.push(payload);return {successCount:payload.tokens.length,responses:payload.tokens.map(()=>({success:true}))};
   }})};
   const source=fs.readFileSync(sourcePath,'utf8')
-    .replace("import publications from '../lib/forum-publications.js';", '')
+    .replace(/^import .*;\r?\n/gm, '')
     .replace("import crypto from 'node:crypto';",'')
     .replace("import admin from 'firebase-admin';",'')
     .replace('export default async function handler','async function handler')
-    .replaceAll('export async function ', 'async function ');
+    .replaceAll('export async function ', 'async function ').replaceAll('export function ', 'function ');
   const publications = { drainForumPublications() { throw new Error('Outbox draining is outside this delivery fixture'); } };
-  const context={publications,crypto,admin,console,process,Date:class extends Date {static now(){return now;}},exports:{}};
-  vm.runInNewContext(source+'\nexports.publish = notifyUsersAboutNewSpot;',context);
+  const context={publications,crypto,admin,console,process,deliveryTokens: async (db, uid, user) => user.fcmTokens || [], removeDeliveryTokens: async () => {}, Date:class extends Date {static now(){return now;}},exports:{}};
+  vm.runInNewContext(source+'\nexports.publish = notifyUsersAboutNewSpot; exports.created = handleNewSpot;',context);
   async function publish(id,temporary=false,type=temporary?'temporary_event':'new_spot') {
     return context.exports.publish({spotId:id,spot:{name:id,cityCountry:'Riga, Latvia',addedByUid:'owner',isTemporary:temporary},notificationType:type,deliveryKey:'caller-supplied:'+id});
   }
-  return {publish,pushes,records,advance:ms=>{now+=ms;},bells:()=>[...records.keys()].filter(p=>p.startsWith('user_notifications/')).length};
+  async function publishAsRegularCreator(id) {
+    records.set('users/owner', {country:'Latvia', role:'user', fcmTokens:['owner-token']});
+    records.set('spots/'+id, {name:id,cityCountry:'Riga, Latvia',addedByUid:'owner',isTemporary:false,status:'approved',approvalMethod:'trusted_creator'});
+    return context.exports.created('owner', {spotId:id});
+  }
+  return {publish,publishAsRegularCreator,pushes,records,advance:ms=>{now+=ms;},bells:()=>[...records.keys()].filter(p=>p.startsWith('user_notifications/')).length};
 }
 
-for (const source of ['../api/push-notification.js','../../api/push-notification.js']) {
+for (const source of ['../api/push-notification.js','../../api/push-notification.js', ...(process.env.PUBLICATION_TEST_SOURCE ? [process.env.PUBLICATION_TEST_SOURCE] : [])]) {
   const file=path.resolve(__dirname,source);
+  test(`${source}: checked countries override profile country; defaults use profile country`, async () => {
+    const f = fixture(file);
+    f.records.set('users/alice', {country:'LV',spotCountryFilters:['RU'],fcmTokens:['alice-token']});
+    f.records.set('users/bob', {country:'Russia',spotCountryFilters:['LV','RU'],fcmTokens:['bob-token']});
+    f.records.set('users/mod', {country:'RU',role:'moderator',spotCountryFilters:['RU'],moderatorCountryCodes:['LV'],fcmTokens:['mod-token']});
+    f.records.set('users/default', {country:'Latvia',fcmTokens:['default-token']});
+    f.records.set('users/unknown', {fcmTokens:['unknown-token']});
+    await f.publishAsRegularCreator('local-first');
+    assert.equal(f.bells(), 2);
+    assert.equal(f.pushes.length, 2);
+    assert.deepEqual(f.pushes.flatMap(p => [...p.tokens]).sort(), ['bob-token','default-token']);
+    await f.publishAsRegularCreator('local-second');
+    assert.equal(f.bells(), 4);
+    assert.equal(f.pushes.length, 2);
+  });
+  test(`${source}: regular creator bell deliveries bypass only the push cooldown`, async () => {
+    const f = fixture(file);
+    await f.publishAsRegularCreator('trusted-first');
+    assert.equal(f.bells(), 2);
+    assert.equal(f.pushes.length, 2);
+    await f.publishAsRegularCreator('trusted-second');
+    assert.equal(f.bells(), 4);
+    assert.equal(f.pushes.length, 2);
+    await f.publishAsRegularCreator('trusted-second');
+    assert.equal(f.bells(), 4);
+    f.advance(5*60*60*1000);
+    await f.publishAsRegularCreator('trusted-third');
+    assert.equal(f.bells(), 6);
+    assert.equal(f.pushes.length, 4);
+  });
   test(`${source}: permanent publications push once per five hours and always reach bell`,async()=>{
     const f=fixture(file);
     await f.publish('first');

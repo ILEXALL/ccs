@@ -695,6 +695,7 @@ class _AdminReviewScreenState extends State<AdminReviewScreen>
                             filterChip(AdminSpotFilter.pending, codes),
                             filterChip(AdminSpotFilter.edited, codes),
                             filterChip(AdminSpotFilter.approved, codes),
+                            filterChip(AdminSpotFilter.autoApproved, codes),
                             filterChip(AdminSpotFilter.rejected, codes),
                             filterChip(AdminSpotFilter.all, codes),
                           ],
