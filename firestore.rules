@@ -1759,6 +1759,17 @@ service cloud.firestore {
       ]);
     }
 
+    function publicProfileDoesNotAddSecrets() {
+      // Older installed clients merge profile/region updates into legacy
+      // documents. Existing private fields must not block unrelated writes.
+      // Keep new profiles clean and prohibit introducing/changing public
+      // secrets; the server-side migration can still remove them entirely.
+      return publicProfileHasNoSecrets()
+        || !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+          'email', 'fcmTokens', 'fcmTokenUpdatedAt', 'lastFcmTokenPlatform'
+        ]);
+    }
+
     match /users/{userId} {
       match /private/account {
         allow read: if isOwner(userId);
@@ -1785,7 +1796,7 @@ service cloud.firestore {
       }
       allow read: if isSignedIn();
       allow create: if isOwner(userId) && publicProfileHasNoSecrets() && validNewUser(userId);
-      allow update: if publicProfileHasNoSecrets() && ((
+      allow update: if publicProfileDoesNotAddSecrets() && ((
         isOwner(userId)
         && isActiveUser()
         && userProtectedFieldsUnchanged()
@@ -2025,7 +2036,11 @@ service cloud.firestore {
         && request.resource.data.userId == currentUid()
         && request.resource.data.spotId is string
         && request.resource.data.username is string
-        && request.resource.data.get('type', 'comment') == 'comment';
+        && request.resource.data.get('type', 'comment') == 'comment'
+        && request.resource.data.get('reactions', {}) == {};
+      // Only the caller's reaction may change, and the spot must be accessible.
+      allow update: if messageReactionUpdateOnly()
+        && readableSpotById(resource.data.spotId);
       allow update: if isActiveUser()
         && resource.data.userId == currentUid()
         && request.resource.data.userId == resource.data.userId

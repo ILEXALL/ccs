@@ -19,17 +19,27 @@ class SpotDetailCompactHeader extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        Container(
+          width: 32,
+          height: 3,
+          margin: const EdgeInsets.only(bottom: 10),
+          decoration: BoxDecoration(
+            color: blue,
+            borderRadius: BorderRadius.circular(2),
+          ),
+        ),
         Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Expanded(
               child: CcsText(
                 spot.name,
-                maxLines: 1,
+                maxLines: 2,
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(
                   color: Colors.white,
-                  fontSize: 23,
+                  fontSize: 25,
+                  letterSpacing: -.5,
                   fontWeight: FontWeight.w900,
                   height: 1.08,
                 ),
@@ -101,7 +111,7 @@ class SpotDetailMetaRow extends StatelessWidget {
             child: _SpotMiniMetaChip(
               icon: Icons.person_outline,
               label: '${trText('Added by')} $addedBy',
-              accent: blue,
+              accent: const Color(0xFF8EB7FF),
             ),
           ),
       ],
@@ -126,11 +136,10 @@ class _SpotMiniMetaChip extends StatelessWidget {
 
     return Container(
       constraints: const BoxConstraints(maxWidth: 210),
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+      padding: const EdgeInsets.symmetric(vertical: 4),
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.045),
+        color: Colors.transparent,
         borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: Colors.white10),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,

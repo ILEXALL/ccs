@@ -1,6 +1,25 @@
 const test=require('node:test');
 const assert=require('node:assert/strict');
 const {beaconDistance,beaconOpacity,beaconPlacement}=require('../assets/globe/beacons.js');
+
+test('all directions clear measured controls and speedometer at different screen sizes',()=>{
+ const {beaconSafeBounds}=require('../assets/globe/beacons.js');
+ for(const [width,height] of [[360,640],[430,932],[800,400]]) {
+  for(const bottom of [84,116,160]) {
+   const bounds=beaconSafeBounds(width,height,{top:84,bottom},true);
+   const origin={x:width/2,y:(bounds.top+bounds.bottom)/2};
+   for(let degree=0;degree<360;degree++) {
+    const a=degree*Math.PI/180;
+    const at=beaconPlacement(origin,{x:origin.x+Math.cos(a)*2000,y:origin.y+Math.sin(a)*2000},bounds);
+    assert.ok(at);
+    assert.ok(at.x>=bounds.left-1e-6 && at.x<=bounds.right+1e-6);
+    assert.ok(at.y>=bounds.top-1e-6 && at.y<=bounds.bottom+1e-6);
+    assert.ok(at.y+40<=height-bottom);
+    assert.ok(at.y-60>=84);
+   }
+  }
+ }
+});
 test('fade thresholds and monotonic proximity',()=>{
  assert.equal(beaconOpacity(2000),0);assert.equal(beaconOpacity(2500),0);
  assert.equal(beaconOpacity(500),1);assert.equal(beaconOpacity(0),1);
@@ -42,14 +61,14 @@ test('SOS and police use independent smooth distance ranges',()=>{
  }
 });
 
-test('speed zoom retains low-speed scale and doubles distance at 100 km/h',()=>{
+test('speed zoom retains low-speed scale and triples distance at 100 km/h',()=>{
  const {speedFollowZoom}=require('../assets/globe/beacons.js');
  assert.equal(speedFollowZoom(16.35,0),16.35);
  assert.equal(speedFollowZoom(16.35,30/3.6),16.35);
- assert.ok(Math.abs(speedFollowZoom(16.35,100/3.6)-15.35)<1e-10);
+ assert.ok(Math.abs(speedFollowZoom(16.35,100/3.6)-(16.35-Math.log2(3)))<1e-10);
  assert.equal(speedFollowZoom(16.35,NaN),16.35);
  let previous=16.35;
- for(let k=31;k<=150;k++){const z=speedFollowZoom(16.35,k/3.6);assert.ok(z<previous);assert.ok(previous-z<.025);previous=z;}
+ for(let k=31;k<=150;k++){const z=speedFollowZoom(16.35,k/3.6);assert.ok(z<previous);assert.ok(previous-z<.05);previous=z;}
 });
 
 test('radar attention follows driving bearing, not map rotation, and stops at rest',()=>{
@@ -71,4 +90,14 @@ test('colocated people collapse with exact membership and split as they move apa
  const group=result.find(f=>f.properties.count===2);
  assert.deepEqual(group.properties.memberIds,['a','b']);assert.equal(group.properties.label,'a, b');
  assert.equal(groupPeopleBeacons([person('a',0),person('b',.01)]).length,2);
+});
+
+test('beacon direction follows the near-ground ray when a far projection flips',()=>{
+ const {beaconScreenDirection}=require('../assets/globe/beacons.js');
+ const project=([x,y])=>({x:200+x*100,y:400+(Math.abs(y)>.01?y:-y)*100});
+ const ray=beaconScreenDirection([0,0],[0,1],project);
+ assert.ok(ray.dy<0);assert.equal(ray.inFront,false);
+ assert.deepEqual(beaconPlacement({x:200,y:400},{x:200+ray.dx*1000,y:400+ray.dy*1000},{left:30,right:370,top:100,bottom:650}),{x:200,y:100});
+ assert.equal(beaconScreenDirection([0,0],[0,0],project),null);
+ assert.equal(beaconScreenDirection([0,0],[NaN,0],project),null);
 });

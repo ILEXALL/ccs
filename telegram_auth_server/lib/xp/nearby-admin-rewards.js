@@ -10,7 +10,7 @@ async function prepareNearbyAdminRewards(db, tx, {userId, user, position, sample
     if (!reward?.enabled || now < Math.max(reward.startsAt, reward.createdAt) || now >= reward.endsAt) continue;
     const spot = (await tx.get(db.collection('spots').doc(reward.spotId))).data();
     const target = coordinates(spot);
-    if (!spot || !target || spot.deleted || spot.status !== 'approved' || distanceMeters(position,target)>100 ||
+    if (!spot || !target || spot.deleted || spot.status !== 'approved' || distanceMeters(position,target)>40 ||
         (spot.verifiedOnly && !user.verified && !['admin','moderator'].includes(user.role)) ||
         (spot.isTemporary && (millis(spot.startsAt)>now || millis(spot.expiresAt)<=now))) continue;
     if (spot.visibility === 'group') {

@@ -1,3 +1,7 @@
+import 'package:ccs_app/features/map/widgets/event_capsule.dart';
+import 'package:ccs_app/features/map/models/event_marker_clusters.dart';
+import 'package:ccs_app/shared/utils/date_formatting.dart'
+    show formatShortDateTime, formatShortDate, formatClockTime;
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 import 'package:firebase_auth/firebase_auth.dart';
@@ -243,311 +247,437 @@ class MapLayersController implements MapLayersActions {
       maxValue: 1,
     ).clamp(0.0, 1.0).toDouble();
 
-    return visibleSpots.map((spot) {
-      const visibilityOpacity = 1.0;
-      final closedNow = spotIsClosedNow(spot);
-      final isTemporaryActive = spot.isTemporaryActiveNow;
-      final isTemporaryUpcoming = spot.isTemporaryUpcomingOnMap;
-      final markerColor = closedNow && !isTemporaryActive
-          ? Colors.grey.shade700
-          : isTemporaryActive || isTemporaryUpcoming
-          ? const Color(0xFFE7C580)
-          : spotColorForSpot(spot);
-      final baseMarkerSize = showFullIcons ? fullMarkerSize : compactMarkerSize;
-      final markerVisualSize = isTemporaryActive || isTemporaryUpcoming
-          ? baseMarkerSize * (showFullIcons ? 1.16 : 1.04)
-          : baseMarkerSize;
-      final compactMarkerPadding = showFullIcons
-          ? 0.0
-          : spot.isTemporary
-          ? math.max(2.4, markerVisualSize * (isTemporaryActive ? 0.54 : 0.38))
-          : math.max(1.4, markerVisualSize * 0.26);
-      final markerWidth = showFullIcons
-          ? fullMarkerWidth + (spot.isTemporary ? 30 : 0)
-          : math.max(
-              44.0,
-              markerVisualSize + (spot.isTemporary ? compactMarkerPadding : 8),
-            );
-      final markerHeight = showFullIcons
-          ? fullMarkerHeight +
-                (isTemporaryUpcoming
-                    ? 34
-                    : isTemporaryActive
-                    ? 24
-                    : 0)
-          : math.max(
-              44.0,
-              markerVisualSize + (spot.isTemporary ? compactMarkerPadding : 8),
-            );
-      final markerOpacity = isTemporaryUpcoming || closedNow ? 0.80 : 1.0;
-      final iconTopPadding = math.max(
-        0.0,
-        (markerHeight - markerVisualSize) / 2,
-      );
-      final mapNameLabelTop = math.max(0.0, iconTopPadding - labelFontSize - 3);
-      final mapStartLabelBottom = math.max(0.0, iconTopPadding - 14);
-
-      Widget iconWidget() {
-        final asset = spotIconAssetPathForSpot(spot, mapStyle: host.mapStyle);
-        final image = Image.asset(
-          asset,
-          fit: BoxFit.contain,
-          errorBuilder: (context, error, stackTrace) {
-            return CompactSpotMapPoint(
-              color: markerColor,
-              faded: isTemporaryUpcoming || closedNow,
-              event: isTemporaryActive || isTemporaryUpcoming,
-            );
-          },
-        );
-
-        final rawIcon = SizedBox(
-          width: markerVisualSize,
-          height: markerVisualSize,
-          child: closedNow || isTemporaryUpcoming || isTemporaryActive
-              ? Opacity(
-                  opacity: markerOpacity,
-                  child: ColorFiltered(
-                    colorFilter: ColorFilter.mode(
-                      markerColor,
-                      BlendMode.srcATop,
-                    ),
-                    child: image,
-                  ),
+    return visibleSpots
+        .where(
+          (spot) =>
+              !spot.isTemporaryActiveNow && !spot.isTemporaryUpcomingOnMap,
+        )
+        .map((spot) {
+          const visibilityOpacity = 1.0;
+          final closedNow = spotIsClosedNow(spot);
+          final isTemporaryActive = spot.isTemporaryActiveNow;
+          final isTemporaryUpcoming = spot.isTemporaryUpcomingOnMap;
+          final markerColor = closedNow && !isTemporaryActive
+              ? Colors.grey.shade700
+              : isTemporaryActive || isTemporaryUpcoming
+              ? const Color(0xFFE7C580)
+              : spotColorForSpot(spot);
+          final baseMarkerSize = showFullIcons
+              ? fullMarkerSize
+              : compactMarkerSize;
+          final markerVisualSize = isTemporaryActive || isTemporaryUpcoming
+              ? baseMarkerSize * (showFullIcons ? 1.16 : 1.04)
+              : baseMarkerSize;
+          final compactMarkerPadding = showFullIcons
+              ? 0.0
+              : spot.isTemporary
+              ? math.max(
+                  2.4,
+                  markerVisualSize * (isTemporaryActive ? 0.54 : 0.38),
                 )
-              : image,
-        );
+              : math.max(1.4, markerVisualSize * 0.26);
+          final markerWidth = showFullIcons
+              ? fullMarkerWidth + (spot.isTemporary ? 30 : 0)
+              : math.max(
+                  44.0,
+                  markerVisualSize +
+                      (spot.isTemporary ? compactMarkerPadding : 8),
+                );
+          final markerHeight = showFullIcons
+              ? fullMarkerHeight +
+                    (isTemporaryUpcoming
+                        ? 34
+                        : isTemporaryActive
+                        ? 24
+                        : 0)
+              : math.max(
+                  44.0,
+                  markerVisualSize +
+                      (spot.isTemporary ? compactMarkerPadding : 8),
+                );
+          final markerOpacity = isTemporaryUpcoming || closedNow ? 0.80 : 1.0;
+          final iconTopPadding = math.max(
+            0.0,
+            (markerHeight - markerVisualSize) / 2,
+          );
+          final mapNameLabelTop = math.max(
+            0.0,
+            iconTopPadding - labelFontSize - 3,
+          );
+          final mapStartLabelBottom = math.max(0.0, iconTopPadding - 14);
 
-        final icon =
-            host.mapStyle == CcsMapStyle.light && !host.mapGestureInProgress
-            ? SizedBox(
-                width: markerVisualSize,
-                height: markerVisualSize,
-                child: Stack(
-                  alignment: Alignment.center,
-                  children: [
-                    ClipOval(
-                      child: BackdropFilter(
-                        filter: ui.ImageFilter.blur(sigmaX: 1.6, sigmaY: 1.6),
-                        child: SizedBox(
-                          width: markerVisualSize * 0.78,
-                          height: markerVisualSize * 0.78,
+          Widget iconWidget() {
+            final asset = spotIconAssetPathForSpot(
+              spot,
+              mapStyle: host.mapStyle,
+            );
+            final image = Image.asset(
+              asset,
+              fit: BoxFit.contain,
+              errorBuilder: (context, error, stackTrace) {
+                return CompactSpotMapPoint(
+                  color: markerColor,
+                  faded: isTemporaryUpcoming || closedNow,
+                  event: isTemporaryActive || isTemporaryUpcoming,
+                );
+              },
+            );
+
+            final rawIcon = SizedBox(
+              width: markerVisualSize,
+              height: markerVisualSize,
+              child:
+                  closedNow ||
+                      ((isTemporaryUpcoming || isTemporaryActive) &&
+                          host.mapStyle != CcsMapStyle.light)
+                  ? Opacity(
+                      opacity: markerOpacity,
+                      child: ColorFiltered(
+                        colorFilter: ColorFilter.mode(
+                          markerColor,
+                          BlendMode.srcATop,
+                        ),
+                        child: image,
+                      ),
+                    )
+                  : image,
+            );
+
+            final icon =
+                host.mapStyle == CcsMapStyle.light && !host.mapGestureInProgress
+                ? SizedBox(
+                    width: markerVisualSize,
+                    height: markerVisualSize,
+                    child: Stack(
+                      alignment: Alignment.center,
+                      children: [
+                        ClipOval(
+                          child: BackdropFilter(
+                            filter: ui.ImageFilter.blur(
+                              sigmaX: 1.6,
+                              sigmaY: 1.6,
+                            ),
+                            child: SizedBox(
+                              width: markerVisualSize * 0.78,
+                              height: markerVisualSize * 0.78,
+                            ),
+                          ),
+                        ),
+                        rawIcon,
+                      ],
+                    ),
+                  )
+                : rawIcon;
+
+            Widget withVerifiedBadge(Widget child) {
+              if (!spot.verifiedOnly) {
+                return child;
+              }
+
+              return Stack(
+                clipBehavior: Clip.none,
+                alignment: Alignment.center,
+                children: [
+                  child,
+                  Positioned(
+                    right: -2,
+                    top: -2,
+                    child: VerifiedSpotBadge(
+                      size: markerVisualSize.clamp(13.0, 18.0).toDouble(),
+                    ),
+                  ),
+                ],
+              );
+            }
+
+            if (!isTemporaryActive) {
+              return withVerifiedBadge(icon);
+            }
+
+            return withVerifiedBadge(
+              PulsingTemporarySpotIconGlow(size: markerVisualSize, child: icon),
+            );
+          }
+
+          Widget fullMarker() {
+            return Stack(
+              alignment: Alignment.center,
+              children: [
+                Positioned(
+                  top: mapNameLabelTop,
+                  left: 2,
+                  right: 2,
+                  child: IgnorePointer(
+                    child: Opacity(
+                      opacity: spotNameLabelOpacity,
+                      child: CcsText(
+                        spot.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          color: closedNow || isTemporaryUpcoming
+                              ? host.mapStyle.mapMutedLabelColor
+                              : host.mapStyle.mapLabelColor.withValues(
+                                  alpha: 0.82,
+                                ),
+                          fontSize: labelFontSize,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: 0.2,
+                          shadows: [
+                            Shadow(
+                              color: host.mapStyle.mapLabelShadowColor,
+                              blurRadius: 5,
+                            ),
+                          ],
                         ),
                       ),
                     ),
-                    rawIcon,
-                  ],
+                  ),
                 ),
-              )
-            : rawIcon;
-
-        Widget withVerifiedBadge(Widget child) {
-          if (!spot.verifiedOnly) {
-            return child;
+                iconWidget(),
+                if (isTemporaryActive)
+                  Positioned(
+                    right: 2,
+                    top: iconTopPadding + markerVisualSize * 0.28,
+                    child: const TemporaryMapBadge(),
+                  ),
+                if (isTemporaryUpcoming)
+                  Positioned(
+                    left: 2,
+                    right: 2,
+                    bottom: mapStartLabelBottom,
+                    child: IgnorePointer(
+                      child: CcsText(
+                        spot.temporaryStartingAtLabel,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          color: host.mapStyle == CcsMapStyle.light
+                              ? host.mapStyle.mapLabelColor
+                              : const Color(0xFFE7C580),
+                          fontSize: 9,
+                          fontWeight: FontWeight.w900,
+                          shadows: [
+                            Shadow(
+                              color: host.mapStyle.mapLabelShadowColor,
+                              blurRadius: 3,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            );
           }
 
-          return Stack(
-            clipBehavior: Clip.none,
-            alignment: Alignment.center,
-            children: [
-              child,
-              Positioned(
-                right: -2,
-                top: -2,
-                child: VerifiedSpotBadge(
-                  size: markerVisualSize.clamp(13.0, 18.0).toDouble(),
+          Widget compactMarker() {
+            final point = CompactSpotMapPoint(
+              color: markerColor,
+              size: markerVisualSize,
+              faded: isTemporaryUpcoming || closedNow,
+              event: isTemporaryActive || isTemporaryUpcoming,
+            );
+
+            Widget marker = host.mapStyle == CcsMapStyle.light
+                ? SizedBox(
+                    width: markerVisualSize + 12,
+                    height: markerVisualSize + 12,
+                    child: Stack(
+                      alignment: Alignment.center,
+                      children: [
+                        Container(
+                          width: markerVisualSize + 3,
+                          height: markerVisualSize + 3,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withValues(alpha: 0.52),
+                                blurRadius: 6,
+                                spreadRadius: 0.45,
+                                offset: const Offset(0, 1.4),
+                              ),
+                              BoxShadow(
+                                color: markerColor.withValues(alpha: 0.18),
+                                blurRadius: 4,
+                                spreadRadius: 0.15,
+                              ),
+                            ],
+                          ),
+                        ),
+                        point,
+                      ],
+                    ),
+                  )
+                : point;
+
+            if (isTemporaryActive) {
+              marker = PulsingTemporarySpotIconGlow(
+                size: markerVisualSize,
+                compact: true,
+                child: point,
+              );
+            }
+
+            return marker;
+          }
+
+          final peopleCount = presence[spot.id]?.length ?? 0;
+          final showPeople = host.currentMapZoom >= 14 && peopleCount > 0;
+          return Marker(
+            key: ValueKey('spot_${spot.id}'),
+            point: spot.coordinates,
+            alignment: showFullIcons
+                ? spotIconTipAlignment(
+                    asset: spotIconAssetPathForSpot(
+                      spot,
+                      mapStyle: host.mapStyle,
+                    ),
+                    iconSize: markerVisualSize,
+                    markerWidth: markerWidth,
+                    markerHeight: markerHeight,
+                  )
+                : Alignment.center,
+            width: markerWidth,
+            height: markerHeight,
+            rotate: true,
+            child: IgnorePointer(
+              ignoring: visibilityOpacity <= 0.05,
+              child: Opacity(
+                opacity: visibilityOpacity,
+                child: SpotPresenceMarker(
+                  iconSize: markerVisualSize,
+                  onSpotTap: () {
+                    host.updateMap(() {
+                      host.selectedSpot = spot;
+                      host.selectedPoliceReport = null;
+                      host.selectedSosReport = null;
+                      host.selectedLiveLocation = null;
+                    });
+                  },
+                  marker: ValueListenableBuilder<VisitDwellProgress?>(
+                    valueListenable: visitDwellProgress,
+                    builder: (context, progress, child) => VisitDwellMarker(
+                      diameter:
+                          markerVisualSize * (showFullIcons ? 0.78 : 1.0) + 4,
+                      progress:
+                          progress?.userId ==
+                                  FirebaseAuth.instance.currentUser?.uid &&
+                              progress?.spotId == spot.id
+                          ? progress
+                          : null,
+                      label: creatorSpotsText(
+                        'Stay for 5 minutes',
+                        'Оставайся 5 минут',
+                        'Paliec 5 minūtes',
+                      ),
+                      child: child!,
+                    ),
+                    child: showFullIcons ? fullMarker() : compactMarker(),
+                  ),
+                  peopleButton: showPeople
+                      ? SpotPresenceCount(
+                          count: peopleCount,
+                          onTap: () => host.presence.showSpotPeople(spot),
+                        )
+                      : null,
                 ),
               ),
-            ],
+            ),
           );
-        }
+        })
+        .toList()
+      ..addAll(_eventMarkers());
+  }
 
-        if (!isTemporaryActive) {
-          return withVerifiedBadge(icon);
-        }
-
-        return withVerifiedBadge(
-          PulsingTemporarySpotIconGlow(size: markerVisualSize, child: icon),
-        );
-      }
-
-      Widget fullMarker() {
-        return Stack(
-          alignment: Alignment.center,
-          children: [
-            Positioned(
-              top: mapNameLabelTop,
-              left: 2,
-              right: 2,
-              child: IgnorePointer(
-                child: Opacity(
-                  opacity: spotNameLabelOpacity,
-                  child: CcsText(
-                    spot.name,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      color: closedNow || isTemporaryUpcoming
-                          ? host.mapStyle.mapMutedLabelColor
-                          : host.mapStyle.mapLabelColor.withValues(alpha: 0.82),
-                      fontSize: labelFontSize,
-                      fontWeight: FontWeight.w800,
-                      letterSpacing: 0.2,
-                      shadows: [
-                        Shadow(
-                          color: host.mapStyle.mapLabelShadowColor,
-                          blurRadius: 5,
-                        ),
+  List<Marker> _eventMarkers() {
+    final events = visibleSpots
+        .where((s) => s.isTemporaryActiveNow || s.isTemporaryUpcomingOnMap)
+        .toList();
+    if (events.isEmpty) return [];
+    final camera = host.mapController.camera;
+    final metrics = EventMarkerMetrics(host.currentMapZoom);
+    final width = metrics.width;
+    final height = math.max(44.0, metrics.height);
+    final groups = groupEventMarkers(
+      events,
+      (s) => camera.latLngToScreenOffset(s.coordinates),
+      width: math.max(44.0, width) + 8,
+      height: height + 8,
+    );
+    return groups.map((members) {
+      final points = members
+          .map((s) => camera.latLngToScreenOffset(s.coordinates))
+          .toList();
+      final center = points.reduce((a, b) => a + b) / points.length.toDouble();
+      final point = camera.screenOffsetToLatLng(center);
+      final spot = members.first;
+      return Marker(
+        key: ValueKey('event_${members.map((s) => s.id).join('_')}'),
+        point: point,
+        alignment: Alignment.center,
+        width: math.max(44.0, width),
+        height: height,
+        rotate: true,
+        child: EventCapsule(
+          light: host.mapStyle == CcsMapStyle.light,
+          width: width,
+          dot: metrics.dot,
+          label: members.length > 1
+              ? '×${members.length}'
+              : !metrics.showTime || spot.startsAtMillis == null
+              ? ''
+              : formatShortDateTime(
+                  DateTime.fromMillisecondsSinceEpoch(spot.startsAtMillis!),
+                ).replaceFirst(' ', '\n'),
+          onTap: () async {
+            if (members.length > 1) {
+              final selected = await showModalBottomSheet<CarSpot>(
+                context: host.context,
+                builder: (context) => SafeArea(
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(
+                      maxHeight: MediaQuery.sizeOf(context).height * .6,
+                    ),
+                    child: ListView(
+                      shrinkWrap: true,
+                      children: [
+                        for (final event in members)
+                          ListTile(
+                            leading: const Icon(Icons.event),
+                            title: CcsText(event.name),
+                            subtitle: CcsText(
+                              event.startsAtMillis == null
+                                  ? ''
+                                  : '${formatShortDate(DateTime.fromMillisecondsSinceEpoch(event.startsAtMillis!))} · ${formatClockTime(DateTime.fromMillisecondsSinceEpoch(event.startsAtMillis!))}',
+                            ),
+                            onTap: () => Navigator.pop(context, event),
+                          ),
                       ],
                     ),
                   ),
                 ),
-              ),
-            ),
-            iconWidget(),
-            if (isTemporaryActive)
-              Positioned(
-                right: 2,
-                top: iconTopPadding + markerVisualSize * 0.28,
-                child: const TemporaryMapBadge(),
-              ),
-            if (isTemporaryUpcoming)
-              Positioned(
-                left: 2,
-                right: 2,
-                bottom: mapStartLabelBottom,
-                child: IgnorePointer(
-                  child: CcsText(
-                    spot.temporaryStartingAtLabel,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(
-                      color: Color(0xFFE7C580),
-                      fontSize: 9,
-                      fontWeight: FontWeight.w900,
-                      shadows: [Shadow(color: Colors.black, blurRadius: 6)],
-                    ),
-                  ),
-                ),
-              ),
-          ],
-        );
-      }
-
-      Widget compactMarker() {
-        final point = CompactSpotMapPoint(
-          color: markerColor,
-          size: markerVisualSize,
-          faded: isTemporaryUpcoming || closedNow,
-          event: isTemporaryActive || isTemporaryUpcoming,
-        );
-
-        Widget marker = host.mapStyle == CcsMapStyle.light
-            ? SizedBox(
-                width: markerVisualSize + 12,
-                height: markerVisualSize + 12,
-                child: Stack(
-                  alignment: Alignment.center,
-                  children: [
-                    Container(
-                      width: markerVisualSize + 3,
-                      height: markerVisualSize + 3,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.52),
-                            blurRadius: 6,
-                            spreadRadius: 0.45,
-                            offset: const Offset(0, 1.4),
-                          ),
-                          BoxShadow(
-                            color: markerColor.withValues(alpha: 0.18),
-                            blurRadius: 4,
-                            spreadRadius: 0.15,
-                          ),
-                        ],
-                      ),
-                    ),
-                    point,
-                  ],
-                ),
-              )
-            : point;
-
-        if (isTemporaryActive) {
-          marker = PulsingTemporarySpotIconGlow(
-            size: markerVisualSize,
-            compact: true,
-            child: point,
-          );
-        }
-
-        return marker;
-      }
-
-      final peopleCount = presence[spot.id]?.length ?? 0;
-      final showPeople = host.currentMapZoom >= 14 && peopleCount > 0;
-      return Marker(
-        key: ValueKey('spot_${spot.id}'),
-        point: spot.coordinates,
-        alignment: showFullIcons
-            ? spotIconTipAlignment(
-                asset: spotIconAssetPathForSpot(spot, mapStyle: host.mapStyle),
-                iconSize: markerVisualSize,
-                markerWidth: markerWidth,
-                markerHeight: markerHeight,
-              )
-            : Alignment.center,
-        width: markerWidth,
-        height: markerHeight,
-        rotate: true,
-        child: IgnorePointer(
-          ignoring: visibilityOpacity <= 0.05,
-          child: Opacity(
-            opacity: visibilityOpacity,
-            child: SpotPresenceMarker(
-              iconSize: markerVisualSize,
-              onSpotTap: () {
-                host.updateMap(() {
-                  host.selectedSpot = spot;
-                  host.selectedPoliceReport = null;
-                  host.selectedSosReport = null;
-                  host.selectedLiveLocation = null;
-                });
-              },
-              marker: ValueListenableBuilder<VisitDwellProgress?>(
-                valueListenable: visitDwellProgress,
-                builder: (context, progress, child) => VisitDwellMarker(
-                  diameter: markerVisualSize * (showFullIcons ? 0.78 : 1.0) + 4,
-                  progress:
-                      progress?.userId ==
-                              FirebaseAuth.instance.currentUser?.uid &&
-                          progress?.spotId == spot.id
-                      ? progress
-                      : null,
-                  label: creatorSpotsText(
-                    'Stay for 5 minutes',
-                    'Оставайся 5 минут',
-                    'Paliec 5 minūtes',
-                  ),
-                  child: child!,
-                ),
-                child: showFullIcons ? fullMarker() : compactMarker(),
-              ),
-              peopleButton: showPeople
-                  ? SpotPresenceCount(
-                      count: peopleCount,
-                      onTap: () => host.presence.showSpotPeople(spot),
-                    )
-                  : null,
-            ),
-          ),
+              );
+              if (selected != null && host.mounted) _selectEvent(selected);
+            } else {
+              _selectEvent(spot);
+            }
+          },
         ),
       );
     }).toList();
+  }
+
+  void _selectEvent(CarSpot spot) {
+    host.updateMap(() {
+      host.selectedSpot = spot;
+      host.selectedPoliceReport = null;
+      host.selectedSosReport = null;
+      host.selectedLiveLocation = null;
+    });
   }
 
   @override

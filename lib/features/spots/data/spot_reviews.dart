@@ -428,3 +428,23 @@ Future<void> deleteSpotReview({
     await updateSpotCountersOnServer(spot, commentDelta: -1);
   }
 }
+
+/// Updates only the authenticated user's entry; concurrent reactions are retained.
+Future<void> setSpotReviewReaction({
+  required SpotReviewData review,
+  required String emoji,
+}) async {
+  final uid = FirebaseAuth.instance.currentUser?.uid;
+  if (uid == null) {
+    throw FirebaseException(plugin: 'cloud_firestore', code: 'not-logged-in');
+  }
+  final value = emoji.trim();
+  if (value.runes.length > 32) {
+    throw ArgumentError.value(emoji, 'emoji', 'Reaction exceeds 32 characters');
+  }
+  await spotReviewsCollection().doc(review.id).update({
+    FieldPath(['reactions', uid]): value.isEmpty ? FieldValue.delete() : value,
+  });
+  // Reopening details must fetch the persisted reactions rather than an old page.
+  spotCommentsSessionCache.remove(review.spotId);
+}

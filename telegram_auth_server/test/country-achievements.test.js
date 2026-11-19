@@ -41,8 +41,8 @@ test('disabled or banned accounts and unsupported countries cannot receive rewar
  assert.equal(f.rows.has('xp_user_stats/tester'),false);
 });
 
-test('country badge requires a real visit within 100m, never 500m or GPS alone', async () => {
- for (const [meters, accepted] of [[99.6, true], [100.4, false], [500, false]]) {
+test('country badge requires a real visit within 40m, never 500m or GPS alone', async () => {
+ for (const [meters, accepted] of [[39.6, true], [40.4, false], [500, false]]) {
   const f=fixture({'spots/s':{status:'approved', lat:fix.latitude + meters / 6371000 * 180 / Math.PI, lng:fix.longitude}});
   f.rows.get('app_config/xp').achievements_enabled=true;
   completedDwell(f,'tester','s',now.getTime());

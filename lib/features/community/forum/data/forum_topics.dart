@@ -1,3 +1,4 @@
+import 'package:ccs_app/features/community/forum/models/topic_activity.dart';
 import 'package:ccs_app/features/community/forum/data/forum_state.dart'
     show forumTopicsRefreshTick;
 import 'dart:async';
@@ -212,6 +213,7 @@ bool groupForumAccessible(Map<String, dynamic> data) =>
 
 bool forumTopicIsVisibleNow(Map<String, dynamic> data) {
   if (!groupForumAccessible(data)) return false;
+  if (!forumTopicHasRecentActivity(data, DateTime.now())) return false;
   final status = stringFromFirebase(data['status'], 'approved');
   if (status != 'approved') {
     return false;
@@ -601,17 +603,16 @@ loadRegionalForumTopicDocuments(
   if (selectedCode == 'LV') {
     final legacyRequest = _legacyLatvianForumTopicsSnapshotFuture ??= readPages(
       collection.where('visibility', isEqualTo: 'public'),
-      'forum: legacy Latvian topics session cache',
+      'forum: legacy Latvian topics refresh',
     );
     try {
       for (final doc in await legacyRequest) {
         if (!doc.data().containsKey('countryCode')) byId[doc.id] = doc;
       }
-    } catch (_) {
+    } finally {
       if (identical(_legacyLatvianForumTopicsSnapshotFuture, legacyRequest)) {
         _legacyLatvianForumTopicsSnapshotFuture = null;
       }
-      rethrow;
     }
   }
   final groupIds = groupSpotIds.values.expand((ids) => ids).toSet();

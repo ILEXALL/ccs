@@ -2,7 +2,7 @@ const {prepareNearbyAdminRewards} = require('./xp/nearby-admin-rewards');
 const {prepareTaskVisit} = require('./xp/weekly-visit-evidence');
 const crypto = require('node:crypto');
 
-const VISIT_RADIUS_METERS = 100;
+const VISIT_RADIUS_METERS = 40;
 const MAX_SAMPLE_AGE_MS = 60000;
 const DWELL_MS = 5 * 60000;
 const MAX_DWELL_GAP_MS = 60000;

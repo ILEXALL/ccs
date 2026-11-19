@@ -3,6 +3,15 @@ import 'package:latlong2/latlong.dart';
 import 'package:ccs_app/core/location/coordinates.dart'
     show distanceBetweenLatLngMeters;
 
+/// Preserve walking scale; show three times the ground distance at 100 km/h.
+double speedFollowZoom(double baseZoom, double metersPerSecond) {
+  final kmh = metersPerSecond.isFinite
+      ? math.max(0.0, metersPerSecond) * 3.6
+      : 0.0;
+  final scale = math.min(5.0, 1 + math.max(0.0, kmh - 30) / 35);
+  return baseZoom - math.log(scale) / math.ln2;
+}
+
 /// Visual-only velocity estimate. Never used for uploads or visit/XP evidence.
 class NavigationMotion {
   LatLng? _previous;

@@ -1,3 +1,4 @@
+import 'package:ccs_app/features/community/chats/widgets/chat_link_text.dart';
 import 'dart:async';
 import 'package:ccs_app/shared/media/photo_gallery.dart' show SpotPhotoCarousel;
 import 'package:ccs_app/core/time/trusted_clock.dart' show trustedClock;
@@ -260,7 +261,7 @@ class _EventDetailOverviewState extends State<EventDetailOverview> {
           const SizedBox(height: 12),
           SizedBox(
             width: double.infinity,
-            child: CcsText(
+            child: ChatLinkText(
               spot.description,
               key: const ValueKey('event-full-width-description'),
               softWrap: true,

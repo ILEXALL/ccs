@@ -1,3 +1,4 @@
+import 'package:ccs_app/features/community/chats/widgets/chat_link_text.dart';
 import 'package:flutter/material.dart' hide Text;
 import 'package:ccs_app/core/localization/ccs_text.dart';
 import 'package:ccs_app/core/platform/external_links.dart';
@@ -124,7 +125,7 @@ class BatchSpotReviewCard extends StatelessWidget {
       child: InkWell(
         onTap: onEdit,
         child: Padding(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.all(10),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -144,162 +145,175 @@ class BatchSpotReviewCard extends StatelessWidget {
                   ),
                 ],
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 6),
               CcsText(
                 spot.name,
                 style: const TextStyle(
-                  fontSize: 21,
+                  fontSize: 17,
                   fontWeight: FontWeight.w800,
                   color: Colors.white,
                 ),
               ),
-              const SizedBox(height: 6),
-              CcsText(
-                spot.categories.map(trText).join(' · '),
-                style: TextStyle(color: accent, fontWeight: FontWeight.w700),
-              ),
-              section('Location', Icons.location_on_outlined, [
-                detail('Location', spot.cityCountry),
-                detail(
-                  'Coordinates',
-                  '${spot.coordinates.latitude.toStringAsFixed(6)}, ${spot.coordinates.longitude.toStringAsFixed(6)}',
-                ),
-              ]),
-              section('Submission details', Icons.person_outline, [
-                detail('Added by', spot.addedBy),
-                detail('Created', date(spot.createdAtMillis)),
-                if (spot.updatedAtMillis > spot.createdAtMillis)
-                  detail('Updated', date(spot.updatedAtMillis)),
-              ]),
-              if (photos.isNotEmpty) ...[
-                const SizedBox(height: 12),
-                SizedBox(
-                  height: 170,
-                  child: ListView.separated(
-                    scrollDirection: Axis.horizontal,
-                    itemCount: photos.length,
-                    separatorBuilder: (_, _) => const SizedBox(width: 8),
-                    itemBuilder: (_, index) => ClipRRect(
-                      borderRadius: BorderRadius.circular(12),
-                      child: spotPhotoImage(
-                        photos[index],
-                        width: 220,
-                        height: 170,
-                        fit: BoxFit.contain,
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-              if (spot.description.isNotEmpty)
-                section('Description', Icons.notes_outlined, [
-                  CcsText(
-                    spot.description,
-                    style: const TextStyle(color: Colors.white, height: 1.45),
-                  ),
-                ]),
-              section('Visibility', Icons.visibility_outlined, [
-                detail(
-                  'Visibility',
-                  trText(spot.isGroupSpot ? 'Private event' : 'Public'),
-                ),
-                if (spot.sharedGroups.isNotEmpty)
-                  detail(
-                    'Groups',
-                    spot.sharedGroups
-                        .map((g) => g['name'] ?? g['id'] ?? '')
-                        .join(', '),
-                  ),
-                if (spot.verifiedOnly)
-                  detail('Access', trText('Verified users only')),
-              ]),
-              if (spot.isTemporary)
-                section('Event schedule', Icons.event_outlined, [
-                  detail('Starts', date(spot.startsAtMillis)),
-                  detail('Ends', date(spot.expiresAtMillis)),
-                  detail('Location reveal', date(spot.showOnMapAtMillis)),
-                ]),
-              if ([
-                spot.contactPhone,
-                spot.contactInstagram,
-                spot.contactEmail,
-                spot.ownerUsername,
-              ].any((value) => value.trim().isNotEmpty))
-                section('Contact details', Icons.contact_phone_outlined, [
-                  detail('Phone', spot.contactPhone),
-                  detail('Instagram', spot.contactInstagram),
-                  detail('Email', spot.contactEmail),
-                  detail('Owner', spot.ownerUsername),
-                ]),
-              if (!spot.isTemporary && spot.hasOpeningHours)
-                section('Opening hours', Icons.schedule, [
-                  for (final day in (spot.openingHours.keys.toList()..sort()))
-                    detail(
-                      [
-                        'Monday',
-                        'Tuesday',
-                        'Wednesday',
-                        'Thursday',
-                        'Friday',
-                        'Saturday',
-                        'Sunday',
-                      ][day - 1],
-                      spot.openingHours[day]!.isOpen
-                          ? '${spot.openingHours[day]!.opensAt} – ${spot.openingHours[day]!.closesAt}'
-                          : trText('Closed'),
-                    ),
-                ]),
-              section('Spot details', Icons.info_outline, [
-                detail('Best time', trText(spot.bestTime)),
-                detail('Parking', trText(spot.parking)),
-                detail('Road quality', trText(spot.roadQuality)),
-                detail(
-                  'Low car friendly',
-                  trText(spot.lowCarFriendly ? 'Yes' : 'No'),
-                ),
-                detail('Police risk', trText(spot.policeRisk)),
-                detail('Traffic', trText(spot.traffic)),
-                detail('Lighting', trText(spot.lighting)),
-                detail('Crowd', trText(spot.crowd)),
-              ]),
-              if (spot.rejectionReason.trim().isNotEmpty)
-                section('Rejection reason', Icons.feedback_outlined, [
-                  CcsText(spot.rejectionReason),
-                ]),
-              const SizedBox(height: 12),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
+              ExpansionTile(
+                tilePadding: EdgeInsets.zero,
+                title: const CcsText('Photos, map and details'),
                 children: [
-                  OutlinedButton.icon(
-                    onPressed: () => Navigator.push(
-                      context,
-                      appPageRoute(
-                        builder: (_) =>
-                            AdminSpotLocationReviewMapScreen(spot: spot),
+                  const SizedBox(height: 6),
+                  CcsText(
+                    spot.categories.map(trText).join(' · '),
+                    style: TextStyle(
+                      color: accent,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  section('Location', Icons.location_on_outlined, [
+                    detail('Location', spot.cityCountry),
+                    detail(
+                      'Coordinates',
+                      '${spot.coordinates.latitude.toStringAsFixed(6)}, ${spot.coordinates.longitude.toStringAsFixed(6)}',
+                    ),
+                  ]),
+                  section('Submission details', Icons.person_outline, [
+                    detail('Added by', spot.addedBy),
+                    detail('Created', date(spot.createdAtMillis)),
+                    if (spot.updatedAtMillis > spot.createdAtMillis)
+                      detail('Updated', date(spot.updatedAtMillis)),
+                  ]),
+                  if (photos.isNotEmpty) ...[
+                    const SizedBox(height: 12),
+                    SizedBox(
+                      height: 170,
+                      child: ListView.separated(
+                        scrollDirection: Axis.horizontal,
+                        itemCount: photos.length,
+                        separatorBuilder: (_, _) => const SizedBox(width: 8),
+                        itemBuilder: (_, index) => ClipRRect(
+                          borderRadius: BorderRadius.circular(12),
+                          child: spotPhotoImage(
+                            photos[index],
+                            width: 220,
+                            height: 170,
+                            fit: BoxFit.contain,
+                          ),
+                        ),
                       ),
                     ),
-                    icon: const Icon(Icons.map_outlined),
-                    label: const CcsText('Map'),
-                  ),
-                  OutlinedButton.icon(
-                    onPressed: () => launchExternalUrl(
-                      context,
-                      'https://www.google.com/maps/search/?api=1&query=${spot.coordinates.latitude},${spot.coordinates.longitude}',
+                  ],
+                  if (spot.description.isNotEmpty)
+                    section('Description', Icons.notes_outlined, [
+                      ChatLinkText(
+                        spot.description,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          height: 1.45,
+                        ),
+                      ),
+                    ]),
+                  section('Visibility', Icons.visibility_outlined, [
+                    detail(
+                      'Visibility',
+                      trText(spot.isGroupSpot ? 'Private event' : 'Public'),
                     ),
-                    icon: const Icon(Icons.open_in_new),
-                    label: const CcsText('Google Maps'),
-                  ),
-                  if (spot.reelLink.isNotEmpty)
-                    OutlinedButton.icon(
-                      onPressed: () =>
-                          launchExternalUrl(context, spot.reelLink),
-                      icon: const Icon(Icons.play_circle_outline),
-                      label: const CcsText('Video'),
+                    if (spot.sharedGroups.isNotEmpty)
+                      detail(
+                        'Groups',
+                        spot.sharedGroups
+                            .map((g) => g['name'] ?? g['id'] ?? '')
+                            .join(', '),
+                      ),
+                    if (spot.verifiedOnly)
+                      detail('Access', trText('Verified users only')),
+                  ]),
+                  if (spot.isTemporary)
+                    section('Event schedule', Icons.event_outlined, [
+                      detail('Starts', date(spot.startsAtMillis)),
+                      detail('Ends', date(spot.expiresAtMillis)),
+                      detail('Location reveal', date(spot.showOnMapAtMillis)),
+                    ]),
+                  if ([
+                    spot.contactPhone,
+                    spot.contactInstagram,
+                    spot.contactEmail,
+                    spot.ownerUsername,
+                  ].any((value) => value.trim().isNotEmpty))
+                    section('Contact details', Icons.contact_phone_outlined, [
+                      detail('Phone', spot.contactPhone),
+                      detail('Instagram', spot.contactInstagram),
+                      detail('Email', spot.contactEmail),
+                      detail('Owner', spot.ownerUsername),
+                    ]),
+                  if (!spot.isTemporary && spot.hasOpeningHours)
+                    section('Opening hours', Icons.schedule, [
+                      for (final day
+                          in (spot.openingHours.keys.toList()..sort()))
+                        detail(
+                          [
+                            'Monday',
+                            'Tuesday',
+                            'Wednesday',
+                            'Thursday',
+                            'Friday',
+                            'Saturday',
+                            'Sunday',
+                          ][day - 1],
+                          spot.openingHours[day]!.isOpen
+                              ? '${spot.openingHours[day]!.opensAt} – ${spot.openingHours[day]!.closesAt}'
+                              : trText('Closed'),
+                        ),
+                    ]),
+                  section('Spot details', Icons.info_outline, [
+                    detail('Best time', trText(spot.bestTime)),
+                    detail('Parking', trText(spot.parking)),
+                    detail('Road quality', trText(spot.roadQuality)),
+                    detail(
+                      'Low car friendly',
+                      trText(spot.lowCarFriendly ? 'Yes' : 'No'),
                     ),
+                    detail('Police risk', trText(spot.policeRisk)),
+                    detail('Traffic', trText(spot.traffic)),
+                    detail('Lighting', trText(spot.lighting)),
+                    detail('Crowd', trText(spot.crowd)),
+                  ]),
+                  if (spot.rejectionReason.trim().isNotEmpty)
+                    section('Rejection reason', Icons.feedback_outlined, [
+                      CcsText(spot.rejectionReason),
+                    ]),
+                  const SizedBox(height: 12),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      OutlinedButton.icon(
+                        onPressed: () => Navigator.push(
+                          context,
+                          appPageRoute(
+                            builder: (_) =>
+                                AdminSpotLocationReviewMapScreen(spot: spot),
+                          ),
+                        ),
+                        icon: const Icon(Icons.map_outlined),
+                        label: const CcsText('Map'),
+                      ),
+                      OutlinedButton.icon(
+                        onPressed: () => launchExternalUrl(
+                          context,
+                          'https://www.google.com/maps/search/?api=1&query=${spot.coordinates.latitude},${spot.coordinates.longitude}',
+                        ),
+                        icon: const Icon(Icons.open_in_new),
+                        label: const CcsText('Google Maps'),
+                      ),
+                      if (spot.reelLink.isNotEmpty)
+                        OutlinedButton.icon(
+                          onPressed: () =>
+                              launchExternalUrl(context, spot.reelLink),
+                          icon: const Icon(Icons.play_circle_outline),
+                          label: const CcsText('Video'),
+                        ),
+                    ],
+                  ),
                 ],
               ),
-              const Divider(height: 24, color: Colors.white12),
+              const Divider(height: 8, color: Colors.white12),
               Row(
                 children: [
                   Expanded(

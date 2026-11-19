@@ -1,4 +1,7 @@
 import '../models/map_viewport.dart';
+import '../controllers/road_speed_controller.dart';
+import '../data/road_speed_service.dart';
+import '../widgets/road_speed_hud.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:ccs_app/shared/media/remote_image_cache.dart'
     show cachedAppImage;
@@ -36,6 +39,7 @@ class GlobeMapScreen extends StatefulWidget {
     this.onCameraChanged,
     this.onPick,
     this.onLongPress,
+    this.onMoveSpot,
     this.onDismissRoute,
     this.routeDistanceLabel,
     this.showControls = true,
@@ -59,6 +63,8 @@ class GlobeMapScreen extends StatefulWidget {
   final void Function(double, double, double)? onCameraChanged;
   final void Function(double latitude, double longitude)? onPick;
   final void Function(double latitude, double longitude)? onLongPress;
+  final Future<void> Function(String, double, double, double, double)?
+  onMoveSpot;
   final bool showControls;
   final bool isSharing, sharingBusy, isVisible;
   final DateTime? sharingExpiresAt;
@@ -79,11 +85,95 @@ class _GlobeMapScreenState extends State<GlobeMapScreen>
     with WidgetsBindingObserver, LanguageReactiveState {
   late final WebViewController controller;
   Timer? timer, motionTimer;
+  Map<String, dynamic>? _positionDraft;
+  bool _savingPosition = false;
+
+  Future<void> _finishPosition(bool save) async {
+    final draft = _positionDraft;
+    if (draft == null || _savingPosition) return;
+    if (save) {
+      setState(() => _savingPosition = true);
+      await controller.runJavaScript('window.ccsLockMove(true);');
+      try {
+        await widget.onMoveSpot!(
+          draft['id'] as String,
+          (draft['lat'] as num).toDouble(),
+          (draft['lng'] as num).toDouble(),
+          (draft['originalLat'] as num).toDouble(),
+          (draft['originalLng'] as num).toDouble(),
+        );
+      } catch (_) {
+        if (!mounted) return;
+        setState(() => _savingPosition = false);
+        await controller.runJavaScript('window.ccsLockMove(false);');
+        if (mounted)
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: CcsText(
+                'Could not save position. Check your permissions and connection, or cancel and try again.',
+              ),
+            ),
+          );
+        return;
+      }
+    }
+    if (!mounted) return;
+    await controller.runJavaScript(
+      'window.ccsFinishMove(${save ? 'true' : 'false'});',
+    );
+    setState(() {
+      _positionDraft = null;
+      _savingPosition = false;
+    });
+    previous = null;
+    await refresh();
+  }
+
+  final _mapLayoutKey = GlobalKey();
+  final _topControlsKey = GlobalKey();
+  final _speedHudKey = GlobalKey();
+  final _alertControlKey = GlobalKey();
+  final _followControlKey = GlobalKey();
+  final _previewKey = GlobalKey();
+  String? _lastBeaconOcclusion;
+
+  void _scheduleBeaconLayout() {
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted || !ready) return;
+      final mapBox = _mapLayoutKey.currentContext?.findRenderObject();
+      if (mapBox is! RenderBox || !mapBox.hasSize) return;
+      Rect? rectFor(GlobalKey key) {
+        final box = key.currentContext?.findRenderObject();
+        if (box is! RenderBox || !box.hasSize || !box.attached) return null;
+        return mapBox.globalToLocal(box.localToGlobal(Offset.zero)) & box.size;
+      }
+
+      final top = rectFor(_topControlsKey)?.bottom ?? 0.0;
+      var bottom = 0.0;
+      for (final key in [
+        _speedHudKey,
+        _alertControlKey,
+        _followControlKey,
+        _previewKey,
+      ]) {
+        final rect = rectFor(key);
+        if (rect != null && mapBox.size.height - rect.top > bottom) {
+          bottom = mapBox.size.height - rect.top;
+        }
+      }
+      final data = jsonEncode({'top': top, 'bottom': bottom});
+      if (data == _lastBeaconOcclusion) return;
+      await controller.runJavaScript('window.ccsSetBeaconOcclusion($data);');
+      _lastBeaconOcclusion = data;
+    });
+  }
+
   bool sendingMotion = false;
   String? previousMotion;
   bool ready = false, sending = false, active = true;
   bool _hiddenPreloadDirty = true;
   bool followActive = false;
+  final roadSpeed = RoadSpeedController(BackendRoadSpeedTransport());
   String? previous;
   String? error;
   bool iconsSent = false;
@@ -123,6 +213,49 @@ class _GlobeMapScreenState extends State<GlobeMapScreen>
     if (!mounted || selected == null) return;
     setState(() {
       selectedKind = 'live';
+      selectedId = selected;
+    });
+  }
+
+  Future<void> showClusterEvents(List<String> ids) async {
+    final frame = widget.readFeatures();
+    final features = frame['features'] as List? ?? const [];
+    final people = features.whereType<Map>().where((feature) {
+      final p = feature['properties'];
+      return p is Map &&
+          p['kind'] == 'spot' &&
+          p['event'] == true &&
+          ids.contains(p['id']);
+    }).toList();
+    if (people.isEmpty || !mounted) return;
+    final selected = await showModalBottomSheet<String>(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) => SafeArea(
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.sizeOf(context).height * .6,
+          ),
+          child: ListView.builder(
+            shrinkWrap: true,
+            itemCount: people.length,
+            itemBuilder: (context, index) {
+              final p = people[index]['properties'] as Map;
+              return ListTile(
+                leading: const Icon(Icons.event),
+                title: Text('${p['label'] ?? p['id']}'),
+                subtitle: Text('${p['eventStartLabel'] ?? ''}'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => Navigator.pop(context, p['id'] as String),
+              );
+            },
+          ),
+        ),
+      ),
+    );
+    if (!mounted || selected == null) return;
+    setState(() {
+      selectedKind = 'spot';
       selectedId = selected;
     });
   }
@@ -330,7 +463,7 @@ class _GlobeMapScreenState extends State<GlobeMapScreen>
       ..setBackgroundColor(const Color(0xff0b1323))
       ..addJavaScriptChannel(
         'CcsGlobe',
-        onMessageReceived: (message) {
+        onMessageReceived: (message) async {
           if (!mounted) return;
           try {
             final data = jsonDecode(message.message);
@@ -373,6 +506,7 @@ class _GlobeMapScreenState extends State<GlobeMapScreen>
               _proximityAudio.setFollowing(followActive);
             } else if (data['type'] == 'gesture') {
               setState(() => followActive = false);
+              roadSpeed.pause();
               _proximityAudio.setFollowing(false);
               widget.onInteraction?.call();
             } else if ((data['type'] == 'pick' ||
@@ -397,6 +531,8 @@ class _GlobeMapScreenState extends State<GlobeMapScreen>
               );
             } else if (data['type'] == 'ready') {
               ready = true;
+              _lastBeaconOcclusion = null;
+              _scheduleBeaconLayout();
               _hiddenPreloadDirty = true;
               unawaited(syncAnimationVisibility());
               error = null;
@@ -416,6 +552,66 @@ class _GlobeMapScreenState extends State<GlobeMapScreen>
                 selectedKind = null;
                 selectedId = null;
               });
+            } else if (data['type'] == 'moveSpot' &&
+                widget.onMoveSpot != null) {
+              if (data['id'] is String &&
+                  ['lat', 'lng', 'originalLat', 'originalLng'].every(
+                    (key) => data[key] is num && (data[key] as num).isFinite,
+                  )) {
+                if (!_savingPosition)
+                  setState(() {
+                    _positionDraft = Map<String, dynamic>.from(data);
+                    selectedKind = null;
+                    selectedId = null;
+                  });
+              }
+            } else if (data['type'] == 'moveCancelled') {
+              setState(() {
+                _positionDraft = null;
+                _savingPosition = false;
+              });
+            } else if (data['type'] == 'chooseMoveSpot' &&
+                widget.onMoveSpot != null) {
+              final ids = (data['ids'] as List).whereType<String>().toSet();
+              final features = (widget.readFeatures()['features'] as List)
+                  .whereType<Map>()
+                  .where(
+                    (f) =>
+                        ids.contains(f['properties']['id']) &&
+                        f['properties']['canMove'] == true,
+                  )
+                  .toList();
+              final chosen = await showModalBottomSheet<String>(
+                context: context,
+                builder: (context) => SafeArea(
+                  child: ListView(
+                    shrinkWrap: true,
+                    children: [
+                      const ListTile(
+                        title: CcsText('Choose a spot or event to move'),
+                      ),
+                      for (final f in features)
+                        ListTile(
+                          title: CcsText(
+                            f['properties']['label'] as String? ?? 'Spot',
+                          ),
+                          onTap: () => Navigator.pop(
+                            context,
+                            f['properties']['id'] as String,
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              );
+              if (chosen != null && mounted)
+                await controller.runJavaScript(
+                  'window.ccsBeginMove(${jsonEncode(chosen)});',
+                );
+            } else if (data['type'] == 'selectEvents') {
+              if (data['ids'] is List) {
+                unawaited(showClusterEvents(List<String>.from(data['ids'])));
+              }
             } else if (data['type'] == 'selectPeople') {
               if (data['ids'] is List) {
                 unawaited(showClusterPeople(List<String>.from(data['ids'])));
@@ -502,7 +698,12 @@ class _GlobeMapScreenState extends State<GlobeMapScreen>
       return;
     sendingMotion = true;
     try {
-      final data = jsonEncode(widget.readMotion!());
+      final motion = widget.readMotion!();
+      roadSpeed.update(
+        motion.remove('roadGps') as Map?,
+        following: followActive && motion['following'] == true,
+      );
+      final data = jsonEncode(motion);
       if (data != previousMotion) {
         await controller.runJavaScript(
           'window.ccsSetMotion(JSON.parse(${jsonEncode(data)}));',
@@ -640,6 +841,7 @@ class _GlobeMapScreenState extends State<GlobeMapScreen>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     active = state == AppLifecycleState.resumed;
+    if (!active) roadSpeed.pause();
     previousMotion = null;
     unawaited(syncAnimationVisibility());
     if (active) unawaited(refresh());
@@ -663,6 +865,11 @@ class _GlobeMapScreenState extends State<GlobeMapScreen>
     super.didUpdateWidget(oldWidget);
     _hiddenPreloadDirty = true;
     if (oldWidget.isVisible != widget.isVisible) {
+      if (!widget.isVisible) {
+        roadSpeed.pause();
+        if (_positionDraft != null && !_savingPosition)
+          unawaited(_finishPosition(false));
+      }
       previousMotion = null;
       unawaited(syncAnimationVisibility());
       if (widget.isVisible) unawaited(refresh());
@@ -675,6 +882,7 @@ class _GlobeMapScreenState extends State<GlobeMapScreen>
     unawaited(syncAnimationVisibility());
     timer?.cancel();
     motionTimer?.cancel();
+    roadSpeed.dispose();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -921,6 +1129,7 @@ class _GlobeMapScreenState extends State<GlobeMapScreen>
 
   @override
   Widget build(BuildContext context) {
+    _scheduleBeaconLayout();
     final card = selectedId == null
         ? null
         : selectedKind == 'camera'
@@ -929,6 +1138,7 @@ class _GlobeMapScreenState extends State<GlobeMapScreen>
     return ColoredBox(
       color: const Color(0xff07080c),
       child: Stack(
+        key: _mapLayoutKey,
         fit: StackFit.expand,
         children: [
           Positioned.fill(child: WebViewWidget(controller: controller)),
@@ -969,10 +1179,11 @@ class _GlobeMapScreenState extends State<GlobeMapScreen>
                 ),
               ),
             ),
-          if (widget.showControls)
+          if (widget.showControls && _positionDraft == null)
             Align(
               alignment: Alignment.topCenter,
               child: Container(
+                key: _topControlsKey,
                 decoration: const BoxDecoration(
                   color: Color(0xff0e1118),
                   border: Border(bottom: BorderSide(color: Color(0xff29313e))),
@@ -1066,9 +1277,34 @@ class _GlobeMapScreenState extends State<GlobeMapScreen>
                 ),
               ),
             ),
-          if (widget.showControls && card == null) ...[
+          if (widget.showControls &&
+              card == null &&
+              followActive &&
+              _positionDraft == null)
+            Positioned(
+              left: 76,
+              key: _speedHudKey,
+              right: 76,
+              bottom: 24,
+              child: Center(
+                child: ListenableBuilder(
+                  listenable: roadSpeed,
+                  builder: (context, _) {
+                    _scheduleBeaconLayout();
+                    return RoadSpeedHud(
+                      speedKmh: roadSpeed.speedKmh,
+                      limit: roadSpeed.limit,
+                    );
+                  },
+                ),
+              ),
+            ),
+          if (widget.showControls &&
+              card == null &&
+              _positionDraft == null) ...[
             Positioned(
               left: 8,
+              key: _alertControlKey,
               bottom: 28,
               child: control(
                 'Add alert',
@@ -1079,6 +1315,7 @@ class _GlobeMapScreenState extends State<GlobeMapScreen>
             ),
             Positioned(
               right: 8,
+              key: _followControlKey,
               bottom: 28,
               child: control(
                 'Follow my location',
@@ -1098,9 +1335,60 @@ class _GlobeMapScreenState extends State<GlobeMapScreen>
               ),
             ),
           ],
-          if (card != null)
+          if (_positionDraft != null)
+            Positioned(
+              left: 16,
+              right: 16,
+              bottom: 24,
+              child: SafeArea(
+                top: false,
+                child: Material(
+                  color: const Color(0xFF202936),
+                  borderRadius: BorderRadius.circular(16),
+                  elevation: 8,
+                  child: Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const CcsText(
+                          'Drag to adjust position',
+                          style: TextStyle(fontWeight: FontWeight.w700),
+                        ),
+                        const SizedBox(height: 10),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: OutlinedButton(
+                                onPressed: _savingPosition
+                                    ? null
+                                    : () => _finishPosition(false),
+                                child: const CcsText('Cancel'),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: FilledButton(
+                                onPressed: _savingPosition
+                                    ? null
+                                    : () => _finishPosition(true),
+                                child: CcsText(
+                                  _savingPosition ? 'Saving...' : 'Save',
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          if (card != null && _positionDraft == null)
             Positioned(
               left: 12,
+              key: _previewKey,
               right: 12,
               bottom: 24,
               child: Column(

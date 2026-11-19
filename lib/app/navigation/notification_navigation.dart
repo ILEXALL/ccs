@@ -228,7 +228,8 @@ Future<void> navigateToNotification(
     return;
   }
 
-  if (item.type == 'friend_nearby' ||
+  if (item.type == 'sos_created' ||
+      item.type == 'friend_nearby' ||
       item.type == 'friend_at_spot' ||
       item.type == 'friend_live_sharing') {
     if ((item.friendLat != 0 || item.friendLng != 0) &&

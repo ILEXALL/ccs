@@ -1,3 +1,4 @@
+import 'package:ccs_app/features/community/chats/widgets/chat_link_text.dart';
 import 'dart:async';
 import 'spot_card_photo.dart';
 import 'package:flutter/material.dart' hide Text;
@@ -236,7 +237,7 @@ class ExploreSpotCard extends StatelessWidget {
                                 text: addedByText,
                               ),
                               const SizedBox(height: 2),
-                              CcsText(
+                              ChatLinkText(
                                 spot.description,
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,

@@ -4,6 +4,37 @@ const statusBox = document.getElementById('status');
 const notify = (type, extra = {}) => window.CcsGlobe?.postMessage(JSON.stringify({type, ...extra}));
 let map, latest = {type:'FeatureCollection',features:[]}, ready = false, following = false, currentStyle='dark';
 let cameraRevision;
+let moveDraft=null,moveLocked=false,moveRaw=null,moveDragging=false;
+let suppressClickUntil=0;
+const spotIconMinZoom=11.25;
+function canMoveRenderedIcon(feature) {
+  return feature.properties.kind==='spot' && feature.properties.canMove===true &&
+    (feature.properties.event ? !eventMarkerMetrics(map.getZoom()).dot : map.getZoom()>=spotIconMinZoom);
+}
+function reportMove() {
+  if(moveDraft) notify('moveSpot',{id:moveDraft.id,lat:moveDraft.at[1],lng:moveDraft.at[0],
+    originalLat:moveDraft.original[1],originalLng:moveDraft.original[0]});
+}
+window.ccsLockMove = locked => {moveLocked=locked;};
+window.ccsBeginMove = id => {
+  if(moveLocked || moveDraft) return false;
+  const f=latest.features.find(f=>f.properties.id===id && canMoveRenderedIcon(f));
+  if(!f) return false;
+  moveRaw=latest;
+  moveDraft={id,original:[...f.geometry.coordinates],at:[...f.geometry.coordinates]};
+  following=false;motionFollowing=false;gestureBlocked=true;
+  map.stop?.();map.dragPan?.disable();map.touchZoomRotate?.disable();
+  syncFrameBudget();reportMove();return true;
+};
+window.ccsFinishMove = save => {
+  if(!moveDraft) return;
+  let data=moveRaw;
+  if(save) data={...data,features:data.features.map(f=>f.properties.kind==='spot' && f.properties.id===moveDraft.id
+    ? {...f,geometry:{...f.geometry,coordinates:[...moveDraft.at]}} : f)};
+  moveDraft=null;moveLocked=false;moveDragging=false;
+  map.dragPan?.enable();map.touchZoomRotate?.enable();
+  window.ccsSetFeatures(data);
+};
 let patchFixed=[], patchMoving=[];
 window.ccsSetPatch = patch => {
   if(patch.fixed) patchFixed=patch.fixed;
@@ -118,6 +149,7 @@ function motionData() {return {type:'FeatureCollection',features:motionPosition?
   type:'Feature',geometry:{type:'Point',coordinates:motionPosition},properties:{kind:'self',heading:motionHeading}
 }]:[]};}
 function stopMotion() {if(motionFrame!==null) cancelAnimationFrame(motionFrame); motionFrame=null;motionLastFrame=null;}
+let followPitch = 0, followPitchFrom = 0, followPitchStarted = 0;
 const shortArc = value => ((value+540)%360)-180;
 function animateMotion(now) {
   motionFrame=null;
@@ -146,14 +178,18 @@ function animateMotion(now) {
   if(Math.abs(zoomTarget-followZoom)<.001) followZoom=zoomTarget;
   const signature=JSON.stringify([motionPosition,motionHeading]);
   if(signature!==lastMotionSignature) {map.getSource('ccs-motion')?.setData(motionData());lastMotionSignature=signature;}
-  const cameraSignature=JSON.stringify([motionPosition,motionHeading,followZoom,followOffset()]);
+  if(motionFollowing) {
+    const t=Math.min(1,Math.max(0,(now-followPitchStarted)/450));
+    followPitch=followPitchFrom+(45-followPitchFrom)*t*t*(3-2*t);
+  }
+  const cameraSignature=JSON.stringify([motionPosition,motionHeading,followZoom,followPitch,followOffset()]);
   if(motionFollowing && cameraSignature!==lastCameraSignature) {
-    map.easeTo({center:motionPosition,zoom:followZoom,bearing:motionHeading,offset:followOffset(),padding:0,duration:0});lastCameraSignature=cameraSignature;
+    map.easeTo({center:motionPosition,zoom:followZoom,pitch:followPitch,bearing:motionHeading,offset:followOffset(),padding:0,duration:0});lastCameraSignature=cameraSignature;
   }
   const unsettled=Math.abs(shortArc(target[0]-motionPosition[0]))>1e-8 || Math.abs(target[1]-motionPosition[1])>1e-8 || Math.abs(shortArc(motionTarget.heading-motionHeading))>.02 || Math.abs(motionTurnVelocity)>.1;
   const predicting=age<.15 && Math.hypot(...motionVelocity)>0;
   const turning=Math.abs(shortArc(motionTarget.heading-motionHeading))>.02 || Math.abs(motionTurnVelocity)>.1;
-  if((age<1 && (unsettled || predicting)) || (age<10 && turning) || (motionFollowing && Math.abs(zoomTarget-followZoom)>.001 && age<10)) motionFrame=requestAnimationFrame(animateMotion);
+  if((motionFollowing && followPitch!==45) || (age<1 && (unsettled || predicting)) || (age<10 && turning) || (motionFollowing && Math.abs(zoomTarget-followZoom)>.001 && age<10)) motionFrame=requestAnimationFrame(animateMotion);
   else motionLastFrame=null;
 }
 window.ccsSetMotion = data => {
@@ -163,7 +199,7 @@ window.ccsSetMotion = data => {
   }
   const wasFollowing=motionFollowing;
   motionFollowing=!!data.following && !gestureBlocked;
-  if(motionFollowing!==wasFollowing) lastCameraSignature=null;
+  if(motionFollowing!==wasFollowing) {lastCameraSignature=null;if(motionFollowing) {followPitch=followPitchFrom=map?.getPitch?.() || 0;followPitchStarted=performance.now();}}
   syncFrameBudget();
   if (!motionFollowing) updateEdgeBeacons();
   if(!data.position) {stopMotion();motionTarget=null;motionPosition=null;motionVelocity=[0,0];motionTurnVelocity=0;if(ready) map.getSource('ccs-motion')?.setData(motionData());return;}
@@ -206,7 +242,7 @@ function followOffset() {
 }
 function follow() {
   const p = currentPosition();
-  if (p) map.easeTo({center:p, zoom:Math.max(map.getZoom(),15),offset:followOffset(),padding:0,duration:900});
+  if (p) map.easeTo({center:p, pitch:45, zoom:Math.max(map.getZoom(),15),offset:followOffset(),padding:0,duration:900});
 }
 // Small CCS capsule, rasterized once per style; no per-frame canvas work.
 function carCountBadgeImage() {
@@ -270,8 +306,18 @@ function updateLiveClusters() {
   map.getSource('ccs-live')?.setData(data);liveSignature=signature;
 }
 window.ccsSetFeatures = data => {
+  if(moveDraft) {
+    moveRaw=data;
+    const item=data.features.find(f=>f.properties.kind==='spot' && f.properties.id===moveDraft.id && f.properties.canMove===true);
+    if(!item) {
+      moveDraft=null;moveDragging=false;moveLocked=false;
+      map.dragPan?.enable();map.touchZoomRotate?.enable();notify('moveCancelled');
+    } else data={...data,features:data.features.map(f=>f===item
+      ? {...f,geometry:{...f.geometry,coordinates:[...moveDraft.at]}} : f)};
+  }
   latest = data;
   updateDwellRing();
+  updateEventCapsules();
   document.documentElement?.style.setProperty('--ccs-controls-top',Math.max(0,data.beaconInsets?.top || 0)+'px');
   if(!motionReceived) {
     const self=data.features.find(f=>f.properties.kind==='self');
@@ -296,7 +342,7 @@ window.ccsSetFeatures = data => {
         motionFollowing=false;following=false;gestureBlocked=true;syncFrameBudget();
         map.fitBounds(bounds,{padding:{top:100,bottom:160,left:45,right:45},bearing:0,pitch:0,maxZoom:15.6,duration:500});
       }
-      else if(!motionFollowing && !manualTouchActive) map.easeTo({center:camera.center,zoom:camera.zoom,pitch:camera.pitch||0,...(!gestureBlocked?{bearing:camera.bearing||0}:{}),duration:250});
+      else if(!motionFollowing && !manualTouchActive && !gestureBlocked) map.easeTo({center:camera.center,zoom:camera.zoom,pitch:0,...(!gestureBlocked?{bearing:camera.bearing||0}:{}),duration:250});
     } else if(following) follow();
   }
 };
@@ -305,7 +351,7 @@ window.ccsCaptureViewport=()=>{
   const p=map.getCenter();
   notify('viewport',{lat:p.lat,lng:p.lng,zoom:map.getZoom(),bearing:map.getBearing(),pitch:map.getPitch?.()||0});
 };
-window.ccsFollow = () => { if(!currentPosition() && !motionPosition) return;gestureBlocked=false; following = true;lastCameraSignature=null; syncFrameBudget(); if(!motionReceived) follow(); };
+window.ccsFollow = () => { if(moveDraft) return; if(!currentPosition() && !motionPosition) return;gestureBlocked=false; following = true;lastCameraSignature=null; syncFrameBudget(); if(!motionReceived) follow(); };
 window.ccsWorld = () => { gestureBlocked=true; following = false; motionFollowing=false; syncFrameBudget(); notify('gesture'); map.easeTo({zoom:1.3,pitch:0,duration:1200}); };
 window.ccsSetStyle = style => {
   if (!['dark','positron'].includes(style) || style===currentStyle) {notify('ready');return;}
@@ -338,7 +384,7 @@ window.ccsSetActive = active => {
     stopAlertAnimation();stopMotion();
     if(!ready) window.ccsPreload();
   }
-  updateEdgeBeacons();updateDwellRing();
+  updateEdgeBeacons();updateDwellRing();updateEventCapsules();
 };
 function alertRadius(kind) {
   const stops=['interpolate',['linear'],['zoom']];
@@ -397,26 +443,36 @@ function startAlertAnimation() {
   if(alertTimer!==null) return;
   animateAlerts(); alertTimer=setInterval(animateAlerts,100);
 }
+function settleBrowsePitch() {
+  if (!gestureBlocked || motionFollowing || following || manualTouchActive || map?.isMoving?.()) return;
+  if ((map?.getPitch?.() || 0) > .02) map.easeTo({pitch:0,duration:320,easing:t=>t*t*(3-2*t)});
+}
 try {
   map = new maplibregl.Map({container:'map',style:'https://tiles.openfreemap.org/styles/dark',center:[24.1,56.95],zoom:6.5,maxZoom:18,attributionControl:false});
   map.addControl(new maplibregl.AttributionControl({compact:true}),'top-left');
   // Native compact controls own globe/follow; pinch gestures provide zoom.
-  const browse = () => {gestureBlocked=true;following=false;motionFollowing=false;syncFrameBudget();updateEdgeBeacons();notify('gesture');};
+  const browse = () => {
+    gestureBlocked=true;following=false;motionFollowing=false;lastCameraSignature=null;
+    // Never mutate the camera from gesture-start handlers: MapLibre owns it.
+    syncFrameBudget();updateEdgeBeacons();notify('gesture');
+  };
   // Capture the second finger before MapLibre handles the pinch. Camera jumpTo
   // updates can otherwise interrupt zoomstart before it carries originalEvent.
   const surface=document.getElementById('map');
   const touch = e => {
     manualTouchActive=e.touches.length>0;
     syncFrameBudget();
-    if(e.touches.length>=2 && !gestureBlocked) {browse();map.stop?.();}
+    if(e.touches.length>=2 && !gestureBlocked) browse();
+    if(!manualTouchActive) requestAnimationFrame(settleBrowsePitch);
   };
   for(const type of ['touchstart','touchmove','touchend','touchcancel']) {
     surface.addEventListener?.(type,touch,{capture:true,passive:true});
   }
-  let holdTimer=null,holdStart=null,suppressClickUntil=0;
+  let holdTimer=null,holdStart=null;
   const cancelHold=()=>{if(holdTimer!==null) clearTimeout(holdTimer);holdTimer=null;holdStart=null;};
   surface.addEventListener?.('touchstart',e=>{
     cancelHold();
+    if(moveDraft) {moveDragging=!moveLocked && e.touches.length===1;e.stopImmediatePropagation?.();e.preventDefault?.();return;}
     if(e.touches.length!==1) return;
     const t=e.touches[0];holdStart={x:t.clientX,y:t.clientY};
     const rect=surface.getBoundingClientRect();
@@ -424,16 +480,45 @@ try {
     holdTimer=setTimeout(()=>{
       holdTimer=null;holdStart=null;
       if(!ready) return;
+      const capsule=e.target?.closest?.('.ccs-event-capsule');
+      const hits=capsule?.members?.map(p=>p.feature) || latest.features.filter(f=>{
+        if(!canMoveRenderedIcon(f)) return false;
+        const p=map.project(f.geometry.coordinates);
+        return Math.hypot(p.x-point.x,p.y-point.y)<30;
+      });
+      const editable=hits.filter(canMoveRenderedIcon);
+      if(editable.length) {
+        suppressClickUntil=performance.now()+800;
+        browse();
+        if(editable.length===1) {window.ccsBeginMove(editable[0].properties.id);moveDragging=true;}
+        else notify('chooseMoveSpot',{ids:editable.map(f=>f.properties.id)});
+        return;
+      }
       const location=map.unproject(point);
       suppressClickUntil=performance.now()+800;
-      browse();map.stop?.();
+      browse();
       notify('longPress',{lat:location.lat,lng:location.lng});
     },550);
-  },{passive:true});
+  },{capture:true,passive:false});
   surface.addEventListener?.('touchmove',e=>{
+    if(moveDraft) {
+      e.preventDefault?.();e.stopImmediatePropagation?.();
+      if(!moveLocked && moveDragging && e.touches.length===1) {
+        const rect=surface.getBoundingClientRect(),t=e.touches[0];
+        const p=map.unproject({x:t.clientX-rect.left,y:t.clientY-rect.top});
+        if(Number.isFinite(p.lat+p.lng) && Math.abs(p.lat)<=90) {
+          moveDraft.at=[((p.lng+540)%360)-180,p.lat];
+          window.ccsSetFeatures(moveRaw);reportMove();
+        }
+      }
+      return;
+    }
     if(!holdStart) return;
     if(e.touches.length!==1 || Math.hypot(e.touches[0].clientX-holdStart.x,e.touches[0].clientY-holdStart.y)>10) cancelHold();
-  },{passive:true});
+  },{capture:true,passive:false});
+  for(const type of ['touchend','touchcancel']) surface.addEventListener?.(type,e=>{
+    if(moveDraft) {moveDragging=false;suppressClickUntil=performance.now()+800;e.stopImmediatePropagation?.();reportMove();}
+  },{capture:true,passive:true});
   for(const type of ['touchend','touchcancel']) surface.addEventListener?.(type,cancelHold,{passive:true});
   map.on('contextmenu',e=>{e.preventDefault?.();});
   map.on('dragstart', browse);
@@ -445,7 +530,7 @@ try {
       clearTimeout(preloadTimer);preloadTimer=null;syncFrameBudget();
     }
   });
-  map.on('moveend', () => {if(motionFollowing) return; window.ccsCaptureViewport(); const p=map.getCenter(); notify('camera',{lat:p.lat,lng:p.lng,zoom:map.getZoom()});});
+  map.on('moveend', () => {settleBrowsePitch();if(motionFollowing) return; window.ccsCaptureViewport(); const p=map.getCenter(); notify('camera',{lat:p.lat,lng:p.lng,zoom:map.getZoom()});});
   map.on('error', () => {notify('error');statusBox.textContent='Map could not load. Check your connection or retry the map.';statusBox.hidden=false;});
   map.on('style.load', () => {
     map.setProjection({type:'globe'});
@@ -461,9 +546,9 @@ try {
       'icon-image':['coalesce',['get','icon'],'ccs-pin-blue'],'icon-size':56/64,'icon-anchor':'bottom',
       'icon-allow-overlap':true,'icon-ignore-placement':true,'icon-pitch-alignment':'viewport','icon-rotation-alignment':'viewport'}});
     map.addLayer({id:'ccs-route',type:'line',source:'ccs-live',filter:['==',['get','kind'],'route'],paint:{'line-color':'#008dff','line-width':3,'line-dasharray':[2,2]}});
-    const spots=['==',['get','kind'],'spot'];
+    const spots=['all',['==',['get','kind'],'spot'],['!=',['get','event'],true]];
     for (let i=0;i<2;i++) map.addLayer({id:'ccs-event-wave-'+i,type:'circle',source:'ccs',minzoom:7,
-      filter:['all',spots,['==',['get','eventActive'],true]],paint:{
+      filter:['all',['==',['get','kind'],'spot'],['==',['get','eventActive'],true]],paint:{
         'circle-radius':12,'circle-opacity':0,'circle-stroke-width':1.5,
         'circle-stroke-color':'#ffd45a','circle-stroke-opacity':0}});
 
@@ -484,7 +569,7 @@ try {
         11.25,['case',['get','event'],0.28,['get','tint'],0.065,0.16],
         14,['case',['get','event'],0.32,['get','tint'],0.025,0.065],
         18,['case',['get','event'],0.30,0.015]]}});
-    map.addLayer({id:'ccs-points',type:'circle',source:'ccs',filter:spots,maxzoom:11.25,paint:{
+    map.addLayer({id:'ccs-points',type:'circle',source:'ccs',filter:spots,maxzoom:spotIconMinZoom,paint:{
       'circle-radius':dotSize,
       'circle-color':['coalesce',['get','color'],'#4d90ff'],
       'circle-opacity':['case',['get','tint'],0.58,1],
@@ -497,8 +582,8 @@ try {
       iconSize.push(z,['*',(38+27*(1-Math.pow(1-p,3)))/64*citySpotScale(z),['case',['get','event'],1.16,1]]);
     }
     const spotIcon=['get',currentStyle==='positron'?'lightIcon':'icon'];
-    map.addLayer({id:'ccs-spot-icons',type:'symbol',source:'ccs',filter:spots,minzoom:11.25,layout:{
-      'icon-image':['case',['any',['get','tint'],['get','event']],['concat',spotIcon,'@',['get','color']],spotIcon],
+    map.addLayer({id:'ccs-spot-icons',type:'symbol',source:'ccs',filter:spots,minzoom:spotIconMinZoom,layout:{
+      'icon-image':['case',['any',['get','tint'],['all',['get','event'],currentStyle!=='positron']],['concat',spotIcon,'@',['get','color']],spotIcon],
       'icon-size':iconSize,'icon-allow-overlap':true,'icon-ignore-placement':true,
       'icon-pitch-alignment':'viewport','icon-rotation-alignment':'viewport'},
       paint:{'icon-opacity':['coalesce',['get','opacity'],1]}});
@@ -518,14 +603,6 @@ try {
       'icon-pitch-alignment':'viewport','icon-allow-overlap':true,'icon-ignore-placement':true}});
     addAlertLayers();
     const labelFont=map.getStyle().layers.find(l=>l.layout?.['text-font'])?.layout['text-font'] || ['Noto Sans Regular'];
-    map.addLayer({id:'ccs-event-start',type:'symbol',source:'ccs',minzoom:11.25,
-      filter:['all',spots,['==',['get','event'],true]],
-      layout:{'text-font':labelFont,'text-field':['get','eventStartLabel'],
-        'text-size':11,'text-anchor':'top','text-offset':[0,3.6],
-        'text-allow-overlap':true,'text-ignore-placement':true,
-        'text-pitch-alignment':'viewport','text-rotation-alignment':'viewport'},
-      paint:{'text-color':'#f1d69c','text-halo-color':'#24201a',
-        'text-halo-width':4,'text-halo-blur':0.5}});
     map.addLayer({id:'ccs-visited',type:'symbol',source:'ccs',minzoom:10,
       filter:['all',['==',['get','kind'],'spot'],['==',['get','visitedToday'],true]],
       layout:{'text-font':labelFont,'text-field':'✓','text-size':['interpolate',['linear'],['zoom'],10,10,14,15],
@@ -565,7 +642,7 @@ try {
   });
   map.on('rotate', syncMarkerBearing);
   map.on('click', e => {
-    if(!ready || performance.now()<suppressClickUntil) return;
+    if(!ready || moveDraft || performance.now()<suppressClickUntil) return;
     if(latest.routePreview) {
       latest.routePreview=false;
       notify('dismissRoute');
@@ -583,6 +660,17 @@ try {
 // Only already-authorized, currently visible marker data can become beacons.
 const edgeBeacons = new Map();
 let beaconLayer;
+let beaconOcclusion = {top:0,bottom:0};
+window.ccsSetBeaconOcclusion = value => {
+  beaconOcclusion = value;
+  // When an overlay grows, don't animate through its newly occupied space.
+  for (const node of edgeBeacons.values()) node.style.transition = 'opacity .4s ease';
+  updateEdgeBeacons();
+  for (const node of edgeBeacons.values()) {
+    node.getBoundingClientRect();
+    node.style.transition = '';
+  }
+};
 function updateEdgeBeacons() {
   if (!document.createElement || !map?.project) return;
   if (!beaconLayer) {
@@ -595,10 +683,10 @@ function updateEdgeBeacons() {
   const position = motionPosition || currentPosition();
   if (ready && viewActive && (motionFollowing || following) && !gestureBlocked && position && !latest.routePreview) {
     const canvas = map.getCanvas(), width = canvas.clientWidth, height = canvas.clientHeight;
-    const inset = latest.beaconInsets || {top: 110, bottom: 12};
+    const fallback = latest.beaconInsets || {top: 110, bottom: 12};
+    const inset = {top:Math.max(fallback.top,beaconOcclusion.top),bottom:Math.max(fallback.bottom,beaconOcclusion.bottom)};
     const hasPeople=latest.features.some(f=>f.properties.kind==='live');
-    const sideInset=hasPeople?54:30;
-    const bounds = {left: sideInset, right: width - sideInset, top: inset.top + (hasPeople ? 62 : 46), bottom: height - inset.bottom - 30};
+    const bounds = beaconSafeBounds(width,height,inset,hasPeople);
     if (bounds.right > bounds.left && bounds.bottom > bounds.top) {
       const projected = map.project(position);
       const origin = {x: Math.max(bounds.left, Math.min(bounds.right, projected.x)), y: Math.max(bounds.top, Math.min(bounds.bottom, projected.y))};
@@ -607,7 +695,9 @@ function updateEdgeBeacons() {
         if (f.properties.kind !== 'live') return true;
         if (beaconDistance(position,f.geometry.coordinates)>=2000) return false;
         const c=f.geometry.coordinates;
-        const p=map.project([position[0]+shortArc(c[0]-position[0]),c[1]]);
+        const ray=beaconScreenDirection(position,c,p=>map.project(p));
+        if(!ray || !ray.inFront) return true;
+        const p=ray.point;
         return !(p.x>=0 && p.x<=width && p.y>=inset.top && p.y<=height-inset.bottom);
       });
       const candidates = groupPeopleBeacons(offscreen)
@@ -618,11 +708,13 @@ function updateEdgeBeacons() {
       for (const {f, distance} of candidates) {
         if (selected.size >= 8) break;
         const p = f.properties, coordinate = f.geometry.coordinates;
-        const point = map.project([position[0] + shortArc(coordinate[0] - position[0]), coordinate[1]]);
+        const ray=beaconScreenDirection(position,coordinate,p=>map.project(p));
+        if(!ray) continue;
+        const projectedTarget=ray.point;
+        const point={x:origin.x+ray.dx*Math.hypot(width,height)*2,y:origin.y+ray.dy*Math.hypot(width,height)*2};
         // Do not duplicate markers already visible in the unobstructed map area.
-        if (point.x >= 0 && point.x <= width && point.y >= inset.top && point.y <= height - inset.bottom) continue;
+        if (ray.inFront && projectedTarget.x >= 0 && projectedTarget.x <= width && projectedTarget.y >= inset.top && projectedTarget.y <= height - inset.bottom) continue;
         const at = beaconPlacement(origin, point, bounds);
-        if (at && ((at.x < 75 && at.y > height-110) || (at.x > width-75 && at.y > height-110))) continue;
         if (!at || occupied.some(other => Math.hypot(other.x-at.x, other.y-at.y) < (p.kind==='live'||other.person?104:66))) continue;
         const key = p.kind + ':' + p.id;
         let node = edgeBeacons.get(key);
@@ -659,7 +751,7 @@ function updateEdgeBeacons() {
         if(node.nickname) node.nickname.textContent=String(p.label || 'User');
         const baseIcon = p.kind === 'live' ? (p.avatarIcon || 'ccs-person') : p.kind === 'police' ? 'ccs-police-' + policeBeaconFrame : p.kind === 'sos' ? 'ccs-sos' : p.icon;
         const theme=currentStyle==='positron'?'light':'dark';
-        const artworkTheme=p.event?'event':p.tint?'muted':theme;
+        const artworkTheme=p.event && theme!=='light'?'event':p.tint?'muted':theme;
         const extracted=p.icon+'@beacon-'+artworkTheme;
         const icon = p.kind==='spot' && iconCache.has(extracted) ? extracted : baseIcon + (p.tint || p.event ? '@' + p.color : '');
         const pixels = iconCache.get(icon);
@@ -677,7 +769,7 @@ function updateEdgeBeacons() {
         node.lastChild.textContent = (distance / 1000).toFixed(1) + ' km';
         node.setAttribute('aria-label', String(p.label || p.kind) + ', ' + node.lastChild.textContent);
         node.style.transform = `translate(${at.x}px,${at.y}px) translate(-50%,-50%)`;
-        node.style.setProperty('--beacon-angle', (Math.atan2(point.y-origin.y,point.x-origin.x)*180/Math.PI+90)+'deg');
+        node.style.setProperty('--beacon-angle', (Math.atan2(ray.dy,ray.dx)*180/Math.PI+90)+'deg');
         node.style.opacity = String(beaconOpacity(distance, p.kind));
         node.style.pointerEvents = beaconOpacity(distance, p.kind) > 0.02 ? 'auto' : 'none';
         node.hiddenAt = null;
@@ -744,6 +836,7 @@ let lastBeaconUpdate = -Infinity;
 map?.on('render', () => {
   // Position must share the map frame; only non-positional overlays are throttled.
   updateDwellRing();
+  updateEventCapsules();
   const now = performance.now();
   if (now-lastBeaconUpdate < 100) return;
   lastBeaconUpdate=now;
@@ -752,3 +845,47 @@ map?.on('render', () => {
   updateEdgeBeacons();
   startAlertAnimation();
 });
+
+const eventCapsules = new Map();
+function updateEventCapsules() {
+  if (!document.createElement || !map?.project) return;
+  const metrics=eventMarkerMetrics(map.getZoom()),width=metrics.width,height=metrics.height;
+  const points=ready && viewActive ? latest.features
+    .filter(f=>f.properties.kind==='spot' && f.properties.event)
+    .map(f=>({...map.project(f.geometry.coordinates),feature:f}))
+    .filter(p=>Number.isFinite(p.x)&&Number.isFinite(p.y)) : [];
+  const groups=groupEventPoints(points,Math.max(44,width)+8,Math.max(44,height)+8),keep=new Set();
+  for(const members of groups) {
+    members.sort((a,b)=>String(a.feature.properties.id).localeCompare(String(b.feature.properties.id)));
+    const key=JSON.stringify(members.map(p=>p.feature.properties.id));keep.add(key);
+    let node=eventCapsules.get(key);
+    if(!node) {
+      node=document.createElement('button');node.className='ccs-event-capsule';
+      const artwork=document.createElement('img');artwork.alt='EVENT';node.appendChild(artwork);
+      const pill=document.createElement('span');node.appendChild(pill);
+      node.appendChild(document.createElement('i'));
+      node.addEventListener('click',e=>{
+        e.stopPropagation();
+        if(moveDraft || performance.now()<suppressClickUntil) return;
+        const items=node.members;
+        if(items.length===1){
+          if(latest.routePreview){notify('dismissRoute');return;}
+          notify('select',{kind:'spot',id:items[0].feature.properties.id});return;
+        }
+        notify('selectEvents',{ids:items.map(p=>p.feature.properties.id)});
+      });
+      (document.getElementById('map')?.appendChild ? document.getElementById('map') : document.body).appendChild(node);eventCapsules.set(key,node);
+    }
+    node.members=members;node.cx=members.reduce((n,p)=>n+p.x,0)/members.length;node.cy=members.reduce((n,p)=>n+p.y,0)/members.length;
+    node.style.left=node.cx+'px';node.style.top=node.cy+'px';node.style.width=Math.max(44,width)+'px';node.style.setProperty('--event-width',width+'px');
+    node.className='ccs-event-capsule'+(metrics.dot?' ccs-event-dot':'');
+    const artwork='event-capsule-'+(currentStyle==='positron'?'light':'dark')+'.png';
+    if(node.artwork!==artwork){node.children[0].src=artwork;node.artwork=artwork;}
+    const p=members[0].feature.properties;
+    const label=members.length>1?'×'+members.length:(metrics.showTime?(p.eventTimeLabel||''):'');
+    node.children[1].textContent=label;node.children[1].style.display=label?'inline-block':'none';
+    node.setAttribute('aria-label',members.length>1?members.length+' events':(p.label||'Event')+' '+(p.eventStartLabel||label));
+    node.style.display=node.cx < -width || node.cx > map.getCanvas().clientWidth+width || node.cy < -height || node.cy > map.getCanvas().clientHeight+height ? 'none' : 'flex';
+  }
+  for(const [key,node] of eventCapsules) if(!keep.has(key)){node.remove();eventCapsules.delete(key);}
+}

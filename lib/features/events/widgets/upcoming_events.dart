@@ -59,26 +59,48 @@ class UpcomingTemporarySpotsSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(4, 18, 4, 20),
+      padding: const EdgeInsets.fromLTRB(4, 10, 4, 16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Center(
-            child: CcsText(
-              'Events',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: 23,
-                fontWeight: FontWeight.w800,
-                letterSpacing: -.4,
-              ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            child: Row(
+              children: [
+                Flexible(
+                  flex: 4,
+                  child: CcsText(
+                    communityText(en: 'EVENTS', ru: 'СОБЫТИЯ', lv: 'PASĀKUMI'),
+                    style: const TextStyle(
+                      color: Color(0xFFF2F5FA),
+                      fontSize: 25,
+                      fontWeight: FontWeight.w900,
+                      fontStyle: FontStyle.italic,
+                      letterSpacing: -.8,
+                      height: 1.1,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                const Expanded(
+                  child: SizedBox(
+                    height: 2,
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: [Color(0xFF246BFF), Color(0x00246BFF)],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
           const SizedBox(height: 2),
           for (final entry in groups.entries) ...[
             Padding(
-              padding: const EdgeInsets.only(top: 16, bottom: 10),
+              padding: const EdgeInsets.only(top: 12, bottom: 8),
               child: Row(
                 children: [
                   Container(

@@ -1,6 +1,10 @@
 {
   "rewrites": [
     {
+      "source": "/api/road-speed-limit",
+      "destination": "/api/community?endpoint=road-speed-limit"
+    },
+    {
       "source": "/api/account-deletion",
       "destination": "/api/community?endpoint=account-deletion"
     },

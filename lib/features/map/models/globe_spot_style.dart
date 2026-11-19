@@ -1,5 +1,5 @@
-import 'package:ccs_app/features/events/models/event_date_format.dart';
-import 'package:ccs_app/shared/utils/date_formatting.dart' show formatClockTime;
+import 'package:ccs_app/shared/utils/date_formatting.dart'
+    show formatClockTime, formatShortDateTime, formatShortDate;
 import 'package:flutter/material.dart';
 import 'package:ccs_app/features/spots/models/car_spot.dart';
 import 'package:ccs_app/features/spots/models/spot_business_status.dart';
@@ -23,8 +23,13 @@ Map<String, Object> globeSpotStyle(CarSpot spot) {
     'opacity': event ? 1.0 : (closed ? 0.8 : 1.0),
     'event': event,
     'eventActive': spot.isTemporaryActiveNow,
+    'eventTimeLabel': event && spot.startsAtMillis != null
+        ? formatShortDateTime(
+            DateTime.fromMillisecondsSinceEpoch(spot.startsAtMillis!),
+          ).replaceFirst(' ', '\n')
+        : '',
     'eventStartLabel': event && spot.startsAtMillis != null
-        ? '${formatEventDate(DateTime.fromMillisecondsSinceEpoch(spot.startsAtMillis!))} · ${formatClockTime(DateTime.fromMillisecondsSinceEpoch(spot.startsAtMillis!))}'
+        ? '${formatShortDate(DateTime.fromMillisecondsSinceEpoch(spot.startsAtMillis!))} · ${formatClockTime(DateTime.fromMillisecondsSinceEpoch(spot.startsAtMillis!))}'
         : '',
     'tint': !event && closed,
   };

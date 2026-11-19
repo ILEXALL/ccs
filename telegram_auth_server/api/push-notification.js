@@ -38,6 +38,7 @@ if (!admin.apps.length) {
 const db = admin.firestore();
 
 const defaultNotificationSettings = {
+  sosNotifications: true,
   reviewNotifications: true,
   likeNotifications: true,
   commentNotifications: true,
@@ -450,6 +451,7 @@ async function notificationCenterItems(userId) {
       title: cleanText(data.title, 'CCS'),
       body: cleanText(data.body),
       type: cleanText(data.type, 'notification'),
+      ...(data.type === 'sos_created' ? {data: data.data || {}} : {}),
       read: data.read === true,
       createdAtMillis: timestampMillis(data.createdAt),
       projectNews: false,
@@ -1838,6 +1840,61 @@ async function handleForumReplyAdmin(userId, payload) {
   return handleForumReply(userId, payload);
 }
 
+// SOS audience is determined from fresh server-stored locations, never payload recipients.
+async function handleSosCreated(userId, payload) {
+  if (payload.reportId !== userId) return [];
+  const report = (await db.collection('sos_reports').doc(userId).get()).data();
+  const now = Date.now();
+  const created = timestampToMillis(report?.createdAt);
+  if (!report || report.uid !== userId || report.status !== 'active' ||
+      timestampToMillis(report.expiresAt) <= now || created <= 0 ||
+      created > now || now - created > 5 * 60000) return [];
+  const origin = sosCoordinates(report);
+  if (!origin) return [];
+  const results = [];
+  let cursor;
+  do {
+    let query = db.collection('live_locations')
+      .where('updatedAt', '>=', admin.firestore.Timestamp.fromMillis(now - 5 * 60000))
+      .orderBy('updatedAt').limit(200);
+    if (cursor) query = query.startAfter(cursor);
+    const page = await query.get();
+    for (let offset = 0; offset < page.docs.length; offset += 20) {
+      results.push(...await Promise.all(page.docs.slice(offset, offset + 20).map(async doc => {
+        const location = doc.data();
+        const target = sosCoordinates(location);
+        if (doc.id === userId || !target || location.isMocked === true ||
+            timestampToMillis(location.expiresAt) <= now ||
+            timestampToMillis(location.updatedAt) > now ||
+            sosDistanceMeters(origin, target) > 10000) return 0;
+        return sendPushToUser({
+          userId: doc.id,
+          settingName: 'sosNotifications',
+          deliveryKey: `sos:${userId}:${created}`,
+          notificationId: `sos_${userId}_${created}_${doc.id}`,
+          title: 'SOS nearby',
+          body: shortText(report.description, 'A driver within 10 km needs help.'),
+          data: {type: 'sos_created', reportId: userId,
+            friendLat: origin.lat, friendLng: origin.lng, senderUid: userId},
+        });
+      })));
+    }
+    cursor = page.docs.length === 200 ? page.docs.at(-1) : null;
+  } while (cursor);
+  return results;
+}
+function sosCoordinates(data) {
+  const lat = data?.coordinates?.latitude ?? data?.lat;
+  const lng = data?.coordinates?.longitude ?? data?.lng;
+  return Number.isFinite(lat) && Number.isFinite(lng) &&
+    Math.abs(lat) <= 90 && Math.abs(lng) <= 180 ? {lat, lng} : null;
+}
+function sosDistanceMeters(a, b) {
+  const r = Math.PI / 180;
+  const h = Math.sin((b.lat-a.lat)*r/2)**2 + Math.cos(a.lat*r)*Math.cos(b.lat*r)*Math.sin((b.lng-a.lng)*r/2)**2;
+  return 6371000 * 2 * Math.asin(Math.sqrt(Math.min(1, Math.max(0,h))));
+}
+
 export default async function handler(request, response) {
   try {
     const user = await authenticatedUser(request);
@@ -1875,6 +1932,7 @@ export default async function handler(request, response) {
 
     const type = cleanText(request.body && request.body.type);
     const handlers = {
+      sos_created: handleSosCreated,
       spot_like: handleSpotLike,
       spot_comment: handleSpotComment,
       chat_message: handleChatMessage,

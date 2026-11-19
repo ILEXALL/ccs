@@ -1,3 +1,5 @@
+import 'package:ccs_app/features/auth/models/app_user_document.dart'
+    show appUserFromCurrentUserDocument;
 import 'dart:async';
 import 'dart:io';
 import 'package:ccs_app/features/auth/data/apple_auth.dart';
@@ -116,7 +118,7 @@ Future<String?> usernameOverrideForNewFirebaseUser({
   return cleanNickname;
 }
 
-Future<AppUser?> loadCurrentFirebaseUser() async {
+Future<AppUser?> loadCurrentFirebaseUser({bool rethrowErrors = false}) async {
   final firebaseUser = FirebaseAuth.instance.currentUser;
 
   if (firebaseUser == null) {
@@ -124,14 +126,40 @@ Future<AppUser?> loadCurrentFirebaseUser() async {
   }
 
   try {
-    setCurrentUser(
-      await saveFirebaseUser(
-        firebaseUser,
-        provider: providerNameForFirebaseUser(firebaseUser),
-      ),
-    );
+    // Restoring an existing login must not depend on unrelated profile writes.
+    final snapshot = await usersCollection()
+        .doc(firebaseUser.uid)
+        .debugGet(
+          const GetOptions(source: Source.server),
+          'restore signed-in profile',
+        )
+        .timeout(const Duration(seconds: 20));
+    if (FirebaseAuth.instance.currentUser?.uid != firebaseUser.uid) return null;
+    if (!snapshot.exists) {
+      setCurrentUser(
+        await saveFirebaseUser(
+          firebaseUser,
+          provider: providerNameForFirebaseUser(firebaseUser),
+        ),
+      );
+    } else {
+      final data = snapshot.data()!;
+      if (data['deleted'] == true) {
+        throw FirebaseException(plugin: 'firebase_auth', code: 'user-deleted');
+      }
+      await ensureAppDeviceIsAllowed(deviceIds: await getAppDeviceIds());
+      if (FirebaseAuth.instance.currentUser?.uid != firebaseUser.uid)
+        return null;
+      userSettings.value = UserSettingsData.fromFirebase(data['settings']);
+      garageCars.value = garageCarsFromFirebase(data['garage']);
+      setCurrentUser(appUserFromCurrentUserDocument(snapshot));
+    }
     return currentUser;
-  } catch (_) {
+  } catch (error) {
+    debugPrint(
+      'Profile restore failed (${error is FirebaseException ? error.code : error.runtimeType}).',
+    );
+    if (rethrowErrors) rethrow;
     return null;
   }
 }
@@ -198,7 +226,10 @@ Future<AppUser> saveFirebaseUser(
   final userRef = FirebaseFirestore.instance
       .collection('users')
       .doc(firebaseUser.uid);
-  final snapshot = await userRef.debugGet();
+  final snapshot = await userRef.debugGet(
+    const GetOptions(source: Source.server),
+    'sign in: load account',
+  );
   final data = snapshot.data();
   final isNewUser = !snapshot.exists;
 
@@ -213,6 +244,16 @@ Future<AppUser> saveFirebaseUser(
   final appDeviceIds = await getAppDeviceIds();
   final appDeviceId = appDeviceIds.first;
   await ensureAppDeviceIsAllowed(deviceIds: appDeviceIds);
+
+  // Returning users already have a profile and a reserved nickname. Signing
+  // in must not rewrite that profile: legacy fields or newer write rules can
+  // reject an unrelated update even when the authenticated read is allowed.
+  // Keep device/deleted checks above and preserve the saved ban state below.
+  if (!isNewUser) {
+    userSettings.value = UserSettingsData.fromFirebase(data?['settings']);
+    garageCars.value = garageCarsFromFirebase(data?['garage']);
+    return appUserFromCurrentUserDocument(snapshot);
+  }
 
   final role = isNewUser
       ? await defaultRoleForNewFirebaseUser()

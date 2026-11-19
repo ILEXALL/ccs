@@ -14,7 +14,7 @@ const telegramAuthBaseUrls = <String>[
 const telegramAuthBaseUrl = 'https://ccs-wine.vercel.app';
 
 const pushNotificationUrls = <String>[
-  'https://ccs-telegram-auth-server.vercel.app/api/push-notification',
+  '$telegramAuthBaseUrl/api/push-notification',
 ];
 
 // Dedicated route for immediate friend live-location alerts. The server route

@@ -93,6 +93,7 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         home: app.ProfileRegionGate(
+          loadProfile: () async {},
           child: const Scaffold(body: Text('App content')),
           saveRegion: (city, country) async {
             expect(city, 'Moscow');
@@ -114,6 +115,7 @@ void main() {
         ),
       ),
     );
+    await tester.pumpAndSettle();
     expect(find.text('Set your region'), findsOneWidget);
     expect(find.text('App content'), findsNothing);
     expect(tester.widget<PopScope>(find.byType(PopScope)).canPop, isFalse);
@@ -161,12 +163,14 @@ void main() {
       await tester.pumpWidget(
         MaterialApp(
           home: app.ProfileRegionGate(
+            loadProfile: () async {},
             key: ValueKey(attempt),
             child: const Text('App content'),
             saveRegion: (_, _) async {},
           ),
         ),
       );
+      await tester.pumpAndSettle();
       expect(find.text('Set your region'), findsOneWidget);
       expect(find.text('App content'), findsNothing);
     }

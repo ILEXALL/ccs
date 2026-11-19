@@ -164,9 +164,9 @@ class _AdminRewardsScreenState extends State<AdminRewardsScreen> {
             const SizedBox(height: 8),
             Text(
               t(
-                'Awarded once per person after a verified 5-minute stay within 100 m during the specified dates. Counts toward the weekly XP limit.',
-                'Награда выдаётся один раз каждому за подтверждённые 5 минут в пределах 100 м в указанный срок. Входит в недельный лимит XP.',
-                'Piešķir vienreiz par apstiprinātām 5 minūtēm 100 m rādiusā norādītajā laikā. Ietilpst nedēļas XP limitā.',
+                'Awarded once per person after a verified 5-minute stay within 40 m during the specified dates. Counts toward the weekly XP limit.',
+                'Награда выдаётся один раз каждому за подтверждённые 5 минут в пределах 40 м в указанный срок. Входит в недельный лимит XP.',
+                'Piešķir vienreiz par apstiprinātām 5 minūtēm 40 m rādiusā norādītajā laikā. Ietilpst nedēļas XP limitā.',
               ),
             ),
             const SizedBox(height: 16),
@@ -698,9 +698,9 @@ class _AdminXpActivityScreenState extends State<AdminXpActivityScreen> {
             padding: const EdgeInsets.only(bottom: 16),
             child: Text(
               t(
-                'Visit XP: 50 per spot, up to 3 per day and 7 per week. Each visit requires 5 minutes within 100 m. Repeated claims do not award XP again.',
-                'За спот — 50 XP: максимум 3 в день и 7 в неделю. Для посещения нужны 5 минут в пределах 100 м. Повторные запросы не дают XP заново.',
-                'Par vietu — 50 XP: līdz 3 dienā un 7 nedēļā. Apmeklējumam vajag 5 minūtes 100 m rādiusā. Atkārtoti pieprasījumi nedod papildu XP.',
+                'Visit XP: 50 per spot, up to 3 per day and 7 per week. Each visit requires 5 minutes within 40 m. Repeated claims do not award XP again.',
+                'За спот — 50 XP: максимум 3 в день и 7 в неделю. Для посещения нужны 5 минут в пределах 40 м. Повторные запросы не дают XP заново.',
+                'Par vietu — 50 XP: līdz 3 dienā un 7 nedēļā. Apmeklējumam vajag 5 minūtes 40 m rādiusā. Atkārtoti pieprasījumi nedod papildu XP.',
               ),
             ),
           ),

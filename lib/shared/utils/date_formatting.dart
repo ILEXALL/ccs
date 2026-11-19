@@ -1,11 +1,13 @@
 String twoDigits(int value) => value.toString().padLeft(2, '0');
 
 String formatShortDateTime(DateTime value) {
+  value = value.toLocal();
   return '${twoDigits(value.day)}.${twoDigits(value.month)} '
       '${twoDigits(value.hour)}:${twoDigits(value.minute)}';
 }
 
 String formatClockTime(DateTime value) {
+  value = value.toLocal();
   return '${twoDigits(value.hour)}:${twoDigits(value.minute)}';
 }
 
@@ -16,5 +18,6 @@ bool isSameLocalDate(DateTime first, DateTime second) {
 }
 
 String formatShortDate(DateTime value) {
+  value = value.toLocal();
   return '${twoDigits(value.day)}.${twoDigits(value.month)}.${value.year}';
 }

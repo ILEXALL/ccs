@@ -304,6 +304,7 @@ class MapNavigationController implements MapNavigationActions {
     host.updateMap(() {
       host.currentUserLocation = location;
       host.displayedUserLocation = location;
+      host.roadSpeedPosition = position;
       host.lastGpsUserLocation = location;
       host.lastGpsUserLocationAt = DateTime.now();
       host.currentUserHeadingDegrees = heading;
@@ -460,6 +461,7 @@ class MapNavigationController implements MapNavigationActions {
       host.defaultMapUsesSpots = false;
       host.currentUserLocation = location;
       host.displayedUserLocation = nextDisplay;
+      host.roadSpeedPosition = position;
       host.lastGpsUserLocation = location;
       host.lastGpsUserLocationAt = receivedAt;
       host.lastNavigationPositionAt = DateTime.now();
@@ -747,22 +749,26 @@ class MapNavigationController implements MapNavigationActions {
       fallback: headingDegrees,
     );
     final rotation = normalizedRotationDegrees(-course);
+    final zoom = speedFollowZoom(
+      host.navigationZoom,
+      host.currentUserSpeedMetersPerSecond,
+    );
     if (!host.isVisible || !host.mapCameraReady) {
-      moveMapCamera(location, host.navigationZoom, rotationDegrees: rotation);
+      moveMapCamera(location, zoom, rotationDegrees: rotation);
       return;
     }
 
     // Place the car below centre, leaving more of the road ahead visible.
     // Rotate first: flutter_map interprets the move offset in camera space.
     if (onCamera != null) {
-      moveMapCamera(location, host.navigationZoom, rotationDegrees: rotation);
+      moveMapCamera(location, zoom, rotationDegrees: rotation);
       return;
     }
     final controller = host.mapController;
     controller.rotate(rotation);
     controller.move(
       location,
-      host.navigationZoom.clamp(3.0, 18.0).toDouble(),
+      zoom.clamp(3.0, 18.0).toDouble(),
       offset: Offset(0, controller.camera.nonRotatedSize.height * 0.18),
     );
     host.currentMapCenter = controller.camera.center;
@@ -814,6 +820,7 @@ class MapNavigationController implements MapNavigationActions {
     host.updateMap(() {
       host.currentUserLocation = location;
       host.displayedUserLocation = location;
+      host.roadSpeedPosition = position;
       host.lastGpsUserLocation = location;
       host.lastGpsUserLocationAt = DateTime.now();
       host.currentUserHeadingDegrees = heading;

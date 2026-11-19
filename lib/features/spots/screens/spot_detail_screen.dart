@@ -1,3 +1,4 @@
+import 'package:ccs_app/features/community/chats/widgets/chat_link_text.dart';
 import 'package:ccs_app/features/events/widgets/event_cover_background.dart';
 import 'package:ccs_app/features/progression/data/daily_visit_status.dart';
 import 'package:ccs_app/features/events/widgets/event_editorial_actions.dart';
@@ -161,15 +162,27 @@ class _SpotDetailScreenState extends State<SpotDetailScreen>
     return Scaffold(
       backgroundColor: spot.isTemporary
           ? const Color(0xFF151410)
-          : Colors.transparent,
+          : const Color(0xFF15191F),
       appBar: AppBar(
         title: CcsText(
           spot.isTemporary
               ? communityText(en: 'Event', ru: 'Событие', lv: 'Pasākums')
               : 'Spot',
         ),
-        backgroundColor: Colors.transparent,
-        foregroundColor: spot.isTemporary ? const Color(0xFFE7C580) : blue,
+        backgroundColor: spot.isTemporary
+            ? Colors.transparent
+            : const Color(0xFF15191F),
+        surfaceTintColor: Colors.transparent,
+        elevation: 0,
+        titleTextStyle: const TextStyle(
+          fontSize: 18,
+          fontWeight: FontWeight.w800,
+          fontStyle: FontStyle.italic,
+          letterSpacing: .5,
+        ),
+        foregroundColor: spot.isTemporary
+            ? const Color(0xFFE7C580)
+            : const Color(0xFFE6ECF7),
         actions: [
           Padding(
             padding: const EdgeInsets.only(right: 6),
@@ -245,7 +258,7 @@ class _SpotDetailScreenState extends State<SpotDetailScreen>
                 height: math.min(MediaQuery.of(context).size.width * .82, 340),
               ),
             Padding(
-              padding: const EdgeInsets.fromLTRB(14, 10, 14, 20),
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 20),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -296,18 +309,28 @@ class _SpotDetailScreenState extends State<SpotDetailScreen>
                     SpotRouteActions(
                       spot: spot,
                       onShowMap: controller.showSpotOnMap,
+                      showVideo: spot.reelLink.trim().isNotEmpty,
                     ),
                   ],
                   if (!spot.isTemporary &&
                       spot.description.trim().isNotEmpty) ...[
-                    const SizedBox(height: 10),
-                    CcsText(
-                      spot.description,
-                      softWrap: true,
-                      style: const TextStyle(
-                        color: Colors.white70,
-                        fontSize: 15,
-                        height: 1.55,
+                    const SizedBox(height: 16),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+                      decoration: const BoxDecoration(
+                        border: Border(
+                          top: BorderSide(color: Color(0xFF303844)),
+                        ),
+                      ),
+                      child: ChatLinkText(
+                        spot.description,
+                        softWrap: true,
+                        style: const TextStyle(
+                          color: Color(0xFFDAE0EA),
+                          fontSize: 15,
+                          height: 1.55,
+                        ),
                       ),
                     ),
                   ],

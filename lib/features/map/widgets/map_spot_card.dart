@@ -1,3 +1,4 @@
+import 'package:ccs_app/features/community/chats/widgets/chat_link_text.dart';
 import 'package:ccs_app/features/map/widgets/map_profile_actions.dart'
     show MapPreviewProfileActions;
 import 'package:ccs_app/features/spots/widgets/save_spot_button.dart'
@@ -116,7 +117,7 @@ class SpotMapCard extends StatelessWidget {
                     label: CcsText(spotPeopleLabel(peopleCount)),
                   ),
                 const SizedBox(height: 8),
-                CcsText(
+                ChatLinkText(
                   spot.description,
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,

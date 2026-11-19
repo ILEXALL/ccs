@@ -41,6 +41,7 @@ class SpotReviewsSection extends StatefulWidget {
 class _SpotReviewsSectionState extends State<SpotReviewsSection>
     with LanguageReactiveState {
   final commentController = TextEditingController();
+  final commentFocusNode = FocusNode();
   final List<SpotReviewData> reviews = [];
   DocumentSnapshot<Map<String, dynamic>>? lastReviewDocument;
   bool isSaving = false;
@@ -75,6 +76,7 @@ class _SpotReviewsSectionState extends State<SpotReviewsSection>
   @override
   void dispose() {
     commentController.dispose();
+    commentFocusNode.dispose();
     super.dispose();
   }
 
@@ -298,7 +300,7 @@ class _SpotReviewsSectionState extends State<SpotReviewsSection>
               'Comments',
               style: TextStyle(
                 color: Colors.white,
-                fontSize: 20,
+                fontSize: 18,
                 fontWeight: FontWeight.w900,
               ),
             ),
@@ -318,6 +320,7 @@ class _SpotReviewsSectionState extends State<SpotReviewsSection>
         if (widget.spot.isTemporary)
           MentionTextField(
             controller: commentController,
+            focusNode: commentFocusNode,
             minLines: 1,
             maxLines: 4,
             style: const TextStyle(color: Colors.white, fontSize: 14),
@@ -351,18 +354,21 @@ class _SpotReviewsSectionState extends State<SpotReviewsSection>
         else
           Container(
             width: double.infinity,
-            padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(
-              color: panelGlass,
-              borderRadius: BorderRadius.circular(18),
-              border: Border.all(color: Colors.white12),
-            ),
+            padding: EdgeInsets.zero,
+            decoration: widget.spot.isTemporary
+                ? BoxDecoration(
+                    color: panelGlass,
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(color: Colors.white12),
+                  )
+                : null,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 MentionTextField(
                   controller: commentController,
-                  minLines: 2,
+                  focusNode: commentFocusNode,
+                  minLines: 1,
                   maxLines: 4,
                   style: const TextStyle(color: Colors.white),
                   decoration: InputDecoration(
@@ -373,9 +379,9 @@ class _SpotReviewsSectionState extends State<SpotReviewsSection>
                             lv: 'Rakstiet komentāru par šo pasākumu',
                           )
                         : trText('Write a comment about this spot'),
-                    hintStyle: const TextStyle(color: Colors.white38),
+                    hintStyle: const TextStyle(color: Color(0xFF929DAC)),
                     filled: true,
-                    fillColor: Colors.white.withValues(alpha: 0.06),
+                    fillColor: const Color(0xFF202630),
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(12),
                       borderSide: const BorderSide(color: Colors.white12),
@@ -391,14 +397,14 @@ class _SpotReviewsSectionState extends State<SpotReviewsSection>
                   ),
                 ),
                 const SizedBox(height: 12),
-                SizedBox(
-                  width: double.infinity,
-                  height: 46,
+                Align(
+                  alignment: Alignment.centerRight,
                   child: ElevatedButton.icon(
                     onPressed: isSaving ? null : submitComment,
                     icon: Icon(isSaving ? Icons.hourglass_bottom : Icons.send),
                     label: CcsText(isSaving ? 'Saving...' : 'Post Comment'),
                     style: ElevatedButton.styleFrom(
+                      minimumSize: const Size(140, 46),
                       backgroundColor: blue,
                       foregroundColor: Colors.white,
                       shape: RoundedRectangleBorder(
@@ -464,11 +470,13 @@ class _SpotReviewsSectionState extends State<SpotReviewsSection>
           Container(
             width: double.infinity,
             padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: panelGlass,
-              borderRadius: BorderRadius.circular(18),
-              border: Border.all(color: Colors.white12),
-            ),
+            decoration: widget.spot.isTemporary
+                ? BoxDecoration(
+                    color: panelGlass,
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(color: Colors.white12),
+                  )
+                : null,
             child: CcsText(
               widget.spot.isTemporary
                   ? communityText(
@@ -485,6 +493,18 @@ class _SpotReviewsSectionState extends State<SpotReviewsSection>
             SpotReviewCard(
               spot: widget.spot,
               review: review,
+              onReply: () {
+                final mention = '@${review.username} ';
+                final draft = commentController.text;
+                final replyText = draft.startsWith(mention)
+                    ? draft
+                    : '$mention$draft';
+                commentController.text = replyText;
+                commentController.selection = TextSelection.collapsed(
+                  offset: replyText.length,
+                );
+                commentFocusNode.requestFocus();
+              },
               onDeleted: () {
                 setState(() {
                   reviews.removeWhere((item) => item.id == review.id);

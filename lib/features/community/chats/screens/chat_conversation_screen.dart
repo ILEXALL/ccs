@@ -1,3 +1,5 @@
+import 'package:ccs_app/features/notifications/data/visible_chat.dart';
+import 'package:ccs_app/features/notifications/widgets/foreground_message_banner.dart';
 import 'package:ccs_app/features/community/chats/controllers/chat_conversation_view_state.dart';
 import 'package:ccs_app/features/community/chats/widgets/chat_conversation_content.dart';
 import 'package:ccs_app/features/community/chats/controllers/chat_conversation_controller.dart';
@@ -168,6 +170,11 @@ class _ChatConversationScreenState extends State<ChatConversationScreen>
   @override
   void initState() {
     super.initState();
+    visibleChatRoutes[this] = () =>
+        mounted && (ModalRoute.of(context)?.isCurrent ?? false)
+        ? widget.chat.id
+        : null;
+    dismissMessageBannerForChat(widget.chat.id);
     _chatMembersFuture = loadChatMembers(widget.chat);
     chatScrollController.addListener(controller.onScroll);
     controller.markCurrentChatNotificationsRead();
@@ -185,6 +192,7 @@ class _ChatConversationScreenState extends State<ChatConversationScreen>
 
   @override
   void dispose() {
+    visibleChatRoutes.remove(this);
     _markMessagesReadDebounce?.cancel();
     _newMessagesSubscription?.cancel();
     chatScrollController.removeListener(controller.onScroll);

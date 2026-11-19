@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const readline = require('node:readline/promises');
 
 const suites = {
+  roadSpeed: { name: 'Road speed limits', files: ['road-speed-limit.test.cjs'], gaps: ['Live TomTom access, regional speed-limit coverage and physical-device GPS'] },
   accounts: {name: 'Account deletion', files: ['account-deletion.test.js', 'account-deletion-storage.test.js', 'account-deletion-scheduler.test.cjs', 'account-deletion-verify.test.cjs', 'account-deletion-scope.test.cjs'],
     gaps: ['Production storage and scheduler; run account-deletion.emulator.cjs for local integration checks']},
   xp: { name: 'XP', files: ['xp-history.test.cjs', 'xp.test.js', 'xp-matrix.test.js', 'xp-adjustments.test.js', 'admin-grants.test.js', 'achievements.test.js', 'leaderboard-pages.test.js', 'nearby-admin-rewards.test.cjs'],

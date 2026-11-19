@@ -1,3 +1,4 @@
+import 'package:ccs_app/features/notifications/data/push_events.dart';
 import 'dart:async';
 import 'dart:math' as math;
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -65,6 +66,20 @@ class MapSosController implements MapSosActions {
                 .where((report) => report.isActive)
                 .toList();
 
+            // Retry a recent own SOS after reconnect; server delivery claims prevent duplicates.
+            for (final report in reports) {
+              if (report.uid == FirebaseAuth.instance.currentUser?.uid &&
+                  DateTime.now().millisecondsSinceEpoch -
+                          report.createdAtMillis <
+                      300000) {
+                unawaited(
+                  sendPushNotificationEvent({
+                    'type': 'sos_created',
+                    'reportId': report.id,
+                  }),
+                );
+              }
+            }
             host.updateMap(() {
               host.sosReports = reports;
 
@@ -505,6 +520,10 @@ class MapSosController implements MapSosActions {
       }
       return;
     }
+
+    unawaited(
+      sendPushNotificationEvent({'type': 'sos_created', 'reportId': docRef.id}),
+    );
 
     try {
       await startSosLiveLocationSharing(position);

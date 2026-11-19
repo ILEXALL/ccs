@@ -79,7 +79,7 @@ Future<void> checkGpsSpotVisits(Position position) async {
                   spot.coordinates.latitude,
                   spot.coordinates.longitude,
                 ) <=
-                100,
+                40,
       )
       .toList();
   if (_visitSampleInFlight) return;

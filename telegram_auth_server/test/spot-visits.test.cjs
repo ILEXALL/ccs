@@ -25,8 +25,8 @@ test('nearby visit records once per spot lifetime, without storing coordinates',
   assert.equal('coordinates' in records[0][1], false);
 });
 
-test('radius is 100m, not rounded to include 100.4m', async () => {
-  for (const [meters, accepted] of [[99.6, true], [100.4, false], [150, false], [500, false]]) {
+test('radius is 40m, not rounded to include 40.4m', async () => {
+  for (const [meters, accepted] of [[39.6, true], [40.4, false], [150, false], [500, false]]) {
     const {db, rows} = fixture();
     rows.get('live_locations/u').lat = meters / 6371000 * 180 / Math.PI;
     if (accepted) assert.equal((await recordSpotVisit(db, 'u', 's', now)).recorded, true);

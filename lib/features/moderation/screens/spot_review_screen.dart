@@ -1,3 +1,4 @@
+import 'package:ccs_app/features/community/chats/widgets/chat_link_text.dart';
 import 'dart:async';
 import 'package:ccs_app/core/platform/external_links.dart'
     show launchExternalUrl;
@@ -467,7 +468,7 @@ class _LockedAdminSpotReviewScreen extends StatelessWidget {
             style: const TextStyle(color: Colors.white54),
           ),
           const SizedBox(height: 16),
-          CcsText(
+          ChatLinkText(
             spot.description,
             style: const TextStyle(
               color: Colors.white70,

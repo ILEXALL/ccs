@@ -1,3 +1,4 @@
+import 'package:ccs_app/features/community/chats/widgets/message_bubble_actions.dart';
 import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart' hide Text;
@@ -249,7 +250,11 @@ class ChatConversationContent implements ChatConversationContentActions {
 
     final card = IntrinsicWidth(
       child: ConstrainedBox(
-        constraints: const BoxConstraints(minWidth: 58, maxWidth: 292),
+        constraints: const BoxConstraints(
+          minWidth: 96,
+          minHeight: 48,
+          maxWidth: 292,
+        ),
         child: Container(
           padding: EdgeInsets.fromLTRB(11, showAuthorHeader ? 10 : 8, 11, 8),
           decoration: BoxDecoration(
@@ -340,25 +345,6 @@ class ChatConversationContent implements ChatConversationContentActions {
                     if (!showAuthorHeader) const SizedBox(width: 6),
                     ChatMessageStatusGlyph(state: receiptState),
                   ],
-                  if (canActOnMessage) ...[
-                    const SizedBox(width: 4),
-                    InkWell(
-                      onTap: () =>
-                          host.controller.showOwnMessageActions(message),
-                      borderRadius: BorderRadius.circular(10),
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 3,
-                          vertical: 1,
-                        ),
-                        child: Icon(
-                          Icons.more_horiz,
-                          size: 16,
-                          color: Colors.white.withValues(alpha: 0.72),
-                        ),
-                      ),
-                    ),
-                  ],
                 ],
               ),
               if (!host.controller.readOnly)
@@ -379,9 +365,7 @@ class ChatConversationContent implements ChatConversationContentActions {
     );
 
     final interactiveCard = canActOnMessage
-        ? GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onTap: () => host.controller.showOwnMessageActions(message),
+        ? MessageBubbleActions(
             onLongPress: () => host.controller.showOwnMessageActions(message),
             child: card,
           )

@@ -1,3 +1,4 @@
+import 'package:ccs_app/features/community/chats/widgets/message_bubble_actions.dart';
 import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -168,9 +169,7 @@ class GlobalChatContent implements GlobalChatContentActions {
                     fontWeight: FontWeight.w500,
                   ),
                 ),
-              if (edited ||
-                  (!showAuthorHeader && time.isNotEmpty) ||
-                  canActOnMessage) ...[
+              if (edited || (!showAuthorHeader && time.isNotEmpty)) ...[
                 const SizedBox(height: 4),
                 Row(
                   mainAxisSize: MainAxisSize.min,
@@ -195,25 +194,6 @@ class GlobalChatContent implements GlobalChatContentActions {
                           fontSize: 9.5,
                         ),
                       ),
-                    if (canActOnMessage) ...[
-                      const SizedBox(width: 4),
-                      InkWell(
-                        onTap: () =>
-                            host.controller.showGlobalMessageActions(doc),
-                        borderRadius: BorderRadius.circular(10),
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 3,
-                            vertical: 1,
-                          ),
-                          child: Icon(
-                            Icons.more_horiz,
-                            size: 16,
-                            color: Colors.white.withValues(alpha: 0.72),
-                          ),
-                        ),
-                      ),
-                    ],
                   ],
                 ),
               ],
@@ -236,9 +216,7 @@ class GlobalChatContent implements GlobalChatContentActions {
     );
 
     final interactiveCard = canActOnMessage
-        ? GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onTap: () => host.controller.showGlobalMessageActions(doc),
+        ? MessageBubbleActions(
             onLongPress: () => host.controller.showGlobalMessageActions(doc),
             child: card,
           )

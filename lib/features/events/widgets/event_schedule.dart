@@ -106,6 +106,10 @@ class TemporarySpotScheduleCard extends StatelessWidget {
                 contentPadding: EdgeInsets.zero,
               ),
             if (enabled) ...[
+              const CcsText(
+                'Times use your device timezone.',
+                style: TextStyle(color: Colors.white70, fontSize: 12),
+              ),
               const SizedBox(height: 8),
               timeButton(
                 label: 'Starts at',

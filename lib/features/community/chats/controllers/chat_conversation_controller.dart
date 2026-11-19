@@ -779,8 +779,10 @@ class ChatConversationController implements ChatConversationControllerActions {
     final currentUid =
         FirebaseAuth.instance.currentUser?.uid ?? currentUser.uid;
     final mine = message.senderUid == currentUid;
-    final canModerate = await currentUserCanModerateChat(host.widget.chat.id);
-    final canDelete = mine || canModerate;
+    final canModerate = currentUserCanModerateChat(host.widget.chat.id)
+        .timeout(const Duration(seconds: 2), onTimeout: () => false)
+        .catchError((_) => false);
+    if (!viewContext.mounted) return;
 
     if (message.isLocalPending) {
       return;
@@ -794,67 +796,74 @@ class ChatConversationController implements ChatConversationControllerActions {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
-      builder: (context) {
-        return SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(18, 12, 18, 20),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                ListTile(
-                  leading: const Icon(Icons.reply_rounded, color: blue),
-                  title: CcsText(
-                    trText('Reply'),
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                  onTap: () => Navigator.pop(context, 'reply'),
-                ),
-                ListTile(
-                  leading: const Icon(Icons.add_reaction_outlined, color: blue),
-                  title: CcsText(
-                    trText('React'),
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                  onTap: () => Navigator.pop(context, 'react'),
-                ),
-                if (mine)
+      builder: (context) => FutureBuilder<bool>(
+        future: canModerate,
+        builder: (context, snapshot) {
+          final canDelete = mine || snapshot.data == true;
+          return SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(18, 12, 18, 20),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
                   ListTile(
-                    leading: const Icon(Icons.edit, color: blue),
-                    title: const CcsText(
-                      'Edit message',
-                      style: TextStyle(
+                    leading: const Icon(Icons.reply_rounded, color: blue),
+                    title: CcsText(
+                      trText('Reply'),
+                      style: const TextStyle(
                         color: Colors.white,
                         fontWeight: FontWeight.w800,
                       ),
                     ),
-                    onTap: () => Navigator.pop(context, 'edit'),
+                    onTap: () => Navigator.pop(context, 'reply'),
                   ),
-                if (canDelete)
                   ListTile(
                     leading: const Icon(
-                      Icons.delete_outline,
-                      color: Colors.redAccent,
+                      Icons.add_reaction_outlined,
+                      color: blue,
                     ),
-                    title: const CcsText(
-                      'Delete message',
-                      style: TextStyle(
+                    title: CcsText(
+                      trText('React'),
+                      style: const TextStyle(
                         color: Colors.white,
                         fontWeight: FontWeight.w800,
                       ),
                     ),
-                    onTap: () => Navigator.pop(context, 'delete'),
+                    onTap: () => Navigator.pop(context, 'react'),
                   ),
-              ],
+                  if (mine)
+                    ListTile(
+                      leading: const Icon(Icons.edit, color: blue),
+                      title: const CcsText(
+                        'Edit message',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      onTap: () => Navigator.pop(context, 'edit'),
+                    ),
+                  if (canDelete)
+                    ListTile(
+                      leading: const Icon(
+                        Icons.delete_outline,
+                        color: Colors.redAccent,
+                      ),
+                      title: const CcsText(
+                        'Delete message',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      onTap: () => Navigator.pop(context, 'delete'),
+                    ),
+                ],
+              ),
             ),
-          ),
-        );
-      },
+          );
+        },
+      ),
     );
 
     if (!(host.mounted && viewContext.mounted) || action == null) {

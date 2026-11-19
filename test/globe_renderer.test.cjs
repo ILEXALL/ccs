@@ -72,11 +72,78 @@ function fixture() {
 
   vm.runInNewContext(fs.readFileSync('assets/globe/beacons.js','utf8'),context);
 
+  vm.runInNewContext(fs.readFileSync('assets/globe/event_clusters.js','utf8'),context);
   vm.runInNewContext(fs.readFileSync('assets/globe/globe.js','utf8'),context);
 
   return {...context,run:code=>vm.runInNewContext(code,context),touches,holdTimers,handlers,messages,moves,sources,layers,paints,layouts,timers,setTime:t=>clock=t, tick:t=>{clock=t;const pending=[...frames.values()];frames.clear();pending.forEach(fn=>fn(t));}, frames};
 
 }
+
+test('holding a staff-editable marker starts moving instead of creating a spot',()=>{
+ const f=fixture();f.handlers['style.load']();f.run('map.zoom=14;');
+ f.run('map.project = p => ({x:p[0]*10,y:p[1]*10}); map.unproject = p => ({lng:p.x/10,lat:p.y/10});');
+ f.window.ccsSetFeatures({type:'FeatureCollection',features:[{properties:{kind:'spot',id:'a',canMove:true},geometry:{type:'Point',coordinates:[24,57]}}]});
+ f.touches.touchstart({touches:[{clientX:240,clientY:570}]});
+ for(const fn of f.holdTimers.values()) fn();
+ assert.equal(f.run('moveDraft.id'),'a');
+ assert.equal(f.messages.some(m=>m.type==='longPress'),false);
+ f.touches.touchmove({touches:[{clientX:250,clientY:580}]});
+ assert.deepEqual(Array.from(f.sources.ccs.data.features[0].geometry.coordinates),[25,58]);
+});
+
+test('staff drag previews locally, survives refresh, and Cancel restores server position',()=>{
+ const f=fixture();f.handlers['style.load']();f.run('map.zoom=14;');
+ f.run('map.unproject = p => ({lng:p.x/10,lat:p.y/10});');
+ const data={type:'FeatureCollection',features:[{properties:{kind:'spot',id:'a',canMove:true},geometry:{type:'Point',coordinates:[24,57]}}]};
+ f.window.ccsSetFeatures(data);
+ assert.equal(f.window.ccsBeginMove('a'),true);
+ f.touches.touchstart({touches:[{clientX:240,clientY:570}]});
+ f.touches.touchmove({touches:[{clientX:250,clientY:580}]});
+ assert.deepEqual(Array.from(f.sources.ccs.data.features[0].geometry.coordinates),[25,58]);
+ assert.deepEqual(data.features[0].geometry.coordinates,[24,57]);
+ f.window.ccsSetFeatures(data);
+ assert.deepEqual(Array.from(f.sources.ccs.data.features[0].geometry.coordinates),[25,58]);
+ f.window.ccsFinishMove(false);
+ assert.deepEqual(Array.from(f.sources.ccs.data.features[0].geometry.coordinates),[24,57]);
+ assert.equal(f.run('moveDraft'),null);
+});
+
+test('move rejects non-staff targets, locks while saving, and keeps saved event position',()=>{
+ const f=fixture();f.handlers['style.load']();f.run('map.zoom=14;');
+ f.run('map.unproject = p => ({lng:p.x/10,lat:p.y/10});');
+ const data={type:'FeatureCollection',features:[{properties:{kind:'spot',event:true,id:'e',canMove:false},geometry:{type:'Point',coordinates:[24,57]}}]};
+ f.window.ccsSetFeatures(data);assert.equal(f.window.ccsBeginMove('e'),false);
+ data.features[0].properties.canMove=true;f.window.ccsSetFeatures(data);
+ assert.equal(f.window.ccsBeginMove('e'),true);
+ f.touches.touchstart({touches:[{clientX:240,clientY:570}]});
+ f.touches.touchmove({touches:[{clientX:250,clientY:580}]});
+ f.window.ccsLockMove(true);
+ f.touches.touchmove({touches:[{clientX:260,clientY:590}]});
+ f.window.ccsFinishMove(true);
+ assert.deepEqual(Array.from(f.sources.ccs.data.features[0].geometry.coordinates),[25,58]);
+});
+
+test('removal or revoked editing permission cancels the active map draft',()=>{
+ const f=fixture();f.handlers['style.load']();f.run('map.zoom=14;');
+ f.window.ccsSetFeatures({type:'FeatureCollection',features:[{properties:{kind:'spot',id:'a',canMove:true},geometry:{type:'Point',coordinates:[24,57]}}]});
+ f.window.ccsBeginMove('a');
+ f.window.ccsSetFeatures({type:'FeatureCollection',features:[]});
+ assert.equal(f.run('moveDraft'),null);
+ assert.ok(f.messages.some(m=>m.type==='moveCancelled'));
+});
+
+test('spot and event dragging starts only at the full-icon zoom threshold',()=>{
+ for(const event of [false,true]) {
+  const f=fixture();f.handlers['style.load']();
+  f.window.ccsSetFeatures({type:'FeatureCollection',features:[{properties:{kind:'spot',id:'a',canMove:true,event},geometry:{type:'Point',coordinates:[24,57]}}]});
+  for(const zoom of [3,10,11.249]) {
+   f.run(`map.zoom=${zoom}`);
+   assert.equal(f.window.ccsBeginMove('a'),false);
+  }
+  f.run('map.zoom=11.25');assert.equal(f.window.ccsBeginMove('a'),true);
+  f.window.ccsFinishMove(false);
+ }
+});
 
 test('data arriving before map load survives; replacements remove expired markers',()=>{
 
@@ -108,7 +175,7 @@ test('live position updates follow only after opt-in and stop after a map gestur
 
   assert.equal(f.moves[1].center[0],25);
 
-  f.handlers.dragstart(); f.window.ccsSetFeatures(positions(26)); assert.equal(f.moves.length,2);
+  f.handlers.dragstart(); f.window.ccsSetFeatures(positions(26)); assert.equal(f.moves.length,2); // Gesture owns the camera until it ends.
 
 });
 
@@ -376,7 +443,7 @@ test('manual rotation survives delayed follow packets until an explicit follow t
 
  f.window.ccsSetFeatures({type:'FeatureCollection',features:[],camera:{revision:50,center:[24,57],zoom:16,bearing:0}});
 
- assert.equal(f.moves.at(-1).bearing,undefined);
+ assert.equal(f.moves.length,count); // No camera mutation from a queued native packet.
 
  f.window.ccsSetMotion({...packet,followRevision:2});f.tick(48);
 
@@ -526,6 +593,26 @@ test('bundled Latvia camera snapshot has real unique coordinates and licensing',
 
 
 
+test('bottom beacons move above native HUD instead of hiding under controls',()=>{
+ const f=fixture(),nodes=[];
+ function element(){return {style:{setProperty(){}},dataset:{},children:[],appendChild(c){this.children.push(c);this.lastChild=c;},addEventListener(){},getBoundingClientRect(){},getContext(){return {putImageData(){}};},setAttribute(){},remove(){}};}
+ f.document.createElement=()=>{const node=element();nodes.push(node);return node;};
+ f.document.body=element();f.handlers['style.load']();
+ f.run("map.project = point => ({x:200,y:400+(point[1]-57)*100000}); iconCache.set('ccs-sos',{});");
+ f.window.ccsSetFeatures({type:'FeatureCollection',beaconInsets:{top:80,bottom:12},features:[
+  {properties:{kind:'self'},geometry:{type:'Point',coordinates:[24,57]}},
+  {properties:{kind:'sos',id:'south'},geometry:{type:'Point',coordinates:[24,57.01]}}
+ ]});
+ f.window.ccsFollow();f.run('updateEdgeBeacons()');
+ const beacon=nodes.find(n=>n.className==='ccs-beacon');
+ assert.ok(Number(beacon.style.opacity)>0);
+ f.window.ccsSetBeaconOcclusion({top:100,bottom:140});
+ assert.match(beacon.style.transform,/translate\(200px,610px\)/);
+ assert.ok(Number(beacon.style.opacity)>0);
+ f.window.ccsSetBeaconOcclusion({top:100,bottom:80});
+ assert.match(beacon.style.transform,/translate\(200px,670px\)/);
+});
+
 test('offscreen SOS and police render report artwork, animate and open their cards',()=>{
 
  const f=fixture();
@@ -604,8 +691,9 @@ test('speed zoom eases gradually and stationary heading noise cannot rotate foll
 
  for(let t=1000;t<=8000;t+=50){f.setTime(t);if(t%100===0)f.window.ccsSetMotion(packet(100/3.6,90));f.tick(t);}
 
- assert.ok(Math.abs(f.moves.at(-1).zoom-15.35)<.01);
+ assert.ok(Math.abs(f.moves.at(-1).zoom-(16.35-Math.log2(3)))<.01);
 
+ assert.equal(f.moves.at(-1).pitch,45);
  const fast=f.moves.at(-1).zoom;
 
  f.window.ccsSetMotion(packet(0,270));f.tick(8050);
@@ -740,7 +828,7 @@ test('stationary motion settles and repeated unchanged fixes do not move camera'
 
  const packet={position:[24,57],heading:0,speed:0,following:true,zoom:16};
 
- f.window.ccsSetMotion(packet);f.tick(16);
+ f.window.ccsSetMotion(packet);f.tick(16);f.tick(500);
 
  assert.equal(f.frames.size,0);
 
@@ -1084,7 +1172,7 @@ test('event waves animate only authorized visible event features and pause with 
 
  const layer=f.layers.find(l=>l.id==='ccs-event-wave-0');assert.match(JSON.stringify(layer.filter),/eventActive/);
 
- assert.ok(f.layers.find(l=>l.id==='ccs-event-start'));
+ assert.ok(!f.layers.some(l=>l.id==='ccs-event-start')); // Time now lives in Capsule.
 
  assert.ok(f.layers.find(l=>l.id==='ccs-visited'));
 
@@ -1276,7 +1364,7 @@ test('main camera snapshot preserves follow viewport and picker bearing and pitc
  assert.equal(snapshot.bearing,72);assert.equal(snapshot.pitch,25);
  f.run('motionFollowing=false');
  f.window.ccsSetFeatures({type:'FeatureCollection',features:[],camera:{revision:10,center:[24.1,56.95],zoom:13.2,bearing:72,pitch:25}});
- assert.equal(f.moves.at(-1).bearing,72);assert.equal(f.moves.at(-1).pitch,25);
+ assert.equal(f.moves.at(-1).bearing,72);assert.equal(f.moves.at(-1).pitch,0);
 });
 
 
@@ -1303,4 +1391,92 @@ test('hidden style load resumes and resizes when opened before ready',()=>{
  assert.equal(f.run('map.repaints'),1);
  f.handlers['style.load']();
  assert.equal(f.run('ready'),true);
+});
+
+test('manual gesture handlers never reenter the camera; flatten only after gesture end',()=>{
+ const f=fixture();f.handlers['style.load']();
+ f.run('map.getPitch=()=>45;map.isMoving=()=>true;map.getCenter=()=>({lat:57,lng:24})');
+ const motion={position:[24,57],zoom:16,heading:90,speed:0,following:true,followRevision:1};
+ f.window.ccsSetMotion(motion);f.tick(500);
+ const count=f.moves.length;
+ f.touches.touchstart({touches:[{},{}]});f.handlers.zoomstart({originalEvent:{}});f.handlers.pitchstart({originalEvent:{}});f.handlers.dragstart();
+ f.window.ccsSetMotion(motion);f.tick(600);
+ f.window.ccsSetFeatures({features:[],camera:{revision:99,center:[25,57],zoom:14,pitch:45}});
+ assert.equal(f.moves.length,count);
+ f.touches.touchend({touches:[]});f.tick(650);assert.equal(f.moves.length,count); // inertia still running
+ f.run('map.isMoving=()=>false');f.handlers.moveend();
+ const flatten=f.moves.at(-1);assert.equal(flatten.pitch,0);assert.equal(flatten.duration,320);
+ assert.equal(flatten.zoom,undefined);assert.equal(flatten.center,undefined);assert.equal(flatten.bearing,undefined);
+});
+test('Follow pitch eases from current pitch and settles without a GPS update',()=>{
+ const f=fixture();f.handlers['style.load']();f.run('map.getPitch=()=>0');
+ f.window.ccsSetMotion({position:[24,57],zoom:16,heading:0,speed:0,following:true,followRevision:1});
+ f.tick(0);assert.equal(f.moves.at(-1).pitch,0);
+ f.tick(225);assert.ok(f.moves.at(-1).pitch>20&&f.moves.at(-1).pitch<25);
+ f.tick(450);assert.equal(f.moves.at(-1).pitch,45);
+});
+
+function eventFixture() {
+ const f=fixture(),nodes=[];
+ function element(){return {style:{setProperty(k,v){this[k]=v;}},dataset:{},children:[],appendChild(n){this.children.push(n);},addEventListener(k,fn){this[k]=fn;},setAttribute(k,v){this[k]=v;},remove(){this.removed=true;}};}
+ f.document.createElement=()=>{const n=element();nodes.push(n);return n;};f.document.body=element();
+ f.handlers['style.load']();f.run('map.zoom=14;map.scale=1;map.project=p=>({x:p[0]*map.scale,y:p[1]});map.unproject=p=>p;');
+ return {...f,nodes,markers:()=>nodes.filter(n=>n.className?.startsWith('ccs-event-capsule')&&!n.removed)};
+}
+const eventFeature=(id,x,y=200)=>({properties:{kind:'spot',event:true,id,label:id,eventTimeLabel:'20.11\n19:00',eventStartLabel:'20 Nov · 19:00'},geometry:{coordinates:[x,y]}});
+test('Capsule groups nearby events with count, opens all members without moving, and selects individuals',()=>{
+ const f=eventFixture();f.window.ccsSetFeatures({features:[eventFeature('a',100),eventFeature('b',150)]});
+ assert.equal(f.markers().length,1);assert.equal(f.markers()[0].children[1].textContent,'×2');
+ const before=f.moves.length;f.markers()[0].click({stopPropagation(){}});assert.equal(f.moves.length,before);assert.deepEqual(f.messages.at(-1),{type:'selectEvents',ids:['a','b']});
+ f.run('map.scale=4;map.zoom=16;updateEventCapsules()');assert.equal(f.markers().length,2);
+ for(const n of f.markers()) assert.equal(n.children[1].textContent,'20.11\n19:00');
+ f.markers()[0].click({stopPropagation(){}});assert.equal(f.messages.at(-1).type,'select');assert.equal(f.messages.at(-1).id,'a');
+});
+test('coincident events offer every id; removed/private-filtered events leave no stale cluster',()=>{
+ const f=eventFixture();f.window.ccsSetFeatures({features:[eventFeature('a',100),eventFeature('b',100)]});
+ f.markers()[0].click({stopPropagation(){}});assert.deepEqual(f.messages.at(-1),{type:'selectEvents',ids:['a','b']});
+ f.window.ccsSetFeatures({features:[eventFeature('b',100)]});assert.equal(f.markers().length,1);assert.equal(f.markers()[0].children[1].textContent,'20.11\n19:00');
+ f.window.ccsSetFeatures({features:[]});assert.equal(f.markers().length,0);
+});
+test('Capsule switches original brand assets with theme and does not duplicate category icons',()=>{
+ const f=eventFixture();f.window.ccsSetFeatures({features:[eventFeature('a',100)]});
+ assert.equal(f.markers()[0].children[0].src,'event-capsule-dark.png');
+ f.window.ccsSetStyle('positron');f.handlers['style.load']();f.run('updateEventCapsules()');
+ assert.equal(f.markers()[0].children[0].src,'event-capsule-light.png');
+ assert.deepEqual(JSON.parse(JSON.stringify(f.layers.find(l=>l.id==='ccs-spot-icons').filter)),['all',['==',['get','kind'],'spot'],['!=',['get','event'],true]]);
+ assert.ok(!f.layers.some(l=>l.id==='ccs-event-start'));
+});
+test('proximity components keep chains and all ids, splitting with screen distance',()=>{
+ const {groupEventPoints}=require('../assets/globe/event_clusters.js');
+ const p=[{x:0,y:0,id:1},{x:70,y:0,id:2},{x:140,y:0,id:3},{x:0,y:100,id:4}];
+ assert.deepEqual(groupEventPoints(p,88,52).map(g=>g.map(p=>p.id)),[[1,2,3],[4]]);
+ assert.equal(groupEventPoints(p.map(p=>({...p,x:p.x*2})),88,52).length,4);
+});
+
+test('max-zoom event clusters remain selectable and hidden views remove capsules',()=>{
+ const f=eventFixture();f.run('map.zoom=18');f.window.ccsSetFeatures({features:[eventFeature('a',100),eventFeature('b',150)]});
+ f.markers()[0].click({stopPropagation(){}});assert.deepEqual(f.messages.at(-1),{type:'selectEvents',ids:['a','b']});
+ f.window.ccsSetActive(false);assert.equal(f.markers().length,0);
+ f.window.ccsSetActive(true);assert.equal(f.markers().length,1);
+});
+test('event Capsule tap dismisses route preview before selecting',()=>{
+ const f=eventFixture();f.window.ccsSetFeatures({routePreview:true,features:[eventFeature('a',100)]});
+ f.markers()[0].click({stopPropagation(){}});assert.equal(f.messages.at(-1).type,'dismissRoute');
+});
+
+test('event visual metrics match spot scale and switch to blue dots without giant clusters',()=>{
+ const {eventMarkerMetrics}=require('../assets/globe/event_clusters.js');
+ const low=eventMarkerMetrics(6),city=eventMarkerMetrics(11.25),near=eventMarkerMetrics(16);
+ assert.equal(low.dot,true);assert.ok(low.width<5);assert.equal(city.dot,false);assert.equal(city.width,30.400000000000002);
+ assert.equal(near.width,65);assert.equal(eventMarkerMetrics(13.9).showTime,false);assert.equal(eventMarkerMetrics(14).showTime,true);
+ const f=eventFixture();f.run('map.zoom=6');f.window.ccsSetFeatures({features:[eventFeature('a',100),eventFeature('b',100)]});
+ const n=f.markers()[0];assert.match(n.className,/ccs-event-dot/);assert.equal(n.style.width,'44px');assert.equal(n.children[1].textContent,'×2');
+ f.window.ccsSetFeatures({features:[eventFeature('a',100)]});assert.equal(f.markers()[0].children[1].textContent,'');
+ assert.match(fs.readFileSync('assets/globe/globe.css','utf8'),/ccs-event-dot i[^}]*background:#1457ef/);
+});
+
+test('multi-event tap also opens its list during route preview without camera movement',()=>{
+ const f=eventFixture();f.window.ccsSetFeatures({routePreview:true,features:[eventFeature('a',100),eventFeature('b',150)]});
+ const before=f.moves.length;f.markers()[0].click({stopPropagation(){}});
+ assert.equal(f.moves.length,before);assert.deepEqual(f.messages.at(-1),{type:'selectEvents',ids:['a','b']});
 });

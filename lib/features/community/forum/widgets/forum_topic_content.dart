@@ -1,3 +1,5 @@
+import 'package:ccs_app/features/community/chats/widgets/message_bubble_actions.dart';
+import 'package:ccs_app/features/events/models/forum_event_schedule.dart';
 import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -54,7 +56,7 @@ class ForumTopicContent implements ForumTopicContentActions {
     final authorId = stringFromFirebase(topic['authorId'], '');
     final authorName = stringFromFirebase(topic['authorName'], 'ccs_driver');
     final avatarUrl = stringFromFirebase(topic['avatarUrl'], '');
-    final description = stringFromFirebase(topic['description'], '');
+    final description = localizedForumEventDescription(topic);
     if (!groupForumAccessible(topic))
       return CcsText(trText('This topic is available only to group members.'));
     final photos = forumTopicPhotos(topic);
@@ -365,9 +367,7 @@ class ForumTopicContent implements ForumTopicContentActions {
                 fontWeight: FontWeight.w500,
               ),
             ),
-          if (edited ||
-              (!showAuthorHeader && time.isNotEmpty) ||
-              canActOnReply) ...[
+          if (edited || (!showAuthorHeader && time.isNotEmpty)) ...[
             const SizedBox(height: 4),
             Row(
               mainAxisSize: MainAxisSize.min,
@@ -389,24 +389,6 @@ class ForumTopicContent implements ForumTopicContentActions {
                     time,
                     style: const TextStyle(color: Colors.white38, fontSize: 10),
                   ),
-                if (canActOnReply) ...[
-                  const SizedBox(width: 4),
-                  InkWell(
-                    onTap: () => host.controller.showForumReplyActions(doc),
-                    borderRadius: BorderRadius.circular(10),
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 3,
-                        vertical: 1,
-                      ),
-                      child: Icon(
-                        Icons.more_horiz,
-                        size: 16,
-                        color: Colors.white.withValues(alpha: 0.72),
-                      ),
-                    ),
-                  ),
-                ],
               ],
             ),
           ],
@@ -430,9 +412,7 @@ class ForumTopicContent implements ForumTopicContentActions {
       return tile;
     }
 
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTap: () => host.controller.showForumReplyActions(doc),
+    return MessageBubbleActions(
       onLongPress: () => host.controller.showForumReplyActions(doc),
       child: tile,
     );

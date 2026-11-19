@@ -21,93 +21,24 @@ class SpotDetailEngagementPanel extends StatelessWidget {
       builder: (context, likedSnapshot) {
         final liked = likedSnapshot.data ?? false;
 
-        if (spot.isTemporary) {
-          return Align(
-            alignment: Alignment.centerLeft,
-            child: TextButton.icon(
-              onPressed: () => toggleSpotLike(context, spot, liked),
-              icon: Icon(
-                liked ? Icons.favorite : Icons.favorite_border,
-                size: 20,
-                color: liked ? Colors.redAccent : const Color(0xFFAFC1D7),
-              ),
-              label: CcsText(
-                '${spot.likeCount} ${trText('Likes')}',
-                style: const TextStyle(color: Colors.white70),
-              ),
+        return Align(
+          alignment: Alignment.centerLeft,
+          child: TextButton.icon(
+            onPressed: () => toggleSpotLike(context, spot, liked),
+            style: TextButton.styleFrom(
+              foregroundColor: const Color(0xFFCED7E5),
+              padding: const EdgeInsets.symmetric(horizontal: 0, vertical: 10),
+              minimumSize: const Size(48, 48),
             ),
-          );
-        }
-
-        return Container(
-          width: double.infinity,
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
-          decoration: BoxDecoration(
-            color: panelGlass,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: Colors.white12),
-          ),
-          child: Row(
-            children: [
-              Expanded(
-                child: Row(
-                  children: [
-                    Icon(
-                      Icons.favorite,
-                      color: spot.likeCount > 0
-                          ? Colors.redAccent
-                          : Colors.white38,
-                      size: 19,
-                    ),
-                    const SizedBox(width: 8),
-                    CcsText(
-                      '${spot.likeCount}',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 15,
-                        fontWeight: FontWeight.w900,
-                      ),
-                    ),
-                    const SizedBox(width: 6),
-                    CcsText(
-                      trText('Likes'),
-                      style: const TextStyle(
-                        color: Colors.white54,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              Tooltip(
-                message: trText(liked ? 'Liked' : 'Like'),
-                child: InkWell(
-                  onTap: () => toggleSpotLike(context, spot, liked),
-                  borderRadius: BorderRadius.circular(999),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 8,
-                    ),
-                    decoration: BoxDecoration(
-                      color: liked
-                          ? Colors.redAccent.withValues(alpha: 0.16)
-                          : Colors.white.withValues(alpha: 0.05),
-                      borderRadius: BorderRadius.circular(999),
-                      border: Border.all(
-                        color: liked ? Colors.redAccent : Colors.white12,
-                      ),
-                    ),
-                    child: Icon(
-                      liked ? Icons.favorite : Icons.favorite_border,
-                      color: liked ? Colors.redAccent : Colors.white70,
-                      size: 20,
-                    ),
-                  ),
-                ),
-              ),
-            ],
+            icon: Icon(
+              liked ? Icons.favorite : Icons.favorite_border,
+              size: 21,
+              color: liked ? Colors.redAccent : const Color(0xFF91A0B5),
+            ),
+            label: CcsText(
+              '${spot.likeCount} ${trText('Likes')}',
+              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+            ),
           ),
         );
       },
@@ -164,8 +95,12 @@ class SpotRouteActions extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                 ),
                 style: OutlinedButton.styleFrom(
-                  foregroundColor: enabled ? blue : Colors.white38,
-                  side: BorderSide(color: enabled ? blue : Colors.white12),
+                  foregroundColor: enabled
+                      ? const Color(0xFFD8E6FF)
+                      : Colors.white38,
+                  side: BorderSide(
+                    color: enabled ? const Color(0xFF47628C) : Colors.white12,
+                  ),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(12),
                   ),
@@ -196,12 +131,14 @@ class SpotRouteActions extends StatelessWidget {
 
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(8),
-      decoration: BoxDecoration(
-        color: panelGlass,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.white12),
-      ),
+      padding: spot.isTemporary ? const EdgeInsets.all(8) : EdgeInsets.zero,
+      decoration: spot.isTemporary
+          ? BoxDecoration(
+              color: panelGlass,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.white12),
+            )
+          : null,
       child: Column(
         children: [
           Row(
@@ -220,8 +157,8 @@ class SpotRouteActions extends StatelessWidget {
                     ? () => openWazeRoute(context, spot)
                     : null,
               ),
-              if (!spot.isTemporary || hasVideo) const SizedBox(width: 8),
-              if (!spot.isTemporary || hasVideo)
+              if (hasVideo) const SizedBox(width: 8),
+              if (hasVideo)
                 actionButton(
                   icon: Icons.play_circle_outline,
                   label: 'Video',

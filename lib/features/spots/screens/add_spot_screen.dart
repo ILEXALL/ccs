@@ -440,9 +440,13 @@ class _AddSpotScreenState extends State<AddSpotScreen>
                         trText(
                           isSubmitting
                               ? (userRoleIsStaff(currentUser.role)
-                                    ? 'Creating spot...'
+                                    ? (isTemporarySpot
+                                          ? 'Creating event...'
+                                          : 'Creating spot...')
                                     : 'Submitting for review...')
-                              : (userRoleIsStaff(currentUser.role)
+                              : (isTemporarySpot
+                                    ? 'Create event'
+                                    : userRoleIsStaff(currentUser.role)
                                     ? 'Create Spot'
                                     : 'Submit for Review'),
                         ),

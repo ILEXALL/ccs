@@ -47,3 +47,11 @@ location and diagnostic declarations cover the identified types. Contacts covers
 the app's social graph, even though it does not import the phone address book.
 No advertising/tracking SDK was found in the inspected direct dependencies.
 No declaration was changed merely to remove an existing disclosure.
+
+
+PENDING PUBLICATION — 19 November 2026 — TomTom road speed limits
+This addition has NOT been published to the public privacy page.
+
+When the road speed-limit feature is configured and Follow is active, CCS sends a short sequence of recent precise GPS coordinates, sample timestamps and travel direction through its authenticated backend to TomTom's Snap to Roads service to identify the current road and obtain speed limits. GPS speed and measurement accuracy also reach the CCS backend to check measurement quality; CCS forwards only coordinates, direction and timestamps to TomTom, without your CCS account ID or authentication token. CCS buffers the recent sequence in app memory and does not write these travel traces to its database. Its backend stores account request counters/times to enforce quotas and may briefly retain a matched result in memory to avoid duplicate calls. Requests stop when Follow ends or the app/map becomes inactive; a request already sent may finish. TomTom and hosting providers may retain technical/service data under their own policies and configurations. This feature does not change live-location sharing with other CCS users.
+
+Review this wording and applicable app-store disclosure before release. Provider reference: https://www.tomtom.com/privacy/

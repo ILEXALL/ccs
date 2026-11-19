@@ -1,3 +1,4 @@
+import 'package:ccs_app/features/notifications/data/visible_chat.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:ccs_app/features/progression/controllers/reward_feedback.dart'
@@ -5,6 +6,11 @@ import 'package:ccs_app/features/progression/controllers/reward_feedback.dart'
 import 'package:ccs_app/features/notifications/models/notification_item.dart';
 import 'package:ccs_app/features/notifications/navigation/notification_navigation.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+
+String? _bannerChatId;
+void dismissMessageBannerForChat(String chatId) {
+  if (_bannerChatId == chatId) dismissMessageBanner();
+}
 
 OverlayEntry? _entry;
 Timer? _dismissTimer;
@@ -15,13 +21,16 @@ void dismissMessageBanner() {
   _authSubscription = null;
   _entry?.remove();
   _entry = null;
+  _bannerChatId = null;
 }
 
 void showMessageBanner(NotificationCenterItem item) {
+  if (item.type == 'chat_message' && chatIsVisible(item.chatId)) return;
   final overlay = rewardNavigatorKey.currentState?.overlay;
   final uid = FirebaseAuth.instance.currentUser?.uid;
   if (overlay == null || uid == null) return;
   dismissMessageBanner();
+  _bannerChatId = item.chatId;
   _entry = OverlayEntry(
     builder: (context) => Positioned(
       top: 0,

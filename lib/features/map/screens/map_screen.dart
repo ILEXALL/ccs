@@ -1,6 +1,9 @@
 import 'package:ccs_app/core/location/startup_location.dart';
 import 'package:ccs_app/features/progression/data/daily_visit_status.dart';
 import '../controllers/map_session.dart';
+import '../data/move_map_spot.dart';
+import 'package:ccs_app/features/moderation/data/regional_access.dart'
+    show currentUserCanModerateSpot;
 import 'globe_map_screen.dart';
 import '../models/globe_spot_style.dart';
 import '../controllers/map_appearance_controller.dart';
@@ -196,6 +199,8 @@ class _MapScreenState extends State<MapScreen>
   LatLng? currentUserLocation;
   @override
   LatLng? displayedUserLocation;
+  @override
+  Position? roadSpeedPosition;
   @override
   LatLng? lastGpsUserLocation;
   @override
@@ -482,6 +487,7 @@ class _MapScreenState extends State<MapScreen>
   Widget buildGlobeMap() => GlobeMapScreen(
     isVisible: widget.isVisible,
     onLongPress: createAtMapLocation,
+    onMoveSpot: moveMapSpot,
     routeDistanceLabel: routePreviewMode
         ? navigation.routePreviewDistanceLabel()
         : null,
@@ -600,6 +606,19 @@ class _MapScreenState extends State<MapScreen>
         'following': mapCenteredOnCurrentUser && globeFollowRevision > 0,
         'followRevision': globeFollowRevision,
         'zoom': navigationZoom,
+        'roadGps': roadSpeedPosition == null
+            ? null
+            : {
+                'lat': roadSpeedPosition!.latitude,
+                'lng': roadSpeedPosition!.longitude,
+                'heading': roadSpeedPosition!.heading,
+                'headingAccuracy': roadSpeedPosition!.headingAccuracy,
+                'at': roadSpeedPosition!.timestamp.millisecondsSinceEpoch,
+                'speed': roadSpeedPosition!.speed,
+                'accuracy': roadSpeedPosition!.accuracy,
+                'speedAccuracy': roadSpeedPosition!.speedAccuracy,
+                'mocked': roadSpeedPosition!.isMocked,
+              },
         'gpsFresh':
             lastGpsUserLocationAt != null &&
             DateTime.now().difference(lastGpsUserLocationAt!).inSeconds < 10,
@@ -649,7 +668,9 @@ class _MapScreenState extends State<MapScreen>
         'routePreview': routePreviewMode,
         'beaconInsets': {
           'top': MediaQuery.paddingOf(context).top + 64,
-          'bottom': MediaQuery.paddingOf(context).bottom + 12,
+          'bottom':
+              MediaQuery.paddingOf(context).bottom +
+              (mapCenteredOnCurrentUser ? 76 : 12),
         },
         'selection': {
           'token': lastHandledMapFocusRequestToken,
@@ -675,6 +696,7 @@ class _MapScreenState extends State<MapScreen>
             if (isValidLatLng(spot.coordinates))
               point('spot', spot.id, spot.name, spot.coordinates, {
                 ...globeSpotStyle(spot),
+                'canMove': currentUserCanModerateSpot(spot),
                 'visitedToday': dailyVisitStatus.contains(spot.id),
               }),
           for (final location in liveLocations)

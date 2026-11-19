@@ -5,6 +5,27 @@ import 'package:ccs_app/features/spots/models/spot_categories.dart';
 import 'group_temporary_spots_test.dart' show event;
 
 void main() {
+  test('marker date and time share viewer local instant across midnight', () {
+    final localStart = DateTime(2026, 12, 1, 0, 15);
+    final instant = localStart.toUtc();
+    trustedClock.setSampleForTesting(
+      localStart.subtract(const Duration(hours: 1)).millisecondsSinceEpoch,
+    );
+    addTearDown(() => trustedClock.setSampleForTesting(null));
+    final style = globeSpotStyle(
+      event().copyWith(
+        startsAtMillis: instant.millisecondsSinceEpoch,
+        expiresAtMillis: instant
+            .add(const Duration(hours: 2))
+            .millisecondsSinceEpoch,
+        showOnMapAtMillis: instant
+            .subtract(const Duration(days: 1))
+            .millisecondsSinceEpoch,
+      ),
+    );
+    expect(style['eventTimeLabel'], '01.12\n00:15');
+    expect(style['eventStartLabel'], '01.12.2026 · 00:15');
+  });
   test('every category uses the same original artwork and color', () {
     for (final category in spotCategoryOptions) {
       final spot = event().copyWith(isTemporary: false, categories: [category]);

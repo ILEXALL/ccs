@@ -126,9 +126,9 @@ class WeeklyRewardsSection extends StatelessWidget {
             padding: const EdgeInsets.only(top: 8),
             child: Text(
               t(
-                'Spot visits: 50 XP per spot per day after 5 minutes within 100 m. Resets at midnight (Europe/Riga). Events: 400 XP once per event after 5 minutes. Sharing location: 100 XP per full moving hour; stationary time does not count. Leaving or a GPS gap over 1 minute resets the visit timer.',
-                'Посещения: 50 XP за спот раз в день после 5 минут в пределах 100 м. Сброс в полночь (Europe/Riga). События: 400 XP один раз за событие после 5 минут. Передача геопозиции: 100 XP за полный час движения; стоянка не учитывается. Выход из радиуса или перерыв GPS больше минуты сбрасывает таймер посещения.',
-                'Apmeklējumi: 50 XP par vietu reizi dienā pēc 5 minūtēm 100 m rādiusā. Atiestatīšana pusnaktī (Europe/Riga). Pasākumi: 400 XP vienreiz pēc 5 minūtēm. Kopīgojot atrašanās vietu: 100 XP par pilnu stundu kustībā; stāvēšana neskaitās. Attālinoties vai bez GPS ilgāk par minūti, apmeklējuma taimeris sākas no jauna.',
+                'Spot visits: 50 XP per spot per day after 5 minutes within 40 m. Resets at midnight (Europe/Riga). Events: 400 XP once per event after 5 minutes. Sharing location: 100 XP per full moving hour; stationary time does not count. Leaving or a GPS gap over 1 minute resets the visit timer.',
+                'Посещения: 50 XP за спот раз в день после 5 минут в пределах 40 м. Сброс в полночь (Europe/Riga). События: 400 XP один раз за событие после 5 минут. Передача геопозиции: 100 XP за полный час движения; стоянка не учитывается. Выход из радиуса или перерыв GPS больше минуты сбрасывает таймер посещения.',
+                'Apmeklējumi: 50 XP par vietu reizi dienā pēc 5 minūtēm 40 m rādiusā. Atiestatīšana pusnaktī (Europe/Riga). Pasākumi: 400 XP vienreiz pēc 5 minūtēm. Kopīgojot atrašanās vietu: 100 XP par pilnu stundu kustībā; stāvēšana neskaitās. Attālinoties vai bez GPS ilgāk par minūti, apmeklējuma taimeris sākas no jauna.',
               ),
               style: const TextStyle(color: Colors.white60, fontSize: 12),
             ),

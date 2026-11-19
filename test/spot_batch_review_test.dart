@@ -153,6 +153,16 @@ void main() {
           ),
         ),
       );
+      expect(
+        tester.getSize(find.byType(BatchSpotReviewCard)).height,
+        lessThanOrEqualTo(210),
+      );
+      await tester.tap(find.text('Photos, map and details'));
+      await tester.pumpAndSettle();
+      expect(find.text('Full submission description'), findsOneWidget);
+      expect(find.text('Google Maps'), findsOneWidget);
+      await tester.tap(find.text('Photos, map and details'));
+      await tester.pumpAndSettle();
       await tester.tap(find.text('Review spot a'));
       expect(edits, 1);
       await tester.ensureVisible(find.text('Reject'));

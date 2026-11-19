@@ -108,6 +108,8 @@ abstract interface class MapSession {
   set currentUserLocation(LatLng? value);
   LatLng? get displayedUserLocation;
   set displayedUserLocation(LatLng? value);
+  Position? get roadSpeedPosition;
+  set roadSpeedPosition(Position? value);
   LatLng? get lastGpsUserLocation;
   set lastGpsUserLocation(LatLng? value);
   LatLng? get lastUploadedLiveLocation;
