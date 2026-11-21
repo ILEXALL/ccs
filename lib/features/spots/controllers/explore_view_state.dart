@@ -79,5 +79,4 @@ abstract interface class ExploreControllerActions {
   List<String> orderedExploreCategories(Map<String, int> counts);
   void normalizeSelectedExploreCategory(Map<String, int> counts);
   IconData spotCategoryMaterialIcon(String category);
-  void snapCategoryStrip(double itemExtent);
 }

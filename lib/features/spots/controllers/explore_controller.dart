@@ -624,34 +624,4 @@ class ExploreController implements ExploreControllerActions {
 
     return Icons.local_offer_outlined;
   }
-
-  @override
-  void snapCategoryStrip(double itemExtent) {
-    if (!host.categoryScrollController.hasClients || itemExtent <= 0) {
-      return;
-    }
-
-    final position = host.categoryScrollController.position;
-    if (position.maxScrollExtent <= 0) {
-      return;
-    }
-
-    final current = position.pixels;
-    final target = (current / itemExtent).round() * itemExtent;
-    final clampedTarget = target
-        .clamp(0.0, position.maxScrollExtent)
-        .toDouble();
-
-    if ((clampedTarget - current).abs() < 1.5) {
-      return;
-    }
-
-    unawaited(
-      host.categoryScrollController.animateTo(
-        clampedTarget,
-        duration: const Duration(milliseconds: 220),
-        curve: Curves.easeOutCubic,
-      ),
-    );
-  }
 }

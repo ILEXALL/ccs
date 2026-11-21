@@ -65,8 +65,8 @@ Rect spotPhotoContentRect(Uint8List rgba, int width, int height) {
   );
 }
 
-// Cover and Photo Echo receive clones of the same decoded image. Share their
-// analysis and retain only a small working set for scrolling back through cards.
+// Reused decoded images share crop analysis. Retain only a small working set
+// for scrolling back through cards.
 class _PhotoAnalysis {
   _PhotoAnalysis(this.identity, this.crop);
   final ui.Image identity;
@@ -103,7 +103,7 @@ Future<Rect?> sharedSpotPhotoCrop(ui.Image image) {
   }
   final entry = _PhotoAnalysis(image.clone(), _readPhotoCrop(image.clone()));
   _photoAnalyses.add(entry);
-  // At 640px maximum, 16 decoded images retain at most about 25 MiB.
+  // At 384px maximum, 16 decoded images retain at most about 9 MiB.
   if (_photoAnalyses.length > 16) _photoAnalyses.removeAt(0).identity.dispose();
   return entry.crop;
 }
@@ -127,6 +127,8 @@ class SpotCardPhoto extends StatefulWidget {
 
 class _SpotCardPhotoState extends State<SpotCardPhoto>
     with SingleTickerProviderStateMixin {
+  late final DisposableBuildContext<_SpotCardPhotoState> _imageContext =
+      DisposableBuildContext<_SpotCardPhotoState>(this);
   late final AnimationController _fade = AnimationController(
     vsync: this,
     duration: const Duration(seconds: 1),
@@ -170,17 +172,26 @@ class _SpotCardPhotoState extends State<SpotCardPhoto>
         ? FileImage(File(localPhotoPathFromSource(source)))
         : cachedAppImage(source);
     final cached = imageWasCached(provider);
-    // Bounded decoding keeps the card's two paint passes inexpensive.
-    _stream = ResizeImage(
-      provider,
-      width: 640,
-      height: 640,
-      policy: ResizeImagePolicy.fit,
+    // A 103 logical-pixel thumbnail does not need a 640px decode. Use the
+    // same decode key, and let cached photos display during flings
+    // while deferring new decodes until scrolling slows down.
+    _stream = ScrollAwareImageProvider(
+      context: _imageContext,
+      imageProvider: ResizeImage(
+        provider,
+        width: 384,
+        height: 384,
+        policy: ResizeImagePolicy.fit,
+      ),
     ).resolve(createLocalImageConfiguration(context));
     _listener = ImageStreamListener(
       (info, synchronousCall) async {
         try {
           final skipFade = synchronousCall || await cached;
+          if (!mounted || generation != _generation) {
+            info.dispose();
+            return;
+          }
           final rect = await sharedSpotPhotoCrop(info.image);
           if (!mounted || generation != _generation) {
             info.dispose();
@@ -210,6 +221,7 @@ class _SpotCardPhotoState extends State<SpotCardPhoto>
   @override
   void dispose() {
     _generation++;
+    _imageContext.dispose();
     if (_listener != null) _stream?.removeListener(_listener!);
     _info?.dispose();
     _fade.dispose();

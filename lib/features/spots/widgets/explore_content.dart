@@ -1,3 +1,4 @@
+import 'package:ccs_app/features/spots/widgets/spot_feed_scroll_physics.dart';
 import 'package:ccs_app/features/spots/models/explore_sort.dart';
 import 'dart:async';
 import 'package:flutter/material.dart' hide Text;
@@ -153,39 +154,32 @@ class ExploreContent implements ExploreContentActions {
       builder: (context, constraints) {
         final itemWidth =
             (constraints.maxWidth - (host.configCategoryCardGap * 2)) / 3;
-        final itemExtent = itemWidth + host.configCategoryCardGap;
 
         return SizedBox(
           height: 50,
-          child: NotificationListener<ScrollEndNotification>(
-            onNotification: (_) {
-              host.controller.snapCategoryStrip(itemExtent);
-              return false;
-            },
-            child: ListView.builder(
-              controller: host.categoryScrollController,
-              scrollDirection: Axis.horizontal,
-              physics: const BouncingScrollPhysics(
-                parent: AlwaysScrollableScrollPhysics(),
-              ),
-              padding: EdgeInsets.zero,
-              itemCount: uniqueCategories.length,
-              itemBuilder: (context, index) {
-                final category = uniqueCategories[index];
-                return Padding(
-                  padding: EdgeInsets.only(
-                    right: index == uniqueCategories.length - 1
-                        ? 0
-                        : host.configCategoryCardGap,
-                  ),
-                  child: categorySelectionButton(
-                    category: category,
-                    count: counts[category] ?? 0,
-                    width: itemWidth,
-                  ),
-                );
-              },
+          child: ListView.builder(
+            controller: host.categoryScrollController,
+            scrollDirection: Axis.horizontal,
+            physics: const SpotFeedScrollPhysics(
+              parent: AlwaysScrollableScrollPhysics(),
             ),
+            padding: EdgeInsets.zero,
+            itemCount: uniqueCategories.length,
+            itemBuilder: (context, index) {
+              final category = uniqueCategories[index];
+              return Padding(
+                padding: EdgeInsets.only(
+                  right: index == uniqueCategories.length - 1
+                      ? 0
+                      : host.configCategoryCardGap,
+                ),
+                child: categorySelectionButton(
+                  category: category,
+                  count: counts[category] ?? 0,
+                  width: itemWidth,
+                ),
+              );
+            },
           ),
         );
       },

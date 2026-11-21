@@ -1,3 +1,4 @@
+import 'package:ccs_app/features/spots/widgets/spot_feed_scroll_physics.dart';
 import 'package:flutter/rendering.dart' show ScrollCacheExtent;
 import 'package:ccs_app/features/spots/models/explore_sort.dart';
 import 'package:ccs_app/features/spots/controllers/explore_view_state.dart';
@@ -237,8 +238,8 @@ class _ExploreScreenState extends State<ExploreScreen>
                                 color: blue,
                                 child: ListView(
                                   controller: spotCardScrollController,
-                                  physics: const AlwaysScrollableScrollPhysics(
-                                    parent: BouncingScrollPhysics(),
+                                  physics: const SpotFeedScrollPhysics(
+                                    parent: AlwaysScrollableScrollPhysics(),
                                   ),
                                   padding: const EdgeInsets.only(bottom: 14),
                                   children: [
@@ -278,7 +279,7 @@ class _ExploreScreenState extends State<ExploreScreen>
 
                               return ListView.builder(
                                 controller: spotCardScrollController,
-                                physics: const BouncingScrollPhysics(
+                                physics: const SpotFeedScrollPhysics(
                                   parent: AlwaysScrollableScrollPhysics(),
                                 ),
                                 padding: EdgeInsets.zero,

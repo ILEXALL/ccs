@@ -139,19 +139,6 @@ class ExploreSpotCard extends StatelessWidget {
                   color: categoryColor.withValues(alpha: 0.50),
                   width: 1.15,
                 ),
-                boxShadow: [
-                  BoxShadow(
-                    color: categoryColor.withValues(alpha: 0.12),
-                    blurRadius: 14,
-                    spreadRadius: 0.3,
-                    offset: const Offset(0, 7),
-                  ),
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.28),
-                    blurRadius: 18,
-                    offset: const Offset(0, 10),
-                  ),
-                ],
               ),
               child: Stack(
                 fit: StackFit.expand,

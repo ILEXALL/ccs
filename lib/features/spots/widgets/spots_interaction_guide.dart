@@ -100,7 +100,7 @@ class _SpotsInteractionGuideState extends State<SpotsInteractionGuide>
         ? widget.categoryController
         : widget.cardsController;
     if (!controller.hasClients) return;
-    // A scroll already coasting/snapping may not emit another ScrollStart.
+    // A scroll already coasting may not emit another ScrollStart.
     // Track the actual finger gesture independently of scroll notifications.
     _forwardingGesture = true;
     _dragging = true;
@@ -226,7 +226,7 @@ class _SpotsInteractionGuideState extends State<SpotsInteractionGuide>
       return false;
     }
     if (notification is ScrollStartNotification) {
-      // Preserve the finger gesture if the child's end listener starts snapping.
+      // Only direct finger movement starts a new tutorial gesture.
       if (notification.dragDetails != null) {
         _dragging = true;
         _dragDistance = 0;
