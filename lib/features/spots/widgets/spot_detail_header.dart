@@ -1,3 +1,8 @@
+import 'package:ccs_app/core/firestore/collections.dart' show usersCollection;
+import 'package:ccs_app/core/firestore/firestore_tracking.dart'
+    show FirestoreDebugDocumentReferenceExtension;
+import 'package:ccs_app/features/community/chats/widgets/chat_title_avatar.dart'
+    show ChatTitleAvatar;
 import 'package:flutter/material.dart' hide Text;
 import 'package:ccs_app/features/profile/navigation/profile_navigation.dart'
     show openUserProfile;
@@ -45,12 +50,12 @@ class SpotDetailCompactHeader extends StatelessWidget {
                 ),
               ),
             ),
-            if (spot.hasOwner) ...[
-              const SizedBox(width: 8),
-              SpotOwnerBadge(spot: spot),
-            ],
           ],
         ),
+        if (spot.hasOwner) ...[
+          const SizedBox(height: 8),
+          SpotOwnerBadge(spot: spot),
+        ],
         if (hasLocation) ...[
           const SizedBox(height: 4),
           Row(
@@ -77,88 +82,112 @@ class SpotDetailCompactHeader extends StatelessWidget {
   }
 }
 
-class SpotDetailMetaRow extends StatelessWidget {
+class SpotDetailMetaRow extends StatefulWidget {
   final CarSpot spot;
-
   const SpotDetailMetaRow({super.key, required this.spot});
+  @override
+  State<SpotDetailMetaRow> createState() => _SpotDetailMetaRowState();
+}
+
+class _SpotDetailMetaRowState extends State<SpotDetailMetaRow> {
+  late Future<String> _photo;
+
+  Future<String> _loadPhoto() async {
+    final uid = widget.spot.addedByUid.trim();
+    if (uid.isEmpty) return '';
+    try {
+      final doc = await usersCollection().doc(uid).debugGet();
+      final photo = doc.data()?['photoUrl'];
+      return photo is String ? photo : '';
+    } catch (_) {
+      return '';
+    }
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _photo = _loadPhoto();
+  }
+
+  @override
+  void didUpdateWidget(SpotDetailMetaRow oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.spot.addedByUid != widget.spot.addedByUid) {
+      _photo = _loadPhoto();
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    final addedBy = displayUsername(spot.addedBy);
-    final dateText = spot.createdAtMillis > 0
+    final spot = widget.spot;
+    final username = displayUsername(spot.addedBy);
+    final date = spot.createdAtMillis > 0 && !spot.isTemporary
         ? formatShortDate(
             DateTime.fromMillisecondsSinceEpoch(spot.createdAtMillis),
           )
         : '';
-
-    return Wrap(
-      spacing: 8,
-      runSpacing: 6,
-      crossAxisAlignment: WrapCrossAlignment.center,
-      children: [
-        if (dateText.isNotEmpty && !spot.isTemporary)
-          _SpotMiniMetaChip(icon: Icons.schedule, label: dateText),
-        if (addedBy.trim().isNotEmpty)
-          InkWell(
-            onTap: spot.addedByUid.trim().isEmpty
-                ? null
-                : () => openUserProfile(
-                    context,
-                    uid: spot.addedByUid,
-                    fallbackUsername: spot.addedBy,
-                  ),
-            borderRadius: BorderRadius.circular(999),
-            child: _SpotMiniMetaChip(
-              icon: Icons.person_outline,
-              label: '${trText('Added by')} $addedBy',
-              accent: const Color(0xFF8EB7FF),
+    return InkWell(
+      onTap: spot.addedByUid.trim().isEmpty
+          ? null
+          : () => openUserProfile(
+              context,
+              uid: spot.addedByUid,
+              fallbackUsername: spot.addedBy,
             ),
-          ),
-      ],
-    );
-  }
-}
-
-class _SpotMiniMetaChip extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final Color? accent;
-
-  const _SpotMiniMetaChip({
-    required this.icon,
-    required this.label,
-    this.accent,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final color = accent ?? Colors.white54;
-
-    return Container(
-      constraints: const BoxConstraints(maxWidth: 210),
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      decoration: BoxDecoration(
-        color: Colors.transparent,
-        borderRadius: BorderRadius.circular(999),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, color: color, size: 13),
-          const SizedBox(width: 4),
-          Flexible(
-            child: CcsText(
-              label,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                color: color,
-                fontSize: 12,
-                fontWeight: accent == null ? FontWeight.w700 : FontWeight.w900,
+      borderRadius: BorderRadius.circular(12),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 4),
+        child: Row(
+          children: [
+            FutureBuilder<String>(
+              future: _photo,
+              builder: (context, snapshot) => ChatTitleAvatar(
+                photoUrl: snapshot.data ?? '',
+                title: username,
               ),
             ),
-          ),
-        ],
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  CcsText(
+                    trText('Added by'),
+                    style: const TextStyle(
+                      color: Color(0xFF9EAABB),
+                      fontSize: 11,
+                    ),
+                  ),
+                  CcsText(
+                    username,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Color(0xFFD7E5FF),
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  if (date.isNotEmpty)
+                    CcsText(
+                      date,
+                      style: const TextStyle(
+                        color: Color(0xFF9EAABB),
+                        fontSize: 11,
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            if (spot.addedByUid.trim().isNotEmpty)
+              const Icon(
+                Icons.chevron_right,
+                size: 18,
+                color: Color(0xFF9EAABB),
+              ),
+          ],
+        ),
       ),
     );
   }

@@ -7,6 +7,9 @@ class RoadSpeedHud extends StatelessWidget {
   final ApplicableRoadLimit? limit;
   @override
   Widget build(BuildContext context) {
+    if (speedKmh == null || !speedKmh!.isFinite || speedKmh! < 10) {
+      return const SizedBox.shrink();
+    }
     final now = DateTime.now();
     final valid = limit?.usableAt(now) == true;
     final speeding = valid && limit!.isOverspeed(speedKmh, now);

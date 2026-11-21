@@ -161,7 +161,9 @@ class _ExploreScreenState extends State<ExploreScreen>
                   ),
                 ),
                 const SizedBox(width: 7),
-                const Expanded(child: PartnersHeaderButton()),
+                Expanded(
+                  child: PartnersHeaderButton(isVisible: widget.isVisible),
+                ),
                 const SizedBox(width: 7),
                 SpotsHeaderIconButton(
                   icon: Icons.tune_rounded,

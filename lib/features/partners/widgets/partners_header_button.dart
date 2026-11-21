@@ -19,13 +19,15 @@ import 'package:ccs_app/features/partners/screens/partners_screen.dart'
     show PartnersScreen;
 
 class PartnersHeaderButton extends StatefulWidget {
-  const PartnersHeaderButton({super.key});
+  const PartnersHeaderButton({super.key, this.isVisible = true});
+  final bool isVisible;
 
   @override
   State<PartnersHeaderButton> createState() => _PartnersHeaderButtonState();
 }
 
-class _PartnersHeaderButtonState extends State<PartnersHeaderButton> {
+class _PartnersHeaderButtonState extends State<PartnersHeaderButton>
+    with WidgetsBindingObserver {
   static const int _initialLoopPage = 10000;
 
   late final Stream<QuerySnapshot<Map<String, dynamic>>> partnerStream;
@@ -33,30 +35,83 @@ class _PartnersHeaderButtonState extends State<PartnersHeaderButton> {
   Timer? rotationTimer;
   int partnerCount = 0;
   int currentLoopPage = _initialLoopPage;
+  bool _foreground = true;
+  bool _rotating = false;
+  bool _routeVisible = true;
+
+  void _restartRotation() {
+    rotationTimer?.cancel();
+    if (!widget.isVisible || !_foreground || !_routeVisible) {
+      if (pageController.hasClients) {
+        currentLoopPage = (pageController.page ?? currentLoopPage.toDouble())
+            .round();
+        pageController.jumpToPage(currentLoopPage);
+      }
+      return;
+    }
+    rotationTimer = Timer.periodic(const Duration(seconds: 6), (_) async {
+      if (!mounted ||
+          !widget.isVisible ||
+          !_foreground ||
+          _rotating ||
+          !TickerMode.of(context) ||
+          ModalRoute.of(context)?.isCurrent == false ||
+          partnerCount <= 1 ||
+          !pageController.hasClients)
+        return;
+      _rotating = true;
+      try {
+        final page = (pageController.page ?? currentLoopPage.toDouble())
+            .round();
+        await pageController.animateToPage(
+          page + 1,
+          duration: const Duration(milliseconds: 700),
+          curve: Curves.easeInOutCubic,
+        );
+      } finally {
+        _rotating = false;
+      }
+    });
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final visible =
+        TickerMode.of(context) && (ModalRoute.of(context)?.isCurrent ?? true);
+    if (visible != _routeVisible) {
+      _routeVisible = visible;
+      _restartRotation();
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant PartnersHeaderButton oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.isVisible != widget.isVisible) _restartRotation();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    _foreground = state == AppLifecycleState.resumed;
+    _restartRotation();
+  }
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     pageController = PageController(initialPage: _initialLoopPage);
     partnerStream = ccsPartnersCollection().debugSnapshots(
       'partners: header listener',
     );
-    rotationTimer = Timer.periodic(const Duration(milliseconds: 6000), (_) {
-      if (!mounted || partnerCount <= 1 || !pageController.hasClients) return;
-      currentLoopPage += 1;
-      try {
-        pageController.animateToPage(
-          currentLoopPage,
-          duration: const Duration(milliseconds: 1100),
-          curve: Curves.easeInOutCubic,
-        );
-      } catch (_) {}
-    });
+    _restartRotation();
   }
 
   @override
   void dispose() {
     rotationTimer?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
     pageController.dispose();
     super.dispose();
   }

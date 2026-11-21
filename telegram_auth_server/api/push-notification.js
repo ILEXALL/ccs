@@ -451,7 +451,11 @@ async function notificationCenterItems(userId) {
       title: cleanText(data.title, 'CCS'),
       body: cleanText(data.body),
       type: cleanText(data.type, 'notification'),
-      ...(data.type === 'sos_created' ? {data: data.data || {}} : {}),
+      // Preserve navigation payloads. Dropping chatId caused the client to
+      // discard chat items and zero the bell count during backend fallback.
+      data: data.data || {},
+      chatId: cleanText(data.chatId || data.data?.chatId),
+      actorUserId: cleanText(data.actorUserId || data.data?.senderUid),
       read: data.read === true,
       createdAtMillis: timestampMillis(data.createdAt),
       projectNews: false,

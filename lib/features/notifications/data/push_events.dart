@@ -89,7 +89,11 @@ Future<bool> trySendPushNotificationEvent(
   ).where((uid) => uid.trim().isNotEmpty && uid != firebaseUser.uid).toSet();
 
   final preferenceKey = stringFromFirebase(event['preferenceKey'], '').trim();
-  if (recipientUserIds.isNotEmpty &&
+  // Chat membership and preferences are authoritative on the backend. A
+  // transient client-side recipient lookup must not suppress its dispatch.
+  final serverResolvesRecipients = event['type'] == 'chat_message';
+  if (!serverResolvesRecipients &&
+      recipientUserIds.isNotEmpty &&
       preferenceKey.isNotEmpty &&
       event['preferencesAlreadyFiltered'] != true) {
     final allowedRecipients = <String>{};
@@ -104,7 +108,9 @@ Future<bool> trySendPushNotificationEvent(
     recipientUserIds = allowedRecipients;
   }
 
-  if (event.containsKey('recipientUserIds') && recipientUserIds.isEmpty) {
+  if (!serverResolvesRecipients &&
+      event.containsKey('recipientUserIds') &&
+      recipientUserIds.isEmpty) {
     _recentPushEventSentAtMillis.remove(dedupKey);
     debugPrint('Push event skipped because it has no recipients. event=$event');
     return false;

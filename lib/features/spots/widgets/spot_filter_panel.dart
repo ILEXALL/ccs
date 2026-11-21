@@ -14,218 +14,151 @@ Widget spotFilterColumns({
   required List<String> countries,
   required VoidCallback onChanged,
 }) {
-  Widget panel({required Widget child}) {
-    return Material(
-      color: Colors.black.withValues(alpha: 0.16),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(14),
-        side: const BorderSide(color: Colors.white12),
+  Widget toggle({
+    required String title,
+    required bool value,
+    required Widget icon,
+    required ValueChanged<bool>? onChanged,
+  }) => SwitchListTile(
+    value: value,
+    onChanged: onChanged,
+    activeThumbColor: Colors.white,
+    activeTrackColor: blue,
+    inactiveTrackColor: const Color(0xFF323B49),
+    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
+    secondary: icon,
+    title: CcsText(
+      title,
+      style: const TextStyle(
+        color: Colors.white,
+        fontSize: 14,
+        fontWeight: FontWeight.w600,
       ),
-      clipBehavior: Clip.antiAlias,
-      child: child,
-    );
-  }
-
-  return SizedBox(
-    height: math.min(430.0, MediaQuery.sizeOf(context).height * 0.48),
-    child: Row(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Expanded(
-          child: panel(
-            child: Column(
-              children: [
-                SizedBox(
-                  height: 56,
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(12, 6, 4, 4),
-                    child: Row(
-                      children: [
-                        const Expanded(
-                          child: CcsText(
-                            'Categories',
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 15,
-                              fontWeight: FontWeight.w900,
-                            ),
-                          ),
-                        ),
-                        IconButton(
-                          visualDensity: VisualDensity.compact,
-                          padding: EdgeInsets.zero,
-                          constraints: const BoxConstraints.tightFor(
-                            width: 30,
-                            height: 30,
-                          ),
-                          tooltip: trText('Select all'),
-                          onPressed: () {
-                            enabledCategories
-                              ..clear()
-                              ..addAll(spotCategoryOptions);
-                            onChanged();
-                          },
-                          icon: const Icon(
-                            Icons.done_all,
-                            color: blue,
-                            size: 19,
-                          ),
-                        ),
-                        IconButton(
-                          visualDensity: VisualDensity.compact,
-                          padding: EdgeInsets.zero,
-                          constraints: const BoxConstraints.tightFor(
-                            width: 30,
-                            height: 30,
-                          ),
-                          tooltip: trText('Clear'),
-                          onPressed: () {
-                            enabledCategories.clear();
-                            onChanged();
-                          },
-                          icon: const Icon(
-                            Icons.clear_all,
-                            color: Colors.white54,
-                            size: 19,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                const Divider(color: Colors.white12, height: 1),
-                Expanded(
-                  child: ListView.builder(
-                    padding: const EdgeInsets.symmetric(vertical: 5),
-                    itemCount: spotCategoryOptions.length,
-                    itemBuilder: (context, index) {
-                      final category = spotCategoryOptions[index];
-                      return CheckboxListTile(
-                        value: enabledCategories.contains(category),
-                        onChanged: (enabled) {
-                          if (enabled == true) {
-                            enabledCategories.add(category);
-                          } else {
-                            enabledCategories.remove(category);
-                          }
-                          onChanged();
-                        },
-                        dense: true,
-                        visualDensity: VisualDensity.compact,
-                        activeColor: spotColorForCategory(category),
-                        checkColor: Colors.black,
-                        contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 6,
-                        ),
-                        controlAffinity: ListTileControlAffinity.leading,
-                        title: Row(
+    ),
+  );
+  return DefaultTabController(
+    length: 2,
+    child: SizedBox(
+      height: math.min(480.0, MediaQuery.sizeOf(context).height * .58),
+      child: Material(
+        color: const Color(0xFF1B222D),
+        borderRadius: BorderRadius.circular(18),
+        clipBehavior: Clip.antiAlias,
+        child: Column(
+          children: [
+            TabBar(
+              indicatorColor: blue,
+              labelColor: Colors.white,
+              unselectedLabelColor: Colors.white54,
+              tabs: [
+                Tab(text: trText('Categories')),
+                Tab(text: trText('Countries with spots')),
+              ],
+            ),
+            Expanded(
+              child: TabBarView(
+                children: [
+                  Column(
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                        child: Row(
                           children: [
-                            Container(
-                              width: 8,
-                              height: 8,
-                              decoration: BoxDecoration(
-                                color: spotColorForCategory(category),
-                                shape: BoxShape.circle,
-                              ),
-                            ),
-                            const SizedBox(width: 7),
                             Expanded(
                               child: CcsText(
-                                category,
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 12.5,
-                                  fontWeight: FontWeight.w800,
-                                ),
+                                '${enabledCategories.length} / ${spotCategoryOptions.length}',
+                                style: const TextStyle(color: Colors.white60),
                               ),
+                            ),
+                            TextButton(
+                              onPressed: () {
+                                enabledCategories
+                                  ..clear()
+                                  ..addAll(spotCategoryOptions);
+                                onChanged();
+                              },
+                              child: const CcsText('Select all'),
+                            ),
+                            TextButton(
+                              onPressed: () {
+                                enabledCategories.clear();
+                                onChanged();
+                              },
+                              child: const CcsText('Clear'),
                             ),
                           ],
                         ),
-                      );
-                    },
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-        const SizedBox(width: 10),
-        Expanded(
-          child: panel(
-            child: Column(
-              children: [
-                const SizedBox(
-                  height: 56,
-                  child: Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 12),
-                    child: Align(
-                      alignment: Alignment.centerLeft,
-                      child: CcsText(
-                        'Countries with spots',
-                        maxLines: 2,
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 13.5,
-                          fontWeight: FontWeight.w900,
+                      ),
+                      Expanded(
+                        child: ListView(
+                          children: [
+                            for (final category in spotCategoryOptions)
+                              toggle(
+                                title: trText(category),
+                                value: enabledCategories.contains(category),
+                                icon: Container(
+                                  width: 10,
+                                  height: 10,
+                                  decoration: BoxDecoration(
+                                    color: spotColorForCategory(category),
+                                    shape: BoxShape.circle,
+                                  ),
+                                ),
+                                onChanged: (enabled) {
+                                  if (enabled) {
+                                    enabledCategories.add(category);
+                                  } else {
+                                    enabledCategories.remove(category);
+                                  }
+                                  onChanged();
+                                },
+                              ),
+                          ],
                         ),
                       ),
-                    ),
+                    ],
                   ),
-                ),
-                const Divider(color: Colors.white12, height: 1),
-                Expanded(
-                  child: ListView.builder(
-                    padding: const EdgeInsets.symmetric(vertical: 5),
-                    itemCount: countries.length,
-                    itemBuilder: (context, index) {
-                      final country = countries[index];
-                      final selected = enabledCountries
-                          .map(spotCountryKey)
-                          .contains(spotCountryKey(country));
-                      return CheckboxListTile(
-                        value: selected,
-                        onChanged: (enabled) {
-                          enabledCountries.removeWhere(
-                            (value) =>
-                                spotCountryKey(value) ==
-                                spotCountryKey(country),
-                          );
-                          if (enabled == true) {
-                            enabledCountries.add(country);
-                          } else if (enabledCountries.isEmpty) {
-                            enabledCountries.add(country);
-                          }
-                          onChanged();
-                        },
-                        dense: true,
-                        visualDensity: VisualDensity.compact,
-                        activeColor: blue,
-                        checkColor: Colors.black,
-                        contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 6,
-                        ),
-                        controlAffinity: ListTileControlAffinity.leading,
-                        title: CcsText(
-                          '${countryFlagEmoji(country)}  ${localizedCountryName(country)}',
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 12.5,
-                            fontWeight: FontWeight.w800,
+                  ListView(
+                    children: [
+                      for (final country in countries)
+                        toggle(
+                          title: localizedCountryName(country),
+                          icon: CcsText(
+                            countryFlagEmoji(country),
+                            style: const TextStyle(fontSize: 22),
                           ),
+                          value: enabledCountries
+                              .map(spotCountryKey)
+                              .contains(spotCountryKey(country)),
+                          onChanged: (enabled) {
+                            final selected = enabledCountries
+                                .map(spotCountryKey)
+                                .contains(spotCountryKey(country));
+                            if (!enabled &&
+                                selected &&
+                                enabledCountries
+                                        .map(spotCountryKey)
+                                        .toSet()
+                                        .length ==
+                                    1)
+                              return;
+                            enabledCountries.removeWhere(
+                              (value) =>
+                                  spotCountryKey(value) ==
+                                  spotCountryKey(country),
+                            );
+                            if (enabled) enabledCountries.add(country);
+                            onChanged();
+                          },
                         ),
-                      );
-                    },
+                    ],
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
-          ),
+          ],
         ),
-      ],
+      ),
     ),
   );
 }

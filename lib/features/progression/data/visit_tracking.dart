@@ -23,6 +23,8 @@ import 'package:ccs_app/features/spots/models/car_spot.dart' show CarSpot;
 import 'package:ccs_app/shared/models/countries.dart' show localizedCountryName;
 
 final _countryAchievementRequests = <String>{};
+final _lastCountryAchievementCheck = <String, DateTime>{};
+final _confirmedCountries = <String, Set<String>>{};
 
 final _creditedSpotVisits = <String, DateTime>{};
 
@@ -157,14 +159,6 @@ Future<void> checkGpsSpotVisits(Position position) async {
         if ((result['recorded'] == true || result['alreadyVisited'] == true) &&
             !wasCompleted) {
           unawaited(dailyVisitStatus.refresh(force: true));
-          if (result['recorded'] == true) {
-            unawaited(
-              xpScreenRequest(
-                'visit_country',
-                fix,
-              ).catchError((_) => <String, dynamic>{}),
-            );
-          }
         }
       }
     }
@@ -181,25 +175,43 @@ Future<void> checkGpsCountryAchievement(
   Position position,
 ) async {
   final uid = FirebaseAuth.instance.currentUser?.uid;
+  final now = DateTime.now();
   if (uid == null ||
       position.isMocked ||
       !position.accuracy.isFinite ||
       position.accuracy > 1000 ||
+      now.difference(_lastCountryAchievementCheck[uid] ?? DateTime(1970)) <
+          const Duration(seconds: 15) ||
       !_countryAchievementRequests.add(uid))
     return;
+  _lastCountryAchievementCheck[uid] = now;
   try {
-    final region = await lookupSpotLocationRegion(
-      LatLng(position.latitude, position.longitude),
-    );
+    String? countryHint;
+    try {
+      final region = await lookupSpotLocationRegion(
+        LatLng(position.latitude, position.longitude),
+      ).timeout(const Duration(seconds: 4));
+      countryHint = region.countryCode;
+    } catch (_) {
+      /* Server can resolve coordinates without a geocoder hint. */
+    }
     if (FirebaseAuth.instance.currentUser?.uid != uid) return;
+    if (countryHint != null &&
+        (_confirmedCountries[uid]?.contains(countryHint) ?? false))
+      return;
     final result = await xpScreenRequest('visit_country', {
-      'countryCode': region.countryCode,
+      if (countryHint != null) 'countryCode': countryHint,
       'latitude': position.latitude,
       'longitude': position.longitude,
       'accuracy': position.accuracy,
       'recordedAtMillis': position.timestamp.millisecondsSinceEpoch,
       'isMocked': position.isMocked,
     });
+    if (result['status'] == 'confirmed' && result['countryCode'] is String) {
+      (_confirmedCountries[uid] ??= <String>{}).add(
+        result['countryCode'] as String,
+      );
+    }
     if (result['awarded'] == true &&
         context.mounted &&
         FirebaseAuth.instance.currentUser?.uid == uid) {

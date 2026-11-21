@@ -184,6 +184,7 @@ void main() {
       isNot(Colors.red),
     );
     await pump(null, null);
-    expect(find.text('—'), findsNWidgets(2));
+    expect(find.text('—'), findsNothing);
+    expect(find.text('km/h'), findsNothing);
   });
 }

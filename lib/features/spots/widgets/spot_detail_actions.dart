@@ -21,24 +21,21 @@ class SpotDetailEngagementPanel extends StatelessWidget {
       builder: (context, likedSnapshot) {
         final liked = likedSnapshot.data ?? false;
 
-        return Align(
-          alignment: Alignment.centerLeft,
-          child: TextButton.icon(
-            onPressed: () => toggleSpotLike(context, spot, liked),
-            style: TextButton.styleFrom(
-              foregroundColor: const Color(0xFFCED7E5),
-              padding: const EdgeInsets.symmetric(horizontal: 0, vertical: 10),
-              minimumSize: const Size(48, 48),
-            ),
-            icon: Icon(
-              liked ? Icons.favorite : Icons.favorite_border,
-              size: 21,
-              color: liked ? Colors.redAccent : const Color(0xFF91A0B5),
-            ),
-            label: CcsText(
-              '${spot.likeCount} ${trText('Likes')}',
-              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
-            ),
+        return TextButton.icon(
+          onPressed: () => toggleSpotLike(context, spot, liked),
+          style: TextButton.styleFrom(
+            foregroundColor: const Color(0xFFCED7E5),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+            minimumSize: const Size(48, 48),
+          ),
+          icon: Icon(
+            liked ? Icons.favorite : Icons.favorite_border,
+            size: 21,
+            color: liked ? Colors.redAccent : const Color(0xFF91A0B5),
+          ),
+          label: CcsText(
+            '${spot.likeCount} ${trText('Likes')}',
+            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
           ),
         );
       },
@@ -79,6 +76,7 @@ class SpotRouteActions extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                 ),
                 style: ElevatedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
                   backgroundColor: enabled ? blue : Colors.white10,
                   foregroundColor: Colors.white,
                   shape: RoundedRectangleBorder(
@@ -157,8 +155,8 @@ class SpotRouteActions extends StatelessWidget {
                     ? () => openWazeRoute(context, spot)
                     : null,
               ),
-              if (hasVideo) const SizedBox(width: 8),
-              if (hasVideo)
+              if (hasVideo && spot.isTemporary) const SizedBox(width: 8),
+              if (hasVideo && spot.isTemporary)
                 actionButton(
                   icon: Icons.play_circle_outline,
                   label: 'Video',
@@ -168,6 +166,21 @@ class SpotRouteActions extends StatelessWidget {
                 ),
             ],
           ),
+          if (hasVideo && !spot.isTemporary) ...[
+            const SizedBox(height: 8),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton.icon(
+                onPressed: () => openEventVideo(context, spot.reelLink),
+                icon: const Icon(Icons.play_circle_outline, size: 20),
+                label: const CcsText('Video'),
+                style: TextButton.styleFrom(
+                  foregroundColor: const Color(0xFFD8E6FF),
+                  minimumSize: const Size(48, 48),
+                ),
+              ),
+            ),
+          ],
           if (!locationAvailable) ...[
             const SizedBox(height: 8),
             Row(

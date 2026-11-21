@@ -1,5 +1,8 @@
 import 'package:latlong2/latlong.dart' show LatLng;
 import 'dart:async';
+import 'package:ccs_app/features/progression/data/country_entry_tracking.dart';
+import 'package:ccs_app/features/progression/data/visit_tracking.dart'
+    show checkGpsCountryAchievement;
 import 'package:ccs_app/app/gates/terms_acceptance_gate.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -78,8 +81,7 @@ import 'package:ccs_app/features/spots/screens/add_spot_screen.dart'
     show AddSpotScreen;
 import 'package:ccs_app/features/spots/screens/explore_screen.dart'
     show ExploreScreen;
-import 'package:ccs_app/shared/models/user_role.dart'
-    show userRoleIsStaff;
+import 'package:ccs_app/shared/models/user_role.dart' show userRoleIsStaff;
 import 'package:ccs_app/shared/widgets/region_unavailable_dialog.dart'
     show showRegionFeatureUnavailableDialog;
 
@@ -122,6 +124,15 @@ class _MainScreenState extends State<_MainContentScreen>
   late int index;
   final List<int> tabHistory = [];
   bool creatingEvent = false;
+  final _countryEntryTracking = CountryEntryTracking();
+  void _startCountryEntryTracking() {
+    unawaited(
+      _countryEntryTracking.start((position) {
+        if (mounted) unawaited(checkGpsCountryAchievement(context, position));
+      }),
+    );
+  }
+
   bool creatingPrivateEvent = false;
   LatLng? creationLocation;
   int creationLocationRevision = 0;
@@ -181,6 +192,7 @@ class _MainScreenState extends State<_MainContentScreen>
   @override
   void initState() {
     super.initState();
+    _startCountryEntryTracking();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted &&
           !accountSigningOut.value &&
@@ -310,6 +322,7 @@ class _MainScreenState extends State<_MainContentScreen>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
+      _startCountryEntryTracking();
       appIsForegroundForNotifications = true;
       final badgeUid = FirebaseAuth.instance.currentUser?.uid;
       if (badgeUid != null) {
@@ -321,6 +334,8 @@ class _MainScreenState extends State<_MainContentScreen>
         );
       }
       if (FirebaseAuth.instance.currentUser != null) {
+        unawaited(initializePushNotificationsForCurrentUser());
+        startNotificationCenterUnreadWatcher();
         startCurrentUserDocumentWatcher();
         if (spotSyncRetryTimer != null ||
             spotSyncSubscriptions.isEmpty ||
@@ -334,6 +349,7 @@ class _MainScreenState extends State<_MainContentScreen>
         state == AppLifecycleState.detached ||
         state == AppLifecycleState.inactive) {
       appIsForegroundForNotifications = false;
+      _countryEntryTracking.stop();
       if (state != AppLifecycleState.inactive) {
         inAppBadges.stop(preserveVisibleForumTopic: true);
       }
@@ -560,6 +576,7 @@ class _MainScreenState extends State<_MainContentScreen>
 
   @override
   void dispose() {
+    _countryEntryTracking.stop();
     mainChatScreenVisibleForNotifications = false;
     inAppBadges.onReady = null;
     inAppBadges.stop();

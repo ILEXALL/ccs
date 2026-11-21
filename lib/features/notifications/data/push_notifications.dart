@@ -1,4 +1,5 @@
 import 'foreground_push_policy.dart';
+import 'unread_notifications.dart' show scheduleNotificationCenterUnreadRefresh;
 import 'dart:async';
 import 'package:ccs_app/features/notifications/widgets/foreground_message_banner.dart';
 import 'package:ccs_app/features/notifications/models/notification_item.dart';
@@ -62,6 +63,7 @@ Future<void> registerPushTokenForCurrentUser(String token) async {
   } catch (error, stack) {
     debugPrint('Push token registration failed: $error');
     debugPrint('$stack');
+    rethrow;
   }
 }
 
@@ -287,7 +289,7 @@ Future<void> _initializePushNotifications(String expectedUid) async {
           'Foreground push received. messageId=${message.messageId}, data=${message.data}',
         );
         unawaited(showForegroundSystemNotification(message));
-        // Notification count is refreshed lazily when the notification center is opened.
+        scheduleNotificationCenterUnreadRefresh();
       },
       onError: (Object error, StackTrace stack) {
         debugPrint('Foreground push listener failed: $error');
@@ -298,7 +300,12 @@ Future<void> _initializePushNotifications(String expectedUid) async {
     pushTokenRefreshSubscription ??= messaging.onTokenRefresh.listen(
       (token) {
         debugPrint('FCM token refreshed.');
-        unawaited(registerPushTokenForCurrentUser(token));
+        unawaited(
+          registerPushTokenForCurrentUser(token).catchError((Object error) {
+            pushInitializationUid = null;
+            pushInitializationFuture = null;
+          }),
+        );
       },
       onError: (Object error, StackTrace stack) {
         debugPrint('FCM token refresh listener failed: $error');
@@ -323,13 +330,13 @@ Future<void> _initializePushNotifications(String expectedUid) async {
 
     final token = await messaging.getToken();
     if (token == null || token.trim().isEmpty) {
-      debugPrint('FirebaseMessaging.getToken() returned no token.');
+      throw StateError('FirebaseMessaging.getToken() returned no token.');
     } else {
       if (FirebaseAuth.instance.currentUser?.uid == expectedUid) {
         await registerPushTokenForCurrentUser(token);
       }
     }
-    // Keep notification reads lazy. The notification center loads when opened.
+    scheduleNotificationCenterUnreadRefresh();
   } catch (error, stack) {
     if (pushInitializationUid == expectedUid) {
       pushInitializationUid = null;

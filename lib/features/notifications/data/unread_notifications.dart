@@ -214,12 +214,12 @@ void startNotificationCenterUnreadWatcher() {
     final alertGate = NotificationFreshness(DateTime.now());
     return trackedQuerySnapshots(
       'notification center unread watcher: $source',
-      query
-          .where('read', isEqualTo: false)
-          .orderBy('createdAt', descending: true)
-          .limit(50),
+      // No ordered composite index or 50-row window: every unread chat must
+      // contribute to badges even before its conversation has been opened.
+      query.where('read', isEqualTo: false),
     ).listen(
       (snapshot) {
+        if (FirebaseAuth.instance.currentUser?.uid != firebaseUser.uid) return;
         if (initialized && !snapshot.metadata.isFromCache) {
           for (final change in snapshot.docChanges) {
             final data = change.doc.data() ?? {};
@@ -257,6 +257,7 @@ void startNotificationCenterUnreadWatcher() {
         scheduleNotificationCenterUnreadRefresh();
       },
       onError: (Object error, StackTrace stack) {
+        if (FirebaseAuth.instance.currentUser?.uid != firebaseUser.uid) return;
         notificationCenterUnreadCountsBySource[source] = 0;
         if (source == 'user') {
           WidgetsBinding.instance.addPostFrameCallback((_) {

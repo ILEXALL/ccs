@@ -504,9 +504,9 @@ String achievementRequirement(Map<String, dynamic> item, String language) {
       'Apmeklēt $n dažādas vietas (katru vienreiz)',
     ),
     'tourist' => t(
-      'Visit a spot shown on the CCS map in this country and stay within 40 m for 5 minutes with location enabled. Being in the country alone does not unlock this achievement.',
-      'Приезжай на спот, отмеченный на карте CCS в этой стране, и останься в пределах 40 м на 5 минут с включённой геолокацией. Просто находиться в стране недостаточно для получения достижения.',
-      'Apmeklē CCS kartē atzīmētu vietu šajā valstī un paliec 40 m rādiusā 5 minūtes ar ieslēgtu atrašanās vietas noteikšanu. Ar atrašanos valstī vien nepietiek, lai iegūtu sasniegumu.',
+      'Enter this country with location enabled. The achievement unlocks when CCS receives a fresh GPS location in the country; no spot visit is required.',
+      'Въедь в эту страну с включённой геолокацией. Достижение откроется, когда CCS получит свежие GPS-координаты в стране. Посещать спот не требуется.',
+      'Iebrauc šajā valstī ar ieslēgtu atrašanās vietas noteikšanu. Sasniegums tiks atbloķēts, kad CCS saņems svaigas GPS koordinātas valstī. Vieta nav jāapmeklē.',
     ),
     'tenure' => t(
       '$n months since registration',

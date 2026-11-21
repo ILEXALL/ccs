@@ -1,4 +1,7 @@
 import 'dart:async';
+import 'package:ccs_app/features/notifications/data/visible_chat.dart';
+import 'package:ccs_app/features/notifications/data/badge_state.dart'
+    show appIsForegroundForNotifications;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart' hide Text;
@@ -74,14 +77,19 @@ class ChatConversationController implements ChatConversationControllerActions {
 
   @override
   void markCurrentChatNotificationsRead({Duration delay = Duration.zero}) {
-    if (readOnly) return;
+    if (readOnly ||
+        !appIsForegroundForNotifications ||
+        !chatIsVisible(host.widget.chat.id))
+      return;
     if (delay == Duration.zero) {
       unawaited(markChatNotificationsRead(host.widget.chat.id));
       return;
     }
 
     Future<void>.delayed(delay, () async {
-      if (!host.mounted) {
+      if (!host.mounted ||
+          !appIsForegroundForNotifications ||
+          !chatIsVisible(host.widget.chat.id)) {
         return;
       }
 
@@ -101,7 +109,10 @@ class ChatConversationController implements ChatConversationControllerActions {
 
   @override
   Future<void> markVisibleMessagesRead() async {
-    if (readOnly) return;
+    if (readOnly ||
+        !appIsForegroundForNotifications ||
+        !chatIsVisible(host.widget.chat.id))
+      return;
     final currentUid =
         FirebaseAuth.instance.currentUser?.uid ?? currentUser.uid;
     if (currentUid.trim().isEmpty) {

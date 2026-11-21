@@ -1,4 +1,4 @@
-const {recordSpotVisit, coordinates, distanceMeters, VISIT_RADIUS_METERS} = require('../spot-visits');
+
 const {validateCountryFix} = require('./country-location');
 const {createdSpotProgress} = require('./spot-counts');
 const { db, admin } = require('../firebase-admin');
@@ -163,30 +163,8 @@ async function recordCountryAchievement(userId, input, options = {}) {
   if (!code) return {status: 'unsupported', countryCode: null, awarded: false};
   const config = (await db.collection('app_config').doc('xp').get()).data() || {};
   if (config.achievements_enabled !== true) return {status: 'disabled', countryCode: code, awarded: false};
-  // The country badge has the same visit requirement as the UI: GPS inside
-  // the country alone is insufficient. Reuse the authoritative visit validator
-  // for freshness, radius, moderation, event dates and private-group access.
-  const session = (await db.collection('spot_visit_sessions').doc(userId).get()).data();
-  if (!session || session.elapsedMs < 300000) return {status: 'visit_required', countryCode: code, awarded: false};
-  const candidate = await db.collection('spots').doc(session.spotId).get();
-  const spots = {docs: candidate.exists ? [candidate] : []};
-  const position = {lat: input.latitude, lng: input.longitude};
-  let visitedSpotId = null;
-  for (const doc of spots.docs) {
-    const point = coordinates(doc.data());
-    if (!point || distanceMeters(position, point) > VISIT_RADIUS_METERS) continue;
-    try {
-      const visit = await recordSpotVisit(db, userId, doc.id, options.now?.getTime() ?? Date.now(), input);
-      if (!visit.recorded) continue;
-      visitedSpotId = doc.id;
-      break;
-    } catch (_) {
-      // A nearby inaccessible/expired spot cannot satisfy this requirement.
-    }
-  }
-  if (!visitedSpotId) return {status: 'visit_required', countryCode: code, awarded: false};
   const item = catalog().find(i=>i.id==='tourist.'+code);
-  const [result] = await awardManyXp([{userId,action:'achievement.unlock',objectType:'achievement',objectId:item.id,stage:'unlocked',amount:item.xp,metadata:{achievementId:item.id,countryCode:code,spotId:visitedSpotId,reason:`Country visited: ${item.title.en}`}}],options);
+  const [result] = await awardManyXp([{userId,action:'achievement.unlock',objectType:'achievement',objectId:item.id,stage:'unlocked',amount:item.xp,metadata:{achievementId:item.id,countryCode:code,reason:`Country visited: ${item.title.en}`}}],options);
   return {status:result.status,awarded:result.awarded,countryCode:code,achievementId:item.id,amount:result.awarded?result.amount:0};
 }
 module.exports.recordCountryAchievement = recordCountryAchievement;

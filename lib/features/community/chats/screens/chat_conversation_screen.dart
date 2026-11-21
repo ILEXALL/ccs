@@ -177,7 +177,9 @@ class _ChatConversationScreenState extends State<ChatConversationScreen>
     dismissMessageBannerForChat(widget.chat.id);
     _chatMembersFuture = loadChatMembers(widget.chat);
     chatScrollController.addListener(controller.onScroll);
-    controller.markCurrentChatNotificationsRead();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) controller.markCurrentChatNotificationsRead();
+    });
     unawaited(controller.loadInitialMessages());
   }
 
