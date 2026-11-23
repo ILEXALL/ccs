@@ -12,7 +12,7 @@ test('POST contract uses lon/lat, matched headings/times, passenger car and metr
 });
 test('input rejects stale, unordered, mock, low accuracy, stationary and impossible jumps',()=>{
  assert.equal(validTrace(trace(),now),true);
- for(const patch of [{accuracy:30},{headingAccuracy:50},{speedAccuracy:3},{mocked:true},{speed:1},{lat:NaN},{at:now-6000}]){const p=trace();Object.assign(p[2],patch);assert.equal(validTrace(p,now),false,JSON.stringify(patch));}
+ for(const patch of [{accuracy:30},{speedAccuracy:3},{mocked:true},{speed:1},{lat:NaN},{at:now-6000}]){const p=trace();Object.assign(p[2],patch);assert.equal(validTrace(p,now),false,JSON.stringify(patch));}
  const p=trace();p[2].lat=58;assert.equal(validTrace(p,now),false);assert.equal(validTrace(Array(13).fill(trace()[0]),now),false);
 });
 test('uses current matched road; unit conversion and unsupported types fail closed',()=>{
@@ -25,7 +25,7 @@ test('poor/parallel-road snaps, reverse direction, missing and stale limits unav
  for(const mutate of [m=>m.route[0].properties.confidence=.8,m=>m.projectedPoints[2].properties.snapResult='Unmatched',m=>m.projectedPoints[2].geometry.coordinates[0]+=.001,m=>m.projectedPoints.reverse(),m=>delete m.route[0].properties.speedLimits,m=>m.projectedPoints[2].properties.routeIndex=5]){const m=match();mutate(m);assert.equal(parseMatch(m,trace(),now).status,'unavailable');}
  assert.equal(parseMatch(match(),trace(),now+12000).status,'unavailable');
 });
-function fixture(overrides={}){let calls=0,reserves=0;const handler=createHandler({authenticate:async()=> 'user',reserve:async()=>{reserves++;return true;},key:()=> 'test-key',now:()=>now,fetchImpl:async()=>{calls++;return {ok:true,text:async()=>JSON.stringify(match())};},...overrides});return{handler,get calls(){return calls;},get reserves(){return reserves;}};}
+function fixture(overrides={}){let calls=0,reserves=0;const handler=createHandler({report:()=>{},authenticate:async()=> 'user',reserve:async()=>{reserves++;return true;},key:()=> 'test-key',now:()=>now,fetchImpl:async()=>{calls++;return {ok:true,text:async()=>JSON.stringify(match())};},...overrides});return{handler,get calls(){return calls;},get reserves(){return reserves;}};}
 async function invoke(handler,req={}){const res={code:0,headers:{},setHeader(k,v){this.headers[k]=v;},status(n){this.code=n;return this;},json(v){this.value=v;return this;}};await handler({method:'POST',headers:{},body:{points:trace()},...req},res);return res;}
 test('auth, unavailable configuration, throttle, errors and duplicate cache',async()=>{
  const f=fixture();assert.equal((await invoke(f.handler)).value.status,'available');await invoke(f.handler);assert.equal(f.calls,1);assert.equal(f.reserves,1);
@@ -48,4 +48,27 @@ test('durable per-user/global/day/month limits contain no travel trace',async()=
  assert.equal(await reserve('u',now+5000),true);assert.equal(await reserve('v',now+10000),false);
  for(const v of db.data.values())assert.ok(Object.keys(v).every(k=>['count','lastAt'].includes(k)));
  const db2=database(),month=createReserve(db2,{TOMTOM_SPEED_LIMIT_MONTHLY_BUDGET:'1'});assert.equal(await month('u',now),true);assert.equal(await month('u',now+86400000),false);
+});
+
+test('uncertain heading uses the matched trace direction without sending a noisy heading',()=>{
+ const points=trace().map(p=>({...p,heading:180,headingAccuracy:50}));
+ assert.equal(validTrace(points,now),true);
+ assert.equal(JSON.parse(makeRequest(points,'test').body).points[0].properties.heading,undefined);
+ const r=parseMatch(match(),points,now);assert.equal(r.status,'available');assert.equal(r.heading,0);
+});
+
+test('missing device course and moderate GPS accuracy still use strict matched-road evidence',()=>{
+ const points=trace().map(p=>({...p,accuracy:20,heading:-1,headingAccuracy:-1}));
+ assert.equal(validTrace(points,now),true);
+ assert.equal(JSON.parse(makeRequest(points,'test').body).points[0].properties.heading,undefined);
+ assert.equal(parseMatch(match(),points,now).kilometersPerHour,50);
+ const poor=match();poor.route[0].properties.confidence=.8;
+ assert.equal(parseMatch(poor,points,now).status,'unavailable');
+});
+
+test('diagnostics report provider status without coordinates, keys or user identity',async()=>{
+ const logs=[];
+ const f=fixture({report:r=>logs.push(r),fetchImpl:async()=>({ok:false,status:403})});
+ await invoke(f.handler);
+ assert.deepEqual(logs,[{status:'unavailable',reason:'provider_unavailable',httpStatus:200,providerStatus:403,durationMs:0}]);
 });

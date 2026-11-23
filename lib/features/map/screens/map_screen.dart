@@ -606,6 +606,12 @@ class _MapScreenState extends State<MapScreen>
         'following': mapCenteredOnCurrentUser && globeFollowRevision > 0,
         'followRevision': globeFollowRevision,
         'zoom': navigationZoom,
+        // Distinguish new GPS fixes from the 10 Hz visual prediction packets.
+        'gpsAt': lastGpsUserLocationAt?.millisecondsSinceEpoch,
+        'gpsAgeSeconds': lastGpsUserLocationAt == null
+            ? null
+            : DateTime.now().difference(lastGpsUserLocationAt!).inMilliseconds /
+                  1000.0,
         'roadGps': roadSpeedPosition == null
             ? null
             : {

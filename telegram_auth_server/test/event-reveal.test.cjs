@@ -5,6 +5,11 @@ const {dispatchEventReveals,revealIsDue,recipientMatches}=require('../lib/event-
 const now=Date.now(), since=now-60000;
 const spot={isTemporary:true,status:'approved',visibility:'public',countryCode:'LV',showOnMapAt:now-1000,startsAt:now+3600000,expiresAt:now+7200000,name:'Meet'};
 const countryKey=s=>({Latvia:'LV',Latvija:'LV',Estonia:'EE'}[s] || s);
+test('event countdown uses hours for long reminders',()=>{
+ const {eventCountdown}=require('../lib/event-reveal');
+ for(const [minutes,label] of [[300,'5 hours'],[60,'1 hour'],[90,'1 hour 30 minutes'],[20,'20 minutes'],[1,'1 minute']])
+  assert.equal(eventCountdown(now+minutes*60000,now),label);
+});
 test('only approved public scheduled reveals qualify, with no pre-activation backlog',()=>{
  assert.equal(revealIsDue(spot,now,since),true);
  for(const change of [{visibility:'group'},{visibility:'unknown'},{status:'pending'},{deleted:true},{showOnMapAt:now+1},{showOnMapAt:since-1},{showOnMapAt:null},{expiresAt:now},{isTemporary:false}])assert.equal(revealIsDue({...spot,...change},now,since),false);

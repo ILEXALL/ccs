@@ -5,6 +5,62 @@ import 'package:ccs_app/core/location/coordinates.dart';
 
 void main() {
   test(
+    'small speed spikes inside GPS uncertainty cannot unlock a parked car',
+    () {
+      final motion = NavigationMotion();
+      final start = DateTime(2026);
+      const origin = LatLng(57, 24);
+      motion.sample(origin, start, 0);
+      for (var i = 1; i <= 20; i++) {
+        motion.sample(
+          projectLatLngMeters(origin, i * 67, 4),
+          start.add(Duration(seconds: i)),
+          1.4,
+          accuracyMeters: 12,
+          speedAccuracy: .8,
+        );
+        expect(motion.speed, 0);
+        expect(motion.stationaryPosition, origin);
+      }
+      for (var i = 1; i <= 2; i++) {
+        motion.sample(
+          projectLatLngMeters(origin, 90, i * 10),
+          start.add(Duration(seconds: 20 + i)),
+          10,
+          accuracyMeters: 12,
+          speedAccuracy: .8,
+        );
+      }
+      expect(motion.speed, greaterThan(8));
+      expect(motion.stationaryPosition, isNull);
+    },
+  );
+  test(
+    'two-second fixes and delivery latency do not repeatedly brake motion',
+    () {
+      final motion = NavigationMotion();
+      final start = DateTime(2026);
+      const position = LatLng(57, 24);
+      motion.sample(position, start, 20, deliveryDelaySeconds: .7);
+      motion.sample(
+        projectLatLngMeters(position, 90, 40),
+        start.add(const Duration(seconds: 2)),
+        20,
+        deliveryDelaySeconds: .7,
+      );
+      // Before the next two-second fix reaches the app, movement stays uniform.
+      expect(
+        motion.distanceAhead(2.7) - motion.distanceAhead(2.6),
+        closeTo(2, .01),
+      );
+      expect(motion.distanceAhead(5), motion.distanceAhead(30));
+      expect(
+        motion.distanceAhead(5) - motion.distanceAhead(4.99),
+        lessThan(.01),
+      );
+    },
+  );
+  test(
     'prediction keeps moving through a one-second GPS cadence and brakes on loss',
     () {
       final motion = NavigationMotion();

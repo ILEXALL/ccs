@@ -1,5 +1,5 @@
 /* This dedicated WebView owns its animation frames. Install before MapLibre so
- * camera gestures and marker interpolation share the same 30/60 FPS budget. */
+ * follow mode uses 30 FPS and manual map movement uses 60 FPS. */
 'use strict';
 (() => {
   const request = window.requestAnimationFrame.bind(window);

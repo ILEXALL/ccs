@@ -2,8 +2,13 @@ import 'package:ccs_app/features/map/controllers/map_navigation_controller.dart'
 import 'package:ccs_app/features/map/controllers/map_session.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:geolocator/geolocator.dart';
+import 'package:flutter/foundation.dart';
+import 'package:ccs_app/core/location/coordinates.dart';
 
 class NavigationSession extends Fake implements MapSession {
+  @override
+  double currentUserSpeedMetersPerSecond = 0;
   @override
   bool mapCenteredOnCurrentUser = true;
   @override
@@ -40,6 +45,12 @@ class NavigationSession extends Fake implements MapSession {
 
 class GlobeNavigationSession extends NavigationSession {
   @override
+  Position? roadSpeedPosition;
+  @override
+  DateTime? lastNavigationPositionAt;
+  @override
+  void updateMap(VoidCallback update) => update();
+  @override
   bool get mounted => true;
   @override
   DateTime? lastGpsUserLocationAt;
@@ -57,6 +68,209 @@ class GlobeNavigationSession extends NavigationSession {
 }
 
 void main() {
+  test(
+    'stopped globe anchor ignores noisy raw fixes and residual corrections',
+    () {
+      final start = DateTime.now();
+      var now = start;
+      const origin = LatLng(57, 24);
+      final session = GlobeNavigationSession();
+      final navigation = MapNavigationController(
+        session,
+        now: () => now,
+        onCamera: (_, __, ___) {},
+      );
+      Position fix(LatLng p, double speed, double heading) => Position(
+        latitude: p.latitude,
+        longitude: p.longitude,
+        timestamp: now,
+        accuracy: 12,
+        altitude: 0,
+        altitudeAccuracy: 1,
+        heading: heading,
+        headingAccuracy: 40,
+        speed: speed,
+        speedAccuracy: .8,
+      );
+      navigation.handleNavigationPosition(fix(origin, 20, 90));
+      now = start.add(const Duration(seconds: 1));
+      navigation.updatePredictedUserMarker();
+      final stopped = session.displayedUserLocation!;
+      navigation.handleNavigationPosition(
+        fix(projectLatLngMeters(origin, 90, 17), 0, 180),
+      );
+      navigation.updatePredictedUserMarker();
+      expect(session.displayedUserLocation, stopped);
+      final stoppedHeading = session.currentUserHeadingDegrees;
+      for (var i = 1; i <= 20; i++) {
+        now = start.add(Duration(seconds: 1 + i));
+        final raw = projectLatLngMeters(stopped, i * 67, 4);
+        navigation.handleNavigationPosition(
+          fix(raw, i.isEven ? 1.4 : 0, i * 17),
+        );
+        for (var frame = 0; frame < 5; frame++) {
+          now = now.add(const Duration(milliseconds: 100));
+          navigation.updatePredictedUserMarker();
+          expect(
+            distanceBetweenLatLngMeters(
+              stopped,
+              session.displayedUserLocation!,
+            ),
+            lessThan(.0001),
+          );
+          expect(session.currentUserHeadingDegrees, stoppedHeading);
+        }
+        expect(session.currentUserLocation, raw);
+        expect(session.roadSpeedPosition!.latitude, raw.latitude);
+      }
+      // A real departure releases the anchor after two trustworthy moving fixes.
+      for (var i = 1; i <= 2; i++) {
+        now = start.add(Duration(seconds: 22 + i));
+        navigation.handleNavigationPosition(
+          fix(projectLatLngMeters(stopped, 90, i * 10), 10, 90),
+        );
+        navigation.updatePredictedUserMarker();
+      }
+      now = now.add(const Duration(milliseconds: 200));
+      navigation.updatePredictedUserMarker();
+      expect(session.currentUserSpeedMetersPerSecond, greaterThan(8));
+      expect(
+        session.displayedUserLocation!.longitude,
+        greaterThan(stopped.longitude),
+      );
+    },
+  );
+  test(
+    'four-second delayed fix reconciles without snapping the globe marker',
+    () {
+      final start = DateTime.now();
+      var now = start;
+      const origin = LatLng(57, 24);
+      final session = GlobeNavigationSession();
+      final navigation = MapNavigationController(
+        session,
+        now: () => now,
+        onCamera: (_, __, ___) {},
+      );
+      Position fix(double distance) {
+        final p = projectLatLngMeters(origin, 90, distance);
+        return Position(
+          latitude: p.latitude,
+          longitude: p.longitude,
+          timestamp: now,
+          accuracy: 4,
+          altitude: 0,
+          altitudeAccuracy: 1,
+          heading: 90,
+          headingAccuracy: 5,
+          speed: 20,
+          speedAccuracy: 1,
+        );
+      }
+
+      navigation.handleNavigationPosition(fix(0));
+      now = start.add(const Duration(seconds: 4));
+      navigation.updatePredictedUserMarker();
+      final beforeFix = session.displayedUserLocation!;
+      navigation.handleNavigationPosition(fix(60));
+      navigation.updatePredictedUserMarker();
+      expect(
+        distanceBetweenLatLngMeters(beforeFix, session.displayedUserLocation!),
+        lessThan(.01),
+      );
+      now = now.add(const Duration(milliseconds: 100));
+      navigation.updatePredictedUserMarker();
+      final moved = distanceBetweenLatLngMeters(
+        beforeFix,
+        session.displayedUserLocation!,
+      );
+      expect(moved, greaterThan(1));
+      expect(moved, lessThan(3));
+    },
+  );
+  test('a lagging GPS fix cannot reverse the moving globe marker', () {
+    final start = DateTime.now();
+    var now = start;
+    const origin = LatLng(57, 24);
+    final session = GlobeNavigationSession();
+    final navigation = MapNavigationController(
+      session,
+      now: () => now,
+      onCamera: (_, __, ___) {},
+    );
+    Position fix(double distance) {
+      final p = projectLatLngMeters(origin, 90, distance);
+      return Position(
+        latitude: p.latitude,
+        longitude: p.longitude,
+        timestamp: now,
+        accuracy: 10,
+        altitude: 0,
+        altitudeAccuracy: 1,
+        heading: 90,
+        headingAccuracy: 5,
+        speed: 20,
+        speedAccuracy: 1,
+      );
+    }
+
+    navigation.handleNavigationPosition(fix(0));
+    navigation.updatePredictedUserMarker();
+    now = start.add(const Duration(seconds: 1));
+    navigation.updatePredictedUserMarker();
+    final predicted = session.displayedUserLocation!;
+    // A noisy/late road fix trails the extrapolated marker by 15 metres.
+    navigation.handleNavigationPosition(fix(5));
+    var previous = predicted;
+    for (var i = 1; i <= 10; i++) {
+      now = start.add(Duration(milliseconds: 1000 + i * 100));
+      navigation.updatePredictedUserMarker();
+      final current = session.displayedUserLocation!;
+      expect(current.longitude, greaterThan(previous.longitude));
+      expect(distanceBetweenLatLngMeters(previous, current), greaterThan(.8));
+      previous = current;
+    }
+    // Uploads and limit matching still receive the real GPS fix.
+    expect(
+      distanceBetweenLatLngMeters(origin, session.currentUserLocation!),
+      closeTo(5, .01),
+    );
+  });
+  test(
+    'delayed GPS uses measurement time and duplicate fixes cannot rewind motion',
+    () {
+      var now = DateTime.now();
+      final session = GlobeNavigationSession();
+      final navigation = MapNavigationController(
+        session,
+        now: () => now,
+        onCamera: (_, __, ___) {},
+      );
+      final measured = now.subtract(const Duration(milliseconds: 700));
+      final fix = Position(
+        latitude: 57,
+        longitude: 24,
+        timestamp: measured,
+        accuracy: 4,
+        altitude: 0,
+        altitudeAccuracy: 1,
+        heading: 90,
+        headingAccuracy: 5,
+        speed: 20,
+        speedAccuracy: 1,
+      );
+      navigation.handleNavigationPosition(fix);
+      expect(session.lastGpsUserLocationAt, measured);
+      navigation.updatePredictedUserMarker();
+      final longitude = session.displayedUserLocation!.longitude;
+      expect(longitude, greaterThan(24));
+      now = now.add(const Duration(milliseconds: 200));
+      navigation.handleNavigationPosition(fix);
+      expect(session.lastGpsUserLocationAt, measured);
+      navigation.updatePredictedUserMarker();
+      expect(session.displayedUserLocation!.longitude, greaterThan(longitude));
+    },
+  );
   test('globe predicts at packet cadence without native camera animation', () {
     final fixTime = DateTime.utc(2026, 10, 9);
     var now = fixTime;

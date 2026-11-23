@@ -83,6 +83,7 @@ IconData notificationCenterIcon(NotificationCenterItem item) {
     'spot_pending_review' => Icons.fact_check,
     'global_chat_message' || 'global_chat_admin' => Icons.public,
     'xp_reward' => Icons.emoji_events_outlined,
+    'forum_inactivity_warning' ||
     'forum_topic_created' ||
     'forum_reply' ||
     'forum_topic_pending' ||
@@ -124,6 +125,7 @@ Color notificationCenterColor(NotificationCenterItem item) {
     'spot_pending_review' => blue,
     'global_chat_message' ||
     'global_chat_admin' ||
+    'forum_inactivity_warning' ||
     'forum_topic_created' ||
     'forum_reply' ||
     'forum_topic_pending' ||

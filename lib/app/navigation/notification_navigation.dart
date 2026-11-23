@@ -109,7 +109,8 @@ Future<void> navigateToNotification(
     return;
   }
 
-  if ((item.type == 'forum_topic_created' ||
+  if ((item.type == 'forum_inactivity_warning' ||
+          item.type == 'forum_topic_created' ||
           item.type == 'forum_reply' ||
           item.type == 'forum_topic_pending' ||
           item.type == 'forum_reply_admin') &&

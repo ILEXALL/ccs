@@ -111,6 +111,7 @@ String notificationPreferenceKeyForRemoteMessage(RemoteMessage message) {
     'spot_rejected_by_admin' => 'reviewNotifications',
     'spot_like' => 'likeNotifications',
     'spot_comment' ||
+    'forum_inactivity_warning' ||
     'forum_topic_created' ||
     'forum_reply' ||
     'forum_reply_admin' => 'commentNotifications',

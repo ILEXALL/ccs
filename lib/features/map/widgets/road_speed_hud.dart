@@ -7,13 +7,22 @@ class RoadSpeedHud extends StatelessWidget {
   final ApplicableRoadLimit? limit;
   @override
   Widget build(BuildContext context) {
-    if (speedKmh == null || !speedKmh!.isFinite || speedKmh! < 10) {
-      return const SizedBox.shrink();
-    }
+    final visible = speedKmh != null && speedKmh!.isFinite && speedKmh! >= 10;
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 280),
+      reverseDuration: const Duration(milliseconds: 280),
+      child: visible
+          ? _panel(context)
+          : const SizedBox.shrink(key: ValueKey('hidden-speed')),
+    );
+  }
+
+  Widget _panel(BuildContext context) {
     final now = DateTime.now();
     final valid = limit?.usableAt(now) == true;
     final speeding = valid && limit!.isOverspeed(speedKmh, now);
     return Semantics(
+      key: const ValueKey('visible-speed'),
       label:
           'Road speed limit ${valid ? limit!.kilometersPerHour.round() : "unavailable"}. GPS speed ${speedKmh?.round() ?? "unavailable"} kilometers per hour',
       child: Material(

@@ -13,13 +13,19 @@ function reminderIsDue(spot, now, since) {
     (!spot.visibility || spot.visibility === 'public') && start > 0 && reminder >= since &&
     reminder <= now && now < start && millis(spot.expiresAt) > now;
 }
-function notificationJob(spot, id, kind) {
+function eventCountdown(start, now) {
+  const minutes=Math.max(1,Math.ceil((start-now)/60000));
+  if(minutes<60) return minutes+' '+(minutes===1?'minute':'minutes');
+  const hours=Math.floor(minutes/60),rest=minutes%60;
+  return hours+' '+(hours===1?'hour':'hours')+(rest?' '+rest+' '+(rest===1?'minute':'minutes'):'');
+}
+function notificationJob(spot, id, kind, now=Date.now()) {
   const name = String(spot.name || 'Event');
   if (kind === 'reminder') {
     const start = millis(spot.startsAt);
     return {due: reminderIsDue, key: `temporary_spot_reminder:${id}:${start}`,
       notificationId: `temporary_spot_reminder_${id}_${start}`,
-      title: 'Event reminder', body: `${name} starts in ${Math.max(1, Math.ceil((start - Date.now()) / 60000))} minutes.`,
+      title: 'Event reminder', body: `${name} starts in ${eventCountdown(start, now)}.`,
       data: {type: 'temporary_spot_today', preferenceKey: 'newSpotNotifications',
         spotId: id, spotName: name, startsAtMillis: start}};
   }
@@ -99,4 +105,4 @@ async function dispatchEventNotifications({db, send, countryKey, since, now = Da
   }
 }
 const dispatchEventReveals = args => dispatchEventNotifications({...args, kinds: ['reveal']});
-module.exports={revealIsDue,reminderIsDue,eventCountry,recipientMatches,dispatchEventReveals,dispatchEventNotifications};
+module.exports={eventCountdown,revealIsDue,reminderIsDue,eventCountry,recipientMatches,dispatchEventReveals,dispatchEventNotifications};

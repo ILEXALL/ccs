@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:io';
 import 'dart:math' as math;
 import 'package:flutter/material.dart' hide Text;
 import 'package:flutter_map/flutter_map.dart';
@@ -8,6 +7,7 @@ import 'package:latlong2/latlong.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:ccs_app/features/map/widgets/navigation_arrow.dart';
 import 'package:ccs_app/core/location/startup_location.dart';
+import 'package:ccs_app/core/location/foreground_location_settings.dart';
 import 'package:ccs_app/core/localization/ccs_text.dart' show CcsText, trText;
 import 'package:ccs_app/core/location/coordinates.dart'
     show
@@ -37,6 +37,9 @@ import 'navigation_motion.dart';
 class MapNavigationController implements MapNavigationActions {
   final MapSession host;
   final NavigationMotion _motion = NavigationMotion();
+  double _correctionLat = 0, _correctionLng = 0;
+  double _correctionTimeConstant = .45;
+  DateTime? _correctionAt;
   String? _fittedPreview;
   final DateTime Function() _now;
   final void Function(LatLng, double, double)? onCamera;
@@ -393,19 +396,7 @@ class MapNavigationController implements MapNavigationActions {
   void startNavigationTracking() {
     host.navigationPositionSubscription ??=
         Geolocator.getPositionStream(
-          locationSettings: Platform.isAndroid
-              ? AndroidSettings(
-                  accuracy: LocationAccuracy.bestForNavigation,
-                  distanceFilter: 0,
-                  intervalDuration: const Duration(seconds: 1),
-                  forceLocationManager: false,
-                )
-              : AppleSettings(
-                  accuracy: LocationAccuracy.bestForNavigation,
-                  distanceFilter: 0,
-                  activityType: ActivityType.automotiveNavigation,
-                  pauseLocationUpdatesAutomatically: false,
-                ),
+          locationSettings: foregroundLocationSettings(),
         ).listen(
           handleNavigationPosition,
           onError: (Object error) {
@@ -440,7 +431,37 @@ class MapNavigationController implements MapNavigationActions {
       return;
     }
     final receivedAt = _now();
-    _motion.sample(location, receivedAt, position.speed);
+    // Reject duplicate/out-of-order fixes; receipt time is not measurement time.
+    if (host.roadSpeedPosition != null &&
+        !position.timestamp.isAfter(host.roadSpeedPosition!.timestamp))
+      return;
+    final measuredAt = position.timestamp.isAfter(receivedAt)
+        ? receivedAt
+        : position.timestamp;
+    if (onCamera != null) updatePredictedUserMarker();
+    _motion.sample(
+      location,
+      measuredAt,
+      position.speed,
+      deliveryDelaySeconds:
+          receivedAt.difference(measuredAt).inMilliseconds / 1000,
+      accuracyMeters: position.accuracy,
+      speedAccuracy: position.speedAccuracy,
+      stationaryAnchor:
+          host.lastGpsUserLocationAt != null &&
+              receivedAt
+                      .difference(host.lastGpsUserLocationAt!)
+                      .inMilliseconds <=
+                  5000 &&
+              host.displayedUserLocation != null &&
+              distanceBetweenLatLngMeters(
+                    host.displayedUserLocation!,
+                    location,
+                  ) <
+                  50
+          ? host.displayedUserLocation
+          : null,
+    );
     final heading = headingForNewUserLocation(
       location,
       position.heading,
@@ -454,17 +475,53 @@ class MapNavigationController implements MapNavigationActions {
       location,
     );
 
-    final nextDisplay = distanceToNewGps > 80 && _motion.speed >= .8
-        ? location
-        : currentDisplay;
+    final nextDisplay =
+        _motion.stationaryPosition ??
+        (distanceToNewGps > 80 && _motion.speed >= .8
+            ? location
+            : currentDisplay);
+    if (onCamera != null) {
+      final predicted =
+          _motion.stationaryPosition ??
+          projectLatLngMeters(
+            location,
+            heading,
+            _motion.distanceAhead(
+              receivedAt.difference(measuredAt).inMilliseconds / 1000,
+            ),
+          );
+      final reconcile =
+          _motion.stationaryPosition == null &&
+          host.lastGpsUserLocationAt != null &&
+          receivedAt.difference(host.lastGpsUserLocationAt!).inMilliseconds <=
+              5000 &&
+          distanceBetweenLatLngMeters(currentDisplay, predicted) < 50;
+      _correctionLat = reconcile
+          ? currentDisplay.latitude - predicted.latitude
+          : 0;
+      _correctionLng = reconcile
+          ? ((currentDisplay.longitude - predicted.longitude + 540) % 360) - 180
+          : 0;
+      // The correction starts with zero velocity and can take away at most
+      // 30% of forward speed. A GPS fix behind our prediction must not make
+      // the car stop or roll backward once per fix.
+      final correctionMeters = reconcile
+          ? distanceBetweenLatLngMeters(currentDisplay, predicted)
+          : 0.0;
+      _correctionTimeConstant = math.max(
+        .45,
+        correctionMeters / (math.e * math.max(.8, _motion.speed) * .3),
+      );
+      _correctionAt = receivedAt;
+    }
     host.updateMap(() {
       host.defaultMapUsesSpots = false;
       host.currentUserLocation = location;
       host.displayedUserLocation = nextDisplay;
       host.roadSpeedPosition = position;
       host.lastGpsUserLocation = location;
-      host.lastGpsUserLocationAt = receivedAt;
-      host.lastNavigationPositionAt = DateTime.now();
+      host.lastGpsUserLocationAt = measuredAt;
+      host.lastNavigationPositionAt = receivedAt;
       host.currentUserHeadingDegrees = heading;
       host.currentUserSpeedMetersPerSecond = _motion.speed;
     });
@@ -508,7 +565,17 @@ class MapNavigationController implements MapNavigationActions {
     // Globe packets are predicted at 10 Hz; WebView alone interpolates visuals.
     // Avoid a second display-rate Flutter ticker and a second smoothing delay.
     if (onCamera != null) {
-      host.displayedUserLocation = target;
+      // Reconcile a new GPS fix continuously instead of jumping back from the
+      // previous extrapolation once per second. Only visual coordinates change.
+      final elapsed = _correctionAt == null
+          ? 100.0
+          : now.difference(_correctionAt!).inMicroseconds / 1000000;
+      final phase = math.max(0, elapsed) / _correctionTimeConstant;
+      final decay = (1 + phase) * math.exp(-phase);
+      host.displayedUserLocation = LatLng(
+        target.latitude + _correctionLat * decay,
+        ((target.longitude + _correctionLng * decay + 540) % 360) - 180,
+      );
       host.displayedNavigationHeading = host.currentUserHeadingDegrees;
       return;
     }

@@ -35,19 +35,23 @@ class RoadSpeedController extends ChangeNotifier {
   }
 
   bool _quality(Map<String, Object?> p) =>
-      [
-        'lat',
-        'lng',
-        'heading',
-        'headingAccuracy',
-      ].every((k) => p[k] is num && (p[k] as num).isFinite) &&
+      ['lat', 'lng'].every((k) => p[k] is num && (p[k] as num).isFinite) &&
       (p['lat'] as num).abs() <= 85 &&
       (p['lng'] as num).abs() <= 180 &&
-      (p['heading'] as num) >= 0 &&
-      (p['heading'] as num) < 360 &&
-      (p['headingAccuracy'] as num) >= 0 &&
-      (p['headingAccuracy'] as num) <= 20 &&
-      (p['accuracy'] as num) <= 15;
+      (p['accuracy'] as num) <= 25;
+
+  bool _hasCourse(Map<String, Object?> p) {
+    final heading = p['heading'], accuracy = p['headingAccuracy'];
+    return heading is num &&
+        heading.isFinite &&
+        heading >= 0 &&
+        heading < 360 &&
+        accuracy is num &&
+        accuracy.isFinite &&
+        accuracy >= 0 &&
+        accuracy <= 20;
+  }
+
   bool _stillApplies(Map<String, dynamic> result, Map<String, Object?> fix) {
     final at = result['sampleAt'],
         until = result['validUntil'],
@@ -62,16 +66,52 @@ class RoadSpeedController extends ChangeNotifier {
         age >= 0 &&
         age < 12000 &&
         (until as num) > now().millisecondsSinceEpoch &&
-        separation(
-              lat as num,
-              lng as num,
-              fix['lat'] as num,
-              fix['lng'] as num,
-            ) <=
-            10 &&
-        (((fix['heading'] as num) - (heading as num) + 540) % 360 - 180)
-                .abs() <=
-            15;
+        _onMatchedRoad(result, fix, lat as num, lng as num) &&
+        (!_hasCourse(fix) ||
+            (((fix['heading'] as num) - (heading as num) + 540) % 360 - 180)
+                    .abs() <=
+                25);
+  }
+
+  bool _onMatchedRoad(
+    Map<String, dynamic> result,
+    Map<String, Object?> fix,
+    num lat,
+    num lng,
+  ) {
+    final moved = separation(lat, lng, fix['lat'] as num, fix['lng'] as num);
+    if (moved <= 10) return true;
+    // Retain only on the actual matched road element, never a wider circle
+    // that could silently carry a limit onto the next street.
+    final line = result['roadGeometry'];
+    if (line is! List || line.length < 2 || line.length > 2048 || moved > 250) {
+      return false;
+    }
+    final latitude = (fix['lat'] as num).toDouble();
+    final longitude = (fix['lng'] as num).toDouble();
+    final scaleX = 111320 * math.cos(latitude * math.pi / 180);
+    for (var i = 1; i < line.length; i++) {
+      final a = line[i - 1], b = line[i];
+      if (a is! List ||
+          b is! List ||
+          a.length != 2 ||
+          b.length != 2 ||
+          [...a, ...b].any((v) => v is! num || !v.isFinite))
+        continue;
+      final ax = ((a[0] as num) - longitude) * scaleX;
+      final ay = ((a[1] as num) - latitude) * 111320;
+      final dx = ((b[0] as num) - (a[0] as num)) * scaleX;
+      final dy = ((b[1] as num) - (a[1] as num)) * 111320;
+      final length = dx * dx + dy * dy;
+      final t = length == 0
+          ? 0.0
+          : (-(ax * dx + ay * dy) / length).clamp(0.0, 1.0);
+      if (math.sqrt(math.pow(ax + t * dx, 2) + math.pow(ay + t * dy, 2)) <=
+          10) {
+        return true;
+      }
+    }
+    return false;
   }
 
   void update(Map? raw, {required bool following}) {
@@ -85,7 +125,12 @@ class RoadSpeedController extends ChangeNotifier {
     final fix = raw == null ? null : Map<String, Object?>.from(raw);
     if (speedKmh == null || fix == null || !_quality(fix)) {
       _latest = null;
-      _points.clear();
+      // A phone may deliver fixes just over five seconds apart. Hiding a stale
+      // speed must not erase the three-sample trace before a lookup can start.
+      // Keep only recent, previously accepted raw GPS; never add predictions.
+      _points.removeWhere(
+        (p) => now().millisecondsSinceEpoch - (p['at'] as num) > 30000,
+      );
       limit = null;
       _matched = null;
       if (_busy) {

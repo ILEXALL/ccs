@@ -1,4 +1,5 @@
 import reveals from '../lib/event-reveal.js';
+import forumInactivity from '../lib/forum-inactivity.js';
 import {deliveryTokens, removeDeliveryTokens} from '../lib/private-profile.js';
 import publications from '../lib/forum-publications.js';
 import crypto from 'node:crypto';
@@ -283,6 +284,10 @@ export async function sendPushToUser({
 
   if (data.topicId) {
     const topicDoc = await db.collection('forum_topics').doc(data.topicId).get();
+    if (data.type === 'forum_inactivity_warning') {
+      const warning = forumInactivity.inactivityWarning(topicDoc.data(), Date.now());
+      if (!warning || warning.authorId !== userId || warning.activity !== data.activityAt) return 0;
+    }
     if (topicDoc.exists && groupSpot(topicDoc.data())) {
       const members = await groupSpotMemberIds(topicDoc.data());
       if (!members.includes(userId) && notificationCollection !== 'admin_notifications') return 0;

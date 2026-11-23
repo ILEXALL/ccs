@@ -31,6 +31,8 @@ window.ccsFinishMove = save => {
   let data=moveRaw;
   if(save) data={...data,features:data.features.map(f=>f.properties.kind==='spot' && f.properties.id===moveDraft.id
     ? {...f,geometry:{...f.geometry,coordinates:[...moveDraft.at]}} : f)};
+  if(save) patchFixed=patchFixed.map(f=>f.properties.kind==='spot' && f.properties.id===moveDraft.id
+    ? {...f,geometry:{...f.geometry,coordinates:[...moveDraft.at]}} : f);
   moveDraft=null;moveLocked=false;moveDragging=false;
   map.dragPan?.enable();map.touchZoomRotate?.enable();
   window.ccsSetFeatures(data);
@@ -43,6 +45,17 @@ window.ccsSetPatch = patch => {
 };
 let staticData={type:'FeatureCollection',features:[]}, liveData={type:'FeatureCollection',features:[]};
 let staticSignature=null, liveSignature=null;
+let eventWaveSignature=null;
+function eventWaveData() {
+  return {type:'FeatureCollection',features:latest.features.filter(f=>f.properties.kind==='spot' && f.properties.eventActive===true)};
+}
+function syncEventWaves() {
+  if(!ready) return;
+  const data=eventWaveData(),signature=JSON.stringify(data.features);
+  if(signature!==eventWaveSignature) {
+    map.getSource('ccs-event-waves')?.setData(data);eventWaveSignature=signature;
+  }
+}
 let notifiedFollow=null;
 function syncFrameBudget() {
   const enabled=(motionFollowing || following) && !gestureBlocked;
@@ -145,6 +158,29 @@ let gestureBlocked=false, followRevision=0;
 let manualTouchActive=false;
 let motionTarget=null, motionAt=0, motionLastFrame=null, motionVelocity=[0,0];
 let motionTurnVelocity=0;
+let headingSample=null, predictedTurnRate=0;
+function sampleTurn(data) {
+  if(!Number.isFinite(data.gpsAt) || !Number.isFinite(data.gpsAgeSeconds) ||
+      !Number.isFinite(data.heading) || !(data.speed>=2.5) || data.gpsAgeSeconds>3) {
+    headingSample=null;predictedTurnRate=0;return;
+  }
+  if(headingSample?.at===data.gpsAt) return;
+  if(headingSample) {
+    const seconds=(data.gpsAt-headingSample.at)/1000;
+    const delta=shortArc(data.heading-headingSample.heading);
+    const rate=delta/seconds;
+    // Ignore GPS course spikes. Only short, bounded visual turn prediction.
+    predictedTurnRate=seconds>=.25 && seconds<=3 && Math.abs(delta)>=1 && Math.abs(rate)<=45
+      ? Math.max(-30,Math.min(30,predictedTurnRate*.5+rate*.5)) : 0;
+  }
+  headingSample={at:data.gpsAt,heading:data.heading};
+}
+function predictedHeading(age) {
+  const elapsed=Math.max(0,(motionTarget.gpsAgeSeconds || 0)+age);
+  // Coast for one fix interval, then smoothly stop predicting during GPS loss.
+  const coast=Math.min(elapsed,1),brake=Math.max(0,Math.min(.5,elapsed-1));
+  return motionTarget.heading+predictedTurnRate*(coast+brake-brake*brake);
+}
 function motionData() {return {type:'FeatureCollection',features:motionPosition?[{
   type:'Feature',geometry:{type:'Point',coordinates:motionPosition},properties:{kind:'self',heading:motionHeading}
 }]:[]};}
@@ -165,7 +201,8 @@ function animateMotion(now) {
   motionPosition=[motionPosition[0]+shortArc(target[0]-motionPosition[0])*blend,motionPosition[1]+(target[1]-motionPosition[1])*blend];
   // Critically damped steering preserves angular velocity between GPS packets.
   // New headings accelerate/brake the turn instead of instantly changing its rate.
-  const headingError=-shortArc(motionTarget.heading-motionHeading);
+  const headingTarget=predictedHeading(age);
+  const headingError=-shortArc(headingTarget-motionHeading);
   const omega=8, decay=Math.exp(-omega*dt);
   const spring=motionTurnVelocity+omega*headingError;
   const turn=headingError*(decay-1)+spring*dt*decay;
@@ -174,7 +211,7 @@ function animateMotion(now) {
   const zoomTarget=speedFollowZoom(motionTarget.zoom, motionTarget.speed);
   followZoom=followZoom===null?motionTarget.zoom:followZoom+(zoomTarget-followZoom)*(1-Math.exp(-dt/1.2));
   if(Math.abs(shortArc(target[0]-motionPosition[0]))<1e-8 && Math.abs(target[1]-motionPosition[1])<1e-8) motionPosition=target.slice();
-  if(Math.abs(shortArc(motionTarget.heading-motionHeading))<.02 && Math.abs(motionTurnVelocity)<.1) {motionHeading=motionTarget.heading;motionTurnVelocity=0;}
+  if(Math.abs(shortArc(headingTarget-motionHeading))<.02 && Math.abs(motionTurnVelocity)<.1) {motionHeading=headingTarget;motionTurnVelocity=0;}
   if(Math.abs(zoomTarget-followZoom)<.001) followZoom=zoomTarget;
   const signature=JSON.stringify([motionPosition,motionHeading]);
   if(signature!==lastMotionSignature) {map.getSource('ccs-motion')?.setData(motionData());lastMotionSignature=signature;}
@@ -188,7 +225,8 @@ function animateMotion(now) {
   }
   const unsettled=Math.abs(shortArc(target[0]-motionPosition[0]))>1e-8 || Math.abs(target[1]-motionPosition[1])>1e-8 || Math.abs(shortArc(motionTarget.heading-motionHeading))>.02 || Math.abs(motionTurnVelocity)>.1;
   const predicting=age<.15 && Math.hypot(...motionVelocity)>0;
-  const turning=Math.abs(shortArc(motionTarget.heading-motionHeading))>.02 || Math.abs(motionTurnVelocity)>.1;
+  const turning=Math.abs(shortArc(headingTarget-motionHeading))>.02 || Math.abs(motionTurnVelocity)>.1 ||
+    (predictedTurnRate!==0 && (motionTarget.gpsAgeSeconds || 0)+age<1.5);
   if((motionFollowing && followPitch!==45) || (age<1 && (unsettled || predicting)) || (age<10 && turning) || (motionFollowing && Math.abs(zoomTarget-followZoom)>.001 && age<10)) motionFrame=requestAnimationFrame(animateMotion);
   else motionLastFrame=null;
 }
@@ -202,7 +240,7 @@ window.ccsSetMotion = data => {
   if(motionFollowing!==wasFollowing) {lastCameraSignature=null;if(motionFollowing) {followPitch=followPitchFrom=map?.getPitch?.() || 0;followPitchStarted=performance.now();}}
   syncFrameBudget();
   if (!motionFollowing) updateEdgeBeacons();
-  if(!data.position) {stopMotion();motionTarget=null;motionPosition=null;motionVelocity=[0,0];motionTurnVelocity=0;if(ready) map.getSource('ccs-motion')?.setData(motionData());return;}
+  if(!data.position) {stopMotion();motionTarget=null;motionPosition=null;motionVelocity=[0,0];motionTurnVelocity=0;headingSample=null;predictedTurnRate=0;if(ready) map.getSource('ccs-motion')?.setData(motionData());return;}
   const now=performance.now(), seconds=(now-motionAt)/1000;
   motionVelocity=[0,0];
   if(motionTarget && seconds>=.04 && seconds<=.5) {
@@ -215,6 +253,11 @@ window.ccsSetMotion = data => {
   // Freeze bearing immediately on stopping; never follow stationary course noise.
   // Older packets without speed retain their previous behavior.
   if (Number.isFinite(data.speed) && data.speed < 1.5) {data={...data,heading:motionHeading};motionTurnVelocity=0;}
+  if (Number.isFinite(data.gpsAgeSeconds) && data.gpsAgeSeconds>3) {
+    data={...data,heading:motionHeading};motionTurnVelocity=0;
+  }
+  if (Number.isFinite(data.speed) && data.speed < .8) motionVelocity=[0,0];
+  sampleTurn(data);
   motionTarget=data;motionAt=now;
   updateEdgeBeacons();
   if(motionFrame===null) motionFrame=requestAnimationFrame(animateMotion);
@@ -237,8 +280,10 @@ function syncMarkerBearing() {
 }
 function currentPosition() { return latest.features.find(f => f.properties.kind === 'self')?.geometry.coordinates; }
 function followOffset() {
-  // Keep the driver at 68% of the map height without persistent camera padding.
-  return [0, Math.round((map.getCanvas?.().clientHeight || 0) * .18)];
+  const height=map.getCanvas?.().clientHeight || 0;
+  // Reserve the measured native HUD height plus the arrow's own half-height.
+  const bottom=Math.max(96,latest.beaconInsets?.bottom || 0,beaconOcclusion.bottom);
+  return [0, Math.round(Math.max(height*.5,height-bottom-36)-height*.5)];
 }
 function follow() {
   const p = currentPosition();
@@ -318,6 +363,7 @@ window.ccsSetFeatures = data => {
   latest = data;
   updateDwellRing();
   updateEventCapsules();
+  syncEventWaves();
   document.documentElement?.style.setProperty('--ccs-controls-top',Math.max(0,data.beaconInsets?.top || 0)+'px');
   if(!motionReceived) {
     const self=data.features.find(f=>f.properties.kind==='self');
@@ -539,6 +585,8 @@ try {
     }
     map.addSource('ccs',{type:'geojson',data:staticData});
     map.addSource('ccs-live',{type:'geojson',data:liveData});
+    map.addSource('ccs-event-waves',{type:'geojson',data:eventWaveData()});
+    eventWaveSignature=JSON.stringify(eventWaveData().features);
     staticSignature=JSON.stringify(staticData.features);liveSignature=JSON.stringify(liveData.features);lastMotionSignature=null;
     map.addSource('ccs-motion',{type:'geojson',data:motionData()});
     map.addLayer({id:'ccs-restricted',type:'fill',source:'ccs',filter:['==',['get','kind'],'restricted'],paint:{'fill-color':'#ff5252','fill-opacity':0.16}});
@@ -547,10 +595,10 @@ try {
       'icon-allow-overlap':true,'icon-ignore-placement':true,'icon-pitch-alignment':'viewport','icon-rotation-alignment':'viewport'}});
     map.addLayer({id:'ccs-route',type:'line',source:'ccs-live',filter:['==',['get','kind'],'route'],paint:{'line-color':'#008dff','line-width':3,'line-dasharray':[2,2]}});
     const spots=['all',['==',['get','kind'],'spot'],['!=',['get','event'],true]];
-    for (let i=0;i<2;i++) map.addLayer({id:'ccs-event-wave-'+i,type:'circle',source:'ccs',minzoom:7,
+    for (let i=0;i<2;i++) map.addLayer({id:'ccs-event-wave-'+i,type:'circle',source:'ccs-event-waves',minzoom:7,
       filter:['all',['==',['get','kind'],'spot'],['==',['get','eventActive'],true]],paint:{
         'circle-radius':12,'circle-opacity':0,'circle-stroke-width':1.5,
-        'circle-stroke-color':'#ffd45a','circle-stroke-opacity':0}});
+        'circle-stroke-color':'#1565ff','circle-stroke-opacity':0}});
 
     const dotSize=['interpolate',['linear'],['zoom']];
     for(const z of [1,3,5,7,9,10,11.25,18]) {
@@ -656,10 +704,12 @@ try {
   });
 } catch (_) {statusBox.textContent='This device could not start the globe. Please retry.';notify('error');}
 
-// One lightweight overlay update per 100 ms; CSS interpolates movement and fade.
+// Position on the map's own frame. Opacity alone is animated: interpolating
+// transforms cuts across corners of the safe rail and drifts into the map.
 // Only already-authorized, currently visible marker data can become beacons.
 const edgeBeacons = new Map();
 let beaconLayer;
+let beaconNearby=[],beaconNearbyData=null,beaconNearbyAt=-Infinity;
 let beaconOcclusion = {top:0,bottom:0};
 window.ccsSetBeaconOcclusion = value => {
   beaconOcclusion = value;
@@ -690,15 +740,21 @@ function updateEdgeBeacons() {
     if (bounds.right > bounds.left && bounds.bottom > bounds.top) {
       const projected = map.project(position);
       const origin = {x: Math.max(bounds.left, Math.min(bounds.right, projected.x)), y: Math.max(bounds.top, Math.min(bounds.bottom, projected.y))};
-      const offscreen = latest.features.filter(f => {
-        if (!['spot','live','camera','police','sos'].includes(f.properties.kind) || f.geometry.type !== 'Point') return false;
-        if (f.properties.kind !== 'live') return true;
-        if (beaconDistance(position,f.geometry.coordinates)>=2000) return false;
+      // Range scans are independent of screen projection; keep them at 10 Hz.
+      // Placement/visibility still follow every rendered frame with no CSS lag.
+      const now=performance.now();
+      if(beaconNearbyData!==latest || now-beaconNearbyAt>=100) {
+        beaconNearby=latest.features.filter(f=>['spot','live','camera','police','sos'].includes(f.properties.kind) &&
+          f.geometry.type==='Point' && beaconDistance(position,f.geometry.coordinates)<beaconRange(f.properties.kind)[0]);
+        beaconNearbyData=latest;beaconNearbyAt=now;
+      }
+      const offscreen = beaconNearby.filter(f => {
+        if(beaconForwardOpacity(position,f.geometry.coordinates,motionHeading)<=0) return false;
         const c=f.geometry.coordinates;
         const ray=beaconScreenDirection(position,c,p=>map.project(p));
         if(!ray || !ray.inFront) return true;
         const p=ray.point;
-        return !(p.x>=0 && p.x<=width && p.y>=inset.top && p.y<=height-inset.bottom);
+        return !beaconMarkerVisible(p,width,height);
       });
       const candidates = groupPeopleBeacons(offscreen)
         .map(f => ({f, distance: beaconDistance(position, f.geometry.coordinates)}))
@@ -711,9 +767,8 @@ function updateEdgeBeacons() {
         const ray=beaconScreenDirection(position,coordinate,p=>map.project(p));
         if(!ray) continue;
         const projectedTarget=ray.point;
-        const point={x:origin.x+ray.dx*Math.hypot(width,height)*2,y:origin.y+ray.dy*Math.hypot(width,height)*2};
-        // Do not duplicate markers already visible in the unobstructed map area.
-        if (ray.inFront && projectedTarget.x >= 0 && projectedTarget.x <= width && projectedTarget.y >= inset.top && projectedTarget.y <= height - inset.bottom) continue;
+        const point=ray.inFront ? projectedTarget : {x:origin.x+ray.dx*Math.hypot(width,height)*2,y:origin.y+ray.dy*Math.hypot(width,height)*2};
+        if (ray.inFront && beaconMarkerVisible(projectedTarget,width,height)) continue;
         const at = beaconPlacement(origin, point, bounds);
         if (!at || occupied.some(other => Math.hypot(other.x-at.x, other.y-at.y) < (p.kind==='live'||other.person?104:66))) continue;
         const key = p.kind + ':' + p.id;
@@ -770,8 +825,9 @@ function updateEdgeBeacons() {
         node.setAttribute('aria-label', String(p.label || p.kind) + ', ' + node.lastChild.textContent);
         node.style.transform = `translate(${at.x}px,${at.y}px) translate(-50%,-50%)`;
         node.style.setProperty('--beacon-angle', (Math.atan2(ray.dy,ray.dx)*180/Math.PI+90)+'deg');
-        node.style.opacity = String(beaconOpacity(distance, p.kind));
-        node.style.pointerEvents = beaconOpacity(distance, p.kind) > 0.02 ? 'auto' : 'none';
+        const opacity=beaconOpacity(distance,p.kind)*beaconForwardOpacity(position,coordinate,motionHeading);
+        node.style.opacity = String(opacity);
+        node.style.pointerEvents = opacity > 0.02 ? 'auto' : 'none';
         node.hiddenAt = null;
         selected.add(key); occupied.push({...at,person:p.kind==='live'});
       }
@@ -837,12 +893,12 @@ map?.on('render', () => {
   // Position must share the map frame; only non-positional overlays are throttled.
   updateDwellRing();
   updateEventCapsules();
+  updateEdgeBeacons();
   const now = performance.now();
   if (now-lastBeaconUpdate < 100) return;
   lastBeaconUpdate=now;
   updateLiveClusters();
   updateLiveLabelOpacity();
-  updateEdgeBeacons();
   startAlertAnimation();
 });
 

@@ -13,6 +13,7 @@ void main() {
           home: Scaffold(body: RoadSpeedHud(speedKmh: speed)),
         ),
       );
+      await tester.pumpAndSettle();
       expect(
         find.text('km/h'),
         speed != null && speed.isFinite && speed >= 10

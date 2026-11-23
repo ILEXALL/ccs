@@ -2,8 +2,9 @@ const radians = value => value * Math.PI / 180;
 // Keep the entire beacon (including labels, arrow and radar waves) inside
 // the clear band between native Flutter overlays. Never drop corner beacons.
 function beaconSafeBounds(width, height, inset, hasPeople) {
-  const side = hasPeople ? 58 : 46;
-  return {left:side,right:width-side,top:inset.top+(hasPeople?66:50),bottom:height-inset.bottom-50};
+  // A stable rail: nearby people arriving/leaving must not move every beacon.
+  const side = 58;
+  return {left:side,right:width-side,top:inset.top+66,bottom:height-inset.bottom-50};
 }
 if (typeof module !== 'undefined') module.exports.beaconSafeBounds = beaconSafeBounds;
 function beaconDistance(a, b) {
@@ -46,6 +47,23 @@ function cameraAhead(origin, target, heading, speed) {
   return Math.abs(((bearing-heading+540)%360)-180)<=60;
 }
 if(typeof module!=='undefined') module.exports.cameraAhead=cameraAhead;
+
+function beaconForwardOpacity(origin, target, heading) {
+  if(!origin || !target || ![...origin,...target,heading].every(Number.isFinite)) return 0;
+  const a=radians(origin[1]),b=radians(target[1]),dl=radians(target[0]-origin[0]);
+  const bearing=Math.atan2(Math.sin(dl)*Math.cos(b),Math.cos(a)*Math.sin(b)-Math.sin(a)*Math.cos(b)*Math.cos(dl))*180/Math.PI;
+  const angle=Math.abs(((bearing-heading+540)%360)-180);
+  // Full opacity to 50 degrees, feather out at the edge of the 120-degree cone.
+  const t=Math.max(0,Math.min(1,(60-angle)/10));
+  return t*t*(3-2*t);
+}
+function beaconMarkerVisible(point, width, height) {
+  // Include partially visible pin artwork. Native HUD occlusion is irrelevant:
+  // a marker must leave the actual viewport before its beacon can appear.
+  return Number.isFinite(point.x+point.y) && point.x+32>=0 && point.x-32<=width &&
+    point.y+32>=0 && point.y-64<=height;
+}
+if(typeof module!=='undefined') Object.assign(module.exports,{beaconForwardOpacity,beaconMarkerVisible});
 
 // Cluster only offscreen people at the same physical place, not unrelated
 // destinations that happen to point toward the same screen edge.

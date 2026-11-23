@@ -1277,10 +1277,7 @@ class _GlobeMapScreenState extends State<GlobeMapScreen>
                 ),
               ),
             ),
-          if (widget.showControls &&
-              card == null &&
-              followActive &&
-              _positionDraft == null)
+          if (widget.showControls && card == null && _positionDraft == null)
             Positioned(
               left: 76,
               key: _speedHudKey,
@@ -1292,7 +1289,7 @@ class _GlobeMapScreenState extends State<GlobeMapScreen>
                   builder: (context, _) {
                     _scheduleBeaconLayout();
                     return RoadSpeedHud(
-                      speedKmh: roadSpeed.speedKmh,
+                      speedKmh: followActive ? roadSpeed.speedKmh : null,
                       limit: roadSpeed.limit,
                     );
                   },

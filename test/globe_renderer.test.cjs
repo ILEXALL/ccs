@@ -79,6 +79,32 @@ function fixture() {
 
 }
 
+test('blue event waves follow saved moves, incremental refreshes and style reloads',()=>{
+ const f=fixture();f.handlers['style.load']();f.run('map.zoom=14; map.unproject=p=>({lng:p.x/10,lat:p.y/10});');
+ const event={properties:{kind:'spot',event:true,eventActive:true,id:'e',canMove:true},geometry:{type:'Point',coordinates:[24,57]}};
+ f.window.ccsSetPatch({fixed:[event]});
+ const coordinates=()=>Array.from(f.sources['ccs-event-waves'].data.features[0].geometry.coordinates);
+ assert.equal(f.window.ccsBeginMove('e'),true);
+ f.touches.touchstart({touches:[{clientX:240,clientY:570}]});
+ f.touches.touchmove({touches:[{clientX:250,clientY:580}]});
+ assert.deepEqual(coordinates(),[25,58]);
+ f.window.ccsFinishMove(false);assert.deepEqual(coordinates(),[24,57]);
+ f.window.ccsBeginMove('e');
+ f.touches.touchstart({touches:[{clientX:240,clientY:570}]});
+ f.touches.touchmove({touches:[{clientX:250,clientY:580}]});
+ f.window.ccsFinishMove(true);f.window.ccsSetPatch({moving:[]});
+ assert.deepEqual(coordinates(),[25,58]);
+ f.handlers['style.load']();assert.deepEqual(coordinates(),[25,58]);
+ for(const layer of f.layers.filter(l=>l.id.startsWith('ccs-event-wave-'))) {
+  assert.equal(layer.source,'ccs-event-waves');
+  assert.equal(layer.paint['circle-stroke-color'],'#1565ff');
+ }
+ const moved={...event,properties:{...event.properties,eventActive:false},geometry:{type:'Point',coordinates:[26,59]}};
+ f.window.ccsSetPatch({fixed:[moved]});assert.equal(f.sources['ccs-event-waves'].data.features.length,0);
+ f.window.ccsSetPatch({fixed:[{...moved,properties:{...moved.properties,eventActive:true}}]});
+ assert.deepEqual(coordinates(),[26,59]);
+});
+
 test('holding a staff-editable marker starts moving instead of creating a spot',()=>{
  const f=fixture();f.handlers['style.load']();f.run('map.zoom=14;');
  f.run('map.project = p => ({x:p[0]*10,y:p[1]*10}); map.unproject = p => ({lng:p.x/10,lat:p.y/10});');
@@ -507,11 +533,16 @@ test('follow camera anchors the driver below center without retaining padding',(
 
  f.window.ccsSetMotion({position:[24,57],heading:90,following:true,zoom:16,followRevision:1});f.tick(16);
 
- assert.equal(JSON.stringify(f.moves.at(-1).offset),JSON.stringify([0,144]));
+ assert.equal(JSON.stringify(f.moves.at(-1).offset),JSON.stringify([0,268]));
 
  assert.equal(f.moves.at(-1).duration,0);
 
  assert.equal(f.moves.at(-1).padding,0);
+
+ f.window.ccsSetBeaconOcclusion({top:100,bottom:160});f.tick(50);
+ assert.equal(JSON.stringify(f.moves.at(-1).offset),JSON.stringify([0,204]));
+ // Arrow center remains 36px above the top of the measured speed/control band.
+ assert.equal(400+f.moves.at(-1).offset[1],800-160-36);
 
  const count=f.moves.length;
 
@@ -593,6 +624,26 @@ test('bundled Latvia camera snapshot has real unique coordinates and licensing',
 
 
 
+test('beacons suppress on-screen markers, stay on rail per frame, and fade behind',()=>{
+ const f=fixture(),nodes=[];
+ function element(){return {style:{setProperty(){}},dataset:{},children:[],appendChild(c){this.children.push(c);this.lastChild=c;},addEventListener(){},getBoundingClientRect(){},getContext(){return {putImageData(){}};},setAttribute(){},remove(){}};}
+ f.document.createElement=()=>{const node=element();nodes.push(node);return node;};f.document.body=element();f.handlers['style.load']();
+ f.run("map.project=point=>({x:200,y:400-(point[1]-57)*100000}); iconCache.set('spot',{});");
+ const spot=y=>({properties:{kind:'spot',id:'ahead',icon:'spot'},geometry:{type:'Point',coordinates:[24,y]}});
+ const data=y=>({type:'FeatureCollection',beaconInsets:{top:100,bottom:140},features:[{properties:{kind:'self'},geometry:{type:'Point',coordinates:[24,57]}},spot(y)]});
+ f.window.ccsSetFeatures(data(57.0038));f.window.ccsFollow();f.run('updateEdgeBeacons()');
+ assert.equal(nodes.filter(n=>n.className==='ccs-beacon').length,0); // icon at y20 behind header
+ f.window.ccsSetFeatures(data(57.0042));f.run('updateEdgeBeacons()');
+ assert.equal(nodes.filter(n=>n.className==='ccs-beacon').length,0); // partially visible at y-20
+ f.window.ccsSetFeatures(data(57.01));f.run('updateEdgeBeacons()');
+ const beacon=nodes.find(n=>n.className==='ccs-beacon');assert.ok(+beacon.style.opacity>0);
+ assert.match(beacon.style.transform,/translate\(200px,166px\)/);
+ f.run('motionHeading=180;');f.setTime(16);f.handlers.render();
+ assert.equal(beacon.style.opacity,'0');assert.equal(beacon.style.pointerEvents,'none');
+ assert.equal(f.run('edgeBeacons.size'),1); // kept for CSS fade, not instantly removed
+ f.setTime(600);f.handlers.render();assert.equal(f.run('edgeBeacons.size'),0);
+});
+
 test('bottom beacons move above native HUD instead of hiding under controls',()=>{
  const f=fixture(),nodes=[];
  function element(){return {style:{setProperty(){}},dataset:{},children:[],appendChild(c){this.children.push(c);this.lastChild=c;},addEventListener(){},getBoundingClientRect(){},getContext(){return {putImageData(){}};},setAttribute(){},remove(){}};}
@@ -625,13 +676,13 @@ test('offscreen SOS and police render report artwork, animate and open their car
 
  f.document.body=element();
 
- f.handlers['style.load']();
+ f.handlers['style.load']();f.run('motionHeading=90;');
 
  f.run("map.project = point => ({x:200+(point[0]-24)*100000,y:400}); iconCache.set('ccs-sos',{}); for(let i=0;i<=16;i++) iconCache.set('ccs-police-'+i,{});");
 
  function show(kind,offset){
 
-  f.window.ccsSetFeatures({type:'FeatureCollection',features:[{properties:{kind:'self'},geometry:{type:'Point',coordinates:[24,57]}},{properties:{kind,id:'report',label:kind},geometry:{type:'Point',coordinates:[24+offset,57]}}]});
+  f.window.ccsSetFeatures({type:'FeatureCollection',features:[{properties:{kind:'self',heading:90},geometry:{type:'Point',coordinates:[24,57]}},{properties:{kind,id:'report',label:kind},geometry:{type:'Point',coordinates:[24+offset,57]}}]});
 
   f.window.ccsFollow(); f.run('updateEdgeBeacons()');
 
@@ -649,7 +700,7 @@ test('offscreen SOS and police render report artwork, animate and open their car
 
  assert.deepEqual(f.messages.at(-1),{type:'select',kind:'sos',id:'report'});
 
- const police=show('police',-0.0165); // approximately 1km
+ const police=show('police',0.0165); // approximately 1km
 
  assert.match(police.dataset.icon,/^ccs-police-/);
 
@@ -722,13 +773,13 @@ test('people beacons show avatar and literal nickname with silhouette fallback',
 
  function element(){return {style:{setProperty(){}},dataset:{},children:[],appendChild(c){this.children.push(c);this.firstChild=this.children[0];this.lastChild=c;},addEventListener(n,fn){this[n]=fn;},getBoundingClientRect(){},getContext(){return {putImageData(){}};},setAttribute(){},remove(){}};}
 
- f.document.createElement=()=>{const n=element();nodes.push(n);return n;};f.document.body=element();f.handlers['style.load']();
+ f.document.createElement=()=>{const n=element();nodes.push(n);return n;};f.document.body=element();f.handlers['style.load']();f.run('motionHeading=90;');
 
  f.run("map.project = p=>({x:200+(p[0]-24)*100000,y:400});iconCache.set('ccs-person',{});iconCache.set('ccs-avatar-1',{});");
 
  const live={properties:{kind:'live',id:'u',label:'<b>Nickname</b>',avatarIcon:'ccs-avatar-1'},geometry:{type:'Point',coordinates:[24.01,57]}};
 
- const data=()=>({type:'FeatureCollection',features:[{properties:{kind:'self'},geometry:{type:'Point',coordinates:[24,57]}},live]});
+ const data=()=>({type:'FeatureCollection',features:[{properties:{kind:'self',heading:90},geometry:{type:'Point',coordinates:[24,57]}},live]});
 
  f.window.ccsSetFeatures(data());f.window.ccsFollow();f.run('updateEdgeBeacons()');
 
@@ -878,17 +929,17 @@ test('spot beacons use original inner artwork in both themes and retain selectio
 
  function element(){return {style:{setProperty(){}},dataset:{},children:[],appendChild(c){this.children.push(c);this.lastChild=c;},addEventListener(n,fn){this[n]=fn;},getBoundingClientRect(){},getContext(){return {putImageData(){}}},setAttribute(){},remove(){}};}
 
- f.document.createElement=()=>{const e=element();nodes.push(e);return e;};f.document.body=element();f.handlers['style.load']();
+ f.document.createElement=()=>{const e=element();nodes.push(e);return e;};f.document.body=element();f.handlers['style.load']();f.run('motionHeading=90;');
 
  f.run("map.project=p=>({x:200+(p[0]-24)*100000,y:400}); iconCache.set('assets/spot_icons/wash.webp@beacon-dark',{});iconCache.set('assets/spot_icons/wash.webp@beacon-light',{});");
 
- f.window.ccsSetFeatures({features:[{properties:{kind:'self'},geometry:{type:'Point',coordinates:[24,57]}},{properties:{kind:'spot',id:'wash',icon:'assets/spot_icons/wash.webp',color:'#0088ff'},geometry:{type:'Point',coordinates:[24.012,57]}}]});
+ f.window.ccsSetFeatures({features:[{properties:{kind:'self',heading:90},geometry:{type:'Point',coordinates:[24,57]}},{properties:{kind:'spot',id:'wash',icon:'assets/spot_icons/wash.webp',color:'#0088ff'},geometry:{type:'Point',coordinates:[24.012,57]}}]});
 
  f.window.ccsFollow();f.run('updateEdgeBeacons()');const beacon=nodes.find(n=>n.className==='ccs-beacon'),layer=nodes.find(n=>n.id==='ccs-beacons');
 
  assert.equal(beacon.dataset.icon,'assets/spot_icons/wash.webp@beacon-dark');assert.equal(layer.dataset.theme,'dark');
 
- f.window.ccsSetStyle('positron');f.handlers['style.load']();f.run('updateEdgeBeacons()');
+ f.window.ccsSetStyle('positron');f.handlers['style.load']();f.run('motionHeading=90;');f.run('updateEdgeBeacons()');
 
  assert.equal(beacon.dataset.icon,'assets/spot_icons/wash.webp@beacon-light');assert.equal(layer.dataset.theme,'light');
 
@@ -945,6 +996,34 @@ test('follow state notifications track explicit follow and gesture exit',()=>{
 });
 
 
+
+test('turn prediction advances between GPS fixes, wraps north and ignores repeated visual packets',()=>{
+ const f=fixture();f.handlers['style.load']();
+ const packet=(heading,gpsAt,gpsAgeSeconds)=>({position:[24,57],heading,gpsAt,gpsAgeSeconds,speed:12,following:true,zoom:16});
+ f.window.ccsSetMotion(packet(350,1000,0));f.tick(0);
+ f.setTime(1000);f.window.ccsSetMotion(packet(0,2000,0));f.tick(1000);
+ assert.equal(f.run('predictedTurnRate'),5);
+ for(let t=1033;t<=1900;t+=33) {
+   f.setTime(t);f.window.ccsSetMotion(packet(0,2000,(t-1000)/1000));f.tick(t);
+ }
+ assert.equal(f.run('predictedTurnRate'),5,'10 Hz packets are not new GPS measurements');
+ assert.ok(f.run('shortArc(motionHeading)')>1,'heading continues beyond latest fix through a turn');
+ for(let t=1933;t<8000;t+=33) f.tick(t);
+ assert.ok(Math.abs(f.run('shortArc(motionHeading)')-6.25)<.03,'prediction stops after bounded horizon');
+ const held=f.run('motionHeading');
+ f.setTime(8000);f.window.ccsSetMotion(packet(0,2000,7));f.tick(8000);
+ assert.equal(f.run('motionHeading'),held,'stale input cannot wind rotation back');
+ f.setTime(8100);f.window.ccsSetMotion({...packet(120,9100,0),speed:0});f.tick(8100);
+ assert.equal(f.run('predictedTurnRate'),0);assert.equal(f.run('motionHeading'),held);
+});
+
+test('course spikes never become a predicted turn',()=>{
+ const f=fixture();f.handlers['style.load']();
+ const packet=(heading,gpsAt)=>({position:[24,57],heading,gpsAt,gpsAgeSeconds:0,speed:12,following:true,zoom:16});
+ f.window.ccsSetMotion(packet(0,1000));f.tick(0);
+ f.setTime(1000);f.window.ccsSetMotion(packet(140,2000));f.tick(1000);
+ assert.equal(f.run('predictedTurnRate'),0);
+});
 
 test('turn acceleration is gradual and converges without further GPS packets',()=>{
 
@@ -1212,13 +1291,13 @@ test('grouped people beacon shows live count, selects every member, and updates 
 
  function element(){return {style:{setProperty(k,v){this[k]=v;}},dataset:{},children:[],appendChild(child){this.children.push(child);this.lastChild=child;},addEventListener(name,fn){this[name]=fn;},getBoundingClientRect(){},getContext(){return {putImageData(){}};},setAttribute(){},remove(){}};}
 
- f.document.createElement=()=>{const node=element();nodes.push(node);return node;};f.document.body=element();f.handlers['style.load']();
+ f.document.createElement=()=>{const node=element();nodes.push(node);return node;};f.document.body=element();f.handlers['style.load']();f.run('motionHeading=90;');
 
  f.run("map.project=point=>({x:200+(point[0]-24)*100000,y:400});iconCache.set('ccs-person',{});");
 
  const person=(id,lng)=>({properties:{kind:'live',id,label:id},geometry:{type:'Point',coordinates:[lng,57]}});
 
- const self={properties:{kind:'self'},geometry:{type:'Point',coordinates:[24,57]}};
+ const self={properties:{kind:'self',heading:90},geometry:{type:'Point',coordinates:[24,57]}};
 
  f.window.ccsSetFeatures({type:'FeatureCollection',features:[self,person('a',24.01),person('b',24.0101)]});f.window.ccsFollow();f.run('updateEdgeBeacons()');
 

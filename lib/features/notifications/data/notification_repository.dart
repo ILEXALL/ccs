@@ -245,13 +245,14 @@ NotificationCenterItem notificationCenterItemFromDocument(
           'chat_message' => chatNotificationTitle(actorUsername),
           'new_spot' => 'New spots',
           'temporary_event' => 'Events',
-          'temporary_spot_today' => 'Event starts in 5 hours',
+          'temporary_spot_today' => pickString('title', 'Event starting soon'),
           'event_location_revealed' => 'Event location revealed',
           'global_chat_message' || 'global_chat_admin' => 'Global chat',
           'forum_topic_created' => pickString('title', 'New forum topic'),
           'forum_reply' => pickString('title', 'Forum'),
           'forum_topic_pending' => 'Forum topic waiting for review',
           'forum_reply_admin' => 'New forum reply',
+          'forum_inactivity_warning' => pickString('title', 'Your forum topic will be hidden soon'),
           'spot_pending_review' =>
             pickString('reviewKind', '') == 'edited'
                 ? 'Spot edited — approval required'

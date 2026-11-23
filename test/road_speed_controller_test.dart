@@ -49,6 +49,96 @@ Map<String, dynamic> result(int at) => {
   'unambiguousMatch': true,
 };
 void main() {
+  test('five-second GPS gaps do not erase the trace before lookup', () async {
+    var at = 100000;
+    final t = FakeTransport();
+    final c = RoadSpeedController(
+      t,
+      now: () => DateTime.fromMillisecondsSinceEpoch(at),
+    );
+    addTearDown(c.dispose);
+    for (var i = 0; i < 3; i++) {
+      final p = {
+        ...fix(at),
+        'heading': -1.0,
+        'headingAccuracy': -1.0,
+        'accuracy': 20.0,
+      };
+      c.update(p, following: true);
+      if (i < 2) {
+        at += 5100;
+        c.update(p, following: true);
+        expect(c.speedKmh, isNull);
+        expect(c.limit, isNull);
+      }
+    }
+    expect(t.calls.length, 1);
+    expect(t.calls.single.length, 3);
+    t.pending.single.complete(result(at));
+    await Future<void>.delayed(Duration.zero);
+    expect(c.limit?.kilometersPerHour, 50);
+    c.pause();
+    at += 1000;
+    c.update(fix(at), following: true);
+    expect(t.calls.length, 1);
+  });
+
+  test(
+    'uncertain heading still requests; moving along matched geometry retains limit',
+    () async {
+      var at = 100000;
+      final t = FakeTransport();
+      final c = RoadSpeedController(
+        t,
+        now: () => DateTime.fromMillisecondsSinceEpoch(at),
+      );
+      addTearDown(c.dispose);
+      for (var i = 0; i < 3; i++) {
+        c.update({...fix(at), 'headingAccuracy': 60.0}, following: true);
+        at += 1000;
+      }
+      expect(t.calls.length, 1);
+      c.update({
+        ...fix(at, lat: 57.0003),
+        'headingAccuracy': 60.0,
+      }, following: true);
+      t.pending.single.complete({
+        ...result(at - 1000),
+        'roadGeometry': [
+          [24.0, 57.0],
+          [24.0, 57.002],
+        ],
+      });
+      await Future<void>.delayed(Duration.zero);
+      expect(c.limit?.kilometersPerHour, 50);
+      at += 1000;
+      c.update({...fix(at, lat: 57.0005), 'lng': 24.001}, following: true);
+      expect(c.limit, isNull);
+    },
+  );
+
+  testWidgets('HUD fades both directions across the speed threshold', (
+    tester,
+  ) async {
+    Future<void> speed(double value) =>
+        tester.pumpWidget(MaterialApp(home: RoadSpeedHud(speedKmh: value)));
+    await speed(5);
+    await speed(20);
+    await tester.pump(const Duration(milliseconds: 140));
+    final entering = tester.widgetList<FadeTransition>(
+      find.byType(FadeTransition),
+    );
+    expect(
+      entering.any((f) => f.opacity.value > 0 && f.opacity.value < 1),
+      isTrue,
+    );
+    await tester.pumpAndSettle();
+    await speed(5);
+    await tester.pump(const Duration(milliseconds: 140));
+    expect(find.text('km/h'), findsOneWidget);
+    await tester.pumpAndSettle();
+    expect(find.text('km/h'), findsNothing);
+  });
   test(
     'buffers GPS only during Follow, throttles and accepts fresh confirmed limit',
     () async {
@@ -184,6 +274,7 @@ void main() {
       isNot(Colors.red),
     );
     await pump(null, null);
+    await tester.pumpAndSettle();
     expect(find.text('—'), findsNothing);
     expect(find.text('km/h'), findsNothing);
   });

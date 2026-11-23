@@ -2,6 +2,23 @@ const test=require('node:test');
 const assert=require('node:assert/strict');
 const {beaconDistance,beaconOpacity,beaconPlacement}=require('../assets/globe/beacons.js');
 
+test('120 degree forward cone fades at its edge and excludes behind',()=>{
+ const {beaconForwardOpacity}=require('../assets/globe/beacons.js');
+ const target=[0,.01];
+ assert.equal(beaconForwardOpacity([0,0],target,0),1);
+ assert.equal(beaconForwardOpacity([0,0],target,50),1);
+ assert.equal(beaconForwardOpacity([0,0],target,55),.5);
+ for(const heading of [60,90,180,270,300]) assert.equal(beaconForwardOpacity([0,0],target,heading),0);
+ assert.equal(beaconForwardOpacity([0,0],target,359),1);
+});
+test('marker must completely leave viewport, including partial icon and HUD overlap',()=>{
+ const {beaconMarkerVisible}=require('../assets/globe/beacons.js');
+ for(const p of [{x:200,y:20},{x:200,y:790},{x:-20,y:400},{x:420,y:400},{x:200,y:830}])
+  assert.equal(beaconMarkerVisible(p,400,800),true);
+ for(const p of [{x:-33,y:400},{x:433,y:400},{x:200,y:-33},{x:200,y:865}])
+  assert.equal(beaconMarkerVisible(p,400,800),false);
+});
+
 test('all directions clear measured controls and speedometer at different screen sizes',()=>{
  const {beaconSafeBounds}=require('../assets/globe/beacons.js');
  for(const [width,height] of [[360,640],[430,932],[800,400]]) {
